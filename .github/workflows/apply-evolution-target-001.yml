@@ -1,4 +1,4 @@
-name: Apply EVOLUTION-TARGET-001
+name: Finalize EVOLUTION-TARGET-001
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 jobs:
-  apply-and-verify:
+  clean-and-verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,30 +21,35 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Decode verified source payload
+      - name: Remove generated artifacts and install ignore rules
         shell: bash
         run: |
           set -euo pipefail
-          cat bootstrap/evolution-target-001/part-*.b64 > "$RUNNER_TEMP/et001.b64"
-          base64 --decode "$RUNNER_TEMP/et001.b64" > "$RUNNER_TEMP/et001.tar.gz"
-          echo "d0f6d252741a7c9537fd239fc3a5a98f16aaa8a1750c78157f9cffbceb983ea6  $RUNNER_TEMP/et001.tar.gz" | sha256sum --check -
-          tar -xzf "$RUNNER_TEMP/et001.tar.gz" -C "$GITHUB_WORKSPACE"
-
-      - name: Remove superseded parallel runtime paths
-        shell: bash
-        run: |
-          set -euo pipefail
-          rm -f \
-            source/src/wls/v2_runtime.py \
-            source/src/wls/decision_runtime.py \
-            source/src/wls/ext_cli.py \
-            source/src/wls/repair.py \
-            source/tests/test_v2_import.py \
-            source/tests/test_v2_construct.py \
-            source/tests/test_decision_runtime_import.py \
-            source/tests/test_placeholder.py \
-            source/tests/test_version.py \
-            source/tests/test_extension_schema.py
+          find source -type d -name __pycache__ -prune -exec rm -rf {} +
+          find source -type f -name '*.pyc' -delete
+          rm -rf source/dist source/build source/src/*.egg-info
+          python - <<'PY'
+          from pathlib import Path
+          path = Path(".gitignore")
+          existing = path.read_text(encoding="utf-8") if path.exists() else ""
+          rules = [
+              "__pycache__/",
+              "*.py[cod]",
+              ".pytest_cache/",
+              ".mypy_cache/",
+              ".ruff_cache/",
+              "*.egg-info/",
+              "dist/",
+              "build/",
+              ".venv/",
+              ".env",
+          ]
+          additions = [rule for rule in rules if rule not in existing.splitlines()]
+          if additions:
+              text = existing.rstrip() + ("\n" if existing.strip() else "")
+              text += "\n".join(additions) + "\n"
+              path.write_text(text, encoding="utf-8")
+          PY
 
       - name: Install verification toolchain
         run: python -m pip install --upgrade pip build pytest ruff mypy bandit
@@ -52,34 +57,35 @@ jobs:
       - name: Install WLS editable
         run: python -m pip install -e "source[dev]"
 
-      - name: Compile
-        run: python -m compileall -q source/src source/tests source/scripts
-
-      - name: Targeted and regression tests
-        run: python -m pytest source/tests -q
-
-      - name: Evolution target verification
-        run: python source/scripts/verify_evolution_target_001.py
-
-      - name: Lint
-        run: python -m ruff check source/src source/tests source/scripts
-
-      - name: Types
-        run: python -m mypy source/src/wls source/tests source/scripts --ignore-missing-imports
-
-      - name: Security scan
-        run: python -m bandit -q -r source/src/wls source/scripts
-
-      - name: Build distributions
-        run: python -m build source
-
-      - name: Commit verified canonical implementation
+      - name: Verify canonical implementation
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf bootstrap/evolution-target-001
+          python -m compileall -q source/src source/tests source/scripts
+          python -m pytest source/tests -q
+          python source/scripts/verify_evolution_target_001.py
+          python -m ruff check source/src source/tests source/scripts
+          python -m mypy source/src/wls source/tests source/scripts --ignore-missing-imports
+          python -m bandit -q -r source/src/wls source/scripts
+          python -m build source
+
+      - name: Clean build products again
+        shell: bash
+        run: |
+          set -euo pipefail
+          find source -type d -name __pycache__ -prune -exec rm -rf {} +
+          find source -type f -name '*.pyc' -delete
+          rm -rf source/dist source/build source/src/*.egg-info
+
+      - name: Commit clean verified tree
+        shell: bash
+        run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "feat: complete canonical failure-to-skill growth cycle"
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "chore: clean verified evolution target artifacts"
           git push origin "HEAD:${GITHUB_REF_NAME}"
