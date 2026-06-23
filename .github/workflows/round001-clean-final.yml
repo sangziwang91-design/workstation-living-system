@@ -1,0 +1,33 @@
+name: round001-clean-final
+
+on:
+  push:
+    branches:
+      - round/001-reproducible-baseline
+    paths:
+      - .github/workflows/round001-clean-final.yml
+
+permissions:
+  contents: write
+
+jobs:
+  clean:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: round/001-reproducible-baseline
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Remove allowlisted generated files
+        run: python tools/clean_round001_generated.py
+      - name: Commit clean tree without rerunning generators
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'round-001: finalize generated-artifact cleanup'
+          git push origin HEAD:round/001-reproducible-baseline
