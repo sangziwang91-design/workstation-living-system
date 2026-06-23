@@ -1,0 +1,53 @@
+name: round001-reconcile-main
+
+on:
+  push:
+    branches:
+      - round/001-reproducible-baseline
+    paths:
+      - .github/workflows/round001-reconcile-main.yml
+
+permissions:
+  contents: write
+
+jobs:
+  reconcile:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: round/001-reproducible-baseline
+          fetch-depth: 0
+      - name: Merge current main without discarding either chain
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          set +e
+          git merge --no-commit --no-ff origin/main
+          merge_status=$?
+          set -e
+          if [ "$merge_status" -ne 0 ]; then
+            conflicts="$(git diff --name-only --diff-filter=U)"
+            allowed=$'CURRENT_STATE.yaml\nsource/pyproject.toml\nsource/src/wls/_version.py'
+            while IFS= read -r path; do
+              [ -z "$path" ] && continue
+              case "$path" in
+                CURRENT_STATE.yaml|source/pyproject.toml|source/src/wls/_version.py)
+                  git checkout --ours -- "$path"
+                  ;;
+                *)
+                  echo "Unexpected merge conflict: $path" >&2
+                  git merge --abort
+                  exit 1
+                  ;;
+              esac
+            done <<< "$conflicts"
+          fi
+          rm -f .github/workflows/round001-reconcile-main.yml
+          git add -A
+          git commit -m "round-001: reconcile concurrent main evolution chain"
+          git push origin HEAD:round/001-reproducible-baseline
