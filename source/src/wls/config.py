@@ -34,7 +34,7 @@ class RuntimeConfig:
     max_autonomous_goals: int = 3
     skill_validation_min_cases: int = 3
     skill_validation_max_cases: int = 24
-    skill_experiment_allowed_tools: list[str] = field(
+    skill_validation_allowed_tools: list[str] = field(
         default_factory=lambda: [
             "noop",
             "read_file",
@@ -43,9 +43,8 @@ class RuntimeConfig:
             "emit_note",
         ]
     )
-    failure_recovery_min_cases: int = 3
-    failure_recovery_max_cases: int = 24
-    failure_recovery_allowed_tools: list[str] = field(
+    recovery_validation_min_occurrences: int = 3
+    recovery_validation_allowed_tools: list[str] = field(
         default_factory=lambda: [
             "noop",
             "read_file",
@@ -98,17 +97,15 @@ class RuntimeConfig:
             raise ValueError("skill validation case bounds are invalid")
         if self.skill_validation_max_cases > 1000:
             raise ValueError("skill validation case limit must be <= 1000")
-        if not 1 <= self.failure_recovery_min_cases <= self.failure_recovery_max_cases:
-            raise ValueError("failure recovery case bounds are invalid")
-        if self.failure_recovery_max_cases > 1000:
-            raise ValueError("failure recovery case limit must be <= 1000")
-        if not self.skill_experiment_allowed_tools:
-            raise ValueError("skill experiment tool allowlist cannot be empty")
-        if not self.failure_recovery_allowed_tools:
-            raise ValueError("failure recovery tool allowlist cannot be empty")
+        if not 1 <= self.recovery_validation_min_occurrences <= 1000:
+            raise ValueError("recovery validation minimum must be within 1..1000")
+        if not self.skill_validation_allowed_tools:
+            raise ValueError("skill validation tool allowlist cannot be empty")
+        if not self.recovery_validation_allowed_tools:
+            raise ValueError("recovery validation tool allowlist cannot be empty")
         for label, tools in (
-            ("skill experiment", self.skill_experiment_allowed_tools),
-            ("failure recovery", self.failure_recovery_allowed_tools),
+            ("skill validation", self.skill_validation_allowed_tools),
+            ("recovery validation", self.recovery_validation_allowed_tools),
         ):
             if len(set(tools)) != len(tools):
                 raise ValueError(f"duplicate {label} tool")
@@ -203,6 +200,17 @@ def save_config(config: RuntimeConfig, path: str | Path) -> Path:
 def load_config(path: str | Path) -> RuntimeConfig:
     source = Path(path)
     raw = json.loads(source.read_text(encoding="utf-8"))
+    aliases = {
+        "skill_experiment_allowed_tools": "skill_validation_allowed_tools",
+        "failure_recovery_min_cases": "recovery_validation_min_occurrences",
+        "failure_recovery_allowed_tools": "recovery_validation_allowed_tools",
+    }
+    for old_name, current_name in aliases.items():
+        if old_name in raw and current_name not in raw:
+            raw[current_name] = raw.pop(old_name)
+        else:
+            raw.pop(old_name, None)
+    raw.pop("failure_recovery_max_cases", None)
     sensors = [SensorConfig(**item) for item in raw.pop("sensors", [])]
     config = RuntimeConfig(sensors=sensors, **raw)
     config.validate()
