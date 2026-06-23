@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from contextlib import AbstractContextManager
 from pathlib import Path
-from typing import BinaryIO
+from typing import Any, BinaryIO
+import importlib
 import os
 
 
@@ -28,7 +29,7 @@ class ProcessLease(AbstractContextManager):
                 self._file = None
                 raise RuntimeError("another WLS process holds the lease") from exc
         else:
-            import fcntl
+            fcntl: Any = importlib.import_module("fcntl")
 
             try:
                 fcntl.flock(file_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -54,7 +55,7 @@ class ProcessLease(AbstractContextManager):
             except OSError:
                 pass
         else:
-            import fcntl
+            fcntl: Any = importlib.import_module("fcntl")
 
             try:
                 fcntl.flock(self._file.fileno(), fcntl.LOCK_UN)
