@@ -1,11 +1,6 @@
-"""Workstation Living System.
-
-A bounded functional software-life runtime. It does not claim subjective
-consciousness or genuine emotion. Its observable claims are limited to the
-implemented perception, state, memory, learning, action, and governance loops.
-"""
+"""Workstation Living System package."""
 
 from ._version import __version__
-from .runtime import LivingSystem
+from .v2_runtime import LivingSystemV2 as LivingSystem
 
 __all__ = ["LivingSystem", "__version__"]
