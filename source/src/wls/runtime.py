@@ -541,7 +541,9 @@ class LivingSystem:
                         side_effect_class,
                     ),
                 )
-            self.events.mark_processed(event_ids, cycle_id, connection)
+            self.events.mark_processed(
+                event_ids, cycle_id, connection, worker_id=self.worker_id
+            )
             self.ledger.append(
                 "plan_persisted",
                 {
