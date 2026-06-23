@@ -1,0 +1,30 @@
+{
+  "home": "D:/Workstation/.wls",
+  "identity_name": "WLS",
+  "cycle_seconds": 30.0,
+  "workspace_capacity": 8,
+  "max_events_per_cycle": 50,
+  "max_actions_per_cycle": 4,
+  "read_only": true,
+  "allow_autonomous_read_actions": true,
+  "allow_autonomous_reversible_writes": false,
+  "full_integrity_check_every": 50,
+  "memory_retrieval_limit": 8,
+  "memory_decay_days": 30,
+  "sleep_after_idle_cycles": 5,
+  "max_autonomous_goals": 3,
+  "provider": {"type": "deterministic"},
+  "tool_policy": {
+    "allowed_read_roots": ["D:/Workstation"],
+    "allowed_write_roots": ["D:/Workstation/.wls/sandbox"],
+    "allowed_hosts": ["127.0.0.1", "localhost"],
+    "allowed_commands": ["git", "python", "pytest"]
+  },
+  "sensors": [
+    {"sensor_type": "clock", "name": "clock", "enabled": true, "interval_seconds": 60, "settings": {}},
+    {"sensor_type": "system", "name": "system_resources", "enabled": true, "interval_seconds": 60, "settings": {}},
+    {"sensor_type": "inbox", "name": "local_inbox", "enabled": true, "interval_seconds": 5, "settings": {}},
+    {"sensor_type": "filesystem", "name": "workstation_files", "enabled": false, "interval_seconds": 10, "settings": {"roots": ["D:/Workstation"], "recursive": true, "max_files": 5000}},
+    {"sensor_type": "git", "name": "workstation_git", "enabled": false, "interval_seconds": 30, "settings": {"repositories": ["D:/Workstation"]}}
+  ]
+}
