@@ -7,7 +7,7 @@ import json
 
 from .db import Database
 from .evidence import EvidenceLedger
-from .schemas import CandidateStatus, MemoryItem, new_id, utc_now
+from .schemas import CandidateStatus, MemoryItem, digest_json, new_id, utc_now
 from .stores import MemoryStore
 from .skills import SkillLibrary
 
@@ -238,6 +238,7 @@ class LearningSystem:
             and not human_approved
         ):
             raise PermissionError(f"{target.value} requires human approval")
+        self._verify_machine_transition(candidate_id, target, evidence)
         with self.db.transaction() as connection:
             if target in {
                 CandidateStatus.VALIDATED,
@@ -273,3 +274,43 @@ class LearningSystem:
                 },
                 connection,
             )
+    def _verify_machine_transition(
+        self, candidate_id: str, target: CandidateStatus, evidence: dict[str, Any]
+    ) -> None:
+        if target not in {CandidateStatus.SANDBOXED, CandidateStatus.VALIDATED}:
+            return
+        candidate = self.db.query_one(
+            "SELECT candidate_type FROM evolution_candidates WHERE candidate_id=?",
+            (candidate_id,),
+        )
+        if candidate is None or candidate["candidate_type"] != "failure_repair":
+            return
+        experiment_id = str(evidence.get("experiment_id", ""))
+        if not experiment_id:
+            raise ValueError(f"{target.value} requires a persisted recovery experiment")
+        row = self.db.query_one(
+            "SELECT * FROM recovery_experiments WHERE experiment_id=? AND candidate_id=?",
+            (experiment_id, candidate_id),
+        )
+        if row is None:
+            raise ValueError("recovery experiment evidence does not exist")
+        if target == CandidateStatus.SANDBOXED:
+            manifest = json.loads(row["manifest_json"])
+            if evidence.get("manifest_sha256") != digest_json(manifest):
+                raise ValueError("recovery manifest digest mismatch")
+            if row["status"] != "RUNNING":
+                raise ValueError("recovery sandbox requires a running experiment")
+            return
+        if row["status"] != "PASSED" or not row["result_json"]:
+            raise ValueError("recovery validation requires a passed experiment")
+        result = json.loads(row["result_json"])
+        if evidence.get("result_sha256") != digest_json(result):
+            raise ValueError("recovery result digest mismatch")
+        if not result.get("passed") or int(result.get("regressions", 1)) != 0:
+            raise ValueError("recovery experiment did not pass without regressions")
+        if float(result.get("candidate_pass_rate", 0.0)) <= float(
+            result.get("baseline_pass_rate", 1.0)
+        ):
+            raise ValueError("recovery did not improve the frozen baseline")
+
+

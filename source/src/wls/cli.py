@@ -140,6 +140,59 @@ def build_parser() -> argparse.ArgumentParser:
     transition.add_argument("--evidence", default="{}")
     transition.add_argument("--human-approved", action="store_true")
 
+    failure_candidates = sub.add_parser(
+        "failure-candidates", help="Create candidates from repeated recorded failures"
+    )
+    failure_candidates.add_argument("--minimum-repeats", type=int, default=3)
+    failure_candidates.add_argument("--lookback-days", type=int, default=30)
+
+    growth_recover = sub.add_parser(
+        "growth-recover", help="Run a frozen-baseline recovery experiment"
+    )
+    growth_recover.add_argument("candidate_id")
+    growth_recover.add_argument(
+        "--strategy",
+        choices=["contract_recovery", "fixture_recovery"],
+        default="contract_recovery",
+    )
+
+    growth_propose = sub.add_parser(
+        "growth-propose", help="Create a versioned skill from passed recovery evidence"
+    )
+    growth_propose.add_argument("candidate_id")
+    growth_propose.add_argument("recovery_experiment_id")
+    growth_propose.add_argument("--name")
+
+    growth_validate = sub.add_parser(
+        "growth-validate", help="Validate the proposed skill in isolation"
+    )
+    growth_validate.add_argument("growth_cycle_id")
+
+    growth_promote = sub.add_parser(
+        "growth-promote", help="Human-approve and promote a validated skill"
+    )
+    growth_promote.add_argument("growth_cycle_id")
+    growth_promote.add_argument("--actor", required=True)
+    growth_promote.add_argument("--authorization-reference", required=True)
+    growth_promote.add_argument("--human-approved", action="store_true")
+
+    growth_reuse = sub.add_parser(
+        "growth-reuse", help="Reuse a promoted skill through the canonical runtime"
+    )
+    growth_reuse.add_argument("growth_cycle_id")
+    growth_reuse.add_argument("--task-title")
+
+    growth_rollback = sub.add_parser(
+        "growth-rollback", help="Human-authorize and test rollback of a promoted skill"
+    )
+    growth_rollback.add_argument("growth_cycle_id")
+    growth_rollback.add_argument("--actor", required=True)
+    growth_rollback.add_argument("--authorization-reference", required=True)
+    growth_rollback.add_argument("--human-approved", action="store_true")
+
+    growth_status = sub.add_parser("growth-status", help="Show growth-cycle evidence")
+    growth_status.add_argument("--limit", type=int, default=20)
+
     export = sub.add_parser("export-evidence")
     export.add_argument("path")
     return parser
@@ -301,6 +354,57 @@ def main(argv: list[str] | None = None) -> int:
                 args.human_approved,
             )
             print_json({"transitioned": True})
+        elif args.command == "failure-candidates":
+            print_json(
+                {
+                    "candidate_ids": runtime.learning.create_failure_candidates(
+                        minimum_repeats=args.minimum_repeats,
+                        lookback_days=args.lookback_days,
+                    )
+                }
+            )
+        elif args.command == "growth-recover":
+            print_json(
+                runtime.growth.run_recovery_experiment(
+                    args.candidate_id, args.strategy
+                )
+            )
+        elif args.command == "growth-propose":
+            print_json(
+                runtime.growth.propose_skill_from_recovery(
+                    args.candidate_id,
+                    args.recovery_experiment_id,
+                    name=args.name,
+                )
+            )
+        elif args.command == "growth-validate":
+            print_json(runtime.growth.validate_skill(args.growth_cycle_id))
+        elif args.command == "growth-promote":
+            print_json(
+                runtime.growth.approve_and_promote(
+                    args.growth_cycle_id,
+                    args.actor,
+                    args.authorization_reference,
+                    human_approved=args.human_approved,
+                )
+            )
+        elif args.command == "growth-reuse":
+            print_json(
+                runtime.growth.reuse_on_runtime_task(
+                    args.growth_cycle_id, task_title=args.task_title
+                )
+            )
+        elif args.command == "growth-rollback":
+            print_json(
+                runtime.growth.rollback(
+                    args.growth_cycle_id,
+                    args.actor,
+                    args.authorization_reference,
+                    human_approved=args.human_approved,
+                )
+            )
+        elif args.command == "growth-status":
+            print_json(runtime.growth.summary(limit=args.limit))
         elif args.command == "export-evidence":
             print_json({"path": str(runtime.ledger.export_jsonl(args.path))})
         else:
@@ -331,11 +435,24 @@ def self_check(runtime: LivingSystem) -> dict[str, Any]:
         {sensor.sensor_type for sensor in runtime.config.sensors}
     )
     checks["read_only"] = runtime.config.read_only
+    checks["growth_tables"] = all(
+        runtime.db.query_one(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (name,)
+        )
+        is not None
+        for name in (
+            "recovery_experiments",
+            "skill_experiments",
+            "growth_cycles",
+            "growth_measurements",
+        )
+    )
     ok = (
         checks["directories"]
         and checks["database"][0]
         and checks["evidence"][0]
         and checks["identity"]
+        and checks["growth_tables"]
     )
     return {"ok": bool(ok), "checks": checks}
 

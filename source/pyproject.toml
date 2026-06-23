@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "workstation-living-system"
-version = "0.6.0.dev1"
-description = "A bounded functional runtime for persistent observation, learning, memory, skills, repair experiments, and governed action."
+version = "0.7.0.dev1"
+description = "A bounded functional software-life runtime for persistent observation, learning, memory, skills, and governed action."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 authors = [{name = "Sangzi Wang"}]
 dependencies = []
-keywords = ["memory", "world-model", "continual-learning", "workstation"]
+keywords = ["agent", "memory", "world-model", "continual-learning", "workstation"]
 classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
