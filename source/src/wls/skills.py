@@ -70,14 +70,25 @@ class SkillLibrary:
             "SELECT * FROM skills WHERE status IN (?,?) ORDER BY name,version DESC",
             (CandidateStatus.APPROVED.value, CandidateStatus.PROMOTED.value),
         )
-        return [json.loads(row["definition_json"]) for row in rows]
+        # A versioned skill name contributes at most one active implementation.
+        # When the newest version is rolled back it is excluded by the query, so
+        # the prior approved/promoted version becomes active again automatically.
+        selected: list[dict[str, Any]] = []
+        seen_names: set[str] = set()
+        for row in rows:
+            name = str(row["name"])
+            if name in seen_names:
+                continue
+            seen_names.add(name)
+            selected.append(json.loads(row["definition_json"]))
+        return selected
 
     def match(self, text: str, limit: int = 5) -> list[dict[str, Any]]:
-        tokens = self._tokens(text)
+        query_tokens = self._tokens(text)
         scored = []
         for skill in self.active():
             trigger = set(skill.get("trigger_terms", []))
-            overlap = len(tokens & trigger) / max(1, len(trigger))
+            overlap = len(query_tokens & trigger) / max(1, len(trigger))
             score = 0.7 * overlap + 0.3 * float(skill.get("success_rate", 0.0))
             if score > 0:
                 scored.append((score, skill))

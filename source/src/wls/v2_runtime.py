@@ -5,7 +5,9 @@ from typing import Any
 from .adaptive_growth import SkillExperimentRunner
 from .bounded_recovery import FailureRecoveryEngine
 from .evidence_gates import EvidenceBoundLearningSystem, EvidenceBoundSkillLibrary
+from .evolution_loop import VerifiedEvolutionLoop
 from .runtime import LivingSystem
+from .schemas import ActionSpec
 
 
 def ensure_experiment_tables(db) -> None:
@@ -55,7 +57,7 @@ def ensure_experiment_tables(db) -> None:
 
 
 class LivingSystemV2(LivingSystem):
-    """Imported runtime plus evidence-bound growth and recovery components."""
+    """Runtime with evidence-bound experiments and verified evolution closure."""
 
     def __init__(self, config) -> None:
         super().__init__(config)
@@ -72,9 +74,30 @@ class LivingSystemV2(LivingSystem):
         self.recoveries = FailureRecoveryEngine(
             self.db, self.ledger, config, self.learning
         )
+        self.evolution = VerifiedEvolutionLoop(
+            self.db,
+            self.ledger,
+            config,
+            self.skills,
+            self.learning,
+            self.recoveries,
+        )
+
+    def _execute_action(
+        self, action: ActionSpec, approval_id: str | None = None
+    ) -> dict[str, Any]:
+        outcome = super()._execute_action(action, approval_id)
+        # A deployment observation is derived only from the durable action row.
+        # Synthetic experiments and idempotent replays never satisfy its gates.
+        if action.skill_id and hasattr(self, "evolution"):
+            observation = self.evolution.observe_action(action.action_id)
+            if observation is not None:
+                outcome["evolution_observation"] = observation
+        return outcome
 
     def status(self) -> dict[str, Any]:
         value = super().status()
         value["skill_experiments"] = self.skill_experiments.list_experiments(limit=10)
         value["recovery_experiments"] = self.recoveries.list_experiments(limit=10)
+        value["evolution"] = self.evolution.status(limit=10)
         return value

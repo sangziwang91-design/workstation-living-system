@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 import argparse
 import json
 import sys
@@ -16,6 +17,13 @@ NEW_COMMANDS = {
     "skill-experiments",
     "recovery-experiment",
     "recovery-experiments",
+    "evolution-materialize",
+    "evolution-approve",
+    "evolution-promote",
+    "evolution-observe",
+    "evolution-evaluate",
+    "evolution-rollback",
+    "evolution-status",
 }
 EXTENDED_BASE_COMMANDS = {
     "init",
@@ -31,15 +39,24 @@ EXTENDED_BASE_COMMANDS = {
 }
 
 
+def _json_object(raw: str, label: str) -> dict[str, Any]:
+    value = json.loads(raw)
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} must be a JSON object")
+    return value
+
+
 def new_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="wls")
     parser.add_argument("--config")
     sub = parser.add_subparsers(dest="command", required=True)
+
     skill = sub.add_parser("skill-experiment")
     skill.add_argument("skill_id")
     skill_list = sub.add_parser("skill-experiments")
     skill_list.add_argument("--skill-id")
     skill_list.add_argument("--limit", type=int, default=50)
+
     recovery = sub.add_parser("recovery-experiment")
     recovery.add_argument("candidate_id")
     recovery.add_argument(
@@ -50,6 +67,54 @@ def new_parser() -> argparse.ArgumentParser:
     recovery_list = sub.add_parser("recovery-experiments")
     recovery_list.add_argument("--candidate-id")
     recovery_list.add_argument("--limit", type=int, default=50)
+
+    materialize = sub.add_parser(
+        "evolution-materialize",
+        help="Create a versioned skill from a validated recovery candidate",
+    )
+    materialize.add_argument("candidate_id")
+    materialize.add_argument("recovery_experiment_id")
+
+    approve = sub.add_parser(
+        "evolution-approve",
+        help="Owner-approve a linked validated candidate and skill",
+    )
+    approve.add_argument("candidate_id")
+    approve.add_argument("skill_id")
+    approve.add_argument("--evidence", required=True)
+    approve.add_argument("--human-approved", action="store_true")
+
+    promote = sub.add_parser(
+        "evolution-promote",
+        help="Owner-promote a linked approved candidate and skill",
+    )
+    promote.add_argument("candidate_id")
+    promote.add_argument("skill_id")
+    promote.add_argument("--evidence", required=True)
+    promote.add_argument("--human-approved", action="store_true")
+
+    observe = sub.add_parser(
+        "evolution-observe",
+        help="Backfill one durable post-promotion runtime action observation",
+    )
+    observe.add_argument("action_id")
+
+    evaluate = sub.add_parser(
+        "evolution-evaluate", help="Evaluate measured post-promotion benefit"
+    )
+    evaluate.add_argument("deployment_id")
+
+    rollback = sub.add_parser(
+        "evolution-rollback", help="Owner-roll back one promoted deployment"
+    )
+    rollback.add_argument("deployment_id")
+    rollback.add_argument("--reason", required=True)
+    rollback.add_argument("--human-approved", action="store_true")
+
+    evolution_status = sub.add_parser("evolution-status")
+    evolution_status.add_argument("--candidate-id")
+    evolution_status.add_argument("--skill-id")
+    evolution_status.add_argument("--limit", type=int, default=50)
     return parser
 
 
@@ -75,6 +140,52 @@ def dispatch_new(args_list: list[str]) -> int:
         base_cli.print_json(
             system.recoveries.list_experiments(
                 candidate_id=args.candidate_id, limit=args.limit
+            )
+        )
+    elif args.command == "evolution-materialize":
+        base_cli.print_json(
+            system.evolution.materialize_skill(
+                args.candidate_id, args.recovery_experiment_id
+            )
+        )
+    elif args.command == "evolution-approve":
+        base_cli.print_json(
+            system.evolution.approve(
+                args.candidate_id,
+                args.skill_id,
+                _json_object(args.evidence, "evidence"),
+                args.human_approved,
+            )
+        )
+    elif args.command == "evolution-promote":
+        base_cli.print_json(
+            system.evolution.promote(
+                args.candidate_id,
+                args.skill_id,
+                _json_object(args.evidence, "evidence"),
+                args.human_approved,
+            )
+        )
+    elif args.command == "evolution-observe":
+        base_cli.print_json(
+            {"action_id": args.action_id, "observation": system.evolution.observe_action(args.action_id)}
+        )
+    elif args.command == "evolution-evaluate":
+        base_cli.print_json(system.evolution.evaluate(args.deployment_id))
+    elif args.command == "evolution-rollback":
+        base_cli.print_json(
+            system.evolution.rollback(
+                args.deployment_id,
+                _json_object(args.reason, "reason"),
+                args.human_approved,
+            )
+        )
+    elif args.command == "evolution-status":
+        base_cli.print_json(
+            system.evolution.status(
+                candidate_id=args.candidate_id,
+                skill_id=args.skill_id,
+                limit=args.limit,
             )
         )
     return 0
@@ -112,13 +223,20 @@ def dispatch_extended(args_list: list[str]) -> int:
         return 0 if result["ok"] else 2
     elif args.command == "self-check":
         result = base_cli.self_check(system)
+        required_tables = (
+            "skill_experiments",
+            "recovery_experiments",
+            "evolution_skill_links",
+            "skill_deployments",
+            "skill_reuse_observations",
+        )
         result["checks"]["experiment_tables"] = all(
             system.db.query_one(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
                 (name,),
             )
             is not None
-            for name in ("skill_experiments", "recovery_experiments")
+            for name in required_tables
         )
         result["ok"] = bool(result["ok"] and result["checks"]["experiment_tables"])
         base_cli.print_json(result)
@@ -142,9 +260,7 @@ def dispatch_extended(args_list: list[str]) -> int:
             ]
         )
     elif args.command == "skill":
-        evidence = json.loads(args.evidence)
-        if not isinstance(evidence, dict):
-            raise ValueError("evidence must be a JSON object")
+        evidence = _json_object(args.evidence, "evidence")
         system.skills.transition(
             args.skill_id,
             CandidateStatus(args.target),
@@ -153,9 +269,7 @@ def dispatch_extended(args_list: list[str]) -> int:
         )
         base_cli.print_json({"transitioned": True})
     elif args.command == "candidate":
-        evidence = json.loads(args.evidence)
-        if not isinstance(evidence, dict):
-            raise ValueError("evidence must be a JSON object")
+        evidence = _json_object(args.evidence, "evidence")
         system.learning.transition_candidate(
             args.candidate_id,
             CandidateStatus(args.target),

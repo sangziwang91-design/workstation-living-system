@@ -32,6 +32,28 @@ class RuntimeConfig:
     memory_decay_days: int = 30
     sleep_after_idle_cycles: int = 5
     max_autonomous_goals: int = 3
+    skill_validation_min_cases: int = 3
+    skill_validation_max_cases: int = 24
+    skill_experiment_allowed_tools: list[str] = field(
+        default_factory=lambda: [
+            "noop",
+            "read_file",
+            "list_directory",
+            "write_file",
+            "emit_note",
+        ]
+    )
+    failure_recovery_min_cases: int = 3
+    failure_recovery_max_cases: int = 24
+    failure_recovery_allowed_tools: list[str] = field(
+        default_factory=lambda: [
+            "noop",
+            "read_file",
+            "list_directory",
+            "write_file",
+            "emit_note",
+        ]
+    )
     sensors: list[SensorConfig] = field(default_factory=list)
     tool_policy: dict[str, Any] = field(default_factory=dict)
     provider: dict[str, Any] = field(default_factory=lambda: {"type": "deterministic"})
@@ -72,6 +94,26 @@ class RuntimeConfig:
             raise ValueError("max_actions_per_cycle must be within 0..32")
         if not 1 <= self.full_integrity_check_every <= 100000:
             raise ValueError("full_integrity_check_every must be within 1..100000")
+        if not 1 <= self.skill_validation_min_cases <= self.skill_validation_max_cases:
+            raise ValueError("skill validation case bounds are invalid")
+        if self.skill_validation_max_cases > 1000:
+            raise ValueError("skill validation case limit must be <= 1000")
+        if not 1 <= self.failure_recovery_min_cases <= self.failure_recovery_max_cases:
+            raise ValueError("failure recovery case bounds are invalid")
+        if self.failure_recovery_max_cases > 1000:
+            raise ValueError("failure recovery case limit must be <= 1000")
+        if not self.skill_experiment_allowed_tools:
+            raise ValueError("skill experiment tool allowlist cannot be empty")
+        if not self.failure_recovery_allowed_tools:
+            raise ValueError("failure recovery tool allowlist cannot be empty")
+        for label, tools in (
+            ("skill experiment", self.skill_experiment_allowed_tools),
+            ("failure recovery", self.failure_recovery_allowed_tools),
+        ):
+            if len(set(tools)) != len(tools):
+                raise ValueError(f"duplicate {label} tool")
+            if any(not isinstance(tool, str) or not tool.strip() for tool in tools):
+                raise ValueError(f"invalid {label} tool")
         names: set[str] = set()
         for sensor in self.sensors:
             if sensor.name in names:
