@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from .adaptive_growth import SkillExperimentRunner
 from .bounded_recovery import FailureRecoveryEngine
-from .evidence_gates import EvidenceBoundLearningSystem, EvidenceBoundSkillLibrary
-from .evolution_loop import VerifiedEvolutionLoop
+from .evidence_gates import EvidenceBoundLearningSystem
+from .evolution_runtime import (
+    QuarantiningSkillLibrary,
+    VerifiedEvolutionLoopV2,
+    VerifiedSkillExperimentRunner,
+)
 from .runtime import LivingSystem
 from .schemas import ActionSpec
 
@@ -62,19 +65,19 @@ class LivingSystemV2(LivingSystem):
     def __init__(self, config) -> None:
         super().__init__(config)
         ensure_experiment_tables(self.db)
-        self.skills = EvidenceBoundSkillLibrary(self.db, self.ledger)
+        self.skills = QuarantiningSkillLibrary(self.db, self.ledger)
         self.learning = EvidenceBoundLearningSystem(
             self.db, self.ledger, self.memories, self.skills
         )
         self.sleep.skills = self.skills
         self.sleep.learning = self.learning
-        self.skill_experiments = SkillExperimentRunner(
+        self.skill_experiments = VerifiedSkillExperimentRunner(
             self.db, self.ledger, self.skills, config
         )
         self.recoveries = FailureRecoveryEngine(
             self.db, self.ledger, config, self.learning
         )
-        self.evolution = VerifiedEvolutionLoop(
+        self.evolution = VerifiedEvolutionLoopV2(
             self.db,
             self.ledger,
             config,
