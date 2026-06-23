@@ -15,6 +15,7 @@ src/wls/db.py
 src/wls/drives.py
 src/wls/evaluator.py
 src/wls/evidence.py
+src/wls/evidence_gates.py
 src/wls/experiments.py
 src/wls/learning.py
 src/wls/lease.py
@@ -49,6 +50,7 @@ src/workstation_living_system.egg-info/entry_points.txt
 src/workstation_living_system.egg-info/requires.txt
 src/workstation_living_system.egg-info/top_level.txt
 tests/test_e2e_scenarios.py
+tests/test_evidence_gates.py
 tests/test_experiment_growth_recovery.py
 tests/test_resilience_and_edges.py
 tests/test_round001_invariants.py
