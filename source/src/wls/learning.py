@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from typing import Any
+import hashlib
 import json
 
 from .db import Database
@@ -14,6 +15,168 @@ from .skills import SkillLibrary
 
 class LearningSystem:
     """Turns prediction errors and repeated outcomes into bounded candidates."""
+
+    MAX_EPISODE_BYTES = 128 * 1024
+    MAX_WORKSPACE_ITEMS = 64
+    MAX_OUTCOMES = 32
+
+    @classmethod
+    def _compact_value(cls, value: Any, depth: int = 0) -> Any:
+        """Create a bounded, JSON-safe evidence projection.
+
+        Episode memory must never recursively embed earlier memory payloads or
+        unbounded tool output. Large values retain a preview, length, and digest
+        so the original result remains referentially auditable without being
+        copied into every subsequent cycle.
+        """
+        if depth >= 4:
+            encoded = repr(value).encode("utf-8", errors="replace")
+            return {
+                "truncated": True,
+                "sha256": hashlib.sha256(encoded).hexdigest(),
+                "bytes": len(encoded),
+            }
+        if value is None or isinstance(value, (bool, int, float)):
+            return value
+        if isinstance(value, str):
+            encoded = value.encode("utf-8", errors="replace")
+            if len(encoded) <= 1024:
+                return value
+            return {
+                "preview": value[:512],
+                "sha256": hashlib.sha256(encoded).hexdigest(),
+                "bytes": len(encoded),
+                "truncated": True,
+            }
+        if isinstance(value, bytes):
+            return {
+                "preview_hex": value[:128].hex(),
+                "sha256": hashlib.sha256(value).hexdigest(),
+                "bytes": len(value),
+                "truncated": len(value) > 128,
+            }
+        if isinstance(value, list):
+            items = [cls._compact_value(item, depth + 1) for item in value[:20]]
+            if len(value) > 20:
+                items.append({"truncated_items": len(value) - 20})
+            return items
+        if isinstance(value, tuple):
+            return cls._compact_value(list(value), depth)
+        if isinstance(value, dict):
+            result: dict[str, Any] = {}
+            for index, key in enumerate(sorted(value, key=lambda item: str(item))):
+                if index >= 30:
+                    result["__truncated_keys__"] = len(value) - 30
+                    break
+                result[str(key)] = cls._compact_value(value[key], depth + 1)
+            return result
+        return cls._compact_value(repr(value), depth + 1)
+
+    @classmethod
+    def _compact_workspace(cls, workspace: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        compact: list[dict[str, Any]] = []
+        for item in workspace[: cls.MAX_WORKSPACE_ITEMS]:
+            item_type = str(item.get("item_type", "unknown"))
+            projected: dict[str, Any] = {
+                "item_type": item_type,
+                "reference_id": str(item.get("reference_id", "")),
+                "summary": str(item.get("summary", ""))[:1000],
+                "salience": float(item.get("salience", 0.0)),
+                "reasons": [str(value)[:200] for value in item.get("reasons", [])[:10]],
+            }
+            payload = item.get("payload", {})
+            if item_type == "memory" and isinstance(payload, dict):
+                # Reference prior memory; never copy its content recursively.
+                projected["payload"] = {
+                    "memory_id": payload.get("memory_id"),
+                    "memory_type": payload.get("memory_type"),
+                    "score": payload.get("score"),
+                    "importance": payload.get("importance"),
+                    "confidence": payload.get("confidence"),
+                    "tags": cls._compact_value(payload.get("tags", [])),
+                }
+            elif item_type == "event" and isinstance(payload, dict):
+                event_payload = payload.get("payload", {})
+                observation = (
+                    event_payload.get("observation", {})
+                    if isinstance(event_payload, dict)
+                    else {}
+                )
+                projected["payload"] = {
+                    "event_id": payload.get("event_id"),
+                    "event_type": payload.get("event_type"),
+                    "source": payload.get("source"),
+                    "payload": {
+                        "observation": cls._compact_value(observation)
+                    }
+                    if observation
+                    else cls._compact_value(event_payload),
+                }
+            else:
+                projected["payload"] = cls._compact_value(payload)
+            compact.append(projected)
+        if len(workspace) > cls.MAX_WORKSPACE_ITEMS:
+            compact.append(
+                {
+                    "item_type": "truncation",
+                    "reference_id": "workspace",
+                    "summary": "Workspace items omitted from episodic projection",
+                    "salience": 0.0,
+                    "reasons": [],
+                    "payload": {
+                        "omitted_items": len(workspace) - cls.MAX_WORKSPACE_ITEMS
+                    },
+                }
+            )
+        return compact
+
+    @classmethod
+    def _compact_outcomes(cls, outcomes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [
+            cls._compact_value(outcome)
+            for outcome in outcomes[: cls.MAX_OUTCOMES]
+        ]
+
+    @classmethod
+    def _fit_episode(cls, content: dict[str, Any]) -> dict[str, Any]:
+        encoded = json.dumps(
+            content, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+        if len(encoded) <= cls.MAX_EPISODE_BYTES:
+            content["serialized_bytes"] = len(encoded)
+            return content
+        minimal = {
+            "cycle_id": content.get("cycle_id"),
+            "event_ids": list(content.get("event_ids", []))[:100],
+            "plan_id": content.get("plan_id"),
+            "outcomes": [
+                {
+                    "action_id": item.get("action_id") if isinstance(item, dict) else None,
+                    "success": item.get("success") if isinstance(item, dict) else None,
+                    "status": item.get("status") if isinstance(item, dict) else None,
+                }
+                for item in content.get("outcomes", [])[: cls.MAX_OUTCOMES]
+            ],
+            "prediction_errors": cls._compact_value(
+                content.get("prediction_errors", [])
+            ),
+            "workspace": [
+                {
+                    "item_type": item.get("item_type"),
+                    "reference_id": item.get("reference_id"),
+                    "summary": str(item.get("summary", ""))[:300],
+                    "salience": item.get("salience"),
+                }
+                for item in content.get("workspace", [])[: cls.MAX_WORKSPACE_ITEMS]
+            ],
+            "truncated": True,
+            "original_bytes": len(encoded),
+            "original_sha256": hashlib.sha256(encoded).hexdigest(),
+        }
+        minimal["serialized_bytes"] = len(
+            json.dumps(minimal, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        )
+        return minimal
 
     def __init__(
         self,
@@ -45,16 +208,19 @@ class LearningSystem:
             + 0.12 * failure_count
             + 0.1 * len(prediction_errors),
         )
+        episode_content = self._fit_episode(
+            {
+                "cycle_id": cycle_id,
+                "event_ids": list(event_ids),
+                "plan_id": plan_id,
+                "outcomes": self._compact_outcomes(outcomes),
+                "prediction_errors": self._compact_value(prediction_errors),
+                "workspace": self._compact_workspace(workspace),
+            }
+        )
         memory = MemoryItem(
             memory_type="episodic",
-            content={
-                "cycle_id": cycle_id,
-                "event_ids": event_ids,
-                "plan_id": plan_id,
-                "outcomes": outcomes,
-                "prediction_errors": prediction_errors,
-                "workspace": workspace,
-            },
+            content=episode_content,
             importance=importance,
             confidence=1.0,
             source_ids=[cycle_id, *event_ids],
@@ -115,7 +281,7 @@ class LearningSystem:
         )
         groups: dict[str, list[Any]] = defaultdict(list)
         for row in rows:
-            groups[f"{row['subject']}::{row['predicate']}"].append(row)
+            groups[f"{row['subject']}::{row['predicate']}"] .append(row)
         created: list[str] = []
         for key, group in groups.items():
             if len(group) < minimum_repeats:
