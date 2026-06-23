@@ -1,0 +1,50 @@
+name: Bootstrap Wave 01 source
+
+on:
+  push:
+    branches:
+      - phase/wave-01-core-growth
+    paths:
+      - "bootstrap/wave01.part*.b64"
+      - ".github/workflows/bootstrap-wave01.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  assemble-source:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify archive parts and reconstruct source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          parts=(bootstrap/wave01.part*.b64)
+          test "${#parts[@]}" -eq 11
+          cat "${parts[@]}" > /tmp/wave01.tar.gz.b64
+          test "$(wc -c < /tmp/wave01.tar.gz.b64)" -eq 103680
+          base64 --decode /tmp/wave01.tar.gz.b64 > /tmp/wave01.tar.gz
+          echo "db3901fbfd63f38db5bc401465aadd9ad8e613d7335524f7d43a788cd21771bc  /tmp/wave01.tar.gz" | sha256sum --check --strict
+          tar -tzf /tmp/wave01.tar.gz > /tmp/wave01.files
+          test "$(wc -l < /tmp/wave01.files)" -eq 70
+
+          git rm -rf .
+          tar -xzf /tmp/wave01.tar.gz -C .
+
+      - name: Commit reconstructed Wave 01 tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "feat: add verified memory, hypothesis, self-model, and skill growth core"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
