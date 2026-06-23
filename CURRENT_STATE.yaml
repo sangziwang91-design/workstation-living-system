@@ -1,0 +1,38 @@
+schema: wls.current_state.v1
+updated_at: "2026-06-23"
+repository: sangziwang91-design/workstation-living-system-private
+version: 0.1.0a1
+stage: experimental_alpha
+active_round:
+  id: ROUND-001
+  issue: 1
+  branch: round/001-reproducible-baseline
+  result: PASS
+  scope: reproducible baseline, claim reset, and capability inventory
+baseline:
+  tests: 39
+  branch_coverage_percent: 67.67
+  ruff: PASS
+  mypy: PASS
+  bandit: PASS
+  wheel_build: PASS
+  clean_wheel_install: PASS
+  release_verifier_without_git: PASS
+verified_changes:
+  - strict worker-bound atomic event acknowledgement
+  - complete action-semantics approval digest
+  - bounded non-recursive episodic memory
+  - external-event minimum attention quota
+  - constrained validated-memory influence on deterministic planning
+  - alpha version and claim reset
+known_limits:
+  - real Windows Workstation installation not executed
+  - five-system integrations not connected
+  - no demonstrated general continual-learning advantage
+  - no subjective-consciousness evidence
+  - process and system sensors have low test coverage
+next_round:
+  id: ROUND-002
+  target: perception contract and sensor reliability baseline
+  entry_condition: ROUND-001 pull request merged
+claim_ceiling: CLAIM_CEILING.md
