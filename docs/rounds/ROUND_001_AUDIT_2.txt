@@ -1,0 +1,162 @@
+head=507f20cb2435729d451cd195a60aeb2f9b732b43
+main=6e67a323b5bc423449665491c5fe422ec1c64e61
+===== install =====
+Obtaining file:///home/runner/work/workstation-living-system-private/workstation-living-system-private/source
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Checking if build backend supports build_editable: started
+  Checking if build backend supports build_editable: finished with status 'done'
+  Getting requirements to build editable: started
+  Getting requirements to build editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+Collecting pytest>=8 (from workstation-living-system==0.1.0a1)
+  Downloading pytest-9.1.1-py3-none-any.whl.metadata (7.6 kB)
+Collecting pytest-cov>=5 (from workstation-living-system==0.1.0a1)
+  Downloading pytest_cov-7.1.0-py3-none-any.whl.metadata (32 kB)
+Collecting ruff>=0.15 (from workstation-living-system==0.1.0a1)
+  Downloading ruff-0.15.18-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (26 kB)
+Collecting mypy>=1.10 (from workstation-living-system==0.1.0a1)
+  Downloading mypy-2.1.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (2.3 kB)
+Collecting bandit>=1.7 (from workstation-living-system==0.1.0a1)
+  Downloading bandit-1.9.4-py3-none-any.whl.metadata (7.1 kB)
+Collecting build>=1.2 (from workstation-living-system==0.1.0a1)
+  Downloading build-1.5.0-py3-none-any.whl.metadata (5.7 kB)
+Collecting PyYAML>=5.3.1 (from bandit>=1.7->workstation-living-system==0.1.0a1)
+  Downloading pyyaml-6.0.3-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (2.4 kB)
+Collecting stevedore>=1.20.0 (from bandit>=1.7->workstation-living-system==0.1.0a1)
+  Downloading stevedore-5.8.0-py3-none-any.whl.metadata (2.3 kB)
+Collecting rich (from bandit>=1.7->workstation-living-system==0.1.0a1)
+  Downloading rich-15.0.0-py3-none-any.whl.metadata (18 kB)
+Collecting packaging>=24.0 (from build>=1.2->workstation-living-system==0.1.0a1)
+  Using cached packaging-26.2-py3-none-any.whl.metadata (3.5 kB)
+Collecting pyproject_hooks (from build>=1.2->workstation-living-system==0.1.0a1)
+  Downloading pyproject_hooks-1.2.0-py3-none-any.whl.metadata (1.3 kB)
+Collecting typing_extensions>=4.6.0 (from mypy>=1.10->workstation-living-system==0.1.0a1)
+  Downloading typing_extensions-4.15.0-py3-none-any.whl.metadata (3.3 kB)
+Collecting mypy_extensions>=1.0.0 (from mypy>=1.10->workstation-living-system==0.1.0a1)
+  Downloading mypy_extensions-1.1.0-py3-none-any.whl.metadata (1.1 kB)
+Collecting pathspec>=1.0.0 (from mypy>=1.10->workstation-living-system==0.1.0a1)
+  Downloading pathspec-1.1.1-py3-none-any.whl.metadata (14 kB)
+Collecting librt>=0.11.0 (from mypy>=1.10->workstation-living-system==0.1.0a1)
+  Downloading librt-0.11.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (1.3 kB)
+Collecting ast-serialize<1.0.0,>=0.3.0 (from mypy>=1.10->workstation-living-system==0.1.0a1)
+  Downloading ast_serialize-0.5.0-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (1.3 kB)
+Collecting iniconfig>=1.0.1 (from pytest>=8->workstation-living-system==0.1.0a1)
+  Downloading iniconfig-2.3.0-py3-none-any.whl.metadata (2.5 kB)
+Collecting pluggy<2,>=1.5 (from pytest>=8->workstation-living-system==0.1.0a1)
+  Downloading pluggy-1.6.0-py3-none-any.whl.metadata (4.8 kB)
+Collecting pygments>=2.7.2 (from pytest>=8->workstation-living-system==0.1.0a1)
+  Downloading pygments-2.20.0-py3-none-any.whl.metadata (2.5 kB)
+Collecting coverage>=7.10.6 (from coverage[toml]>=7.10.6->pytest-cov>=5->workstation-living-system==0.1.0a1)
+  Downloading coverage-7.14.3-cp311-cp311-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (8.6 kB)
+Collecting markdown-it-py>=2.2.0 (from rich->bandit>=1.7->workstation-living-system==0.1.0a1)
+  Downloading markdown_it_py-4.2.0-py3-none-any.whl.metadata (7.4 kB)
+Collecting mdurl~=0.1 (from markdown-it-py>=2.2.0->rich->bandit>=1.7->workstation-living-system==0.1.0a1)
+  Downloading mdurl-0.1.2-py3-none-any.whl.metadata (1.6 kB)
+Downloading bandit-1.9.4-py3-none-any.whl (134 kB)
+Downloading build-1.5.0-py3-none-any.whl (26 kB)
+Downloading mypy-2.1.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (14.9 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 14.9/14.9 MB 202.3 MB/s  0:00:00
+Downloading ast_serialize-0.5.0-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (1.3 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.3/1.3 MB 185.6 MB/s  0:00:00
+Downloading librt-0.11.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (497 kB)
+Downloading mypy_extensions-1.1.0-py3-none-any.whl (5.0 kB)
+Using cached packaging-26.2-py3-none-any.whl (100 kB)
+Downloading pathspec-1.1.1-py3-none-any.whl (57 kB)
+Downloading pytest-9.1.1-py3-none-any.whl (386 kB)
+Downloading pluggy-1.6.0-py3-none-any.whl (20 kB)
+Downloading iniconfig-2.3.0-py3-none-any.whl (7.5 kB)
+Downloading pygments-2.20.0-py3-none-any.whl (1.2 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.2/1.2 MB 206.9 MB/s  0:00:00
+Downloading pytest_cov-7.1.0-py3-none-any.whl (22 kB)
+Downloading coverage-7.14.3-cp311-cp311-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (253 kB)
+Downloading pyyaml-6.0.3-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (806 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 806.6/806.6 kB 146.9 MB/s  0:00:00
+Downloading ruff-0.15.18-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (11.6 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 11.6/11.6 MB 292.4 MB/s  0:00:00
+Downloading stevedore-5.8.0-py3-none-any.whl (54 kB)
+Downloading typing_extensions-4.15.0-py3-none-any.whl (44 kB)
+Downloading pyproject_hooks-1.2.0-py3-none-any.whl (10 kB)
+Downloading rich-15.0.0-py3-none-any.whl (310 kB)
+Downloading markdown_it_py-4.2.0-py3-none-any.whl (91 kB)
+Downloading mdurl-0.1.2-py3-none-any.whl (10.0 kB)
+Building wheels for collected packages: workstation-living-system
+  Building editable for workstation-living-system (pyproject.toml): started
+  Building editable for workstation-living-system (pyproject.toml): finished with status 'done'
+  Created wheel for workstation-living-system: filename=workstation_living_system-0.1.0a1-0.editable-py3-none-any.whl size=5440 sha256=dcff2dfd06fb822be05df662e9099044ce9325055e44aaa8fc9d948e026b9221
+  Stored in directory: /tmp/pip-ephem-wheel-cache-ian_0qsd/wheels/13/6e/f4/5be1ce8400102f2b671567c4f3195406f9017c739d6f0bf9bf
+Successfully built workstation-living-system
+Installing collected packages: workstation-living-system, typing_extensions, stevedore, ruff, PyYAML, pyproject_hooks, pygments, pluggy, pathspec, packaging, mypy_extensions, mdurl, librt, iniconfig, coverage, ast-serialize, pytest, mypy, markdown-it-py, build, rich, pytest-cov, bandit
+
+Successfully installed PyYAML-6.0.3 ast-serialize-0.5.0 bandit-1.9.4 build-1.5.0 coverage-7.14.3 iniconfig-2.3.0 librt-0.11.0 markdown-it-py-4.2.0 mdurl-0.1.2 mypy-2.1.0 mypy_extensions-1.1.0 packaging-26.2 pathspec-1.1.1 pluggy-1.6.0 pygments-2.20.0 pyproject_hooks-1.2.0 pytest-9.1.1 pytest-cov-7.1.0 rich-15.0.0 ruff-0.15.18 stevedore-5.8.0 typing_extensions-4.15.0 workstation-living-system-0.1.0a1
+exit_code=0
+
+===== compile =====
+exit_code=0
+
+===== pytest =====
+.............................................                            [100%]
+================================ tests coverage ================================
+_______________ coverage: platform linux, python 3.11.15-final-0 _______________
+
+Name                                   Stmts   Miss Branch BrPart  Cover   Missing
+----------------------------------------------------------------------------------
+source/src/wls/__init__.py                 3      0      0      0   100%
+source/src/wls/__main__.py                 3      3      2      0     0%   1-4
+source/src/wls/_version.py                 1      0      0      0   100%
+source/src/wls/adaptive_growth.py         91      7     22      5    88%   43, 46, 119->128, 199-210, 233->235, 265->261
+source/src/wls/approval.py                85     11     22      7    81%   29, 40-41, 68, 126-131, 157, 159, 161, 179
+source/src/wls/attention.py               59      2     20      2    95%   14, 70
+source/src/wls/autonomy.py                42      5     18      5    83%   33, 54, 70, 85, 87
+source/src/wls/bounded_recovery.py       117     17     30      8    79%   63, 65, 68, 77, 133->143, 203->215, 227-238, 318-322, 333-336
+source/src/wls/cli.py                    208    208     66      0     0%   1-344
+source/src/wls/config.py                 110     39     26      7    60%   66, 68, 70, 72, 74, 78, 81, 97-99, 125-134, 150-158, 162-167, 173-180
+source/src/wls/db.py                      81      7     10      4    88%   49->51, 387, 402, 404, 410-414
+source/src/wls/drives.py                  97     20     22      5    76%   74, 76, 91, 93, 146-160, 175
+source/src/wls/evaluator.py               34      7     14      1    79%   40-47
+source/src/wls/evidence.py                74     16     16      3    77%   27, 39-40, 90, 108, 113-125
+source/src/wls/experiments.py            122     26     52     12    77%   96, 99, 110, 120-121, 136-137, 139-143, 151-154, 163-168, 187, 193->195, 214, 220-223
+source/src/wls/learning.py               143     16     58     15    85%   52, 61, 64, 69-70, 73, 119, 148-179, 251, 271->249, 288, 305->286, 324, 372, 394, 406
+source/src/wls/lease.py                   57     21      6      3    62%   21-29, 35-38, 47, 49-55, 61-62
+source/src/wls/planner.py                188     62     96     18    62%   18, 24, 80, 82, 83->87, 86, 88-90, 109-110, 115-143, 145->100, 165->153, 195->153, 211->223, 261-271, 274-302, 310-313, 318, 321, 323, 325, 329, 336
+source/src/wls/policy.py                  76     25     38      8    59%   35, 67-78, 91, 101, 104, 106-111, 113-123
+source/src/wls/relationships.py           28     12      8      1    47%   29-67, 71
+source/src/wls/repair.py                   2      2      0      0     0%   1-3
+source/src/wls/runtime.py                403     91    100     14    74%   91-98, 104, 132-139, 171, 300-302, 337, 341-343, 395, 409, 458-478, 489-491, 568-572, 605-614, 654-657, 709, 717, 726-756, 759-761, 764-766, 779-810, 876, 880
+source/src/wls/schemas.py                276     19     38     12    89%   105, 111, 134, 136, 169, 171, 173, 196, 198, 200, 203, 259, 281, 357-362
+source/src/wls/self_model.py              33      1      4      1    95%   22
+source/src/wls/sensors/__init__.py         3      0      0      0   100%
+source/src/wls/sensors/base.py            13      0      0      0   100%
+source/src/wls/sensors/clock.py           16      9      4      0    35%   14-44
+source/src/wls/sensors/factory.py         25      2      6      2    87%   37, 40
+source/src/wls/sensors/filesystem.py      61     10     30      8    80%   15->21, 43-44, 48-49, 52, 55, 57-58, 60, 66->63, 78
+source/src/wls/sensors/git.py             38      5      8      3    83%   19, 29, 58->44, 72-74
+source/src/wls/sensors/http.py            71     20     18      5    65%   23-41, 64, 66, 68, 78, 86-87, 102->59
+source/src/wls/sensors/inbox.py           45      8     10      4    78%   31, 55-58, 66, 69, 74
+source/src/wls/sensors/process.py         52     39     22      0    18%   18-68, 75-118
+source/src/wls/sensors/system.py          61     43     14      0    24%   32-56, 63-97, 100-106
+source/src/wls/server.py                 123     50     40      5    50%   21, 32-33, 42, 78-84, 92, 95-110, 113-174, 186->exit
+source/src/wls/skills.py                 101     10     34     11    84%   55, 57, 60, 62, 64, 82->78, 96, 118, 160, 205, 208
+source/src/wls/sleep.py                   73      3     16      2    94%   94, 126-127
+source/src/wls/stores.py                 161     24     44      7    82%   60-64, 121-124, 150->136, 203, 208, 250-268, 362-376, 453-454, 464->456, 498, 517
+source/src/wls/text.py                    12      0      2      0   100%
+source/src/wls/tools.py                  131     41     14      3    66%   22, 40, 46-47, 92, 97-98, 120-121, 130, 140-165, 173-193, 219-229
+source/src/wls/world.py                  146     17     46      8    84%   39->41, 130, 179, 188-208, 251->245, 278, 420, 424-431
+----------------------------------------------------------------------------------
+TOTAL                                   3465    898    976    189    70%
+Required test coverage of 65% reached. Total coverage: 69.58%
+45 passed in 7.12s
+exit_code=0
+
+===== ruff =====
+All checks passed!
+exit_code=0
+
+===== mypy =====
+Success: no issues found in 41 source files
+exit_code=0
+
+===== bandit =====
+exit_code=0
+
