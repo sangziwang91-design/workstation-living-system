@@ -1,131 +1,58 @@
-# Workstation Living System (WLS) 1.0
+# Workstation Living System
 
-WLS is a persistent, bounded software-life runtime that can observe configured parts of its environment, maintain a corrigible world model, allocate attention, preserve multiple kinds of memory, pursue human and narrowly generated goals, take governed actions, learn from outcomes, consolidate experience, and grow a versioned declarative skill library.
+Version: `0.7.0.dev1`
 
-WLS **does not claim subjective consciousness, genuine emotion, AGI, or unlimited self-modification**. Its claims are limited to observable software functions.
+The canonical implementation is `src/wls/runtime.py::LivingSystem`. It provides durable state, configured sensing, evidence-tagged world facts, bounded attention, memory retrieval, governed tools, outcome evaluation, consolidation, and an evidence-bound growth cycle.
 
-## What it contains
+## Growth cycle
 
-- **Perception:** clock, system-resource, inbox, filesystem, process, Git, HTTP-health, and custom sensors.
-- **World model:** evidence-tagged facts, expiry, contradictions, predictions, refutations, and prediction error.
-- **Internal regulation:** drives and functional affect that change action budget, exploration, recovery preference, and safety pressure.
-- **Finite workspace:** events, goals, memories, and internal state compete for bounded attention; external events cannot be starved by internal memory.
-- **Memory:** episodic, semantic, procedural/skill, relationship, failure, and self-model state.
-- **Action:** local read tools, bounded HTTP, allowlisted commands, reversible file writes, exact action approval, idempotency, and unknown-side-effect reconciliation.
-- **Learning:** outcome episodes, prediction-error candidates, repeated-failure candidates, semantic consolidation, and repeated successful action sequences that become declarative skill proposals.
-- **Growth:** proposed skills move through `PROPOSED → SANDBOXED → VALIDATED → APPROVED → PROMOTED`; approval and promotion require explicit human authorization.
-- **Sleep:** stale-fact expiry, contradiction resolution, memory consolidation, deduplication, skill discovery, failure review, and next-focus generation.
-- **Continuity:** SQLite WAL persistence, HMAC evidence chain, process leases, crash recovery, pause, sticky kill switch, and restart-safe pending actions.
-- **Interface:** CLI and a token-authenticated loopback JSON API.
-
-## Install on Windows
-
-The release installer creates WLS under `D:\Workstation\.wls`, installs from the included offline wheel, initializes a read-only configuration, and runs self-checks.
-
-```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-.\INSTALL.ps1 -WorkstationRoot "D:\Workstation"
+```text
+repeated action failures
+  -> recovery experiment against a frozen baseline
+  -> versioned skill proposal
+  -> isolated validation
+  -> explicit human approval and promotion
+  -> later task reuse through LivingSystem.run_cycle
+  -> measured RETAIN or ROLLBACK_REQUIRED decision
+  -> human-authorized rollback when required
 ```
 
-Start and stop the standalone daemon:
+Machine transitions require persisted experiment records, matching digests, predetermined thresholds, complete case success, and zero regressions. Approval, promotion, and rollback retain explicit human gates.
 
-```powershell
-.\START.ps1
-.\STOP.ps1
+## Verify
+
+```bash
+python -m pip install -e ".[dev]"
+python -m pytest tests -q
+python scripts/verify_evolution_target_001.py
+python -m ruff check src tests scripts
+python -m mypy src/wls tests scripts --ignore-missing-imports
+python -m bandit -q -r src/wls scripts
+python -m build
 ```
 
-Use the installed command wrapper:
+Verification record: `verification/EVOLUTION_TARGET_001_LOCAL_20260624.json`.
 
-```powershell
-D:\Workstation\.wls\wls.cmd status
-D:\Workstation\.wls\wls.cmd once
-D:\Workstation\.wls\wls.cmd world
-D:\Workstation\.wls\wls.cmd memories
-D:\Workstation\.wls\wls.cmd skills
+## Run
+
+```bash
+wls init --home /path/to/wls-home
+wls --config /path/to/wls-home/config.json self-check
+wls --config /path/to/wls-home/config.json once
+wls --config /path/to/wls-home/config.json status
 ```
 
-## Safe default
+Growth commands:
 
-The generated configuration is read-only:
-
-- clock, host-resource, and local inbox sensors are enabled;
-- filesystem, process, Git, HTTP, external providers, and plugins require explicit configuration;
-- writes are limited to the WLS sandbox/outbox and still require an exact one-time approval unless policy is deliberately changed;
-- no Windows service, scheduled task, external publication, deletion, or Workstation integration is created automatically.
-
-## Feed an observation through the inbox
-
-Create `D:\Workstation\.wls\inbox\event.json`:
-
-```json
-{
-  "source": "human",
-  "kind": "external_event",
-  "subject": "workstation",
-  "predicate": "request",
-  "value": {
-    "action": "inspect_path",
-    "path": "D:/Workstation"
-  },
-  "evidence_kind": "USER_REPORTED",
-  "verification": "UNKNOWN"
-}
+```bash
+wls --config CONFIG failure-candidates
+wls --config CONFIG growth-recover CANDIDATE_ID --strategy contract_recovery
+wls --config CONFIG growth-propose GROWTH_CYCLE_ID --name recovered-skill
+wls --config CONFIG growth-validate GROWTH_CYCLE_ID
+wls --config CONFIG growth-promote GROWTH_CYCLE_ID --actor OWNER --authorization-reference REF --human-approved
+wls --config CONFIG growth-reuse GROWTH_CYCLE_ID --goal "later task" --criterion "measurable success"
+wls --config CONFIG growth-rollback GROWTH_CYCLE_ID --actor OWNER --authorization-reference REF --human-approved
+wls --config CONFIG growth-status
 ```
 
-The inbox file is acknowledged only after durable ingestion. It is then moved to `inbox\processed`.
-
-## Goals and relationship continuity
-
-```powershell
-wls.cmd add-goal "Understand current Workstation state" --criterion "Produce verified state map"
-
-wls.cmd add-relationship owner preferred_language `
-  --value '"zh-CN"' --stability stable --confidence 0.95 `
-  --source-id user_statement_1 --source-id user_confirmation_2
-```
-
-Stable relationship records require at least two distinct sources and confidence of at least 0.8.
-
-## Approval and crash recovery
-
-```powershell
-wls.cmd status
-wls.cmd approve <ACTION_ID> --minutes 30 --reason "Reviewed exact action"
-wls.cmd resume-action <ACTION_ID>
-```
-
-Approvals are bound to the exact action digest, expire, and are consumed once. A process interruption during a possible side effect produces `UNKNOWN_SIDE_EFFECT`; WLS will not replay it automatically.
-
-## Skill growth
-
-```powershell
-wls.cmd skills
-wls.cmd skill <SKILL_ID> SANDBOXED --evidence '{"sandbox":"isolated"}'
-wls.cmd skill <SKILL_ID> VALIDATED --evidence '{"tests_passed":true}'
-wls.cmd skill <SKILL_ID> APPROVED --human-approved --evidence '{"reviewer":"owner"}'
-wls.cmd skill <SKILL_ID> PROMOTED --human-approved --evidence '{"release":"approved"}'
-```
-
-A promoted skill can change future plans when its trigger terms match the current environment. WLS never treats a generated skill as validated merely because a model wrote it.
-
-## Optional model planner
-
-The deterministic planner works without an API. An OpenAI-compatible JSON planner can be configured later:
-
-```json
-{
-  "provider": {
-    "type": "openai_compatible",
-    "base_url": "https://provider.example/v1",
-    "model": "model-name",
-    "api_key_env": "WLS_MODEL_API_KEY",
-    "timeout_seconds": 60
-  }
-}
-```
-
-Provider output is parsed into a strict plan schema and still passes deterministic policy and tool gates.
-
-## Claim ceiling
-
-Verified functions are software functions: observation, persistent state, world-model revision, bounded attention, memory retrieval, governed actions, outcome learning, skill lifecycle, consolidation, and recovery. No software test in this package establishes subjective experience or human-equivalent emotion.
+The implementation and retain/rollback paths are verified in isolated temporary runtimes and CI. Long-term benefit on the intended Windows workstation remains unverified. Claims remain limited to observable software behavior.
