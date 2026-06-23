@@ -36,3 +36,24 @@ jobs:
         run: python -m mypy src/wls tests --ignore-missing-imports
       - name: Security scan
         run: python -m bandit -q -r src/wls
+
+  package:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: source
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build wheel
+        run: |
+          python -m pip install build
+          python -m build --wheel
+      - name: Verify installed wheel and extended CLI
+        run: |
+          python -m venv "$RUNNER_TEMP/wls-venv"
+          "$RUNNER_TEMP/wls-venv/bin/python" -m pip install dist/*.whl
+          "$RUNNER_TEMP/wls-venv/bin/wls" --config "$RUNNER_TEMP/wls-home/config.json" init --home "$RUNNER_TEMP/wls-home"
+          "$RUNNER_TEMP/wls-venv/bin/wls" --config "$RUNNER_TEMP/wls-home/config.json" self-check
