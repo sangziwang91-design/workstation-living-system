@@ -1,0 +1,61 @@
+name: round001-combined-audit
+
+on:
+  push:
+    branches:
+      - round/001-reproducible-baseline
+    paths:
+      - .github/workflows/round001-combined-audit.yml
+
+permissions:
+  contents: write
+
+jobs:
+  audit:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: round/001-reproducible-baseline
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Execute combined-tree validation and preserve failures
+        shell: bash
+        run: |
+          set +e
+          mkdir -p docs/rounds
+          REPORT=docs/rounds/ROUND_001_COMBINED_AUDIT.txt
+          : > "$REPORT"
+          echo "head=$(git rev-parse HEAD)" >> "$REPORT"
+          echo "main=$(git rev-parse origin/main 2>/dev/null || true)" >> "$REPORT"
+          run_check() {
+            name="$1"; shift
+            echo "===== $name =====" >> "$REPORT"
+            "$@" >> "$REPORT" 2>&1
+            code=$?
+            echo "exit_code=$code" >> "$REPORT"
+            echo >> "$REPORT"
+            return 0
+          }
+          run_check install python -m pip install -e './source[dev]'
+          run_check compile python -m compileall -q source/src
+          run_check pytest python -m pytest source/tests --cov=wls --cov-branch --cov-report=term-missing
+          run_check ruff python -m ruff check source/src source/tests
+          run_check mypy python -m mypy source/src
+          run_check bandit python -m bandit -q -r source/src
+          if [ -f VERIFY_RELEASE.py ]; then
+            run_check release python VERIFY_RELEASE.py
+          else
+            echo "===== release =====" >> "$REPORT"
+            echo "VERIFY_RELEASE.py missing" >> "$REPORT"
+            echo "exit_code=127" >> "$REPORT"
+          fi
+          rm -f .github/workflows/round001-combined-audit.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$REPORT" .github/workflows/round001-combined-audit.yml
+          git commit -m 'round-001: record combined-tree validation failures'
+          git push origin HEAD:round/001-reproducible-baseline
