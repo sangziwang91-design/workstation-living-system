@@ -1,4 +1,4 @@
-schema_version: "1.1"
+schema_version: "1.2"
 system:
   name: "Workstation Living System"
   abbreviation: "WLS"
@@ -8,22 +8,25 @@ system:
   canonical_runtime: "source/src/wls/runtime.py::LivingSystem"
 
 state_record:
-  updated_at: "2026-06-24T07:25:00+08:00"
+  updated_at: "2026-06-24T07:54:00+08:00"
   time_zone: "Asia/Singapore"
-  update_type: "canonical-growth-implementation"
+  update_type: "canonical-growth-merged"
   evidence_basis:
     - type: "VERIFIED"
       source: "source/verification/EVOLUTION_TARGET_001_LOCAL_20260624.json"
       note: "Two complete isolated canonical-runtime cases passed: retained improvement and detected degradation with rollback."
     - type: "VERIFIED"
-      source: "commit b6d8775d8d2de47b1821b1e7500d464e02ebec29"
-      note: "GitHub Actions produced the canonical implementation commit only after tests, lifecycle verification, lint, type checks, security scan, and package build passed."
+      source: "GitHub pull request 3"
+      note: "Canonical implementation was reviewed as a mergeable pull request and squash-merged into main."
     - type: "VERIFIED"
-      source: "commit 970ec0053200ddf848ddb56f66c3f59bb716e884"
-      note: "GitHub Actions repeated verification and removed generated build/cache artifacts."
+      source: "merge commit 37b0fd55987e9d61a08a4934ed7807871a9d3b76"
+      note: "Main now contains the canonical EVOLUTION-TARGET-001 implementation."
+    - type: "VERIFIED"
+      source: "GitHub Actions runs 28065080949 and 28065080982"
+      note: "Lifecycle verification and the Linux/Windows Python 3.11/3.13 matrix completed successfully after the cross-platform typing repair."
     - type: "UNKNOWN"
       source: "owner Windows workstation"
-      note: "No real owner-authorized target-host growth run has yet been recorded."
+      note: "No genuine owner-authorized target-host growth run has yet been recorded."
 
 workflow_state: "PARTIAL"
 phase_chain:
@@ -40,6 +43,7 @@ mission_status:
   owner_authority_preserved: true
   identity_continuity_contract_present: true
   parallel_runtime_authority_removed: true
+  canonical_growth_cycle_merged: true
 
 current_capabilities:
   status: "CODE_AND_CI_VERIFIED_WITH_HOST_LIMIT"
@@ -53,6 +57,7 @@ current_capabilities:
     - "Promoted skills are reused through LivingSystem.run_cycle rather than a parallel executor."
     - "Post-promotion success, regressions, and RETAIN or ROLLBACK_REQUIRED decisions are persisted."
     - "A degraded promoted skill can be removed from active and matching sets through rollback."
+    - "Linux and Windows type checking passes for Python 3.11 and 3.13."
   inherited_not_reverified_in_this_wave:
     - perception
     - world_model
@@ -75,7 +80,7 @@ frozen_decisions:
 active_evolution_target:
   id: "EVOLUTION-TARGET-001"
   title: "Verified failure-to-skill-to-reuse loop"
-  status: "IMPLEMENTED_CI_VERIFIED_HOST_PROOF_PENDING"
+  status: "MERGED_CI_VERIFIED_HOST_PROOF_PENDING"
   completed_acceptance_conditions:
     - "Failure records and source action identifiers are durably retained."
     - "Versioned skill candidates are linked to failure and recovery evidence."
@@ -86,12 +91,13 @@ active_evolution_target:
     - "A promoted skill is reused through a later canonical-runtime task in the verification harness."
     - "Post-promotion benefit and regressions are measured."
     - "A degradation scenario produces ROLLBACK_REQUIRED and passes rollback verification."
+    - "The implementation is merged into main without retaining a parallel runtime authority path."
   remaining_acceptance_conditions:
     - "Run the lifecycle on the owner's intended Windows workstation using a genuine failure and non-synthetic later task."
     - "Record the owner's actual approval identity and authorization reference."
     - "Measure benefit, regressions, and retain-or-rollback outcome on that host."
   claim_boundary: >-
-    WLS may claim an implemented and CI-verified bounded growth-cycle lifecycle.
+    WLS may claim an implemented, merged, and CI-verified bounded growth-cycle lifecycle.
     It may not yet claim long-term self-improvement, production readiness, unrestricted
     self-evolution, consciousness, or completion of the full software-life objective.
 
@@ -103,15 +109,29 @@ verification:
     tests: "3 passed"
     compileall: "PASS"
     ruff: "PASS"
-    mypy: "PASS; 41 source files"
+    mypy_linux: "PASS; 41 source files"
+    mypy_win32: "PASS; 41 source files"
     bandit: "PASS"
     wheel_build: "PASS"
     clean_install: "PASS"
     cli_init_self_check: "PASS"
   github_actions:
-    apply_commit: "b6d8775d8d2de47b1821b1e7500d464e02ebec29"
-    clean_reverification_commit: "970ec0053200ddf848ddb56f66c3f59bb716e884"
-    status: "PASS_INFERRED_FROM_POST_VERIFICATION_BOT_COMMITS"
+    verified_head_commit: "e022f4de603030aafb98b41b1045f6310aaecc14"
+    lifecycle_run:
+      id: 28065080949
+      name: "Verify EVOLUTION-TARGET-001"
+      conclusion: "success"
+    matrix_run:
+      id: 28065080982
+      name: "WLS CI"
+      conclusion: "success"
+      platforms:
+        - "ubuntu-latest / Python 3.11"
+        - "ubuntu-latest / Python 3.13"
+        - "windows-latest / Python 3.11"
+        - "windows-latest / Python 3.13"
+    pull_request: 3
+    merge_commit: "37b0fd55987e9d61a08a4934ed7807871a9d3b76"
 
 verified_cases:
   - id: "CASE-RETAIN"
@@ -154,7 +174,9 @@ completed:
   - "Recovery experiment, skill validation, real reuse measurement, and rollback implemented in the canonical runtime."
   - "Fabricated machine-stage evidence is rejected."
   - "Local and GitHub Actions verification completed for isolated retain and rollback cases."
+  - "Windows-specific typing defects in lease and system resource code were reproduced and repaired."
   - "Generated caches, build products, and package metadata removed from the tracked tree."
+  - "Pull request 3 was squash-merged into main."
 
 not_completed:
   - "Owner-authorized genuine-failure run on the intended Windows workstation."
@@ -162,28 +184,28 @@ not_completed:
   - "Broad connector-body integration with real Workstation systems."
   - "External longitudinal evidence that learning improves real outcomes."
 
-active_branches:
+branches:
   - name: "main"
-    role: "current default branch before fast-forward"
-    status: "VERIFIED_BASE"
+    role: "canonical default branch"
+    status: "CURRENT"
+    merge_commit: "37b0fd55987e9d61a08a4934ed7807871a9d3b76"
   - name: "evolution-target-001-canonical"
-    role: "verified canonical implementation candidate"
-    status: "READY_FOR_FAST_FORWARD"
+    role: "historical implementation branch"
+    status: "MERGED"
+    verified_head: "e022f4de603030aafb98b41b1045f6310aaecc14"
 
 current_limitations:
   - "The approval identities in automated verification are explicit test fixtures, not the owner's production approval."
   - "The later tasks execute through the real runtime path but inside temporary isolated homes."
-  - "The GitHub Actions pass is evidenced by bot commits after gated steps; a separate check-run status was not returned by the connector."
   - "Capabilities outside the growth lifecycle were not comprehensively re-audited in this wave."
 
 unique_next_action: >-
-  Fast-forward the verified branch to main, then execute one genuine owner-authorized
-  EVOLUTION-TARGET-001 run on the intended Windows workstation and persist its retain
-  or rollback evidence without adding another runtime.
+  Execute one genuine owner-authorized EVOLUTION-TARGET-001 run on the intended Windows
+  workstation and persist its failure, approval, later-task reuse, measurement, and
+  retain-or-rollback evidence without adding another runtime.
 
 stop_conditions:
   - "Stop if the host run would bypass human approval, policy gates, evidence retention, or rollback."
-  - "Stop if main advances independently and cannot be reconciled by fast-forward."
   - "Stop after host evidence is persisted; do not create a parallel subsystem."
 
 prohibited_misinterpretations:
