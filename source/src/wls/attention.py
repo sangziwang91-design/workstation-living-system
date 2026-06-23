@@ -128,43 +128,50 @@ class AttentionSystem:
         candidates.sort(
             key=lambda item: (item.salience, item.reference_id), reverse=True
         )
+        event_candidates = [item for item in candidates if item.item_type == "event"]
+        non_event_candidates = [
+            item for item in candidates if item.item_type != "event"
+        ]
+
+        # A living observer must not let its own memories crowd real changes out of
+        # awareness. When external events exist, reserve at least half of the finite
+        # workspace for the highest-salience events. Keep an upper bound of 70% when
+        # non-event context exists so goals, regulation, and relevant memory remain
+        # available to interpret those events.
         selected: list[WorkspaceItem] = []
-        selected_types: dict[str, int] = {}
+        selected_ids: set[tuple[str, str]] = set()
+        minimum_event_slots = (
+            min(len(event_candidates), max(1, math.ceil(self.capacity * 0.5)))
+            if event_candidates
+            else 0
+        )
+        maximum_event_slots = (
+            min(len(event_candidates), math.ceil(self.capacity * 0.7))
+            if non_event_candidates
+            else min(len(event_candidates), self.capacity)
+        )
+        for candidate in event_candidates[:minimum_event_slots]:
+            selected.append(candidate)
+            selected_ids.add((candidate.item_type, candidate.reference_id))
+
         for candidate in candidates:
             if len(selected) >= self.capacity:
                 break
-            # Keep workspace diverse; events may occupy at most 70% when other categories exist.
-            if candidate.item_type == "event" and selected_types.get(
-                "event", 0
-            ) >= math.ceil(self.capacity * 0.7):
+            identity = (candidate.item_type, candidate.reference_id)
+            if identity in selected_ids:
+                continue
+            if (
+                candidate.item_type == "event"
+                and sum(item.item_type == "event" for item in selected)
+                >= maximum_event_slots
+            ):
                 continue
             selected.append(candidate)
-            selected_types[candidate.item_type] = (
-                selected_types.get(candidate.item_type, 0) + 1
-            )
+            selected_ids.add(identity)
 
-        # External change must not be starved by internally generated state or memory.
-        if events and not any(item.item_type == "event" for item in selected):
-            best_event = max(
-                (item for item in candidates if item.item_type == "event"),
-                key=lambda item: (item.salience, item.reference_id),
-            )
-            if len(selected) < self.capacity:
-                selected.append(best_event)
-            else:
-                replace_index = min(
-                    range(len(selected)),
-                    key=lambda index: (
-                        0
-                        if selected[index].item_type in {"drive", "affect", "memory"}
-                        else 1,
-                        selected[index].salience,
-                    ),
-                )
-                selected[replace_index] = best_event
-            selected.sort(
-                key=lambda item: (item.salience, item.reference_id), reverse=True
-            )
+        selected.sort(
+            key=lambda item: (item.salience, item.reference_id), reverse=True
+        )
         return selected
 
     @staticmethod

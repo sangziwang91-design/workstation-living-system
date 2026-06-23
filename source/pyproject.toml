@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "workstation-living-system"
-version = "1.0.0"
+version = "0.1.0a1"
 description = "A bounded functional software-life runtime for persistent observation, learning, memory, skills, and governed action."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -30,3 +30,23 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-cov>=5", "ruff>=0.15", "mypy>=1.10", "bandit>=1.7", "build>=1.2"]
+
+[tool.coverage.run]
+branch = true
+source = ["wls"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 65
+
+[tool.ruff]
+line-length = 100
+
+[tool.mypy]
+python_version = "3.11"
+check_untyped_defs = true
+warn_unused_ignores = true
+

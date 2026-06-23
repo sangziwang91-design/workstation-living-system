@@ -51,6 +51,10 @@ class ApprovalManager:
             "purpose": data["purpose"],
             "expected_result": data["expected_result"],
             "risk": data["risk"],
+            "goal_id": data.get("goal_id"),
+            "skill_id": data.get("skill_id"),
+            "idempotency_key": data.get("idempotency_key"),
+            "acceptance": list(data.get("acceptance", [])),
         }
         return digest_json(stable)
 
@@ -69,6 +73,10 @@ class ApprovalManager:
             "purpose": row["purpose"],
             "expected_result": row["expected_result"],
             "risk": row["risk"],
+            "goal_id": row["goal_id"],
+            "skill_id": row["skill_id"],
+            "idempotency_key": row["idempotency_key"],
+            "acceptance": json.loads(row["acceptance_json"]),
         }
         digest = self.action_digest(action_data)
         approval_id = new_id("approval")
