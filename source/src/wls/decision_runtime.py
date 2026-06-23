@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from .decision_memory import MemoryAttributionPlanner, ensure_decision_memory_tables
+from .decision_memory import (
+    MemoryAttributionPlanner,
+    RecoveryMemorySynthesizer,
+    ensure_decision_memory_tables,
+)
 from .v2_runtime import LivingSystemV2
 
 
@@ -12,6 +16,9 @@ class DecisionAwareRuntime(LivingSystemV2):
     def __init__(self, config) -> None:
         super().__init__(config)
         ensure_decision_memory_tables(self.db)
+        self.memory_rules = RecoveryMemorySynthesizer(
+            self.db, self.ledger, self.memories
+        )
         self.memory_planner = MemoryAttributionPlanner(
             self.planner,
             self.db,
@@ -19,6 +26,9 @@ class DecisionAwareRuntime(LivingSystemV2):
             str(config.provider.get("type", "deterministic")),
         )
         self.planner = cast(Any, self.memory_planner)
+
+    def sync_verified_memory_rules(self) -> list[str]:
+        return self.memory_rules.sync_promoted()
 
     def status(self) -> dict[str, Any]:
         value = super().status()
