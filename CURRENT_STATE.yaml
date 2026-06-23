@@ -6,24 +6,32 @@ stage: experimental_alpha
 active_round:
   id: ROUND-001
   issue: 1
+  pull_request: 2
   branch: round/001-reproducible-baseline
-  result: PASS
-  scope: reproducible baseline, claim reset, and capability inventory
-baseline:
-  tests: 39
-  branch_coverage_percent: 67.67
+  result: IN_PROGRESS
+  scope: reproducible baseline, claim reset, invariant repair, and capability inventory
+latest_verified_source_audit:
+  tests: 45
+  branch_coverage_percent: 69.58
   ruff: PASS
   mypy: PASS
   bandit: PASS
-  wheel_build: PASS
-  clean_wheel_install: PASS
-  release_verifier_without_git: PASS
+  compileall: PASS
+  source: docs/rounds/ROUND_001_AUDIT_2.txt
+release_gate:
+  source_version: 0.1.0a1
+  wheel_build: IN_PROGRESS
+  clean_wheel_install: PENDING
+  release_verifier_without_git: PENDING
+  windows_installation: UNKNOWN
 verified_changes:
   - strict worker-bound atomic event acknowledgement
   - complete action-semantics approval digest
   - bounded non-recursive episodic memory
   - external-event minimum attention quota
   - constrained validated-memory influence on deterministic planning
+  - durable skill and recovery experiment tables
+  - bounded isolated skill-validation and failure-recovery experiments
   - alpha version and claim reset
 known_limits:
   - real Windows Workstation installation not executed
@@ -31,6 +39,12 @@ known_limits:
   - no demonstrated general continual-learning advantage
   - no subjective-consciousness evidence
   - process and system sensors have low test coverage
+  - pull request currently diverges from a concurrently advancing main branch
+next_required_gate:
+  - build and verify exactly one 0.1.0a1 wheel
+  - reconcile latest main without discarding either evidence chain
+  - rerun complete source and release validation on the reconciled tree
+  - update claim evidence and PR result
 next_round:
   id: ROUND-002
   target: perception contract and sensor reliability baseline
