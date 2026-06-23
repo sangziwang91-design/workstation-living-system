@@ -1,0 +1,43 @@
+# Python caches and build products
+__pycache__/
+*.py[cod]
+.coverage
+.coverage.*
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.bandit/
+build/
+dist/*.tmp
+*.egg-info/
+
+# Local runtime state
+.wls/
+state/
+logs/
+snapshots/
+inbox/
+outbox/
+sandbox/
+secrets/
+*.db
+*.db-shm
+*.db-wal
+
+# Environments and editor files
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Private or generated integration material
+local/
+private/
+credentials/
+*.key
+*.pem
