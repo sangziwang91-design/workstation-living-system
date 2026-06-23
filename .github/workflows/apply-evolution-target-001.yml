@@ -1,0 +1,36 @@
+name: Verify EVOLUTION-TARGET-001
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "source/**"
+      - "CURRENT_STATE.yaml"
+      - "LIVING_SYSTEM_GENOME.md"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install verification toolchain
+        run: python -m pip install --upgrade pip build pytest ruff mypy bandit
+      - name: Install WLS editable
+        run: python -m pip install -e "source[dev]"
+      - name: Verify canonical growth cycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m compileall -q source/src source/tests source/scripts
+          python -m pytest source/tests -q
+          python source/scripts/verify_evolution_target_001.py
+          python -m ruff check source/src source/tests source/scripts
+          python -m mypy source/src/wls source/tests source/scripts --ignore-missing-imports
+          python -m bandit -q -r source/src/wls source/scripts
+          python -m build source

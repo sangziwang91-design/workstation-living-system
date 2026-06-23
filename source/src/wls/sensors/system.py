@@ -47,11 +47,14 @@ def memory_ratio() -> float | None:
         except Exception:
             return None
     try:
-        pages = os.sysconf("SC_PHYS_PAGES")
-        available = os.sysconf("SC_AVPHYS_PAGES")
+        sysconf = getattr(os, "sysconf", None)
+        if not callable(sysconf):
+            return None
+        pages = sysconf("SC_PHYS_PAGES")
+        available = sysconf("SC_AVPHYS_PAGES")
         if pages > 0:
             return 1.0 - (available / pages)
-    except (AttributeError, ValueError, OSError):
+    except (ValueError, OSError):
         return None
     return None
 
@@ -68,8 +71,10 @@ class SystemSensor(Sensor):
         mem_ratio = memory_ratio()
         cpu_load: float | None = None
         try:
-            cpu_load = os.getloadavg()[0]
-        except (AttributeError, OSError):
+            getloadavg = getattr(os, "getloadavg", None)
+            if callable(getloadavg):
+                cpu_load = getloadavg()[0]
+        except OSError:
             pass
         values: dict[str, Any] = {
             "disk_used_ratio": disk_ratio,

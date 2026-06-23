@@ -1,33 +1,37 @@
-schema_version: "1.0"
+schema_version: "1.1"
 system:
   name: "Workstation Living System"
   abbreviation: "WLS"
   repository: "sangziwang91-design/workstation-living-system-private"
-  declared_release_family: "1.0"
+  development_version: "0.7.0.dev1"
   canonical_identity_file: "LIVING_SYSTEM_GENOME.md"
+  canonical_runtime: "source/src/wls/runtime.py::LivingSystem"
 
 state_record:
-  updated_at: "2026-06-23"
+  updated_at: "2026-06-24T07:25:00+08:00"
   time_zone: "Asia/Singapore"
-  update_type: "continuity-baseline"
+  update_type: "canonical-growth-implementation"
   evidence_basis:
     - type: "VERIFIED"
-      source: "repository README.md"
-      note: "Current public repository description and declared capabilities were read directly."
+      source: "source/verification/EVOLUTION_TARGET_001_LOCAL_20260624.json"
+      note: "Two complete isolated canonical-runtime cases passed: retained improvement and detected degradation with rollback."
     - type: "VERIFIED"
-      source: "commit 168aba826f8de76566054823c9fb0611611b47cf"
-      note: "Canonical genome added to the default branch."
+      source: "commit b6d8775d8d2de47b1821b1e7500d464e02ebec29"
+      note: "GitHub Actions produced the canonical implementation commit only after tests, lifecycle verification, lint, type checks, security scan, and package build passed."
+    - type: "VERIFIED"
+      source: "commit 970ec0053200ddf848ddb56f66c3f59bb716e884"
+      note: "GitHub Actions repeated verification and removed generated build/cache artifacts."
     - type: "UNKNOWN"
-      source: "current code and test suite"
-      note: "Full repository tree, runtime behavior, and test results were not independently executed in this update."
+      source: "owner Windows workstation"
+      note: "No real owner-authorized target-host growth run has yet been recorded."
 
 workflow_state: "PARTIAL"
 phase_chain:
   scoped: true
   read: true
-  verified: false
+  verified: true
   modified: true
-  tested: false
+  tested: true
   delivered: true
 
 mission_status:
@@ -35,21 +39,28 @@ mission_status:
   claim_ceiling_defined: true
   owner_authority_preserved: true
   identity_continuity_contract_present: true
+  parallel_runtime_authority_removed: true
 
 current_capabilities:
-  status: "DOCUMENTED_NOT_FULLY_REVERIFIED"
-  domains:
+  status: "CODE_AND_CI_VERIFIED_WITH_HOST_LIMIT"
+  verified_in_this_wave:
+    - "Canonical runtime remains source/src/wls/runtime.py::LivingSystem."
+    - "Repeated failed actions can create evidence-linked failure candidates."
+    - "Recovery candidates are compared with frozen baselines in isolated sandboxes."
+    - "Skill proposals are versioned and linked to failure and recovery evidence."
+    - "SANDBOXED and VALIDATED transitions reject fabricated evidence."
+    - "Approval, promotion, and rollback retain explicit human gates."
+    - "Promoted skills are reused through LivingSystem.run_cycle rather than a parallel executor."
+    - "Post-promotion success, regressions, and RETAIN or ROLLBACK_REQUIRED decisions are persisted."
+    - "A degraded promoted skill can be removed from active and matching sets through rollback."
+  inherited_not_reverified_in_this_wave:
     - perception
     - world_model
     - internal_regulation
     - finite_workspace
     - multi_type_memory
-    - governed_action
-    - outcome_learning
-    - skill_lifecycle
     - sleep_and_consolidation
-    - durable_continuity
-    - cli_and_loopback_api
+    - loopback_api
 
 frozen_decisions:
   - "Safe-default installation remains read-only."
@@ -57,106 +68,128 @@ frozen_decisions:
   - "Writes remain sandboxed and governed."
   - "No automatic Windows service, scheduled task, publication, deletion, or broad Workstation integration."
   - "Provider output remains subject to deterministic schema, policy, and tool gates."
-  - "Human authorization remains mandatory for skill approval and promotion."
+  - "Human authorization remains mandatory for approval, promotion, and rollback."
   - "Claims remain limited to observable software functions."
+  - "No parallel v2/final/brain runtime may replace the canonical LivingSystem without an approved migration."
 
 active_evolution_target:
   id: "EVOLUTION-TARGET-001"
   title: "Verified failure-to-skill-to-reuse loop"
-  status: "SCOPED"
-  objective: >-
-    Demonstrate one complete, auditable growth cycle from a reproducible failure
-    through skill proposal, isolated validation, human approval, promotion, later
-    real-task reuse, post-promotion measurement, and rollback readiness.
-  acceptance_conditions:
-    - "A failure is reproduced or explicitly marked NON_REPRODUCIBLE."
-    - "The original failure and evidence are durably retained."
-    - "A versioned skill candidate is linked to the failure."
-    - "Sandbox boundaries and fixtures are recorded."
-    - "A frozen baseline is measured before candidate validation."
-    - "Acceptance thresholds are defined before evaluation."
-    - "Targeted and affected regression tests pass."
-    - "Approval and promotion are explicitly authorized by the owner."
-    - "The promoted skill is reused on a later real task."
+  status: "IMPLEMENTED_CI_VERIFIED_HOST_PROOF_PENDING"
+  completed_acceptance_conditions:
+    - "Failure records and source action identifiers are durably retained."
+    - "Versioned skill candidates are linked to failure and recovery evidence."
+    - "Sandbox roots, fixtures, manifests, and result digests are recorded."
+    - "Frozen baseline measurements and acceptance thresholds precede evaluation."
+    - "Targeted tests, affected regression tests, lint, type checks, security scan, and build pass."
+    - "Approval, promotion, and rollback gates require explicit human approval parameters."
+    - "A promoted skill is reused through a later canonical-runtime task in the verification harness."
     - "Post-promotion benefit and regressions are measured."
-    - "A tested rollback path exists."
+    - "A degradation scenario produces ROLLBACK_REQUIRED and passes rollback verification."
+  remaining_acceptance_conditions:
+    - "Run the lifecycle on the owner's intended Windows workstation using a genuine failure and non-synthetic later task."
+    - "Record the owner's actual approval identity and authorization reference."
+    - "Measure benefit, regressions, and retain-or-rollback outcome on that host."
   claim_boundary: >-
-    Until all acceptance conditions are evidenced, WLS may claim a governed skill
-    lifecycle implementation but not verified self-improvement or self-evolution.
+    WLS may claim an implemented and CI-verified bounded growth-cycle lifecycle.
+    It may not yet claim long-term self-improvement, production readiness, unrestricted
+    self-evolution, consciousness, or completion of the full software-life objective.
+
+verification:
+  local:
+    report: "source/verification/EVOLUTION_TARGET_001_LOCAL_20260624.json"
+    passed: true
+    python: "3.13.5"
+    tests: "3 passed"
+    compileall: "PASS"
+    ruff: "PASS"
+    mypy: "PASS; 41 source files"
+    bandit: "PASS"
+    wheel_build: "PASS"
+    clean_install: "PASS"
+    cli_init_self_check: "PASS"
+  github_actions:
+    apply_commit: "b6d8775d8d2de47b1821b1e7500d464e02ebec29"
+    clean_reverification_commit: "970ec0053200ddf848ddb56f66c3f59bb716e884"
+    status: "PASS_INFERRED_FROM_POST_VERIFICATION_BOT_COMMITS"
+
+verified_cases:
+  - id: "CASE-RETAIN"
+    result: "PASS"
+    baseline_success_rate: 0.0
+    candidate_success_rate: 1.0
+    improved_cases: 3
+    validation_cases: 3
+    regressions: 0
+    post_promotion_decision: "RETAIN"
+  - id: "CASE-ROLLBACK"
+    result: "PASS"
+    sandbox_candidate_success_rate: 1.0
+    real_task_success_rate: 0.0
+    regressions: 1
+    post_promotion_decision: "ROLLBACK_REQUIRED"
+    rollback_removed_from_active: true
+    rollback_removed_from_matching: true
 
 known_unknowns:
   - id: "KU-001"
-    item: "Exact current repository tree and module authority map"
+    item: "Real Windows installation, upgrade, and host integration behavior"
     status: "UNKNOWN"
   - id: "KU-002"
-    item: "Current unit, integration, end-to-end, installer, and recovery test results"
+    item: "Long-running soak, resource exhaustion, event storm, and deadlock behavior"
     status: "UNKNOWN"
   - id: "KU-003"
-    item: "Schema migration compatibility across releases"
+    item: "Long-term measured learning benefit against a frozen non-learning host baseline"
     status: "UNKNOWN"
   - id: "KU-004"
-    item: "Adversarial security coverage"
+    item: "Adversarial coverage of every connector, provider, plugin, and external action surface"
     status: "UNKNOWN"
   - id: "KU-005"
-    item: "Long-running soak and resource-exhaustion behavior"
-    status: "UNKNOWN"
-  - id: "KU-006"
-    item: "Measured learning benefit versus a frozen non-learning baseline"
-    status: "UNKNOWN"
-  - id: "KU-007"
-    item: "Detection and rollback of a harmful promoted skill"
-    status: "UNKNOWN"
-  - id: "KU-008"
-    item: "Real Windows installation and upgrade behavior on the owner's target host"
-    status: "UNKNOWN"
+    item: "Subjective consciousness, genuine emotion, AGI, or personhood"
+    status: "UNKNOWN_AND_NOT_CLAIMED"
 
-failed_experiments: []
-failed_experiments_note: >-
-  No failure ledger entries were verified during this update. Do not infer that no
-  failures exist. Future contributors must import verified failures without rewriting
-  or deleting their original evidence.
+completed:
+  - "Canonical identity and continuity contract recorded."
+  - "Parallel v2 and decision runtime authority paths removed from the active implementation."
+  - "Recovery experiment, skill validation, real reuse measurement, and rollback implemented in the canonical runtime."
+  - "Fabricated machine-stage evidence is rejected."
+  - "Local and GitHub Actions verification completed for isolated retain and rollback cases."
+  - "Generated caches, build products, and package metadata removed from the tracked tree."
+
+not_completed:
+  - "Owner-authorized genuine-failure run on the intended Windows workstation."
+  - "Long-duration autonomous operation and resource-stress validation."
+  - "Broad connector-body integration with real Workstation systems."
+  - "External longitudinal evidence that learning improves real outcomes."
 
 active_branches:
   - name: "main"
-    role: "canonical default branch"
-    status: "VERIFIED"
-
-completed:
-  - "Canonical mission, invariants, authority, frozen decisions, rejected patterns, and contributor boot sequence recorded."
-  - "Failure-to-growth lifecycle and evidence requirements recorded."
-  - "One unique active evolution target selected."
-
-not_completed:
-  - "Full code and architecture audit"
-  - "Local or CI test execution"
-  - "Failure ledger population"
-  - "Implementation of EVOLUTION-TARGET-001"
-  - "Post-promotion real-task measurement"
-
-current_evidence:
-  repository_readme_sha: "0b2151a98fb65da4f6c89210a11e305ae843b9fb"
-  genome_commit_sha: "168aba826f8de76566054823c9fb0611611b47cf"
+    role: "current default branch before fast-forward"
+    status: "VERIFIED_BASE"
+  - name: "evolution-target-001-canonical"
+    role: "verified canonical implementation candidate"
+    status: "READY_FOR_FAST_FORWARD"
 
 current_limitations:
-  - "This state record does not prove that every README capability is implemented or tested."
-  - "No local Windows runtime or installer was accessed."
-  - "No test suite was executed in this update."
-  - "Concurrent changes by another agent may exist after this record was written."
+  - "The approval identities in automated verification are explicit test fixtures, not the owner's production approval."
+  - "The later tasks execute through the real runtime path but inside temporary isolated homes."
+  - "The GitHub Actions pass is evidenced by bot commits after gated steps; a separate check-run status was not returned by the connector."
+  - "Capabilities outside the growth lifecycle were not comprehensively re-audited in this wave."
 
 unique_next_action: >-
-  Read the current repository tree and tests, map the real failure/skill lifecycle,
-  then implement and execute EVOLUTION-TARGET-001 without creating a parallel runtime.
+  Fast-forward the verified branch to main, then execute one genuine owner-authorized
+  EVOLUTION-TARGET-001 run on the intended Windows workstation and persist its retain
+  or rollback evidence without adding another runtime.
 
 stop_conditions:
-  - "Stop if the target requires bypassing human approval, policy gates, or rollback."
-  - "Stop if current repository state cannot be read or reconciled."
-  - "Stop if another active change modifies the same files and produces an unresolved conflict."
-  - "Stop after the unique target is delivered and evidenced; do not auto-create a new subsystem."
+  - "Stop if the host run would bypass human approval, policy gates, evidence retention, or rollback."
+  - "Stop if main advances independently and cannot be reconciled by fast-forward."
+  - "Stop after host evidence is persisted; do not create a parallel subsystem."
 
 prohibited_misinterpretations:
-  - "A documented capability is not automatically a verified runtime capability."
-  - "A passing sandbox test is not promotion."
-  - "A promoted skill without later reuse and measurement is not demonstrated growth."
+  - "CI verification is not proof of long-term external effectiveness."
+  - "A sandbox pass is not promotion."
+  - "A test-fixture approval is not the owner's production authorization."
+  - "A retained skill in an isolated run is not proof of indefinite self-improvement."
   - "Persistent state is not subjective consciousness."
   - "Functional affect is not genuine emotion."
-  - "Conversation continuity is not repository continuity."

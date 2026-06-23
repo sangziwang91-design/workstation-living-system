@@ -18,6 +18,7 @@ from .db import Database
 from .drives import DriveSystem
 from .evaluator import Evaluator
 from .evidence import EvidenceLedger
+from .growth_cycle import GrowthCycleManager
 from .learning import LearningSystem
 from .lease import ProcessLease
 from .planner import Planner
@@ -80,6 +81,7 @@ class LivingSystem:
         )
         self.attention = AttentionSystem(config.workspace_capacity)
         self.planner = Planner(config)
+        self.growth = GrowthCycleManager(self)
         self._load_plugins()
         self.lease = ProcessLease(config.home_path / "state" / "runtime.lock")
         self.worker_id = f"wls-{os.getpid()}-{new_id('worker')[-8:]}"
@@ -830,6 +832,7 @@ class LivingSystem:
             "self_model": self.self_model.snapshot(),
             "active_goals": [goal.to_dict() for goal in self.goals.active()],
             "active_skills": self.skills.active(),
+            "growth_cycles": self.growth.summary(limit=20),
             "next_focus": self.db.get_runtime("next_focus", []),
         }
 

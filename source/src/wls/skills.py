@@ -6,7 +6,7 @@ import json
 
 from .db import Database
 from .evidence import EvidenceLedger
-from .schemas import CandidateStatus, RiskLevel, SkillDefinition, utc_now
+from .schemas import CandidateStatus, RiskLevel, SkillDefinition, digest_json, utc_now
 from .text import tokens
 
 
@@ -128,6 +128,7 @@ class SkillLibrary:
             and not human_approved
         ):
             raise PermissionError(f"{target.value} requires human approval")
+        self._verify_machine_transition(skill_id, target, evidence)
         definition = json.loads(row["definition_json"])
         definition["status"] = target.value
         definition.setdefault("transition_evidence", []).append(
@@ -153,6 +154,38 @@ class SkillLibrary:
                 },
                 connection,
             )
+
+
+    def _verify_machine_transition(
+        self, skill_id: str, target: CandidateStatus, evidence: dict[str, Any]
+    ) -> None:
+        if target not in {CandidateStatus.SANDBOXED, CandidateStatus.VALIDATED}:
+            return
+        experiment_id = str(evidence.get("experiment_id", ""))
+        if not experiment_id:
+            raise ValueError(f"{target.value} requires a persisted skill experiment")
+        row = self.db.query_one(
+            "SELECT * FROM skill_experiments WHERE experiment_id=? AND skill_id=?",
+            (experiment_id, skill_id),
+        )
+        if row is None:
+            raise ValueError("skill experiment evidence does not exist")
+        if target == CandidateStatus.SANDBOXED:
+            manifest = json.loads(row["manifest_json"])
+            if evidence.get("manifest_sha256") != digest_json(manifest):
+                raise ValueError("skill manifest digest mismatch")
+            if row["status"] != "RUNNING":
+                raise ValueError("skill sandbox requires a running experiment")
+            return
+        if row["status"] != "PASSED" or not row["result_json"]:
+            raise ValueError("skill validation requires a passed experiment")
+        result = json.loads(row["result_json"])
+        if evidence.get("result_sha256") != digest_json(result):
+            raise ValueError("skill result digest mismatch")
+        if not result.get("passed") or int(result.get("regressions", 1)) != 0:
+            raise ValueError("skill experiment did not pass without regressions")
+        if int(result.get("passed_cases", 0)) < int(result.get("candidate_cases", 1)):
+            raise ValueError("not all skill cases passed")
 
     def record_use(self, skill_id: str, success: bool) -> None:
         row = self.db.query_one("SELECT * FROM skills WHERE skill_id=?", (skill_id,))
