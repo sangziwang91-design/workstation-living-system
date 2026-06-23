@@ -13,8 +13,8 @@ from .evidence_gates import EvidenceBoundLearningSystem, EvidenceBoundSkillLibra
 # Install the evidence-bound implementations before runtime.py imports the module
 # symbols. This keeps one canonical LivingSystem while preventing machine-stage
 # growth transitions from bypassing persisted experiment evidence.
-_skills_module.SkillLibrary = EvidenceBoundSkillLibrary
-_learning_module.LearningSystem = EvidenceBoundLearningSystem
+setattr(_skills_module, "SkillLibrary", EvidenceBoundSkillLibrary)
+setattr(_learning_module, "LearningSystem", EvidenceBoundLearningSystem)
 
 from .runtime import LivingSystem  # noqa: E402
 
