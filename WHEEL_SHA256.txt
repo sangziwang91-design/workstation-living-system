@@ -1,1 +1,1 @@
-e6d49886493a6a6b4b988be0c7b9774335c5605e0735b4f04f5b90fa56c4e685  workstation_living_system-1.0.0-py3-none-any.whl
+8b67e47cde27681b74e2e31b7bc5ef1431b99ed8132125ca4f0f39cd6e5bde86  dist/workstation_living_system-0.1.0a1-py3-none-any.whl

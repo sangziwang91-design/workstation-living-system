@@ -15,8 +15,15 @@ if ([string]::IsNullOrWhiteSpace($InstallRoot)) {
 $InstallRoot = [System.IO.Path]::GetFullPath($InstallRoot)
 $VenvRoot = Join-Path $InstallRoot "venv"
 $ConfigPath = Join-Path $InstallRoot "config.json"
-$Wheel = Get-ChildItem -Path (Join-Path $PackageRoot "dist") -Filter "workstation_living_system-*.whl" | Select-Object -First 1
-if (-not $Wheel) { throw "Bundled WLS wheel was not found." }
+$VersionFile = Join-Path $PackageRoot "VERSION.txt"
+if (-not (Test-Path $VersionFile)) { throw "VERSION.txt is missing." }
+$PackageVersion = (Get-Content $VersionFile -Raw).Trim()
+$ExpectedWheelName = "workstation_living_system-$PackageVersion-py3-none-any.whl"
+$ExpectedWheelPath = Join-Path (Join-Path $PackageRoot "dist") $ExpectedWheelName
+if (-not (Test-Path $ExpectedWheelPath)) { throw "Expected bundled WLS wheel was not found: $ExpectedWheelName" }
+$Wheel = Get-Item $ExpectedWheelPath
+$ExtraWheels = @(Get-ChildItem -Path (Join-Path $PackageRoot "dist") -Filter "workstation_living_system-*.whl" | Where-Object { $_.FullName -ne $Wheel.FullName })
+if ($ExtraWheels.Count -ne 0) { throw "Multiple WLS wheels are present; refusing ambiguous installation." }
 $WheelHashFile = Join-Path $PackageRoot "WHEEL_SHA256.txt"
 if (-not (Test-Path $WheelHashFile)) { throw "Wheel hash file is missing." }
 $ExpectedWheelHash = (Get-Content $WheelHashFile -Raw).Trim().Split()[0].ToLowerInvariant()
