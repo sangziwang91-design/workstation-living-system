@@ -1,131 +1,83 @@
-# Workstation Living System (WLS) 1.0
+# Workstation Living System (WLS)
 
-WLS is a persistent, bounded software-life runtime that can observe configured parts of its environment, maintain a corrigible world model, allocate attention, preserve multiple kinds of memory, pursue human and narrowly generated goals, take governed actions, learn from outcomes, consolidate experience, and grow a versioned declarative skill library.
+> **Status:** `0.1.0a1` experimental alpha. This repository is a research and engineering baseline, not a completed software lifeform, conscious system, AGI, production autonomous operator, or demonstrated general self-improving agent.
 
-WLS **does not claim subjective consciousness, genuine emotion, AGI, or unlimited self-modification**. Its claims are limited to observable software functions.
+WLS is a local-first Python runtime for testing a bounded loop:
 
-## What it contains
+`configured observation → evidence-grounded state → bounded decision → governed action → external result → recorded learning`
 
-- **Perception:** clock, system-resource, inbox, filesystem, process, Git, HTTP-health, and custom sensors.
-- **World model:** evidence-tagged facts, expiry, contradictions, predictions, refutations, and prediction error.
-- **Internal regulation:** drives and functional affect that change action budget, exploration, recovery preference, and safety pressure.
-- **Finite workspace:** events, goals, memories, and internal state compete for bounded attention; external events cannot be starved by internal memory.
-- **Memory:** episodic, semantic, procedural/skill, relationship, failure, and self-model state.
-- **Action:** local read tools, bounded HTTP, allowlisted commands, reversible file writes, exact action approval, idempotency, and unknown-side-effect reconciliation.
-- **Learning:** outcome episodes, prediction-error candidates, repeated-failure candidates, semantic consolidation, and repeated successful action sequences that become declarative skill proposals.
-- **Growth:** proposed skills move through `PROPOSED → SANDBOXED → VALIDATED → APPROVED → PROMOTED`; approval and promotion require explicit human authorization.
-- **Sleep:** stale-fact expiry, contradiction resolution, memory consolidation, deduplication, skill discovery, failure review, and next-focus generation.
-- **Continuity:** SQLite WAL persistence, HMAC evidence chain, process leases, crash recovery, pause, sticky kill switch, and restart-safe pending actions.
-- **Interface:** CLI and a token-authenticated loopback JSON API.
+The project is intentionally evidence-gated. A class name, prompt, database row, or passing unit test does not establish that a human-like capability exists.
 
-## Install on Windows
+## What Round 001 verifies
 
-The release installer creates WLS under `D:\Workstation\.wls`, installs from the included offline wheel, initializes a read-only configuration, and runs self-checks.
+- durable ingestion and worker-bound event acknowledgement;
+- bounded attention that reserves capacity for real external events;
+- SQLite persistence and an append-only evidence chain;
+- action approval bound to the complete action semantics;
+- crash states that do not automatically replay uncertain side effects;
+- bounded episodic memory without recursive payload growth;
+- one narrow, schema-validated path by which a trusted procedural/failure memory can alter a later deterministic plan;
+- packaging, clean-environment tests, static checks, and release verification from the exported tree.
+
+See [`CLAIM_CEILING.md`](CLAIM_CEILING.md) for the exact claim boundary and [`docs/ROUND_001_BASELINE.md`](docs/ROUND_001_BASELINE.md) for measured evidence.
+
+## What is not yet established
+
+- reliable long-running operation on the real Windows Workstation;
+- integration with SZ Hub, Workstation, GBSF, GBDS, or APF;
+- broad environmental understanding;
+- human-like emotion or subjective experience;
+- general continual-learning advantage;
+- autonomous code repair, unrestricted self-modification, or production safety;
+- external social, scientific, or commercial value.
+
+## Repository layout
+
+```text
+source/                  Python package and committed tests
+dist/                    bundled alpha wheel
+docs/                    architecture and Round 001 evidence
+benchmarks/              deterministic baseline benchmark
+.github/workflows/       clean CI verification
+INSTALL.ps1              offline Windows installer
+VERIFY_RELEASE.py        exported-tree release verifier
+AGENTS.md                execution contract for coding agents
+CURRENT_STATE.yaml       evidence-bounded project state
+```
+
+## Developer verification
+
+Python 3.11 or newer is required.
+
+```bash
+cd source
+python -m pip install -e ".[dev]"
+python -m pytest --cov=wls --cov-branch --cov-report=term-missing
+python -m ruff check src tests
+python -m mypy src
+python -m bandit -q -r src
+```
+
+Verify the bundled release without relying on `.git`:
+
+```bash
+python VERIFY_RELEASE.py
+```
+
+The verifier checks the wheel hash, installs the bundled wheel into a temporary virtual environment with `--no-index`, initializes an isolated home, and runs package self-check and integrity verification.
+
+## Windows installation
+
+The installer creates a read-only standalone installation under `D:\Workstation\.wls`. It does not connect the five existing systems, register a service, create a scheduled task, publish data, or enable general write access.
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
 .\INSTALL.ps1 -WorkstationRoot "D:\Workstation"
+.\VERIFY.ps1 -WorkstationRoot "D:\Workstation"
 ```
 
-Start and stop the standalone daemon:
+## Engineering contract
 
-```powershell
-.\START.ps1
-.\STOP.ps1
-```
+Every development round must contain a reproducible failing baseline, acceptance criteria, committed tests, an adversarial case, benchmark or behavioral delta, claim-ceiling update, and pull request. Valid round outcomes are only `PASS`, `PARTIAL`, `FAIL`, or `INVALIDATED`.
 
-Use the installed command wrapper:
-
-```powershell
-D:\Workstation\.wls\wls.cmd status
-D:\Workstation\.wls\wls.cmd once
-D:\Workstation\.wls\wls.cmd world
-D:\Workstation\.wls\wls.cmd memories
-D:\Workstation\.wls\wls.cmd skills
-```
-
-## Safe default
-
-The generated configuration is read-only:
-
-- clock, host-resource, and local inbox sensors are enabled;
-- filesystem, process, Git, HTTP, external providers, and plugins require explicit configuration;
-- writes are limited to the WLS sandbox/outbox and still require an exact one-time approval unless policy is deliberately changed;
-- no Windows service, scheduled task, external publication, deletion, or Workstation integration is created automatically.
-
-## Feed an observation through the inbox
-
-Create `D:\Workstation\.wls\inbox\event.json`:
-
-```json
-{
-  "source": "human",
-  "kind": "external_event",
-  "subject": "workstation",
-  "predicate": "request",
-  "value": {
-    "action": "inspect_path",
-    "path": "D:/Workstation"
-  },
-  "evidence_kind": "USER_REPORTED",
-  "verification": "UNKNOWN"
-}
-```
-
-The inbox file is acknowledged only after durable ingestion. It is then moved to `inbox\processed`.
-
-## Goals and relationship continuity
-
-```powershell
-wls.cmd add-goal "Understand current Workstation state" --criterion "Produce verified state map"
-
-wls.cmd add-relationship owner preferred_language `
-  --value '"zh-CN"' --stability stable --confidence 0.95 `
-  --source-id user_statement_1 --source-id user_confirmation_2
-```
-
-Stable relationship records require at least two distinct sources and confidence of at least 0.8.
-
-## Approval and crash recovery
-
-```powershell
-wls.cmd status
-wls.cmd approve <ACTION_ID> --minutes 30 --reason "Reviewed exact action"
-wls.cmd resume-action <ACTION_ID>
-```
-
-Approvals are bound to the exact action digest, expire, and are consumed once. A process interruption during a possible side effect produces `UNKNOWN_SIDE_EFFECT`; WLS will not replay it automatically.
-
-## Skill growth
-
-```powershell
-wls.cmd skills
-wls.cmd skill <SKILL_ID> SANDBOXED --evidence '{"sandbox":"isolated"}'
-wls.cmd skill <SKILL_ID> VALIDATED --evidence '{"tests_passed":true}'
-wls.cmd skill <SKILL_ID> APPROVED --human-approved --evidence '{"reviewer":"owner"}'
-wls.cmd skill <SKILL_ID> PROMOTED --human-approved --evidence '{"release":"approved"}'
-```
-
-A promoted skill can change future plans when its trigger terms match the current environment. WLS never treats a generated skill as validated merely because a model wrote it.
-
-## Optional model planner
-
-The deterministic planner works without an API. An OpenAI-compatible JSON planner can be configured later:
-
-```json
-{
-  "provider": {
-    "type": "openai_compatible",
-    "base_url": "https://provider.example/v1",
-    "model": "model-name",
-    "api_key_env": "WLS_MODEL_API_KEY",
-    "timeout_seconds": 60
-  }
-}
-```
-
-Provider output is parsed into a strict plan schema and still passes deterministic policy and tool gates.
-
-## Claim ceiling
-
-Verified functions are software functions: observation, persistent state, world-model revision, bounded attention, memory retrieval, governed actions, outcome learning, skill lifecycle, consolidation, and recovery. No software test in this package establishes subjective experience or human-equivalent emotion.
+Real credentials, patient data, private Notion content, and Workstation databases are prohibited from this repository.
