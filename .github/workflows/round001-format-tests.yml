@@ -1,0 +1,43 @@
+name: round001-format-tests
+
+on:
+  push:
+    branches:
+      - round/001-reproducible-baseline
+    paths:
+      - .github/workflows/round001-format-tests.yml
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: round/001-reproducible-baseline
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install formatting and test dependencies
+        run: python -m pip install -e './source[dev]'
+      - name: Format and lint scenario suite
+        run: |
+          python -m ruff format source/tests/test_e2e_scenarios.py
+          python -m ruff check --fix source/tests/test_e2e_scenarios.py
+          python -m ruff check source/src source/tests
+      - name: Verify after formatting
+        run: |
+          python -m pytest source/tests --cov=wls --cov-branch --cov-fail-under=65
+          python -m mypy source/src
+          python -m bandit -q -r source/src
+      - name: Commit formatted suite
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add source/tests/test_e2e_scenarios.py
+          git commit -m 'round-001: format evidence-bound end-to-end scenarios'
+          git push origin HEAD:round/001-reproducible-baseline
