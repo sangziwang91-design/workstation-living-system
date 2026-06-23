@@ -82,6 +82,12 @@ class RuntimeConfig:
     def outbox_path(self) -> Path:
         return self.home_path / "outbox"
 
+    @property
+    def failure_recovery_min_cases(self) -> int:
+        """Compatibility alias used by the first evolution-loop implementation."""
+
+        return self.recovery_validation_min_occurrences
+
     def validate(self) -> None:
         if self.cycle_seconds <= 0:
             raise ValueError("cycle_seconds must be positive")
