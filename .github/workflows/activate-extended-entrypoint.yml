@@ -1,22 +1,22 @@
-name: Activate extended entrypoint
+name: Package metadata sync
 
 on:
   push:
     paths:
-      - "state/activate-extended-entrypoint.txt"
+      - "state/build-request.txt"
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  activate:
+  sync:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Update package entrypoint
+      - name: Sync package metadata
         shell: bash
         run: |
           set -euo pipefail
@@ -31,7 +31,7 @@ jobs:
           elif new not in text:
               raise SystemExit("expected entrypoint not found")
           PY
-      - name: Commit entrypoint
+      - name: Commit metadata
         shell: bash
         run: |
           set -euo pipefail
@@ -41,5 +41,5 @@ jobs:
           if git diff --cached --quiet; then
             exit 0
           fi
-          git commit -m "build: activate extended WLS entrypoint"
+          git commit -m "build: sync package entrypoint"
           git push origin HEAD:main
