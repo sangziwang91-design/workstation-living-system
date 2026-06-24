@@ -52,9 +52,11 @@ class WLSServer:
         self.runtime = runtime
         self.host = host
         self.port = port
-        self.token = load_or_create_token(runtime.config.secret_path.with_name("server.token"))
+        secret_path = Path(runtime.config.secret_path)
+        self.token = load_or_create_token(secret_path.with_name("server.token"))
         self.ui_session = os.urandom(32).hex()
-        self.providers = provider_hub or ProviderHub(runtime.config.home_path, runtime.ledger)
+        provider_home = Path(getattr(runtime.config, "home_path", secret_path.parent))
+        self.providers = provider_hub or ProviderHub(provider_home, runtime.ledger)
         self._server: ThreadingHTTPServer | None = None
 
     def provider_ui_url(self) -> str:
@@ -128,6 +130,12 @@ class WLSServer:
                 self.end_headers()
                 self.wfile.write(encoded)
 
+            def _require_loopback_host(self) -> bool:
+                if self._host_is_loopback():
+                    return True
+                self._json(421, {"error": "loopback host required"})
+                return False
+
             def _read_json(self) -> dict[str, Any]:
                 length = int(self.headers.get("Content-Length", "0"))
                 if length <= 0 or length > 1024 * 1024:
@@ -162,16 +170,19 @@ class WLSServer:
             def do_GET(self) -> None:
                 path = urlparse(self.path).path
                 if path == "/providers":
-                    if not self._host_is_loopback():
-                        self._json(421, {"error": "loopback host required"})
+                    if not self._require_loopback_host():
                         return
                     page = PROVIDER_HUB_HTML.replace("{{SESSION}}", ui_session)
                     self._asset("text/html; charset=utf-8", page)
                     return
                 if path == "/assets/provider-hub.css":
+                    if not self._require_loopback_host():
+                        return
                     self._asset("text/css; charset=utf-8", PROVIDER_HUB_CSS)
                     return
                 if path == "/assets/provider-hub.js":
+                    if not self._require_loopback_host():
+                        return
                     self._asset("application/javascript; charset=utf-8", PROVIDER_HUB_JS)
                     return
                 if path == "/api/providers":
