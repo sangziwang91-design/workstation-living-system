@@ -1,0 +1,105 @@
+{
+  "schema_version": "1.0",
+  "task_id": "CHAIN-BOOTSTRAP-001-COMPLETION",
+  "target_id": "REPO-NATIVE-EVOLUTION-CONTROL-PLANE",
+  "title": "Record merged and CI-verified repo-native evolution chain",
+  "status": "COMPLETED",
+  "priority": 100,
+  "risk": "MODERATE",
+  "minimum_worker_capability": "architecture_and_review",
+  "worker": {
+    "assigned_worker_id": "chatgpt_interactive",
+    "lease_mode": "OWNER_ASSIGNED",
+    "provider_status_required": "ACTIVE"
+  },
+  "context": {
+    "repository": "sangziwang91-design/workstation-living-system-private",
+    "base_ref": "main@6e8a20d74e5e5d36eeefbfb9220dfc203c77bb71",
+    "canonical_runtime": "source/src/wls/runtime.py::LivingSystem",
+    "github_evidence": [
+      "PR #9 squash-merged as 6e8a20d74e5e5d36eeefbfb9220dfc203c77bb71",
+      "Verify Repo-Native Evolution Chain run 28073884899 completed successfully on Ubuntu and Windows",
+      "WLS CI run 28073884881 completed successfully",
+      "ET001 run 28073884896 completed successfully",
+      "ET002 run 28073884887 completed successfully",
+      "ET003 run 28073884876 completed successfully after rerunning one failed Windows 3.11 job",
+      "PR #9 changed only the declared control-plane, validator, test and workflow paths"
+    ],
+    "notion_page_id": "38940ff6ad6281b6bd69d700c9322d77",
+    "notion_page_url": "https://app.notion.com/p/38940ff6ad6281b6bd69d700c9322d77",
+    "context_claim_class": "VERIFIED"
+  },
+  "objective": "Persist the completed bootstrap disposition after owner-authorized merge and successful focused and regression verification, then hand the active chain to the existing ET004 line without duplicating it.",
+  "allowed_paths": [
+    ".evolution/CURRENT_CHAIN.json",
+    ".evolution/queue/completed/CHAIN-BOOTSTRAP-001-COMPLETION.json",
+    "EVOLUTION_CHAIN.md"
+  ],
+  "forbidden_changes": [
+    "Do not modify LivingSystem or any ET004 implementation file.",
+    "Do not activate any provider candidate.",
+    "Do not erase the original verification or blocked packets.",
+    "Do not claim unattended evolution or owner-host longitudinal proof."
+  ],
+  "acceptance": {
+    "commands": [
+      "python source/scripts/validate_evolution_chain.py",
+      "python -m pytest source/tests/test_evolution_chain.py -q"
+    ],
+    "conditions": [
+      "The completion packet points to the exact PR #9 merge commit and successful workflow runs.",
+      "CURRENT_CHAIN reports ACTIVE_CI_VERIFIED while retaining the same owner, runtime and worker boundaries.",
+      "The original verification packet remains present as historical evidence.",
+      "PR #8 remains the sole ET004 implementation line and is not modified by this completion change."
+    ],
+    "evidence_required": [
+      "PR #9 merge result",
+      "workflow runs 28073884899, 28073884881, 28073884896, 28073884887 and 28073884876",
+      "Notion EXP-082 final bootstrap archive"
+    ]
+  },
+  "stop_conditions": [
+    "Stop if main no longer contains merge commit 6e8a20d74e5e5d36eeefbfb9220dfc203c77bb71.",
+    "Stop if any provider candidate becomes ACTIVE without a separate admission target.",
+    "Stop if the completion record would overwrite historical evidence."
+  ],
+  "dependencies": [
+    "CHAIN-BOOTSTRAP-001",
+    "PR #9 merged",
+    "Focused chain CI green",
+    "WLS and ET001-ET003 regression gates green"
+  ],
+  "output_contract": {
+    "changed_files": [
+      ".evolution/queue/completed/CHAIN-BOOTSTRAP-001-COMPLETION.json",
+      ".evolution/CURRENT_CHAIN.json",
+      "EVOLUTION_CHAIN.md"
+    ],
+    "tests": [
+      "Verify Repo-Native Evolution Chain: success",
+      "WLS CI: success",
+      "ET001: success",
+      "ET002: success",
+      "ET003: success after failed-job rerun"
+    ],
+    "evidence": [
+      "PR #9 merge commit 6e8a20d74e5e5d36eeefbfb9220dfc203c77bb71",
+      "Notion EXP-082 https://app.notion.com/p/38940ff6ad6281b6bd69d700c9322d77"
+    ],
+    "unknowns": [
+      "Long-term low-cost throughput is not yet measured.",
+      "Notion AI jobs are contract-defined but not unattended scheduled agents.",
+      "Multi-provider admission and owner-host longitudinal benefit remain unproven."
+    ],
+    "next_action": "Keep PR #8 blocked from chain execution until it contains a complete ET004 implementation and current CI evidence; then perform a head-pinned audit rather than creating a duplicate branch."
+  },
+  "handoff": {
+    "summary": "The GitHub/Notion/ChatGPT control plane is merged, CI-verified and active. ChatGPT remains the sole active code worker; Notion AI is context-only; all other provider candidates remain pending.",
+    "blocker": null,
+    "supersedes": "CHAIN-BOOTSTRAP-001"
+  },
+  "timestamps": {
+    "created_at": "2026-06-24T11:58:18+08:00",
+    "updated_at": "2026-06-24T11:58:18+08:00"
+  }
+}
