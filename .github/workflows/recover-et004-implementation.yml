@@ -74,8 +74,9 @@ jobs:
           gunzip -c /tmp/et004.patch.gz > /tmp/et004.patch
           git apply --check /tmp/et004.patch
           git apply /tmp/et004.patch
-          rm -f .github/workflows/recover-et004-implementation.yml
-          rm -f .github/workflows/export-et004-worktree.yml
+          # A GITHUB_TOKEN with contents:write cannot safely add or remove workflow files.
+          # The connector installs the formal matrix and removes temporary workflows after this push.
+          rm -f .github/workflows/verify-evolution-target-004.yml
 
       - name: Install verification toolchain
         run: |
