@@ -49,7 +49,16 @@ jobs:
       - name: Lint server integration
         working-directory: source
         run: python -m ruff check src/wls/server.py
-      - name: Lint complete source tree
+      - name: Capture full-source lint report
+        working-directory: source
+        shell: bash
+        run: python -m ruff check src --output-format=json > ruff-source.json || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: provider-hub-ruff-${{ matrix.os }}-${{ matrix.python-version }}
+          path: source/ruff-source.json
+          retention-days: 3
+      - name: Gate complete source lint
         working-directory: source
         run: python -m ruff check src
       - name: Lint complete test tree
