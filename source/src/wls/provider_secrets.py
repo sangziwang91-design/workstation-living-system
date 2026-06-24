@@ -4,8 +4,14 @@ from typing import Any
 import os
 import re
 
-import keyring
-from keyring.errors import KeyringError
+try:
+    import keyring  # type: ignore[import-not-found]
+    from keyring.errors import KeyringError  # type: ignore[import-not-found]
+except ImportError:  # pragma: no cover - exercised by installation diagnostics
+    keyring = None
+
+    class KeyringError(Exception):
+        pass
 
 
 _PROVIDER_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{1,63}$")
@@ -34,6 +40,13 @@ class ProviderSecretStore:
     def __init__(self, service_name: str = _SERVICE_NAME):
         self.service_name = service_name
 
+    def _require_backend(self) -> Any:
+        if keyring is None:
+            raise SecretStoreError(
+                "OS credential vault support is not installed; install the optional 'keyring' package or use the provider environment variable"
+            )
+        return keyring
+
     def set(self, provider_id: str, secret: str) -> None:
         provider_id = _provider_id(provider_id)
         value = str(secret).strip()
@@ -41,8 +54,9 @@ class ProviderSecretStore:
             raise ValueError("credential must not be empty")
         if len(value) > 16384:
             raise ValueError("credential is unexpectedly large")
+        backend = self._require_backend()
         try:
-            keyring.set_password(self.service_name, provider_id, value)
+            backend.set_password(self.service_name, provider_id, value)
         except KeyringError as exc:
             raise SecretStoreError(f"OS credential vault rejected the credential: {exc}") from exc
 
@@ -51,6 +65,8 @@ class ProviderSecretStore:
         environment_value = os.environ.get(provider_env_name(provider_id))
         if environment_value:
             return environment_value
+        if keyring is None:
+            return None
         try:
             return keyring.get_password(self.service_name, provider_id)
         except KeyringError as exc:
@@ -61,19 +77,24 @@ class ProviderSecretStore:
 
     def delete(self, provider_id: str) -> bool:
         provider_id = _provider_id(provider_id)
+        backend = self._require_backend()
         try:
-            existing = keyring.get_password(self.service_name, provider_id)
+            existing = backend.get_password(self.service_name, provider_id)
             if existing is None:
                 return False
-            keyring.delete_password(self.service_name, provider_id)
+            backend.delete_password(self.service_name, provider_id)
             return True
         except KeyringError as exc:
             raise SecretStoreError(f"OS credential vault could not delete the credential: {exc}") from exc
 
     def status(self) -> dict[str, Any]:
-        backend = keyring.get_keyring()
+        backend_name = "unavailable"
+        if keyring is not None:
+            backend = keyring.get_keyring()
+            backend_name = f"{type(backend).__module__}.{type(backend).__name__}"
         return {
-            "backend": f"{type(backend).__module__}.{type(backend).__name__}",
+            "backend": backend_name,
+            "available": keyring is not None,
             "service": self.service_name,
             "plaintext_in_wls_files": False,
             "environment_fallback": "WLS_PROVIDER_<PROVIDER_ID>_TOKEN",
