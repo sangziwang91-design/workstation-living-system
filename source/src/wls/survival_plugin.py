@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from types import MethodType
-from typing import Any, Callable, cast
+from typing import Any, cast
 import json
 import signal
 import time
