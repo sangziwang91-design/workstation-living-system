@@ -4,12 +4,19 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "workstation-living-system"
-version = "0.6.0.dev1"
+dynamic = ["version"]
+description = "A bounded functional software-life runtime for persistent observation, learning, memory, skills, and governed action."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 authors = [{name = "Sangzi Wang"}]
 dependencies = []
+keywords = ["agent", "memory", "world-model", "continual-learning", "workstation"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Operating System :: OS Independent",
+]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11", "bandit>=1.7", "build>=1.2"]
@@ -18,11 +25,14 @@ dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11", "bandit>=1.7", "build>=1.2"]
 wls = "wls.cli:main"
 
 [tool.setuptools]
-package-dir = {"" = "src"}
+package-dir = {"" = "source/src"}
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["source/src"]
+
+[tool.setuptools.dynamic]
+version = {attr = "wls._version.__version__"}
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["source/tests"]
 addopts = "-q"

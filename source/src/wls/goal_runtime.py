@@ -8,16 +8,15 @@ but extends the canonical LivingSystem with goal state tracking.
 from __future__ import annotations
 
 from typing import Any
-import json
 
 from .db import Database
 from .evidence import EvidenceLedger
-from .schemas import Goal, new_id, utc_now
+from .schemas import utc_now
 
 
 class GoalRuntime:
     """Goal lifecycle state machine for persistent continuity.
-    
+
     Tracks goal decomposition, debt ledger, interruption recovery,
     and restart continuity within the canonical runtime.
     """
@@ -28,9 +27,7 @@ class GoalRuntime:
 
     def snapshot(self) -> dict[str, Any]:
         """Return goal runtime state snapshot for CURRENT_STATE."""
-        total_row = self.db.query_one(
-            "SELECT COUNT(*) AS n FROM goals"
-        )
+        total_row = self.db.query_one("SELECT COUNT(*) AS n FROM goals")
         active_row = self.db.query_one(
             "SELECT COUNT(*) AS n FROM goals WHERE status IN ('ACTIVE', 'BLOCKED')"
         )
