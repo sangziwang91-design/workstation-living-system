@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Iterable
 import json
 import sqlite3
 
 from .db import Database
 from .evidence import EvidenceLedger
+from .memory_index import CausalMemoryIndex
 from .text import tokens
 from .schemas import (
     Event,
@@ -364,6 +365,7 @@ class MemoryStore:
     def __init__(self, db: Database, ledger: EvidenceLedger):
         self.db = db
         self.ledger = ledger
+        self.causal = CausalMemoryIndex(db, ledger)
 
     def add(self, memory: MemoryItem) -> str:
         normalized = self._text(memory.content)
@@ -398,6 +400,7 @@ class MemoryStore:
                 },
                 connection,
             )
+        self.causal.index_memory(memory.memory_id)
         return memory.memory_id
 
     def retrieve(
@@ -442,6 +445,52 @@ class MemoryStore:
             for score, row in selected
         ]
 
+    def retrieve_causal(
+        self,
+        query: str,
+        limit: int = 8,
+        *,
+        context: dict[str, Any] | None = None,
+        enabled: bool = True,
+        frozen: bool = False,
+    ) -> dict[str, Any]:
+        return self.causal.retrieve(
+            query,
+            limit,
+            context=context,
+            enabled=enabled,
+            frozen=frozen,
+        )
+
+    def build_query_context(
+        self, events: Iterable[Any], goals: Iterable[Any]
+    ) -> dict[str, Any]:
+        return self.causal.build_query_context(events, goals)
+
+    def record_decision_outcome(
+        self,
+        memory_ids: Iterable[str],
+        *,
+        success: bool | None,
+        prediction_statuses: Iterable[str],
+        source_ids: Iterable[str],
+    ) -> list[dict[str, Any]]:
+        return self.causal.record_outcome(
+            memory_ids,
+            success=success,
+            prediction_statuses=prediction_statuses,
+            source_ids=source_ids,
+        )
+
+    def memory_state(self, memory_id: str) -> dict[str, Any]:
+        return self.causal.state(memory_id)
+
+    def memory_summary(self) -> dict[str, Any]:
+        return self.causal.summary()
+
+    def memory_integrity(self) -> tuple[bool, dict[str, int]]:
+        return self.causal.integrity()
+
     def recent(
         self, memory_type: str | None = None, limit: int = 50
     ) -> list[dict[str, Any]]:
@@ -471,6 +520,14 @@ class MemoryStore:
 
     def deactivate(self, memory_id: str) -> None:
         self.db.execute("UPDATE memories SET active=0 WHERE memory_id=?", (memory_id,))
+        state = self.causal.state(memory_id)["validity_state"]
+        if state not in {"REFUTED", "EXPIRED", "SUPERSEDED"}:
+            self.causal.set_state(
+                memory_id,
+                "SUPERSEDED",
+                "memory deactivated",
+                ["MemoryStore.deactivate"],
+            )
 
     @staticmethod
     def _text(content: dict[str, Any]) -> str:

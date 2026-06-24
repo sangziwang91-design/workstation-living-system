@@ -94,7 +94,7 @@ class CausalMemoryIndex:
                     refutation_state,applicability_json,valid_from,valid_until,
                     positive_outcomes,negative_outcomes,consecutive_negative,last_outcome_at,
                     indexed_at,updated_at
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,0,0,NULL,?,?)
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,0,0,NULL,?,?)
                 ON CONFLICT(memory_id) DO UPDATE SET
                     project_ids_json=excluded.project_ids_json,
                     context_ids_json=excluded.context_ids_json,
@@ -208,13 +208,13 @@ class CausalMemoryIndex:
         for row in rows:
             memory_id = str(row["memory_id"])
             state = str(row["validity_state"])
-            rollback_reason = self._linked_rollback_reason(row)
-            if rollback_reason and state not in TERMINAL_MEMORY_STATES:
-                self.set_state(memory_id, "SUPERSEDED", rollback_reason, [rollback_reason])
-                state = "SUPERSEDED"
             if not enabled:
                 suppressed.append(self._suppressed(row, "memory_disabled_baseline", state))
                 continue
+            rollback_reason = None if frozen else self._linked_rollback_reason(row)
+            if rollback_reason and state not in TERMINAL_MEMORY_STATES:
+                self.set_state(memory_id, "SUPERSEDED", rollback_reason, [rollback_reason])
+                state = "SUPERSEDED"
             if state in TERMINAL_MEMORY_STATES or str(row["refutation_state"]) == "CONFIRMED":
                 suppressed.append(self._suppressed(row, f"state:{state.lower()}", state))
                 continue
@@ -223,6 +223,9 @@ class CausalMemoryIndex:
                 suppressed.append(self._suppressed(row, "applicability_mismatch", state))
                 continue
             structured_score, reasons = self._structured_score(row, normalized_context)
+            substantive_reasons = [
+                reason for reason in reasons if reason != "time_window"
+            ]
             lexical_score = self._overlap(query_tokens, tokens(str(row["normalized_text"])))
             state_multiplier = 0.55 if state == "WEAKENED" else 1.0
             score = state_multiplier * min(
@@ -238,7 +241,11 @@ class CausalMemoryIndex:
                     "skill_ids", "outcome_types",
                 )
             )
-            if score <= 0.10 or (has_structured_query and not reasons and lexical_score <= 0.15):
+            if score <= 0.10 or (
+                has_structured_query
+                and not substantive_reasons
+                and lexical_score <= 0.15
+            ):
                 continue
             selected.append((score, row, reasons, applicability_score))
         selected.sort(key=lambda item: (item[0], str(item[1]["created_at"])), reverse=True)

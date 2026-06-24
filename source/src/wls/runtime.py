@@ -21,6 +21,7 @@ from .evaluator import Evaluator
 from .evidence import EvidenceLedger
 from .growth_cycle import GrowthCycleManager
 from .learning import LearningSystem
+from .memory_attribution import MemoryAttributionStore
 from .lease import ProcessLease
 from .planner import Planner
 from .policy import PolicyEngine
@@ -85,6 +86,9 @@ class LivingSystem:
         self.attention = AttentionSystem(config.workspace_capacity)
         self.cognition = CognitiveEngine(
             self.db, self.ledger, self.temporal_world, config
+        )
+        self.memory_attribution = MemoryAttributionStore(
+            self.db, self.ledger, self.memories.causal
         )
         self.planner = Planner(config, self.cognition, self.ledger)
         self.growth = GrowthCycleManager(self)
@@ -204,11 +208,20 @@ class LivingSystem:
             autonomous_goal_ids = self.autonomy.consider()
             active_goals = self.goals.active(limit=20)
             query_text = self._query_text(reserved, active_goals)
-            retrieved_memories = (
-                self.memories.retrieve(query_text, self.config.memory_retrieval_limit)
-                if query_text
-                else []
+            memory_mode = str(
+                self.config.provider.get("memory_mode", "enabled")
+            ).lower()
+            memory_query_context = self.memories.build_query_context(
+                reserved, active_goals
             )
+            memory_retrieval = self.memories.retrieve_causal(
+                query_text,
+                self.config.memory_retrieval_limit,
+                context=memory_query_context,
+                enabled=memory_mode != "disabled",
+                frozen=memory_mode == "frozen",
+            )
+            retrieved_memories = memory_retrieval["selected"]
             resource_snapshot = self._resource_snapshot()
             meaningful_input = bool(
                 reserved
@@ -249,6 +262,7 @@ class LivingSystem:
                 "goals": [goal.to_dict() for goal in active_goals],
                 "world_facts": world_facts,
                 "memories": retrieved_memories,
+                "memory_retrieval": memory_retrieval,
                 "matching_skills": self.skills.match(query_text),
                 "self_model": self.self_model.snapshot(),
                 "relationships": self.relationships.snapshot(),
@@ -268,6 +282,9 @@ class LivingSystem:
             }
             if meaningful_input:
                 plan = self.planner.plan(context)
+                self.memory_attribution.record(
+                    cycle_id, plan.memory_ids, memory_retrieval
+                )
                 plan.actions = plan.actions[: int(budget["max_actions"])]
                 self._persist_plan_and_ack_events(
                     cycle_id, plan, [event.event_id for event in selected_events]
@@ -276,6 +293,14 @@ class LivingSystem:
                 plan_persisted = True
                 outcomes = [*recovery_outcomes, *self._execute_plan(plan)]
                 cognition_result = self.cognition.resolve_cycle(cycle_id, plan, outcomes)
+                memory_resolution = self.memory_attribution.resolve(
+                    cycle_id,
+                    outcomes,
+                    cognition_result,
+                    frozen=memory_mode == "frozen",
+                )
+                if cognition_result is not None and memory_resolution is not None:
+                    cognition_result["memory_attribution"] = memory_resolution
                 plan_status = self._plan_status(plan.plan_id)
                 episode_id = self.learning.record_episode(
                     cycle_id=cycle_id,
@@ -317,6 +342,15 @@ class LivingSystem:
                 "reserved_events": len(reserved),
                 "selected_events": len(selected_events),
                 "workspace_items": len(workspace),
+                "memory_retrieval": {
+                    "mode": memory_retrieval["mode"],
+                    "selected_memory_ids": [
+                        item["memory_id"] for item in memory_retrieval["selected"]
+                    ],
+                    "suppressed_memory_ids": [
+                        item["memory_id"] for item in memory_retrieval["suppressed"]
+                    ],
+                },
                 "actions": len(plan.actions),
                 "outcomes": outcomes,
                 "episode_id": episode_id,
@@ -846,6 +880,8 @@ class LivingSystem:
             "planner_provider": self.planner.provider_type,
             "cognition": self.cognition.summary(limit=500),
             "temporal_world": self.temporal_world.summary(),
+            "causal_memory": self.memories.memory_summary(),
+            "memory_attribution": self.memory_attribution.summary(),
             "next_focus": self.db.get_runtime("next_focus", []),
         }
 
@@ -853,11 +889,21 @@ class LivingSystem:
         ledger_ok, ledger_details = self.ledger.verify()
         db_ok, db_details = self.db.integrity_check() if full else (True, "skipped")
         cognition_ok, cognition_details = self.cognition.integrity()
+        memory_ok, memory_details = self.memories.memory_integrity()
+        attribution_ok, attribution_details = self.memory_attribution.integrity()
         result = {
-            "ok": ledger_ok and db_ok and cognition_ok,
+            "ok": (
+                ledger_ok
+                and db_ok
+                and cognition_ok
+                and memory_ok
+                and attribution_ok
+            ),
             "ledger": ledger_details,
             "database": db_details,
             "cognition": cognition_details,
+            "causal_memory": memory_details,
+            "memory_attribution": attribution_details,
         }
         if not result["ok"]:
             self.kill(f"integrity failure: {result}")
