@@ -32,6 +32,14 @@ class RuntimeConfig:
     memory_decay_days: int = 30
     sleep_after_idle_cycles: int = 5
     max_autonomous_goals: int = 3
+    daemon_max_consecutive_failures: int = 3
+    daemon_failure_backoff_seconds: float = 1.0
+    daemon_failure_backoff_max_seconds: float = 30.0
+    daemon_heartbeat_every_cycles: int = 1
+    daemon_heartbeat_retention: int = 10000
+    daemon_max_pending_events: int = 10000
+    daemon_max_database_bytes: int = 2 * 1024 * 1024 * 1024
+    daemon_max_cycle_seconds: float = 300.0
     sensors: list[SensorConfig] = field(default_factory=list)
     tool_policy: dict[str, Any] = field(default_factory=dict)
     provider: dict[str, Any] = field(default_factory=lambda: {"type": "deterministic"})
@@ -72,6 +80,22 @@ class RuntimeConfig:
             raise ValueError("max_actions_per_cycle must be within 0..32")
         if not 1 <= self.full_integrity_check_every <= 100000:
             raise ValueError("full_integrity_check_every must be within 1..100000")
+        if not 0 <= self.daemon_max_consecutive_failures <= 1000:
+            raise ValueError("daemon_max_consecutive_failures must be within 0..1000")
+        if self.daemon_failure_backoff_seconds < 0:
+            raise ValueError("daemon_failure_backoff_seconds must be non-negative")
+        if self.daemon_failure_backoff_max_seconds < self.daemon_failure_backoff_seconds:
+            raise ValueError("daemon failure backoff maximum is below its base")
+        if not 1 <= self.daemon_heartbeat_every_cycles <= 100000:
+            raise ValueError("daemon_heartbeat_every_cycles must be within 1..100000")
+        if not 1 <= self.daemon_heartbeat_retention <= 1000000:
+            raise ValueError("daemon_heartbeat_retention must be within 1..1000000")
+        if not 1 <= self.daemon_max_pending_events <= 10000000:
+            raise ValueError("daemon_max_pending_events must be within 1..10000000")
+        if self.daemon_max_database_bytes < 1024 * 1024:
+            raise ValueError("daemon_max_database_bytes must be at least 1 MiB")
+        if self.daemon_max_cycle_seconds <= 0:
+            raise ValueError("daemon_max_cycle_seconds must be positive")
         names: set[str] = set()
         for sensor in self.sensors:
             if sensor.name in names:
