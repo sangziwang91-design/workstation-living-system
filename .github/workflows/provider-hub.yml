@@ -49,3 +49,9 @@ jobs:
       - name: Lint server integration
         working-directory: source
         run: python -m ruff check src/wls/server.py
+      - name: Lint complete source tree
+        working-directory: source
+        run: python -m ruff check src
+      - name: Lint complete test tree
+        working-directory: source
+        run: python -m ruff check tests
