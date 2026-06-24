@@ -22,6 +22,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+      - name: Repair bootstrap repository root
+        run: python -c "from pathlib import Path; p=Path('.github/apply_et003_changes.py'); s=p.read_text(encoding='utf-8'); p.write_text(s.replace('parents[2]', 'parents[1]', 1), encoding='utf-8')"
       - name: Apply bounded ET003 integration
         run: python .github/apply_et003_changes.py
       - name: Remove one-shot bootstrap files
