@@ -1,32 +1,39 @@
 name: Build EVOLUTION-TARGET-002
 
 on:
-  push:
-    branches: [evolution-target-002-local-cognition]
-    paths:
-      - ".github/workflows/build-evolution-target-002.yml"
   pull_request:
     paths:
       - "source/**"
       - "CURRENT_STATE.yaml"
       - "README.md"
+      - ".github/workflows/build-evolution-target-002.yml"
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-and-verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - name: Apply bounded local cognition target
-        run: python source/scripts/apply_evolution_target_002.py
-      - name: Apply targeted typing repair
-        run: python source/scripts/fix_evolution_target_002.py
+      - name: Apply bounded local cognition target once
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f source/src/wls/cognition.py ]; then
+            python source/scripts/apply_evolution_target_002.py
+            python source/scripts/fix_evolution_target_002.py
+            echo "ET002_APPLIED=true" >> "$GITHUB_ENV"
+          else
+            echo "ET002_APPLIED=false" >> "$GITHUB_ENV"
+          fi
       - name: Install verification toolchain
         run: python -m pip install --upgrade pip build pytest ruff mypy bandit
       - name: Install WLS editable
@@ -36,34 +43,36 @@ jobs:
       - name: Tests
         run: python -m pytest source/tests -q
       - name: Vertical verification
-        run: python source/scripts/verify_evolution_target_002.py --output source/verification/EVOLUTION_TARGET_002_CI.json
+        shell: bash
+        run: |
+          if [ "$ET002_APPLIED" = "true" ]; then
+            python source/scripts/verify_evolution_target_002.py --output source/verification/EVOLUTION_TARGET_002_CI.json
+          else
+            python source/scripts/verify_evolution_target_002.py --output "$RUNNER_TEMP/EVOLUTION_TARGET_002_CI.json"
+          fi
       - name: Lint
         run: python -m ruff check source/src source/tests source/scripts
-      - name: Pack patched source for diagnostics
-        shell: bash
-        run: tar -czf evolution-target-002-source.tar.gz source README.md CURRENT_STATE.yaml
-      - uses: actions/upload-artifact@v4
-        with:
-          name: evolution-target-002-patched-source
-          path: evolution-target-002-source.tar.gz
-          if-no-files-found: error
       - name: Types
         run: python -m mypy source/src/wls source/tests source/scripts --ignore-missing-imports
       - name: Security scan
         run: python -m bandit -q -r source/src/wls source/scripts
       - name: Build package
         run: python -m build source
-      - name: Create verified patch artifact
+      - name: Clean generated and bootstrap artifacts
         shell: bash
         run: |
           set -euo pipefail
           find source -type d -name __pycache__ -prune -exec rm -rf {} +
           find source -type f -name '*.pyc' -delete
-          rm -rf source/dist source/build source/src/*.egg-info
-          git add -N .
-          git diff --binary > evolution-target-002.patch
-      - uses: actions/upload-artifact@v4
+          rm -rf source/dist source/build source/src/*.egg-info source/.pytest_cache
+          if [ "$ET002_APPLIED" = "true" ]; then
+            rm -f source/scripts/apply_evolution_target_002.py
+            rm -f source/scripts/fix_evolution_target_002.py
+          fi
+      - name: Commit verified implementation
+        if: env.ET002_APPLIED == 'true'
+        uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          name: evolution-target-002-verified-patch
-          path: evolution-target-002.patch
-          if-no-files-found: error
+          branch: ${{ github.head_ref }}
+          commit_message: "feat: integrate bounded local cognition into canonical runtime"
+          file_pattern: "."
