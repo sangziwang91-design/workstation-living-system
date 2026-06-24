@@ -1,0 +1,115 @@
+{
+  "schema_version": "1.0",
+  "task_id": "PROVIDER-HUB-002",
+  "target_id": "PROVIDER-HUB-002-SINGLE-ROOT-SWITCHBOARD",
+  "title": "Rebase Provider Hub onto the canonical single-root repository and complete deterministic verification",
+  "status": "VERIFICATION",
+  "priority": 82,
+  "risk": "MODERATE",
+  "minimum_worker_capability": "repository_engineering",
+  "worker": {
+    "assigned_worker_id": "chatgpt_interactive",
+    "lease_mode": "OWNER_ASSIGNED",
+    "provider_status_required": "ACTIVE"
+  },
+  "context": {
+    "repository": "sangziwang91-design/workstation-living-system-private",
+    "base_ref": "main",
+    "base_commit": "59e102f08904cd408a9d993f7b537b4e513c8f5e",
+    "canonical_runtime": "source/src/wls/runtime.py::LivingSystem",
+    "canonical_project_root": ".",
+    "canonical_package_root": "source/src/wls",
+    "github_evidence": [
+      "PR #13 merged the single project root, package root, and version authority as commit 59e102f08904cd408a9d993f7b537b4e513c8f5e.",
+      "PR #12 contains the original Provider Hub candidate but is non-mergeable because it predates the repository-layout migration.",
+      "Owner requested a CC-Switch-style page where registration and credential supply are the only manual steps."
+    ],
+    "notion_page_id": "38940ff6ad6281b6bd69d700c9322d77",
+    "context_claim_class": "VERIFIED"
+  },
+  "objective": "Deliver a loopback-only provider registry, OS-vault credential adapter, model discovery probes, secure CLI, and responsive switchboard page on the canonical single-root repository without attaching any provider to LivingSystem cognition.",
+  "allowed_paths": [
+    "pyproject.toml",
+    "README.md",
+    "source/src/wls/provider_hub.py",
+    "source/src/wls/provider_secrets.py",
+    "source/src/wls/provider_ui.py",
+    "source/src/wls/provider_cli.py",
+    "source/src/wls/server.py",
+    "source/tests/test_provider_hub.py",
+    "docs/PROVIDER_HUB.md",
+    ".github/workflows/provider-hub.yml",
+    ".evolution/queue/verification/PROVIDER-HUB-002.json"
+  ],
+  "forbidden_changes": [
+    "Do not attach a selected provider to RuntimeConfig.provider, Planner, CognitiveEngine, or LivingSystem action selection.",
+    "Do not store credentials in Git, Notion, SQLite, provider_hub.json, browser storage, URLs, logs, issues, or pull requests.",
+    "Do not accept provider credentials through the browser page.",
+    "Do not enable automatic paid fallback or assign write or canonical truth authority to a provider.",
+    "Do not change identity, ET004 behavior, policy gates, owner approval, promotion, rollback, or kill authority.",
+    "Do not implement account rotation, quota evasion, trial abuse, or provider-terms bypass."
+  ],
+  "acceptance": {
+    "commands": [
+      "python source/scripts/verify_packaging_layout.py",
+      "python -m pip install -e .[dev,providers]",
+      "python -m pytest source/tests/test_provider_hub.py -q",
+      "python -m pytest source/tests -q",
+      "python -m ruff check source/src source/tests source/scripts",
+      "python -m mypy source/src/wls source/tests source/scripts --ignore-missing-imports",
+      "python -m bandit -q -r source/src/wls source/scripts",
+      "python -m build .",
+      "wls-provider --help"
+    ],
+    "conditions": [
+      "The provider page is served only by the existing loopback WLS server.",
+      "Provider APIs require an ephemeral same-origin UI session.",
+      "Browser routes reject credential-bearing request bodies.",
+      "Credentials are delegated to an OS vault adapter or process-scoped environment variable and never persisted in provider metadata.",
+      "Remote custom endpoints require HTTPS; loopback HTTP remains allowed.",
+      "Model probes block redirects, cap timeout and response size, sanitize errors, and retain no credential value.",
+      "Provider selection requires enabled state, configured credential, and a successful probe.",
+      "Provider selection remains candidate-only and reports runtime_attached false.",
+      "All focused and full regression gates pass on Ubuntu and Windows under Python 3.11 and 3.13."
+    ],
+    "evidence_required": [
+      "focused provider hub test results",
+      "full WLS regression results",
+      "root invariant verification",
+      "pull request exact-head diff",
+      "Ubuntu and Windows workflow matrix",
+      "manual owner-host Windows Credential Manager and one real provider probe before provider admission"
+    ]
+  },
+  "stop_conditions": [
+    "Stop if persistent credential storage requires plaintext files.",
+    "Stop if the browser must receive or store a credential.",
+    "Stop if implementation requires runtime attachment before provider admission.",
+    "Stop if a custom remote endpoint cannot be bounded to HTTPS or owner-approved loopback.",
+    "Stop if the single-root repository invariant is violated."
+  ],
+  "dependencies": [
+    "PR #13 merged and canonical single-root invariant active",
+    "owner supplies credentials only after registering with each provider"
+  ],
+  "output_contract": {
+    "tests": [],
+    "evidence": [],
+    "unknowns": [
+      "No real provider credential exists in CI.",
+      "Windows Credential Manager behavior remains owner-host pending.",
+      "Current free-tier limits and supplier data-use policies remain external and changeable.",
+      "No provider is admitted to canonical WLS cognition in this target."
+    ],
+    "next_action": "Complete exact-head CI. If green, merge the candidate switchboard, then perform one owner-host vault and model-list probe before creating a READ_ONLY_TRIAL admission packet."
+  },
+  "handoff": {
+    "summary": "Provider Hub was rebuilt from current main after the repository-layout migration instead of merging the stale PR #12 branch.",
+    "blocker": "CI and owner-host credential-vault verification are pending.",
+    "supersedes": "PROVIDER-HUB-001 / PR #12"
+  },
+  "timestamps": {
+    "created_at": "2026-06-24T17:10:00+08:00",
+    "updated_at": "2026-06-24T17:10:00+08:00"
+  }
+}
