@@ -8,6 +8,7 @@ on:
       - "CURRENT_STATE.yaml"
       - "README.md"
       - ".github/workflows/build-evolution-target-002.yml"
+      - ".github/scripts/prepare-windows-runner.ps1"
   workflow_dispatch:
 
 permissions:
@@ -33,23 +34,9 @@ jobs:
           New-Item -ItemType Directory -Force $env:PIP_CACHE_DIR | Out-Null
           New-Item -ItemType Directory -Force $env:TEMP | Out-Null
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-      - name: Verify 7-Zip prerequisite for setup-python
+      - name: Prepare Windows runner prerequisites
         shell: powershell
-        run: |
-          $expected = "D:\Tools\7-Zip\7z.exe"
-          if (Test-Path $expected) {
-            $sevenZip = $expected
-          } else {
-            $command = Get-Command 7z.exe -ErrorAction SilentlyContinue
-            if (-not $command) {
-              throw "7-Zip is required by setup-python on this Windows self-hosted runner."
-            }
-            $sevenZip = $command.Source
-          }
-          $sevenZipDir = Split-Path $sevenZip -Parent
-          $sevenZipDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          & $sevenZip i | Select-Object -First 12
-          Write-Host "Using 7-Zip: $sevenZip"
+        run: .\.github\scripts\prepare-windows-runner.ps1
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.13"
