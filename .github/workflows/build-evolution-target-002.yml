@@ -5,6 +5,11 @@ on:
     branches: [evolution-target-002-local-cognition]
     paths:
       - ".github/workflows/build-evolution-target-002.yml"
+  pull_request:
+    paths:
+      - "source/**"
+      - "CURRENT_STATE.yaml"
+      - "README.md"
   workflow_dispatch:
 
 permissions:
