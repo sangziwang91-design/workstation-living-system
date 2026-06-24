@@ -1,6 +1,7 @@
 # WLS Repo-Native Evolution Chain
 
-**Status:** BOOTSTRAP_ACTIVE  
+**Status:** ACTIVE_CI_VERIFIED  
+**Merged bootstrap:** PR #9 / `6e8a20d74e5e5d36eeefbfb9220dfc203c77bb71`  
 **Canonical runtime remains:** `source/src/wls/runtime.py::LivingSystem`  
 **Primary external worker:** ChatGPT  
 **Notion experiment anchor:** [EXP-082 · Repo-Native Model Labor & WLS Evolution Chain](https://app.notion.com/p/38940ff6ad6281b6bd69d700c9322d77)
@@ -41,9 +42,9 @@ Model conversations are disposable. The repository is not.
 - `chatgpt_interactive` is the only ACTIVE code worker.
 - ChatGPT may operate in high-capability or degraded/low-capability mode.
 - Low-capability mode is restricted to deterministic, bounded tasks with explicit paths and tests.
-- Notion AI is ACTIVE_CONTEXT_ONLY: retrieval, contradiction audit, packet enrichment and post-merge archival only.
+- Notion AI is ACTIVE_CONTEXT_ONLY: retrieval, contradiction audit, packet enrichment, post-merge archival and curriculum-candidate mining only.
 - Gemini, Claude, GLM and DeepSeek are PENDING_NOT_ACTIVATED.
-- No external provider receives automatic routing, credentials or write authority from this bootstrap.
+- No external provider receives automatic routing, credentials or write authority from this chain.
 
 ## Queue states
 
@@ -55,14 +56,29 @@ Model conversations are disposable. The repository is not.
 
 Packets are immutable historical records after completion. Corrections create a superseding packet rather than silently rewriting evidence.
 
+## Verified bootstrap evidence
+
+- Repo-native chain workflow `28073884899`: success on Ubuntu and Windows.
+- WLS CI workflow `28073884881`: success.
+- ET001 workflow `28073884896`: success.
+- ET002 workflow `28073884887`: success.
+- ET003 workflow `28073884876`: success after one failed Windows 3.11 job was rerun successfully.
+- Bootstrap PR #9 was squash-merged as `6e8a20d74e5e5d36eeefbfb9220dfc203c77bb71`.
+
+This evidence verifies the repository control plane and regression compatibility. It does not prove unattended evolution or real-host longitudinal learning.
+
 ## Standard handoff command
 
 A new ChatGPT conversation can start with:
 
 > Read `EVOLUTION_CHAIN.md`, `.evolution/CURRENT_CHAIN.json`, `.evolution/worker_registry.json`, and the highest-priority eligible packet under `.evolution/queue/`. Verify GitHub current state before acting. Complete only the bounded task, run its acceptance gates, preserve evidence, and update the packet handoff. Do not create a parallel runtime or widen scope.
 
+## Current handoff
+
+PR #8 remains the sole ET004 implementation line. It is still a draft and was observed at head `643b65409b324b54f6fbc65845158d8cee605c52`. The chain must not create a duplicate ET004 branch. It waits for a complete implementation and current CI evidence, then performs a head-pinned audit.
+
 ## Activation boundary
 
-This bootstrap activates the repository control plane and CI validation only. It does not claim unattended evolution, provider-independent autonomy, production-host longitudinal learning, or a trained local model.
+The repository control plane is active and CI-verified. It does not claim unattended evolution, provider-independent autonomy, production-host longitudinal learning, multi-provider benefit or a trained local model.
 
 See `.evolution/roadmap/WLS_EVOLUTION_ROADMAP.md` for the ordered candidate route.
