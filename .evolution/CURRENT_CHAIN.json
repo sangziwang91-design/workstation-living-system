@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "chain_id": "WLS-REPO-NATIVE-EVOLUTION-001",
   "status": "BOOTSTRAP_ACTIVE",
-  "updated_at": "2026-06-24T10:30:00+08:00",
+  "updated_at": "2026-06-24T11:51:01+08:00",
   "authority": {
     "owner": "sangziwang91-design",
     "repository": "sangziwang91-design/workstation-living-system-private",
@@ -46,17 +46,18 @@
   },
   "bootstrap_change": {
     "branch": "evolution-infra-001-repo-native-chain",
-    "pull_request": null,
+    "pull_request": 9,
+    "pull_request_url": "https://github.com/sangziwang91-design/workstation-living-system-private/pull/9",
     "packet": "CHAIN-BOOTSTRAP-001",
-    "state": "VERIFICATION_PENDING"
+    "state": "CI_AND_OWNER_REVIEW_PENDING"
   },
   "next_action": {
     "mode": "WAIT_FOR_BOOTSTRAP_GATES_AND_EXISTING_ET004_PROGRESS",
-    "instruction": "Validate and merge the repo-native chain independently. Do not modify PR8 from this chain. After PR8 changes, audit it against its own acceptance boundary and record the result as a new packet.",
+    "instruction": "Validate and merge PR #9 independently. Do not modify PR #8 from this chain. After PR #8 changes, audit it against its own acceptance boundary and record the result as a new packet.",
     "required_worker_capability": "architecture_and_review"
   },
   "claim_ceiling": [
-    "The GitHub/Notion/ChatGPT control plane is being activated.",
+    "The GitHub/Notion/ChatGPT control plane is being activated through PR #9.",
     "ChatGPT is the sole active code worker in the bootstrap registry.",
     "Notion AI is restricted to context and audit roles.",
     "No unattended evolution or multi-provider admission is proven.",
