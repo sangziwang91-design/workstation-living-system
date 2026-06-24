@@ -152,7 +152,7 @@ class CognitiveEngine:
 
         trace_id = new_id("cogtrace")
         now = utc_now()
-        memory_free_score = self._score(selected, context, include_memories=False)
+        memory_free_score = counter_selected.score
         memory_delta = selected.score - memory_free_score
         memory_changed = selected.key != counter_selected.key
         alternatives = [
@@ -429,7 +429,15 @@ class CognitiveEngine:
             previous = unique.get(candidate.key)
             if previous is None or candidate.score > previous.score:
                 unique[candidate.key] = candidate
-        return sorted(unique.values(), key=lambda item: (item.score, item.key), reverse=True)[: self.maximum_hypotheses]
+        return sorted(
+            unique.values(),
+            key=lambda item: (
+                item.score,
+                item.key.startswith("causal_memory_"),
+                item.key,
+            ),
+            reverse=True,
+        )[: self.maximum_hypotheses]
 
     def _candidates(
         self, context: dict[str, Any], *, include_memories: bool
@@ -493,6 +501,123 @@ class CognitiveEngine:
 
         if include_memories:
             for memory in context.get("memories", []):
+                memory_id = str(memory.get("memory_id", ""))
+                content = memory.get("content", {})
+                guidance = (
+                    content.get("decision_guidance")
+                    if isinstance(content, dict)
+                    else None
+                )
+                causal_score = float(
+                    memory.get("causal_score", memory.get("score", 0.0))
+                )
+                validity_state = str(
+                    memory.get("validity_state", "ACTIVE")
+                )
+                if (
+                    memory_id
+                    and isinstance(guidance, dict)
+                    and float(memory.get("confidence", 0.0)) >= 0.85
+                    and causal_score >= 0.20
+                    and validity_state in {"ACTIVE", "WEAKENED"}
+                ):
+                    effect = str(guidance.get("effect", ""))
+                    tool = str(guidance.get("tool", ""))
+                    originals = list(candidates)
+                    if effect == "avoid_tool" and tool:
+                        for original in originals:
+                            if not any(
+                                str(action.get("tool")) == tool
+                                for action in original.actions
+                            ):
+                                continue
+                            candidates.append(
+                                HypothesisCandidate(
+                                    key=(
+                                        f"causal_memory_avoid_tool:{memory_id}:"
+                                        f"{original.key}"
+                                    ),
+                                    subject=original.subject,
+                                    claim=(
+                                        f"Applicable causal memory requires avoiding "
+                                        f"{tool} for this context."
+                                    ),
+                                    rationale=str(
+                                        guidance.get(
+                                            "reason",
+                                            "Structured causal evidence matched.",
+                                        )
+                                    ),
+                                    base_score=max(
+                                        1.0, original.base_score + 0.04
+                                    ),
+                                    actions=[
+                                        self._noop(
+                                            f"Causal memory suppressed {tool}",
+                                            original.goal_id,
+                                        )
+                                    ],
+                                    support_ids=list(
+                                        dict.fromkeys(
+                                            [*original.support_ids, memory_id]
+                                        )
+                                    ),
+                                    memory_ids=[memory_id],
+                                    fact_ids=list(original.fact_ids),
+                                    goal_id=original.goal_id,
+                                    cause_predicate="causal_memory_guidance",
+                                )
+                            )
+                    elif effect == "replace_acceptance" and tool:
+                        acceptance = [
+                            str(value)
+                            for value in guidance.get("acceptance", [])
+                        ]
+                        if acceptance:
+                            for original in originals:
+                                if not any(
+                                    str(action.get("tool")) == tool
+                                    for action in original.actions
+                                ):
+                                    continue
+                                actions = [
+                                    dict(action) for action in original.actions
+                                ]
+                                for action in actions:
+                                    if str(action.get("tool")) == tool:
+                                        action["acceptance"] = acceptance
+                                candidates.append(
+                                    HypothesisCandidate(
+                                        key=(
+                                            f"causal_memory_contract:{memory_id}:"
+                                            f"{original.key}"
+                                        ),
+                                        subject=original.subject,
+                                        claim=(
+                                            f"Applicable causal memory supplies "
+                                            f"the acceptance contract for {tool}."
+                                        ),
+                                        rationale=str(
+                                            guidance.get(
+                                                "reason",
+                                                "Structured causal evidence matched.",
+                                            )
+                                        ),
+                                        base_score=max(
+                                            1.0, original.base_score + 0.04
+                                        ),
+                                        actions=actions,
+                                        support_ids=list(
+                                            dict.fromkeys(
+                                                [*original.support_ids, memory_id]
+                                            )
+                                        ),
+                                        memory_ids=[memory_id],
+                                        fact_ids=list(original.fact_ids),
+                                        goal_id=original.goal_id,
+                                        cause_predicate="causal_memory_guidance",
+                                    )
+                                )
                 if str(memory.get("memory_type")) != "procedural":
                     continue
                 if float(memory.get("confidence", 0.0)) < 0.9:
@@ -508,7 +633,6 @@ class CognitiveEngine:
                 )
                 if candidate_row is None or candidate_row["status"] != "PROMOTED":
                     continue
-                memory_id = str(memory.get("memory_id", ""))
                 effect = str(rule.get("effect", ""))
                 tool = str(rule.get("tool", ""))
                 if effect == "avoid_tool" and tool:
@@ -635,7 +759,24 @@ class CognitiveEngine:
         query = tokens(f"{candidate.subject} {candidate.claim} {candidate.rationale}")
         if include_memories:
             for memory in context.get("memories", []):
-                overlap = self._overlap(query, tokens(json.dumps(memory.get("content", {}), ensure_ascii=False, sort_keys=True)))
+                content = memory.get("content", {})
+                if candidate.key.startswith("causal_memory_"):
+                    continue
+                if (
+                    isinstance(content, dict)
+                    and isinstance(content.get("decision_guidance"), dict)
+                ):
+                    continue
+                overlap = self._overlap(
+                    query,
+                    tokens(
+                        json.dumps(
+                            content,
+                            ensure_ascii=False,
+                            sort_keys=True,
+                        )
+                    ),
+                )
                 if overlap <= 0:
                     continue
                 score += 0.22 * overlap * float(memory.get("importance", 0.5)) * float(memory.get("confidence", 0.5))

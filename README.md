@@ -1,6 +1,6 @@
 # Workstation Living System (WLS)
 
-**Current development version:** `0.7.0.dev1`
+**Current development version:** `0.9.0.dev1`
 
 WLS is a persistent, bounded and corrigible workstation runtime. It observes explicitly configured environments, maintains durable state and evidence-tagged world facts, allocates finite attention, retrieves memory, plans, acts through governed tools, evaluates outcomes, and consolidates experience.
 
