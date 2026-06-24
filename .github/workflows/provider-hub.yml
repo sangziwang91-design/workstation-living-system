@@ -1,0 +1,50 @@
+name: Verify Provider Hub
+
+on:
+  pull_request:
+    paths:
+      - "pyproject.toml"
+      - "source/src/wls/provider_*.py"
+      - "source/src/wls/server.py"
+      - "source/tests/test_provider_hub.py"
+      - "docs/PROVIDER_HUB.md"
+      - ".github/workflows/provider-hub.yml"
+      - ".evolution/queue/verification/PROVIDER-HUB-002.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  provider-hub:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install WLS and provider vault adapter from the sole project root
+        run: python -m pip install -e ".[dev,providers]"
+      - name: Verify repository invariants
+        run: python source/scripts/verify_packaging_layout.py
+      - name: Compile provider hub
+        run: python -m compileall -q source/src/wls/provider_hub.py source/src/wls/provider_secrets.py source/src/wls/provider_ui.py source/src/wls/provider_cli.py source/src/wls/server.py
+      - name: Run focused provider tests
+        run: python -m pytest source/tests/test_provider_hub.py -q
+      - name: Run full regression suite
+        run: python -m pytest source/tests -q
+      - name: Lint
+        run: python -m ruff check source/src source/tests source/scripts
+      - name: Type check
+        run: python -m mypy source/src/wls source/tests source/scripts --ignore-missing-imports
+      - name: Security scan
+        run: python -m bandit -q -r source/src/wls source/scripts
+      - name: Build canonical package
+        run: python -m build .
+      - name: Smoke-test provider CLI
+        run: wls-provider --help
