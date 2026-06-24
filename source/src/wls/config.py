@@ -7,6 +7,9 @@ import json
 import os
 
 
+BUILTIN_SURVIVAL_PLUGIN = "wls.survival_plugin"
+
+
 @dataclass(slots=True)
 class SensorConfig:
     sensor_type: str
@@ -43,7 +46,9 @@ class RuntimeConfig:
     sensors: list[SensorConfig] = field(default_factory=list)
     tool_policy: dict[str, Any] = field(default_factory=dict)
     provider: dict[str, Any] = field(default_factory=lambda: {"type": "deterministic"})
-    plugin_modules: list[str] = field(default_factory=list)
+    plugin_modules: list[str] = field(
+        default_factory=lambda: [BUILTIN_SURVIVAL_PLUGIN]
+    )
 
     @property
     def home_path(self) -> Path:
@@ -80,8 +85,8 @@ class RuntimeConfig:
             raise ValueError("max_actions_per_cycle must be within 0..32")
         if not 1 <= self.full_integrity_check_every <= 100000:
             raise ValueError("full_integrity_check_every must be within 1..100000")
-        if not 0 <= self.daemon_max_consecutive_failures <= 1000:
-            raise ValueError("daemon_max_consecutive_failures must be within 0..1000")
+        if not 1 <= self.daemon_max_consecutive_failures <= 1000:
+            raise ValueError("daemon_max_consecutive_failures must be within 1..1000")
         if self.daemon_failure_backoff_seconds < 0:
             raise ValueError("daemon_failure_backoff_seconds must be non-negative")
         if self.daemon_failure_backoff_max_seconds < self.daemon_failure_backoff_seconds:
@@ -96,6 +101,10 @@ class RuntimeConfig:
             raise ValueError("daemon_max_database_bytes must be at least 1 MiB")
         if self.daemon_max_cycle_seconds <= 0:
             raise ValueError("daemon_max_cycle_seconds must be positive")
+        if BUILTIN_SURVIVAL_PLUGIN not in self.plugin_modules:
+            raise ValueError("built-in survival supervisor cannot be disabled")
+        if len(set(self.plugin_modules)) != len(self.plugin_modules):
+            raise ValueError("duplicate plugin module")
         names: set[str] = set()
         for sensor in self.sensors:
             if sensor.name in names:
@@ -185,6 +194,10 @@ def save_config(config: RuntimeConfig, path: str | Path) -> Path:
 def load_config(path: str | Path) -> RuntimeConfig:
     source = Path(path)
     raw = json.loads(source.read_text(encoding="utf-8"))
+    plugins = [str(item) for item in raw.get("plugin_modules", [])]
+    if BUILTIN_SURVIVAL_PLUGIN not in plugins:
+        plugins.insert(0, BUILTIN_SURVIVAL_PLUGIN)
+    raw["plugin_modules"] = plugins
     sensors = [SensorConfig(**item) for item in raw.pop("sensors", [])]
     config = RuntimeConfig(sensors=sensors, **raw)
     config.validate()
