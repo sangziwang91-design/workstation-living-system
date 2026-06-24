@@ -20,7 +20,7 @@ jobs:
   preflight:
     name: Inspect local runner readiness
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - name: Prepare D-drive directories
@@ -35,18 +35,26 @@ jobs:
           Write-Host "RUNNER_NAME=$env:RUNNER_NAME"
           Write-Host "RUNNER_OS=$env:RUNNER_OS"
           Write-Host "RUNNER_ARCH=$env:RUNNER_ARCH"
+          Write-Host "RUNNER_TEMP=$env:RUNNER_TEMP"
+          Write-Host "RUNNER_TOOL_CACHE=$env:RUNNER_TOOL_CACHE"
           Write-Host "TEMP=$env:TEMP"
           Write-Host "TMP=$env:TMP"
           Write-Host "PIP_CACHE_DIR=$env:PIP_CACHE_DIR"
           whoami
           Get-PSDrive -Name D | Format-Table Name,Used,Free,Root
 
+      - name: Provision isolated Python 3.11 for the service account
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Inspect required tools
         shell: powershell
         run: |
           git --version
+          Get-Command python | Format-List Source,Version
           python --version
-          py -0p
+          python -m pip --version
 
       - name: Verify GitHub connectivity
         shell: powershell
@@ -62,6 +70,12 @@ jobs:
         run: |
           if (-not $env:WLS_RUNNER_ROOT.StartsWith('D:\')) {
             throw "Runner root is outside D drive."
+          }
+          if (-not $env:RUNNER_TEMP.StartsWith('D:\')) {
+            throw "RUNNER_TEMP is outside D drive."
+          }
+          if (-not $env:RUNNER_TOOL_CACHE.StartsWith('D:\')) {
+            throw "RUNNER_TOOL_CACHE is outside D drive."
           }
           if (-not $env:TEMP.StartsWith('D:\')) {
             throw "TEMP is outside D drive."
