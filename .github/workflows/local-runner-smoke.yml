@@ -20,7 +20,7 @@ jobs:
   smoke:
     name: Verify local Windows runner
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - name: Prepare D-drive runtime directories
@@ -43,18 +43,27 @@ jobs:
           whoami
           Get-Location
 
+      - name: Provision isolated Python 3.11 for the service account
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Verify basic execution tools
         shell: powershell
         run: |
           git --version
+          Get-Command python | Format-List Source,Version
           python --version
-          py -0p
+          python -m pip --version
 
       - name: Verify runner root remains on D drive
         shell: powershell
         run: |
           if (-not $env:RUNNER_TEMP.StartsWith('D:\')) {
             throw "RUNNER_TEMP is not on D drive: $env:RUNNER_TEMP"
+          }
+          if (-not $env:RUNNER_TOOL_CACHE.StartsWith('D:\')) {
+            throw "RUNNER_TOOL_CACHE is not on D drive: $env:RUNNER_TOOL_CACHE"
           }
           if (-not $env:PIP_CACHE_DIR.StartsWith('D:\')) {
             throw "PIP_CACHE_DIR is not on D drive: $env:PIP_CACHE_DIR"
