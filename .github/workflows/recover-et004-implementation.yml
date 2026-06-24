@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
-      PATCH_SHA256: "381a46c7ea8caed272ffdd0a8b2028f5843c051d3c92d2f85ea6b2900a5081c6"
+      PATCH_SHA256: "81bcb40abeae266595dab1dc9dadf218a6c6a6a328cbd27acf6b5fb4f58f6ea5"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,9 +40,17 @@ jobs:
           from pathlib import Path
 
           shas = [
-              "638ad99e2a819791af8ac82d6aead6916d4fd06d",
-              "d84ea10d0d98590d6ac7ee0b934439294b22816b",
-              "3e1d50ffa29375e1ed327177a46c58ca561a58b5",
+              "e291d995ffae8bcf33b5eb50dd9029e6d960079f",
+              "5e6ddb4a52c284129b436d5b6f8addc2c8e719c0",
+              "b4bff92c5c51f1380a0b4e1f2496d5e8cc42b31b",
+              "47bb8bd4c2aff682fe638af3a073265b2185b161",
+              "06b2e4b70c6a83ed4a057d72b42b98bfb86c7523",
+              "19b66e6f62f5ebb9bfd4e92d7b438dab4a7eec3b",
+              "2dd3db1bcad4507e33b0823fa3a0613fa8a8cc4c",
+              "95fa8b373e1553f496eedc13bd294a9f6a4c246e",
+              "af5b187df04ceac36f475abca0e08aa9e3e53026",
+              "f8892555358d560b270c6b083666f3974490bd85",
+              "a30ca924b5fcee17c26141a02490083f5f7299bc",
           ]
           repository = os.environ["GITHUB_REPOSITORY"]
           token = os.environ["GH_TOKEN"]
