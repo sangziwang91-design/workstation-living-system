@@ -9,6 +9,7 @@ on:
       - "CURRENT_STATE.yaml"
       - "LIVING_SYSTEM_GENOME.md"
       - ".github/workflows/apply-evolution-target-001.yml"
+      - ".github/scripts/prepare-windows-runner.ps1"
 
 permissions:
   contents: read
@@ -33,6 +34,9 @@ jobs:
           New-Item -ItemType Directory -Force $env:PIP_CACHE_DIR | Out-Null
           New-Item -ItemType Directory -Force $env:TEMP | Out-Null
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - name: Prepare Windows runner prerequisites
+        shell: powershell
+        run: .\.github\scripts\prepare-windows-runner.ps1
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.13"
