@@ -14,17 +14,15 @@
   },
   "context": {
     "repository": "sangziwang91-design/workstation-living-system-private",
-    "base_ref": "main",
-    "base_commit": "59e102f08904cd408a9d993f7b537b4e513c8f5e",
+    "base_ref": "59e102f08904cd408a9d993f7b537b4e513c8f5e",
     "canonical_runtime": "source/src/wls/runtime.py::LivingSystem",
-    "canonical_project_root": ".",
-    "canonical_package_root": "source/src/wls",
     "github_evidence": [
       "PR #13 merged the single project root, package root, and version authority as commit 59e102f08904cd408a9d993f7b537b4e513c8f5e.",
-      "PR #12 contains the original Provider Hub candidate but is non-mergeable because it predates the repository-layout migration.",
+      "PR #12 contains the original Provider Hub candidate but predates the repository-layout migration and has been closed as superseded.",
       "Owner requested a CC-Switch-style page where registration and credential supply are the only manual steps."
     ],
     "notion_page_id": "38940ff6ad6281b6bd69d700c9322d77",
+    "notion_page_url": "https://app.notion.com/p/38940ff6ad6281b6bd69d700c9322d77",
     "context_claim_class": "VERIFIED"
   },
   "objective": "Deliver a loopback-only provider registry, OS-vault credential adapter, model discovery probes, secure CLI, and responsive switchboard page on the canonical single-root repository without attaching any provider to LivingSystem cognition.",
@@ -93,23 +91,44 @@
     "owner supplies credentials only after registering with each provider"
   ],
   "output_contract": {
-    "tests": [],
-    "evidence": [],
+    "changed_files": [
+      "pyproject.toml",
+      "README.md",
+      "source/src/wls/provider_hub.py",
+      "source/src/wls/provider_secrets.py",
+      "source/src/wls/provider_ui.py",
+      "source/src/wls/provider_cli.py",
+      "source/src/wls/server.py",
+      "source/tests/test_provider_hub.py",
+      "docs/PROVIDER_HUB.md",
+      ".github/workflows/provider-hub.yml",
+      ".evolution/queue/verification/PROVIDER-HUB-002.json"
+    ],
+    "tests": [
+      "Focused Provider Hub tests passed on the first Ubuntu workflow attempt before the platform stopped starting jobs.",
+      "The full suite initially failed because this packet violated EVOLUTION_PACKET.schema.json; the packet is now schema-conformant and requires a fresh run."
+    ],
+    "evidence": [
+      "PR #13 merge commit 59e102f08904cd408a9d993f7b537b4e513c8f5e",
+      "Superseded PR #12 closed without merge",
+      "PR #14 exact-head workflow history"
+    ],
     "unknowns": [
+      "Fresh exact-head CI is pending because GitHub Actions jobs are currently terminating before any step starts and expose no logs.",
       "No real provider credential exists in CI.",
       "Windows Credential Manager behavior remains owner-host pending.",
       "Current free-tier limits and supplier data-use policies remain external and changeable.",
       "No provider is admitted to canonical WLS cognition in this target."
     ],
-    "next_action": "Complete exact-head CI. If green, merge the candidate switchboard, then perform one owner-host vault and model-list probe before creating a READ_ONLY_TRIAL admission packet."
+    "next_action": "Rerun exact-head CI when GitHub Actions can start jobs. If green, merge the candidate switchboard, then perform one owner-host vault and model-list probe before creating a READ_ONLY_TRIAL admission packet."
   },
   "handoff": {
-    "summary": "Provider Hub was rebuilt from current main after the repository-layout migration instead of merging the stale PR #12 branch.",
-    "blocker": "CI and owner-host credential-vault verification are pending.",
+    "summary": "Provider Hub was rebuilt from current main after the repository-layout migration; its evolution packet is now schema-conformant and server compatibility was preserved.",
+    "blocker": "Fresh CI jobs currently terminate before any workflow step starts; owner-host credential-vault verification also remains pending.",
     "supersedes": "PROVIDER-HUB-001 / PR #12"
   },
   "timestamps": {
     "created_at": "2026-06-24T17:10:00+08:00",
-    "updated_at": "2026-06-24T17:10:00+08:00"
+    "updated_at": "2026-06-24T17:28:00+08:00"
   }
 }
