@@ -56,7 +56,8 @@ class WLSServer:
         self.token = load_or_create_token(secret_path.with_name("server.token"))
         self.ui_session = os.urandom(32).hex()
         provider_home = Path(getattr(runtime.config, "home_path", secret_path.parent))
-        self.providers = provider_hub or ProviderHub(provider_home, runtime.ledger)
+        provider_ledger = getattr(runtime, "ledger", None)
+        self.providers = provider_hub or ProviderHub(provider_home, provider_ledger)
         self._server: ThreadingHTTPServer | None = None
 
     def provider_ui_url(self) -> str:
