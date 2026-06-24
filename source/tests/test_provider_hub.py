@@ -4,7 +4,7 @@ from pathlib import Path
 from threading import Thread
 from time import sleep
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 import json
@@ -142,7 +142,7 @@ def test_browser_page_has_no_credential_input() -> None:
 
 def test_server_constructor_preserves_minimal_runtime_compatibility(tmp_path: Path) -> None:
     secret_path = tmp_path / "minimal" / "owner.secret"
-    runtime = SimpleNamespace(config=SimpleNamespace(secret_path=secret_path))
+    runtime = cast(Any, SimpleNamespace(config=SimpleNamespace(secret_path=secret_path)))
 
     server = WLSServer(runtime, "127.0.0.1", 0)
 
