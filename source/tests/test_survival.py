@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Any, cast
 import json
 
 from wls.config import BUILTIN_SURVIVAL_PLUGIN, default_config, load_config, save_config
@@ -19,6 +20,7 @@ def _runtime(tmp_path, name: str = "home") -> LivingSystem:
 
 def test_daemon_contains_transient_failures_and_completes(tmp_path, monkeypatch) -> None:
     runtime = _runtime(tmp_path)
+    target = cast(Any, runtime)
     calls = 0
 
     def flaky_cycle():
@@ -29,14 +31,14 @@ def test_daemon_contains_transient_failures_and_completes(tmp_path, monkeypatch)
         return {"status": "SUCCEEDED", "cycle_id": f"fake-{calls}"}
 
     monkeypatch.setattr(runtime, "run_cycle", flaky_cycle)
-    report = runtime.run_daemon(max_cycles=5)
+    report = target.run_daemon(max_cycles=5)
 
     assert report["status"] == "COMPLETED"
     assert report["completed_cycles"] == 3
     assert report["failed_cycles"] == 2
     assert report["consecutive_failures"] == 0
     assert runtime.db.get_runtime("paused", False) is False
-    assert runtime.survival.status()["heartbeat_count"] == 5
+    assert target.survival.status()["heartbeat_count"] == 5
     incidents = runtime.db.query_all(
         "SELECT kind FROM runtime_incidents ORDER BY created_at"
     )
@@ -51,13 +53,14 @@ def test_daemon_pauses_when_consecutive_failure_budget_is_exhausted(
     tmp_path, monkeypatch
 ) -> None:
     runtime = _runtime(tmp_path)
+    target = cast(Any, runtime)
     runtime.config.daemon_max_consecutive_failures = 2
 
     def failing_cycle():
         raise ValueError("persistent failure")
 
     monkeypatch.setattr(runtime, "run_cycle", failing_cycle)
-    report = runtime.run_daemon(max_cycles=10)
+    report = target.run_daemon(max_cycles=10)
 
     assert report["status"] == "PAUSED_FAILURE_BUDGET"
     assert report["completed_cycles"] == 0
@@ -69,6 +72,7 @@ def test_daemon_pauses_when_consecutive_failure_budget_is_exhausted(
 
 def test_daemon_pauses_before_event_backlog_exceeds_budget(tmp_path) -> None:
     runtime = _runtime(tmp_path)
+    target = cast(Any, runtime)
     runtime.config.daemon_max_pending_events = 3
     for index in range(4):
         runtime.ingest_event(
@@ -80,21 +84,23 @@ def test_daemon_pauses_before_event_backlog_exceeds_budget(tmp_path) -> None:
             )
         )
 
-    report = runtime.run_daemon(max_cycles=1)
+    report = target.run_daemon(max_cycles=1)
 
     assert report["status"] == "PAUSED_RESOURCE_BUDGET"
     assert report["completed_cycles"] == 0
     incident = runtime.db.query_one(
         "SELECT kind,details_json FROM runtime_incidents ORDER BY created_at DESC LIMIT 1"
     )
+    assert incident is not None
     assert incident["kind"] == "EVENT_BACKLOG_BUDGET"
     assert json.loads(incident["details_json"])["actual"] == 4
 
 
 def test_startup_recovers_interrupted_cycle_and_survival_run(tmp_path) -> None:
     runtime = _runtime(tmp_path)
+    target = cast(Any, runtime)
     cycle_id = new_id("cycle")
-    run_id = runtime.survival.start_run(max_cycles=20)
+    run_id = target.survival.start_run(max_cycles=20)
     runtime.db.execute(
         "INSERT INTO cycles(cycle_id,started_at,status) VALUES (?,?,?)",
         (cycle_id, utc_now(), "RUNNING"),
@@ -108,6 +114,8 @@ def test_startup_recovers_interrupted_cycle_and_survival_run(tmp_path) -> None:
     run = restarted.db.query_one(
         "SELECT status,termination_reason FROM survival_runs WHERE run_id=?", (run_id,)
     )
+    assert cycle is not None
+    assert run is not None
     assert cycle["status"] == "FAILED"
     assert "interrupted runtime process" in cycle["error"]
     assert run["status"] == "INTERRUPTED"
@@ -118,8 +126,9 @@ def test_startup_recovers_interrupted_cycle_and_survival_run(tmp_path) -> None:
 
 def test_bounded_real_runtime_soak_preserves_integrity(tmp_path) -> None:
     runtime = _runtime(tmp_path)
+    target = cast(Any, runtime)
 
-    report = runtime.run_daemon(max_cycles=40)
+    report = target.run_daemon(max_cycles=40)
 
     assert report["status"] == "COMPLETED"
     assert report["completed_cycles"] == 40
@@ -144,4 +153,5 @@ def test_legacy_config_receives_mandatory_builtin_supervisor(tmp_path) -> None:
 
     assert loaded.plugin_modules[0] == BUILTIN_SURVIVAL_PLUGIN
     runtime = LivingSystem(loaded)
-    assert runtime.status()["survival"]["budgets"]["max_consecutive_failures"] == 3
+    status = runtime.status()
+    assert status["survival"]["budgets"]["max_consecutive_failures"] == 3
