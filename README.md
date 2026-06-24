@@ -16,6 +16,25 @@ source/src/wls/runtime.py :: LivingSystem
 
 Parallel `v2`, `final`, `brain`, or replacement runtimes are not canonical. Mission, invariants and change control are defined in [`LIVING_SYSTEM_GENOME.md`](LIVING_SYSTEM_GENOME.md). Current machine-readable state is in [`CURRENT_STATE.yaml`](CURRENT_STATE.yaml).
 
+## Install
+
+The repository root is a supported compatibility entry point, but both installation paths resolve to the same package tree under `source/src/wls`:
+
+```bash
+python -m pip install -e ".[dev]"
+wls --help
+python -m wls --help
+```
+
+The canonical source-project installation remains supported:
+
+```bash
+cd source
+python -m pip install -e ".[dev]"
+```
+
+There is no second root-level `wls` implementation. Packaging metadata parity and package-path uniqueness are checked by `source/scripts/verify_packaging_layout.py` and the packaging-layout CI workflow.
+
 ## Implemented growth path
 
 `EVOLUTION-TARGET-001` is implemented as one evidence-bound lifecycle:
