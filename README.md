@@ -6,19 +6,23 @@ WLS is a persistent, bounded and corrigible workstation runtime. It observes exp
 
 WLS does **not** claim subjective consciousness, genuine emotion, AGI, personhood, or unrestricted self-modification. Claims are limited to observable software behavior and retained evidence.
 
-## Canonical runtime
-
-The authoritative runtime remains:
+## Canonical authorities
 
 ```text
-source/src/wls/runtime.py :: LivingSystem
+project root:      .
+build metadata:    pyproject.toml
+package root:      source/src/wls
+runtime authority: source/src/wls/runtime.py::LivingSystem
+version authority: source/src/wls/_version.py::__version__
+tests:             source/tests
+verification:      source/scripts
 ```
 
-Parallel `v2`, `final`, `brain`, or replacement runtimes are not canonical. Mission, invariants and change control are defined in [`LIVING_SYSTEM_GENOME.md`](LIVING_SYSTEM_GENOME.md). Current machine-readable state is in [`CURRENT_STATE.yaml`](CURRENT_STATE.yaml).
+Parallel `v2`, `final`, `brain`, replacement runtimes, second `pyproject.toml` files, and duplicate `wls` package trees are not canonical. Mission and runtime invariants are defined in [`LIVING_SYSTEM_GENOME.md`](LIVING_SYSTEM_GENOME.md). Current machine-readable state is in [`CURRENT_STATE.yaml`](CURRENT_STATE.yaml). Repository-layout and version rules are defined in [`docs/REPOSITORY_LAYOUT_AND_VERSION_POLICY.md`](docs/REPOSITORY_LAYOUT_AND_VERSION_POLICY.md).
 
 ## Install
 
-The repository root is a supported compatibility entry point, but both installation paths resolve to the same package tree under `source/src/wls`:
+Run all project installation and build commands from the repository root:
 
 ```bash
 python -m pip install -e ".[dev]"
@@ -26,14 +30,7 @@ wls --help
 python -m wls --help
 ```
 
-The canonical source-project installation remains supported:
-
-```bash
-cd source
-python -m pip install -e ".[dev]"
-```
-
-There is no second root-level `wls` implementation. Packaging metadata parity and package-path uniqueness are checked by `source/scripts/verify_packaging_layout.py` and the packaging-layout CI workflow.
+`source/` contains source code, tests, verification scripts, configuration examples, and verification records. It is not a second installable project root.
 
 ## Implemented growth path
 
@@ -64,17 +61,17 @@ This verifies the engineering path in isolated temporary runtimes. It does **not
 ## Development verification
 
 ```bash
-cd source
 python -m pip install -e ".[dev]"
-python -m pytest tests -q
-python scripts/verify_evolution_target_001.py
-python -m ruff check src tests scripts
-python -m mypy src/wls tests scripts --ignore-missing-imports
-python -m bandit -q -r src/wls scripts
-python -m build
+python source/scripts/verify_packaging_layout.py
+python -m pytest source/tests -q
+python source/scripts/verify_evolution_target_001.py
+python -m ruff check source/src source/tests source/scripts
+python -m mypy source/src/wls source/tests source/scripts --ignore-missing-imports
+python -m bandit -q -r source/src/wls source/scripts
+python -m build .
 ```
 
-The verification record is stored at:
+The ET001 verification record is stored at:
 
 ```text
 source/verification/EVOLUTION_TARGET_001_LOCAL_20260624.json
@@ -108,15 +105,10 @@ The next accepted proof is a real owner-authorized run on the intended Windows h
 
 ## EVOLUTION-TARGET-002: bounded local cognition
 
-The default standalone planner is now `cognitive`. It performs local evidence-bound
-hypothesis competition, records alternatives and a memory-free counterfactual, creates
-explicit action predictions, resolves them from real tool outcomes, and calibrates causal
-confidence in the existing temporal world model. External OpenAI-compatible planners are
-optional and fall back to this local cognition path when unavailable.
+The default standalone planner is now `cognitive`. It performs local evidence-bound hypothesis competition, records alternatives and a memory-free counterfactual, creates explicit action predictions, resolves them from real tool outcomes, and calibrates causal confidence in the existing temporal world model. External OpenAI-compatible planners are optional and fall back to this local cognition path when unavailable.
 
 ```bash
 wls --config CONFIG cognition --limit 20
 ```
 
-This is a bounded engineering cognition layer, not a claim of AGI, subjective
-consciousness, or unrestricted autonomous reasoning.
+This is a bounded engineering cognition layer, not a claim of AGI, subjective consciousness, or unrestricted autonomous reasoning.
