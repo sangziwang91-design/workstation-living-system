@@ -1,0 +1,119 @@
+{
+  "schema_version": "1.0",
+  "task_id": "CI-GOVERNOR-001",
+  "target_id": "CI-GOVERNOR-001-DEDUPLICATED-EVIDENCE-GATES",
+  "title": "Reduce duplicated GitHub Actions work while preserving deterministic WLS evidence gates",
+  "status": "VERIFICATION",
+  "priority": 90,
+  "risk": "MODERATE",
+  "minimum_worker_capability": "architecture_and_review",
+  "worker": {
+    "assigned_worker_id": "chatgpt_interactive",
+    "lease_mode": "OWNER_ASSIGNED",
+    "provider_status_required": "ACTIVE"
+  },
+  "context": {
+    "repository": "sangziwang91-design/workstation-living-system-private",
+    "base_ref": "59e102f08904cd408a9d993f7b537b4e513c8f5e",
+    "canonical_runtime": "source/src/wls/runtime.py::LivingSystem",
+    "github_evidence": [
+      "PR #13 completed the single-root repository migration and passed all required exact-head matrices before merge.",
+      "Provider Hub draft commits triggered seven workflow families and repeated the same full regression, lint, type, security, build, and evolution checks across many jobs.",
+      "Later jobs across every workflow terminated before any step started and exposed no logs, so repeated reruns produced cost without code evidence."
+    ],
+    "notion_page_id": "38940ff6ad6281b6bd69d700c9322d77",
+    "notion_page_url": "https://app.notion.com/p/38940ff6ad6281b6bd69d700c9322d77",
+    "context_claim_class": "VERIFIED"
+  },
+  "objective": "Establish a repository-native CI cost governor that assigns each evidence class to one workflow, cancels superseded branch runs, keeps bounded cross-platform pull-request gates, and reserves full compatibility matrices for main or explicit dispatch.",
+  "allowed_paths": [
+    ".github/workflows/ci.yml",
+    ".github/workflows/packaging-layout.yml",
+    ".github/workflows/evolution-chain.yml",
+    ".github/workflows/evolution-regressions.yml",
+    ".github/workflows/apply-evolution-target-001.yml",
+    ".github/workflows/build-evolution-target-002.yml",
+    ".github/workflows/verify-evolution-target-003.yml",
+    "source/scripts/verify_packaging_layout.py",
+    "docs/CI_COST_GOVERNOR.md",
+    ".evolution/queue/verification/CI-GOVERNOR-001.json"
+  ],
+  "forbidden_changes": [
+    "Do not remove full regression, lint, type, security, build, repository-invariant, evolution, or control-plane evidence classes.",
+    "Do not weaken owner approval, promotion, rollback, Claim Ceiling, or canonical runtime authority.",
+    "Do not treat CI jobs that never started as code failures or code successes.",
+    "Do not add direct pushes to main, writable workflow permissions, paid runners, or external secrets.",
+    "Do not reduce the post-merge main matrix below Ubuntu and Windows on Python 3.11 and 3.13."
+  ],
+  "acceptance": {
+    "commands": [
+      "python source/scripts/verify_packaging_layout.py",
+      "python -m pip install -e .[dev]",
+      "python -m pytest source/tests -q",
+      "python -m ruff check source/src source/tests source/scripts",
+      "python -m mypy source/src/wls source/tests source/scripts --ignore-missing-imports",
+      "python -m bandit -q -r source/src/wls source/scripts",
+      "python -m build ."
+    ],
+    "conditions": [
+      "Only ci.yml owns the full regression and complete quality stack.",
+      "ET001, ET002, and ET003 verifiers are consolidated into one focused workflow.",
+      "Pull-request WLS CI remains cross-platform on Ubuntu and Windows.",
+      "The full Ubuntu and Windows Python 3.11 and 3.13 matrices still run on main or manual dispatch.",
+      "Core recurring workflows cancel superseded runs for the same pull request or ref.",
+      "Repository invariants reject reintroduction of duplicate evolution workflows or a second full-quality-stack owner.",
+      "No direct workflow write to main or external secret is introduced."
+    ],
+    "evidence_required": [
+      "workflow topology diff",
+      "repository-invariant report with full_suite_owners and quality_stack_owners",
+      "exact-head pull-request checks once GitHub Actions can start jobs",
+      "post-merge main matrix",
+      "comparison of pre-governor and post-governor job counts for a representative source pull request"
+    ]
+  },
+  "stop_conditions": [
+    "Stop if cost reduction removes an evidence class rather than assigning it to one owner.",
+    "Stop if pull requests lose all Windows execution.",
+    "Stop if main loses the four-cell operating-system and Python matrix.",
+    "Stop if the invariant checker cannot identify the sole full regression owner.",
+    "Stop repeated reruns while jobs terminate before their first step."
+  ],
+  "dependencies": [
+    "PR #13 single-root repository invariant merged",
+    "GitHub Actions capacity restored before exact-head verification"
+  ],
+  "output_contract": {
+    "changed_files": [
+      ".github/workflows/ci.yml",
+      ".github/workflows/packaging-layout.yml",
+      ".github/workflows/evolution-chain.yml",
+      ".github/workflows/evolution-regressions.yml",
+      ".github/workflows/apply-evolution-target-001.yml",
+      ".github/workflows/build-evolution-target-002.yml",
+      ".github/workflows/verify-evolution-target-003.yml",
+      "source/scripts/verify_packaging_layout.py",
+      "docs/CI_COST_GOVERNOR.md",
+      ".evolution/queue/verification/CI-GOVERNOR-001.json"
+    ],
+    "tests": [],
+    "evidence": [
+      "PR #13 exact-head workflows all passed before merge",
+      "PR #14 later workflow jobs repeatedly returned steps=null with no retrievable logs"
+    ],
+    "unknowns": [
+      "The connector does not expose the account-level reason that Actions jobs are not starting.",
+      "Exact post-governor job counts remain pending until one workflow run can start."
+    ],
+    "next_action": "Keep this branch without an open pull request until Actions capacity is restored; then open one draft PR, run the reduced topology once, review exact-head evidence, and merge before reopening Provider Hub."
+  },
+  "handoff": {
+    "summary": "CI ownership has been deduplicated on an isolated branch without opening a noisy pull request.",
+    "blocker": "GitHub Actions currently does not start jobs, so exact-head verification is pending.",
+    "supersedes": null
+  },
+  "timestamps": {
+    "created_at": "2026-06-24T17:45:00+08:00",
+    "updated_at": "2026-06-24T17:45:00+08:00"
+  }
+}
