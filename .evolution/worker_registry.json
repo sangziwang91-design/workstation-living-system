@@ -1,0 +1,109 @@
+{
+  "schema_version": "1.0",
+  "updated_at": "2026-06-24T10:30:00+08:00",
+  "owner": "sangziwang91-design",
+  "primary_code_worker_id": "chatgpt_interactive",
+  "workers": [
+    {
+      "worker_id": "chatgpt_interactive",
+      "provider": "OpenAI",
+      "interface": "ChatGPT with GitHub connector actions",
+      "status": "ACTIVE",
+      "roles": [
+        "architecture_and_review",
+        "repository_engineering",
+        "bounded_deterministic"
+      ],
+      "write_authority": "BRANCH_AND_PULL_REQUEST",
+      "runtime_secret_access": "NONE",
+      "cost_path": "PLATFORM_INTERACTIVE_NOT_WLS_API",
+      "availability": "PLATFORM_CONTROLLED",
+      "degraded_mode": {
+        "enabled": true,
+        "allowed_capability": "bounded_deterministic",
+        "requires_explicit_paths": true,
+        "requires_deterministic_acceptance": true,
+        "forbidden": [
+          "architecture migration",
+          "security policy weakening",
+          "claim elevation",
+          "parallel runtime creation",
+          "unbounded refactor"
+        ]
+      }
+    },
+    {
+      "worker_id": "notion_ai_context",
+      "provider": "Notion",
+      "interface": "Notion AI workspace retrieval and synthesis",
+      "status": "ACTIVE_CONTEXT_ONLY",
+      "roles": [
+        "historical_context_retrieval",
+        "contradiction_audit",
+        "packet_enrichment",
+        "post_merge_archive",
+        "curriculum_candidate_mining"
+      ],
+      "write_authority": "NOTION_CONTEXT_ONLY",
+      "runtime_secret_access": "NONE",
+      "cost_path": "EXISTING_NOTION_PLAN",
+      "availability": "PLATFORM_CONTROLLED",
+      "forbidden": [
+        "GitHub code modification",
+        "VERIFIED claim creation without GitHub or runtime evidence",
+        "owner approval substitution",
+        "page deletion, archive or parent move in province 003",
+        "canonical runtime replacement"
+      ]
+    },
+    {
+      "worker_id": "gemini_candidate",
+      "provider": "Google",
+      "interface": "UNDECIDED",
+      "status": "PENDING_NOT_ACTIVATED",
+      "roles": [],
+      "write_authority": "NONE",
+      "runtime_secret_access": "NONE",
+      "admission_target": "MULTI-WORKER-ADMISSION"
+    },
+    {
+      "worker_id": "claude_candidate",
+      "provider": "Anthropic",
+      "interface": "UNDECIDED",
+      "status": "PENDING_NOT_ACTIVATED",
+      "roles": [],
+      "write_authority": "NONE",
+      "runtime_secret_access": "NONE",
+      "admission_target": "MULTI-WORKER-ADMISSION"
+    },
+    {
+      "worker_id": "glm_candidate",
+      "provider": "Zhipu AI",
+      "interface": "UNDECIDED",
+      "status": "PENDING_NOT_ACTIVATED",
+      "roles": [],
+      "write_authority": "NONE",
+      "runtime_secret_access": "NONE",
+      "admission_target": "MULTI-WORKER-ADMISSION"
+    },
+    {
+      "worker_id": "deepseek_candidate",
+      "provider": "DeepSeek",
+      "interface": "UNDECIDED",
+      "status": "PENDING_NOT_ACTIVATED",
+      "roles": [],
+      "write_authority": "NONE",
+      "runtime_secret_access": "NONE",
+      "admission_target": "MULTI-WORKER-ADMISSION"
+    }
+  ],
+  "admission_gate": {
+    "requires_owner_approval": true,
+    "requires_isolated_branch_or_worktree": true,
+    "requires_task_packet_compatibility": true,
+    "requires_real_task_evidence": true,
+    "requires_cost_and_scope_measurement": true,
+    "requires_rollback_plan": true,
+    "minimum_real_task_proofs": 2
+  }
+}
