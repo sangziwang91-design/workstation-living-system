@@ -1,0 +1,62 @@
+name: Local Runner Smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-runner-smoke
+  cancel-in-progress: false
+
+env:
+  WLS_RUNNER_ROOT: D:\actions-runner
+  PIP_CACHE_DIR: D:\actions-runner\_cache\pip
+  TEMP: D:\actions-runner\_temp
+  TMP: D:\actions-runner\_temp
+
+jobs:
+  smoke:
+    name: Verify local Windows runner
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 10
+
+    steps:
+      - name: Prepare D-drive runtime directories
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force $env:PIP_CACHE_DIR | Out-Null
+          New-Item -ItemType Directory -Force $env:TEMP | Out-Null
+
+      - name: Verify runner identity and service context
+        shell: powershell
+        run: |
+          Write-Host "RUNNER_NAME=$env:RUNNER_NAME"
+          Write-Host "RUNNER_OS=$env:RUNNER_OS"
+          Write-Host "RUNNER_ARCH=$env:RUNNER_ARCH"
+          Write-Host "RUNNER_TEMP=$env:RUNNER_TEMP"
+          Write-Host "RUNNER_TOOL_CACHE=$env:RUNNER_TOOL_CACHE"
+          Write-Host "TEMP=$env:TEMP"
+          Write-Host "TMP=$env:TMP"
+          Write-Host "PIP_CACHE_DIR=$env:PIP_CACHE_DIR"
+          whoami
+          Get-Location
+
+      - name: Verify basic execution tools
+        shell: powershell
+        run: |
+          git --version
+          python --version
+          py -0p
+
+      - name: Verify runner root remains on D drive
+        shell: powershell
+        run: |
+          if (-not $env:RUNNER_TEMP.StartsWith('D:\')) {
+            throw "RUNNER_TEMP is not on D drive: $env:RUNNER_TEMP"
+          }
+          if (-not $env:PIP_CACHE_DIR.StartsWith('D:\')) {
+            throw "PIP_CACHE_DIR is not on D drive: $env:PIP_CACHE_DIR"
+          }
+          Write-Host "D-drive runner smoke verification passed."
