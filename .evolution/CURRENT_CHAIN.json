@@ -1,0 +1,65 @@
+{
+  "schema_version": "1.0",
+  "chain_id": "WLS-REPO-NATIVE-EVOLUTION-001",
+  "status": "BOOTSTRAP_ACTIVE",
+  "updated_at": "2026-06-24T10:30:00+08:00",
+  "authority": {
+    "owner": "sangziwang91-design",
+    "repository": "sangziwang91-design/workstation-living-system-private",
+    "canonical_runtime": "source/src/wls/runtime.py::LivingSystem",
+    "engineering_truth": "GITHUB_AND_RUNTIME_EVIDENCE",
+    "semantic_context": "NOTION_EXP_082",
+    "approval_authority": "OWNER"
+  },
+  "notion_anchor": {
+    "page_id": "38940ff6ad6281b6bd69d700c9322d77",
+    "page_url": "https://app.notion.com/p/38940ff6ad6281b6bd69d700c9322d77",
+    "title": "EXP-082 · Repo-Native Model Labor & WLS Evolution Chain · GitHub × Notion AI × ChatGPT · 2026-06-24",
+    "role": "LONG_HORIZON_SEMANTIC_AND_EXPERIMENT_GOVERNANCE"
+  },
+  "worker_state": {
+    "primary_code_worker_id": "chatgpt_interactive",
+    "primary_status": "ACTIVE",
+    "context_worker_id": "notion_ai_context",
+    "context_status": "ACTIVE_CONTEXT_ONLY",
+    "other_provider_admission": "PENDING_NOT_ACTIVATED"
+  },
+  "canonical_baseline": {
+    "main_commit_at_bootstrap": "cf3e60d70d6c679891a560effabe89fd30da6709",
+    "development_version": "0.9.0.dev1",
+    "completed_targets": [
+      "EVOLUTION-TARGET-001",
+      "EVOLUTION-TARGET-002",
+      "EVOLUTION-TARGET-003"
+    ],
+    "claim_boundary": "ET001-ET003 have code and controlled local/CI evidence; owner-host longitudinal proof remains pending."
+  },
+  "current_target": {
+    "target_id": "EVOLUTION-TARGET-004",
+    "title": "Persistent Goal System and Long-Horizon Continuity",
+    "state": "DRAFT_PULL_REQUEST_IN_FLIGHT",
+    "pull_request": 8,
+    "base_commit": "cf3e60d70d6c679891a560effabe89fd30da6709",
+    "observed_head_at_bootstrap": "643b65409b324b54f6fbc65845158d8cee605c52",
+    "ownership": "EXISTING_PR8_BRANCH",
+    "collision_policy": "DO_NOT_CREATE_DUPLICATE_ET004_IMPLEMENTATION"
+  },
+  "bootstrap_change": {
+    "branch": "evolution-infra-001-repo-native-chain",
+    "pull_request": null,
+    "packet": "CHAIN-BOOTSTRAP-001",
+    "state": "VERIFICATION_PENDING"
+  },
+  "next_action": {
+    "mode": "WAIT_FOR_BOOTSTRAP_GATES_AND_EXISTING_ET004_PROGRESS",
+    "instruction": "Validate and merge the repo-native chain independently. Do not modify PR8 from this chain. After PR8 changes, audit it against its own acceptance boundary and record the result as a new packet.",
+    "required_worker_capability": "architecture_and_review"
+  },
+  "claim_ceiling": [
+    "The GitHub/Notion/ChatGPT control plane is being activated.",
+    "ChatGPT is the sole active code worker in the bootstrap registry.",
+    "Notion AI is restricted to context and audit roles.",
+    "No unattended evolution or multi-provider admission is proven.",
+    "No production-host longitudinal benefit or local-model training result is proven."
+  ]
+}
