@@ -429,7 +429,15 @@ class CognitiveEngine:
             previous = unique.get(candidate.key)
             if previous is None or candidate.score > previous.score:
                 unique[candidate.key] = candidate
-        return sorted(unique.values(), key=lambda item: (item.score, item.key), reverse=True)[: self.maximum_hypotheses]
+        return sorted(
+            unique.values(),
+            key=lambda item: (
+                item.score,
+                item.key.startswith("causal_memory_"),
+                item.key,
+            ),
+            reverse=True,
+        )[: self.maximum_hypotheses]
 
     def _candidates(
         self, context: dict[str, Any], *, include_memories: bool
@@ -541,7 +549,7 @@ class CognitiveEngine:
                                         )
                                     ),
                                     base_score=max(
-                                        0.97, original.base_score + 0.04
+                                        1.0, original.base_score + 0.04
                                     ),
                                     actions=[
                                         self._noop(
@@ -596,7 +604,7 @@ class CognitiveEngine:
                                             )
                                         ),
                                         base_score=max(
-                                            0.97, original.base_score + 0.04
+                                            1.0, original.base_score + 0.04
                                         ),
                                         actions=actions,
                                         support_ids=list(
@@ -751,7 +759,24 @@ class CognitiveEngine:
         query = tokens(f"{candidate.subject} {candidate.claim} {candidate.rationale}")
         if include_memories:
             for memory in context.get("memories", []):
-                overlap = self._overlap(query, tokens(json.dumps(memory.get("content", {}), ensure_ascii=False, sort_keys=True)))
+                content = memory.get("content", {})
+                if candidate.key.startswith("causal_memory_"):
+                    continue
+                if (
+                    isinstance(content, dict)
+                    and isinstance(content.get("decision_guidance"), dict)
+                ):
+                    continue
+                overlap = self._overlap(
+                    query,
+                    tokens(
+                        json.dumps(
+                            content,
+                            ensure_ascii=False,
+                            sort_keys=True,
+                        )
+                    ),
+                )
                 if overlap <= 0:
                     continue
                 score += 0.22 * overlap * float(memory.get("importance", 0.5)) * float(memory.get("confidence", 0.5))
