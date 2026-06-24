@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any
+from typing import Any, TYPE_CHECKING
 import json
 
 from .db import Database
@@ -12,6 +12,9 @@ from .stores import MemoryStore
 from .world import WorldModel
 from .self_model import SelfModel
 from .skills import SkillLibrary
+
+if TYPE_CHECKING:
+    from .goal_runtime import GoalRuntime
 
 
 class SleepConsolidator:
@@ -26,6 +29,7 @@ class SleepConsolidator:
         self_model: SelfModel,
         skills: SkillLibrary,
         learning: LearningSystem,
+        goal_runtime: "GoalRuntime | None" = None,
     ):
         self.db = db
         self.ledger = ledger
@@ -34,6 +38,7 @@ class SleepConsolidator:
         self.self_model = self_model
         self.skills = skills
         self.learning = learning
+        self.goal_runtime = goal_runtime
 
     def run(self) -> dict[str, Any]:
         expired = self.world.expire_stale()
@@ -43,6 +48,16 @@ class SleepConsolidator:
         skill_candidates = self.skills.propose_from_action_sequences()
         failure_candidates = self.learning.create_failure_candidates()
         prediction_candidates = self.learning.create_prediction_error_candidates()
+        goal_reviews = (
+            self.goal_runtime.review_all(reason="sleep_consolidation")
+            if self.goal_runtime is not None
+            else []
+        )
+        goals_archived = (
+            self.goal_runtime.archive_completed()
+            if self.goal_runtime is not None
+            else []
+        )
         focus = self._focus_items()
         evidence_id = self.ledger.append(
             "sleep_consolidation_completed",
@@ -54,6 +69,8 @@ class SleepConsolidator:
                 "skill_candidates": skill_candidates,
                 "failure_candidates": failure_candidates,
                 "prediction_candidates": prediction_candidates,
+                "goal_reviews": goal_reviews,
+                "goals_archived": goals_archived,
                 "focus": focus,
             },
         )
@@ -67,6 +84,8 @@ class SleepConsolidator:
             "skill_candidates": skill_candidates,
             "failure_candidates": failure_candidates,
             "prediction_candidates": prediction_candidates,
+            "goal_reviews": goal_reviews,
+            "goals_archived": goals_archived,
             "focus": focus,
         }
 

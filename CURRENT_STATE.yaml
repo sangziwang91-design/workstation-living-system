@@ -1,18 +1,24 @@
-schema_version: "1.5"
+schema_version: "1.6"
 
 system:
   name: "Workstation Living System"
   abbreviation: "WLS"
   repository: "sangziwang91-design/workstation-living-system-private"
-  development_version: "0.9.0.dev1"
+  development_version: "1.0.0.dev1"
   canonical_identity_file: "LIVING_SYSTEM_GENOME.md"
   canonical_runtime: "source/src/wls/runtime.py::LivingSystem"
 
 state_record:
-  updated_at: "2026-06-24T09:53:42+08:00"
+  updated_at: "2026-06-24T12:55:00+08:00"
   time_zone: "Asia/Singapore"
-  update_type: "causal-memory-local-and-ci-verified"
+  update_type: "persistent-goal-local-full-gate-verified-remote-ci-pending"
   evidence_basis:
+    - type: "VERIFIED"
+      source: "source/verification/EVOLUTION_TARGET_004_LOCAL_20260624.json"
+      note: "Controlled goal-enabled versus goal-disabled comparison, decomposition, debt, attribution, interruption recovery, and restart continuity passed locally."
+    - type: "UNKNOWN"
+      source: "GitHub Actions for PR 8 ET004 implementation head"
+      note: "Remote Ubuntu/Windows Python 3.11/3.13 matrix has not run on the implementation commit yet."
     - type: "VERIFIED"
       source: "source/verification/EVOLUTION_TARGET_003_LOCAL_20260624.json"
       note: "Controlled memory-enabled versus memory-disabled ablation, attribution, refutation, and restart continuity passed."
@@ -32,7 +38,7 @@ state_record:
       source: "owner production workstation"
       note: "No owner-host longitudinal evidence yet proves durable real-world performance advantage."
 
-workflow_state: "IMPLEMENTED_LOCAL_AND_CI_VERIFIED_HOST_LONGITUDINAL_PENDING"
+workflow_state: "ET004_IMPLEMENTED_LOCAL_FULL_GATE_VERIFIED_REMOTE_CI_PENDING"
 phase_chain:
   scoped: true
   read: true
@@ -50,9 +56,11 @@ mission_status:
   canonical_growth_cycle_merged: true
   bounded_local_cognition_merged: true
   causal_memory_advantage_ci_verified: true
+  persistent_goal_continuity_local_verified: true
+  persistent_goal_remote_ci_verified: false
 
 current_capabilities:
-  status: "CODE_AND_CI_VERIFIED_WITH_HOST_LONGITUDINAL_LIMIT"
+  status: "ET003_CI_VERIFIED_ET004_LOCAL_VERIFIED_REMOTE_CI_PENDING"
   verified:
     - "The authoritative runtime remains source/src/wls/runtime.py::LivingSystem."
     - "MemoryStore remains the sole memory authority; CausalMemoryIndex is an index and validity layer over the existing memories table."
@@ -63,6 +71,12 @@ current_capabilities:
     - "Valid-memory advantage and refuted-memory suppression persisted across restart."
     - "The ET001 failure-to-skill lifecycle and ET002 bounded cognition remained regression-green."
     - "All required gates passed on Ubuntu and Windows under Python 3.11 and 3.13."
+    - "Persistent goals retain rationale, origin, task specification, dependencies, progress evidence, remaining work, risk, interruption/recovery counters, completion, archive, and review timestamps."
+    - "Dependency-ordered child goals enter bounded cognition without creating a second goal authority."
+    - "Goal debt records interruption and action failure; periodic and sleep review reconcile progress and archive completion."
+    - "Goal attribution persists a goal-free counterfactual and measured decision delta."
+    - "A controlled goal-enabled arm completed four ordered tasks; the equivalent goal-disabled arm completed none."
+    - "Partial progress and actionable goal state survived restart."
   inherited_not_comprehensively_reverified_in_this_wave:
     - perception_connector_breadth
     - autonomous_goal_depth
@@ -142,6 +156,31 @@ completed_evolution_targets:
       improved outcomes against a frozen baseline, contradiction handling, and restart
       continuity. This is not production-host longitudinal proof.
 
+  - id: "EVOLUTION-TARGET-004"
+    title: "Persistent Goal System and Long-Horizon Continuity"
+    status: "IMPLEMENTED_LOCAL_FULL_GATE_VERIFIED_REMOTE_CI_PENDING"
+    pull_request: 8
+    objective: >-
+      Extend the existing GoalStore and canonical LivingSystem with durable lifecycle,
+      bounded decomposition, debt, review, decision attribution, interruption recovery,
+      restart continuity, and a frozen goal-disabled comparison.
+    completed_acceptance_conditions:
+      - "Structured goal lifecycle and metadata persist across restart."
+      - "Parent goals decompose into bounded dependency-ordered child tasks."
+      - "Unrelated work creates explicit interruption debt and the same goal later resumes."
+      - "Real action outcomes update child and parent progress with evidence."
+      - "Goal-to-cognition attribution records a goal-free counterfactual and decision delta."
+      - "The goal-enabled arm completes 4/4 tasks; the goal-disabled arm completes 0/4."
+      - "ET001, ET002, and ET003 verifiers remain green locally."
+      - "Nineteen tests, compile, ruff, mypy, bandit, and package build pass locally."
+    remaining_proof:
+      - "Ubuntu and Windows Python 3.11/3.13 GitHub Actions on the landed implementation head."
+      - "Owner-host longitudinal goal persistence and measurable real-task advantage."
+    claim_boundary: >-
+      Controlled local evidence proves the implemented mechanism and comparison only;
+      it does not prove production long-term autonomy, free will, AGI, consciousness,
+      subjective emotion, or unrestricted self-rewrite.
+
 verification:
   evolution_target_001:
     workflow_run: 28069530007
@@ -193,6 +232,25 @@ verification:
     workflow_run: 28069530010
     conclusion: "success"
 
+  evolution_target_004:
+    report: "source/verification/EVOLUTION_TARGET_004_LOCAL_20260624.json"
+    local_test_count: 19
+    local_full_gate: "success"
+    remote_matrix: "PENDING"
+    goal_enabled:
+      completed_children: 4
+      task_completion: true
+      parent_progress: 1.0
+      interruption_recovery: true
+      wrong_action_rate: 0.0
+    goal_disabled_baseline:
+      completed_children: 0
+      task_completion: false
+      parent_progress: 0.0
+    restart_continuity:
+      progress_preserved: true
+      completion_after_restart: true
+
 known_unknowns:
   - id: "KU-001"
     item: "Long-horizon autonomous task decomposition and replanning beyond the bounded receding-horizon slice"
@@ -236,42 +294,43 @@ not_completed:
 branches:
   - name: "main"
     role: "canonical default branch"
-    status: "CURRENT_BEFORE_ET003_MERGE"
-    state_commit: "3f3b01fa5990e1de3ab806685644a86b2eb4bf50"
-  - name: "evolution-target-003-causal-memory"
-    role: "ET003 implementation branch"
-    status: "CI_VERIFIED_PULL_REQUEST_OPEN"
-    pull_request: 7
-    verified_head: "a2a9b23cd95f70259be92146966cbfddc7fe76ba"
+    status: "ET003_MERGED"
+    merge_commit: "cf3e60d70d6c679891a560effabe89fd30da6709"
+  - name: "evolution-target-004-persistent-goals"
+    role: "ET004 implementation branch"
+    status: "LOCAL_IMPLEMENTATION_VERIFIED_REMOTE_LANDING_IN_PROGRESS"
+    pull_request: 8
+    previous_anchor_head: "643b65409b324b54f6fbc65845158d8cee605c52"
 
 current_limitations:
-  - "The ablation is a controlled four-task sequence, not a statistical production benchmark."
+  - "The ET004 ablation is a controlled four-task sequence, not a statistical production benchmark."
   - "Verification uses isolated temporary runtime homes, not the owner's production workstation."
-  - "Decision guidance remains bounded deterministic engineering logic, not unrestricted learned cognition."
-  - "Memory scale, noisy-world retrieval quality, and multi-project interference remain unverified."
-  - "Capabilities outside cognition, growth, and memory were not comprehensively re-audited in this wave."
+  - "Remote matrix status remains UNKNOWN until the ET004 implementation commit is present and Actions complete."
+  - "Long-duration resource, event-storm, deadlock, provider-loss, and fault-injection behavior remain unverified."
+  - "The developmental local world model has not been trained; only its prerequisite goal and causal trajectory mechanisms are being established."
 
 next_evolution_target:
-  id: "EVOLUTION-TARGET-003-HOST-LONGITUDINAL"
-  title: "Owner-authorized host longitudinal validation"
-  status: "PENDING_OWNER_HOST_EVIDENCE"
+  id: "EVOLUTION-TARGET-005"
+  title: "Repo-Native Evolution Control Plane and Canonical Trajectory Contract"
+  status: "PLANNED_AFTER_ET004_MERGE"
   objective: >-
-    Run genuine owner-authorized task sequences on the intended host with a preserved
-    comparison policy, measure benefit and regressions over time, and verify that memory
-    validity and contradiction handling remain correct outside the controlled verifier.
-  acceptance_boundary: >-
-    Controlled CI evidence is insufficient for a real-world longitudinal claim. The host
-    sequence must use genuine tasks, preserve evidence and owner authority, and retain or
-    suppress memories according to observed outcomes.
+    Make the repository self-describing to any model through bounded task packets,
+    worker capability matching, deterministic claim/complete/block transitions, and
+    a canonical state-observation-action-prediction-outcome-evidence trajectory schema.
+  scope_boundary: >-
+    This target will not train a neural model, create a second LivingSystem, replace
+    GoalStore, or make Notion a canonical state source.
 
 unique_next_action: >-
-  Merge the verified ET003 pull request, then run an owner-authorized longitudinal host
-  evaluation without adding another memory system or parallel runtime.
+  Land the locally verified ET004 implementation on pull request 8, obtain the full
+  Ubuntu/Windows Python 3.11/3.13 green matrix, correct any failures, and stop at the
+  owner merge gate. After merge, create ET005 from verified main.
 
 stop_conditions:
-  - "Stop if any change bypasses evidence provenance, policy gates, human promotion authority, or rollback."
-  - "Stop if a claimed advantage is not measured against a preserved comparison."
-  - "Stop after ET003 is merged and handed off; do not create a new subsystem in this wave."
+  - "Stop if any change creates a parallel runtime, goal authority, or canonical state source."
+  - "Stop if remote CI is not green on the exact ET004 head."
+  - "Stop before merge unless the owner explicitly authorizes merging pull request 8."
+  - "Do not begin neural model training or bulk GitHub ingestion in ET004."
 
 prohibited_misinterpretations:
   - "A controlled memory advantage is not proof of real-world long-term autonomous learning."

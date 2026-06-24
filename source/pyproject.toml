@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "workstation-living-system"
-version = "0.9.0.dev1"
+version = "1.0.0.dev1"
 description = "A bounded functional software-life runtime for persistent observation, learning, memory, skills, and governed action."
 readme = "README.md"
 requires-python = ">=3.11"
