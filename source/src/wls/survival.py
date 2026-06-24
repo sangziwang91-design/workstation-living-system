@@ -130,11 +130,10 @@ class SurvivalSupervisor:
         return run_id
 
     def preflight(self, run_id: str, cycle_index: int) -> dict[str, Any]:
-        pending = int(
-            self.db.query_one(
-                "SELECT COUNT(*) AS count FROM events WHERE status='PENDING'"
-            )["count"]
+        pending_row = self.db.query_one(
+            "SELECT COUNT(*) AS count FROM events WHERE status='PENDING'"
         )
+        pending = int(pending_row["count"]) if pending_row is not None else 0
         database_bytes = self.database_bytes()
         self._update_peaks(run_id, pending, database_bytes)
         violations: list[dict[str, Any]] = []
@@ -227,6 +226,7 @@ class SurvivalSupervisor:
         if row is None:
             raise KeyError(run_id)
         consecutive = int(row["consecutive_failures"]) + 1
+        exhausted = consecutive >= self.config.daemon_max_consecutive_failures
         with self.db.transaction() as connection:
             connection.execute(
                 """
@@ -241,11 +241,7 @@ class SurvivalSupervisor:
             run_id=run_id,
             cycle_index=cycle_index,
             kind="CYCLE_EXCEPTION",
-            severity=(
-                "CRITICAL"
-                if consecutive > self.config.daemon_max_consecutive_failures
-                else "ERROR"
-            ),
+            severity="CRITICAL" if exhausted else "ERROR",
             error=error,
             consecutive_failures=consecutive,
             details={"exception_type": type(exc).__name__},
@@ -257,7 +253,7 @@ class SurvivalSupervisor:
             * (2 ** max(0, consecutive - 1)),
         )
         return {
-            "stop": consecutive > self.config.daemon_max_consecutive_failures,
+            "stop": exhausted,
             "consecutive_failures": consecutive,
             "backoff_seconds": backoff,
             "error": error,
@@ -318,11 +314,10 @@ class SurvivalSupervisor:
         if cycle_index % self.config.daemon_heartbeat_every_cycles != 0:
             return None
         heartbeat_id = new_id("heartbeat")
-        pending = int(
-            self.db.query_one(
-                "SELECT COUNT(*) AS count FROM events WHERE status='PENDING'"
-            )["count"]
+        pending_row = self.db.query_one(
+            "SELECT COUNT(*) AS count FROM events WHERE status='PENDING'"
         )
+        pending = int(pending_row["count"]) if pending_row is not None else 0
         database_bytes = self.database_bytes()
         with self.db.transaction() as connection:
             connection.execute(
@@ -411,11 +406,10 @@ class SurvivalSupervisor:
             "SELECT * FROM runtime_incidents ORDER BY created_at DESC LIMIT ?",
             (max(1, min(500, incident_limit)),),
         )
-        heartbeats = int(
-            self.db.query_one(
-                "SELECT COUNT(*) AS count FROM survival_heartbeats"
-            )["count"]
+        heartbeat_row = self.db.query_one(
+            "SELECT COUNT(*) AS count FROM survival_heartbeats"
         )
+        heartbeats = int(heartbeat_row["count"]) if heartbeat_row is not None else 0
         return {
             "latest_run": self._run_view(run) if run else None,
             "heartbeat_count": heartbeats,
@@ -452,10 +446,8 @@ class SurvivalSupervisor:
     @staticmethod
     def _run_view(row) -> dict[str, Any]:
         value = dict(row)
-        value["report"] = (
-            json.loads(value.pop("report_json")) if value.get("report_json") else None
-        )
-        value.pop("report_json", None)
+        raw_report = value.pop("report_json", None)
+        value["report"] = json.loads(raw_report) if raw_report else None
         return value
 
     @staticmethod
