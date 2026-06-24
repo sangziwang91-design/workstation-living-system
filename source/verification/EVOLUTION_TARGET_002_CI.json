@@ -1,0 +1,167 @@
+{
+  "checks": {
+    "bounded_cognition_selected_request": true,
+    "causal_trial_persisted": true,
+    "cognition_integrity": true,
+    "cycle_succeeded": true,
+    "prediction_confirmed": true,
+    "runtime_integrity": true,
+    "trace_survived_restart": true
+  },
+  "claim_boundary": "This verifies a bounded local cognition vertical slice with durable hypothesis competition, prediction, action, calibration, and restart continuity. It does not prove general intelligence, consciousness, or long-term autonomous superiority.",
+  "cognition_integrity": {
+    "orphan_hypotheses": 0,
+    "orphan_predictions": 0,
+    "resolved_without_outcome": 0
+  },
+  "cycle": {
+    "actions": 1,
+    "outcomes": [
+      {
+        "action_id": "act_8aa9f86906764df9955e2b2e97facedf",
+        "error": null,
+        "evaluation": {
+          "accepted": true,
+          "checks": [
+            {
+              "criterion": "output contains items",
+              "passed": true
+            }
+          ],
+          "error": null,
+          "tool_success": true
+        },
+        "output": {
+          "items": [
+            {
+              "is_dir": false,
+              "mtime_ns": 1782262322541958298,
+              "name": "evidence.txt",
+              "size": 8
+            }
+          ],
+          "path": "/tmp/wls-et002-7r0itqfs/home/sandbox/world",
+          "truncated": false
+        },
+        "status": "SUCCEEDED",
+        "success": true
+      }
+    ],
+    "plan_status": "COMPLETED",
+    "status": "SUCCEEDED"
+  },
+  "generated_at": "2026-06-24T00:52:02.649991+00:00",
+  "passed": true,
+  "runtime_integrity": {
+    "cognition": {
+      "orphan_hypotheses": 0,
+      "orphan_predictions": 0,
+      "resolved_without_outcome": 0
+    },
+    "database": "ok",
+    "ledger": {
+      "head": "7e5d0aa072997125f3ca6bae50c120d8618754fa8cb21f6b3133c003d6531d60",
+      "records": 22
+    },
+    "ok": true
+  },
+  "target": "EVOLUTION-TARGET-002",
+  "temporal_world": {
+    "affordances": 0,
+    "causal_hypotheses": 1,
+    "causal_trials": 1,
+    "conflicted_relations": 0,
+    "entities": 1,
+    "relations": 2
+  },
+  "trace": {
+    "alternatives": [
+      {
+        "action_tools": [
+          "noop"
+        ],
+        "claim": "No additional external action is justified.",
+        "key": "deliberate_safe_noop",
+        "score": 0.354286,
+        "support_ids": []
+      }
+    ],
+    "counterfactual_key": "inspect_requested_path:/tmp/wls-et002-7r0itqfs/home/sandbox/world",
+    "created_at": "2026-06-24T00:52:02.562994+00:00",
+    "cycle_id": "cycle_565a7ae70f9646b4b17269285554fb7c",
+    "decomposition": {
+      "goal_id": null,
+      "horizon": "receding",
+      "steps": [
+        {
+          "actions": [
+            "list_directory"
+          ],
+          "stage": "EVIDENCE",
+          "status": "CURRENT"
+        },
+        {
+          "criterion": "planned action satisfies its acceptance contract",
+          "stage": "PREDICT",
+          "status": "OPEN"
+        },
+        {
+          "criterion": "causal confidence updates from observed outcome",
+          "stage": "REVISE",
+          "status": "PENDING_OUTCOME"
+        },
+        {
+          "criterion": "new evidence must justify another bounded action",
+          "stage": "CONTINUE_OR_STOP",
+          "status": "NEXT_CYCLE"
+        }
+      ]
+    },
+    "memory_changed_decision": false,
+    "memory_delta": 0.0,
+    "outcome": {
+      "calibration": {
+        "causal_trial": {
+          "alpha": 2.0,
+          "beta": 1.0,
+          "confidence": 0.6666666666666666,
+          "hypothesis_id": "hypothesis_2de51e6ce9d642f4b4ca7fae192f5f66",
+          "trial_id": "trial_96fb56bc5fba47fabb052a03774c3348"
+        },
+        "effect_relation_id": "relation_40061da3fce24bcf92eeeef53da0850f",
+        "observed": true,
+        "updated": true
+      },
+      "observed_actions": 1,
+      "predictions": [
+        {
+          "actual": {
+            "action_id": "act_8aa9f86906764df9955e2b2e97facedf",
+            "evaluation": {
+              "accepted": true,
+              "checks": [
+                {
+                  "criterion": "output contains items",
+                  "passed": true
+                }
+              ],
+              "error": null,
+              "tool_success": true
+            },
+            "status": "SUCCEEDED",
+            "success": true,
+            "tool": "list_directory"
+          },
+          "prediction_id": "cogpred_3243f4c9b4b341f284cc71c2bae46a1b",
+          "status": "CONFIRMED"
+        }
+      ],
+      "successful_actions": 1
+    },
+    "plan_id": "plan_a7ea023e2386438f9a7f434555cdeb6c",
+    "resolved_at": "2026-06-24T00:52:02.601680+00:00",
+    "selected_key": "inspect_requested_path:/tmp/wls-et002-7r0itqfs/home/sandbox/world",
+    "status": "RESOLVED",
+    "trace_id": "cogtrace_c8763f042cd8423d83f0d4ffa0096bb7"
+  }
+}

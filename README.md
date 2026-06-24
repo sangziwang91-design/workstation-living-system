@@ -86,3 +86,18 @@ wls --config CONFIG growth-status
 ## Remaining proof boundary
 
 The next accepted proof is a real owner-authorized run on the intended Windows host: reproduce a genuine failure, approve and promote the resulting skill, reuse it on a later non-synthetic task, record benefit and regressions, and retain or roll back from evidence. Until that run exists, WLS may claim a **verified bounded growth-cycle implementation**, not verified long-term self-improvement or a complete software life-form.
+
+## EVOLUTION-TARGET-002: bounded local cognition
+
+The default standalone planner is now `cognitive`. It performs local evidence-bound
+hypothesis competition, records alternatives and a memory-free counterfactual, creates
+explicit action predictions, resolves them from real tool outcomes, and calibrates causal
+confidence in the existing temporal world model. External OpenAI-compatible planners are
+optional and fall back to this local cognition path when unavailable.
+
+```bash
+wls --config CONFIG cognition --limit 20
+```
+
+This is a bounded engineering cognition layer, not a claim of AGI, subjective
+consciousness, or unrestricted autonomous reasoning.

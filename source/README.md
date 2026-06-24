@@ -56,3 +56,18 @@ wls --config CONFIG growth-status
 ```
 
 The implementation and retain/rollback paths are verified in isolated temporary runtimes and CI. Long-term benefit on the intended Windows workstation remains unverified. Claims remain limited to observable software behavior.
+
+## EVOLUTION-TARGET-002: bounded local cognition
+
+The default standalone planner is now `cognitive`. It performs local evidence-bound
+hypothesis competition, records alternatives and a memory-free counterfactual, creates
+explicit action predictions, resolves them from real tool outcomes, and calibrates causal
+confidence in the existing temporal world model. External OpenAI-compatible planners are
+optional and fall back to this local cognition path when unavailable.
+
+```bash
+wls --config CONFIG cognition --limit 20
+```
+
+This is a bounded engineering cognition layer, not a claim of AGI, subjective
+consciousness, or unrestricted autonomous reasoning.

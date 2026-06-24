@@ -1,16 +1,16 @@
-schema_version: "1.2"
+schema_version: "1.3"
 system:
   name: "Workstation Living System"
   abbreviation: "WLS"
   repository: "sangziwang91-design/workstation-living-system-private"
-  development_version: "0.7.0.dev1"
+  development_version: "0.8.0.dev1"
   canonical_identity_file: "LIVING_SYSTEM_GENOME.md"
   canonical_runtime: "source/src/wls/runtime.py::LivingSystem"
 
 state_record:
   updated_at: "2026-06-24T07:54:00+08:00"
   time_zone: "Asia/Singapore"
-  update_type: "canonical-growth-merged"
+  update_type: "bounded-local-cognition-candidate"
   evidence_basis:
     - type: "VERIFIED"
       source: "source/verification/EVOLUTION_TARGET_001_LOCAL_20260624.json"
@@ -215,3 +215,16 @@ prohibited_misinterpretations:
   - "A retained skill in an isolated run is not proof of indefinite self-improvement."
   - "Persistent state is not subjective consciousness."
   - "Functional affect is not genuine emotion."
+
+active_iteration_candidate:
+  id: "EVOLUTION-TARGET-002"
+  title: "Bounded local cognition vertical slice"
+  status: "IMPLEMENTED_PENDING_CI_AND_MERGE"
+  objective: >-
+    Integrate the existing temporal causal world model into the canonical LivingSystem,
+    replace the default hard-coded reflex planner with durable local hypothesis
+    competition, preserve memory-free counterfactuals, generate explicit predictions,
+    and calibrate them from real tool outcomes without requiring an external model.
+  claim_boundary: >-
+    This target can establish bounded local cognition behavior only. It cannot establish
+    AGI, subjective consciousness, unrestricted autonomy, or long-term superiority.

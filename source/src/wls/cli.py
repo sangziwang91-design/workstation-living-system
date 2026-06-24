@@ -193,6 +193,11 @@ def build_parser() -> argparse.ArgumentParser:
     growth_status = sub.add_parser("growth-status", help="Show growth-cycle evidence")
     growth_status.add_argument("--limit", type=int, default=20)
 
+    cognition = sub.add_parser(
+        "cognition", help="Show durable local hypotheses, predictions, and calibration"
+    )
+    cognition.add_argument("--limit", type=int, default=20)
+
     export = sub.add_parser("export-evidence")
     export.add_argument("path")
     return parser
@@ -405,6 +410,14 @@ def main(argv: list[str] | None = None) -> int:
             )
         elif args.command == "growth-status":
             print_json(runtime.growth.summary(limit=args.limit))
+        elif args.command == "cognition":
+            print_json(
+                {
+                    "summary": runtime.cognition.summary(limit=500),
+                    "recent": runtime.cognition.recent(limit=args.limit),
+                    "temporal_world": runtime.temporal_world.summary(),
+                }
+            )
         elif args.command == "export-evidence":
             print_json({"path": str(runtime.ledger.export_jsonl(args.path))})
         else:
