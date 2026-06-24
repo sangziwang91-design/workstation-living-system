@@ -64,7 +64,7 @@ PROVIDER_HUB_JS = r"""
     const models=(p.available_models||[]).map(model=>`<option value="${esc(model)}"></option>`).join("");
     const probeClass=p.last_probe_status==="PASS"?"pass":(["FAIL","ERROR"].includes(p.last_probe_status)?"fail":"");
     const baseField=p.custom_base_url?`<label class="label">Base URL<input data-field="base_url" value="${esc(p.configured_base_url)}"></label>`:"";
-    const command=`wls provider-key set ${p.provider_id}`;
+    const command=`python -m wls.provider_cli set-key ${p.provider_id}`;
     return `<article class="card ${p.selected?"selected":""}" data-id="${esc(p.provider_id)}">
       <div class="head"><div class="provider"><div class="logo">${initials(p.name)}</div><div><h2>${esc(p.name)}</h2><small>${esc(p.family)} · ${esc(p.protocol)}</small><div class="badges"><span class="badge ${probeClass}">${esc(p.last_probe_status)}</span>${p.credential_configured?'<span class="badge pass">凭据已配置</span>':'<span class="badge">待配置</span>'}${p.selected?'<span class="badge selected">首选候选</span>':''}</div></div></div><label class="switch"><input data-field="enabled" type="checkbox" ${p.enabled?"checked":""}>启用</label></div>
       <div class="note">${esc(p.access_note)}<br>隐私上限：<strong>${esc(p.privacy_ceiling)}</strong></div>
