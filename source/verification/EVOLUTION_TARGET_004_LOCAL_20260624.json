@@ -1,0 +1,2876 @@
+{
+  "claim_boundary": "This verifies controlled local persistent-goal lifecycle, decomposition, debt, review, goal-to-decision attribution, interruption recovery, restart continuity, and measurable advantage against a goal-disabled baseline. It does not prove production-host long-term autonomy, free will, genuine motivation, AGI, consciousness, subjective emotion, or unrestricted self-rewrite.",
+  "decision_differences": {
+    "completed_child_delta": 4,
+    "completion_rate_delta": 1.0,
+    "progress_delta": 1.0
+  },
+  "event_stream_equivalent": true,
+  "evidence_classification": {
+    "INFERENCE": [
+      "the mechanism may support longer genuine tasks if host evidence remains favorable"
+    ],
+    "UNKNOWN": [
+      "production-host weeks-or-months advantage",
+      "unrestricted autonomous planning"
+    ],
+    "VERIFIED": [
+      "controlled persistent goal lifecycle and decomposition",
+      "goal-disabled frozen comparison",
+      "interruption recovery and restart continuity",
+      "goal-to-decision attribution"
+    ]
+  },
+  "generated_at": "2026-06-24T05:36:50.582646+00:00",
+  "goal_attributions": [
+    {
+      "causal_reason": "selected=goal_task:goal_1881464ec5cb4180a0be91eb5ed19024:record_progress:Record verified goal progress; goal_free=deliberate_safe_noop; selected_goal_ids=goal_1881464ec5cb4180a0be91eb5ed19024",
+      "counterfactual_without_goal": {
+        "actions": [
+          {
+            "acceptance": [
+              "output ok is true"
+            ],
+            "arguments": {
+              "reason": "No supported action"
+            },
+            "expected_result": "No external change",
+            "goal_id": null,
+            "purpose": "Record a deliberate no-op instead of inventing activity",
+            "risk": "READ",
+            "skill_id": null,
+            "tool": "noop"
+          }
+        ],
+        "claim": "No additional external action is justified.",
+        "key": "deliberate_safe_noop",
+        "score": 0.35428571428571426
+      },
+      "created_at": "2026-06-24T05:36:49.869171+00:00",
+      "cycle_id": "cycle_9b371156d81a4a81ae4980fe5affcb82",
+      "decision_trace_id": "cogtrace_e06451e85ce741768f9f1d1ef6620f1e",
+      "goal_delta": 0.49298701298701303,
+      "goal_influenced_decision": true,
+      "goal_trace_id": "goaltrace_c406d04312014e62a0c8cd67c58bf723",
+      "outcome": {
+        "frozen": false,
+        "goal_updates": [
+          {
+            "decided_progress": 1.0,
+            "decided_status": "COMPLETED",
+            "goal_id": "goal_1881464ec5cb4180a0be91eb5ed19024",
+            "previous_progress": 1.0,
+            "previous_status": "COMPLETED",
+            "reason": "action_outcome",
+            "review_id": "goalreview_15a3af5cf9cf4bba8e5eeb4022778723"
+          },
+          {
+            "decided_progress": 1.0,
+            "decided_status": "COMPLETED",
+            "goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+            "previous_progress": 0.75,
+            "previous_status": "DECOMPOSED",
+            "reason": "child_progress_aggregation",
+            "review_id": "goalreview_e8bfba50e80549b8a4b3beaa22906747"
+          }
+        ],
+        "mode": "enabled",
+        "observed_actions": 1,
+        "successful_actions": 1
+      },
+      "resolved_at": "2026-06-24T05:36:49.934547+00:00",
+      "selected_goal_ids": [
+        "goal_1881464ec5cb4180a0be91eb5ed19024"
+      ],
+      "selected_key": "goal_task:goal_1881464ec5cb4180a0be91eb5ed19024:record_progress:Record verified goal progress"
+    },
+    {
+      "causal_reason": "selected=goal_task:goal_31b440594a0b4cda80f106ffca135ed3:inspect_path:/tmp/wls-et004-0h6czr_l/enabled/sandbox/task-3; goal_free=deliberate_safe_noop; selected_goal_ids=goal_31b440594a0b4cda80f106ffca135ed3",
+      "counterfactual_without_goal": {
+        "actions": [
+          {
+            "acceptance": [
+              "output ok is true"
+            ],
+            "arguments": {
+              "reason": "No supported action"
+            },
+            "expected_result": "No external change",
+            "goal_id": null,
+            "purpose": "Record a deliberate no-op instead of inventing activity",
+            "risk": "READ",
+            "skill_id": null,
+            "tool": "noop"
+          }
+        ],
+        "claim": "No additional external action is justified.",
+        "key": "deliberate_safe_noop",
+        "score": 0.35428571428571426
+      },
+      "created_at": "2026-06-24T05:36:49.703476+00:00",
+      "cycle_id": "cycle_ab3d839e866b47d2adeba7437f49ebb3",
+      "decision_trace_id": "cogtrace_fd5f65e38a644b2196aae2afcfa9c199",
+      "goal_delta": 0.5037142857142858,
+      "goal_influenced_decision": true,
+      "goal_trace_id": "goaltrace_93e564dd3de349bb8324f4d803afe33d",
+      "outcome": {
+        "frozen": false,
+        "goal_updates": [
+          {
+            "decided_progress": 1.0,
+            "decided_status": "COMPLETED",
+            "goal_id": "goal_31b440594a0b4cda80f106ffca135ed3",
+            "previous_progress": 1.0,
+            "previous_status": "COMPLETED",
+            "reason": "action_outcome",
+            "review_id": "goalreview_8a1dde3cf40540c4bdb5fc8f0c4ad3bb"
+          },
+          {
+            "decided_progress": 0.75,
+            "decided_status": "DECOMPOSED",
+            "goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+            "previous_progress": 0.5,
+            "previous_status": "DECOMPOSED",
+            "reason": "child_progress_aggregation",
+            "review_id": "goalreview_07c23e9d5c2a4cc890d1882dc10c3cf1"
+          }
+        ],
+        "mode": "enabled",
+        "observed_actions": 1,
+        "successful_actions": 1
+      },
+      "resolved_at": "2026-06-24T05:36:49.770501+00:00",
+      "selected_goal_ids": [
+        "goal_31b440594a0b4cda80f106ffca135ed3"
+      ],
+      "selected_key": "goal_task:goal_31b440594a0b4cda80f106ffca135ed3:inspect_path:/tmp/wls-et004-0h6czr_l/enabled/sandbox/task-3"
+    },
+    {
+      "causal_reason": "selected=goal_task:goal_07c92a7a63824f0f8dd38648c9c9b944:inspect_path:/tmp/wls-et004-0h6czr_l/enabled/sandbox/task-2; goal_free=deliberate_safe_noop; selected_goal_ids=goal_07c92a7a63824f0f8dd38648c9c9b944",
+      "counterfactual_without_goal": {
+        "actions": [
+          {
+            "acceptance": [
+              "output ok is true"
+            ],
+            "arguments": {
+              "reason": "No supported action"
+            },
+            "expected_result": "No external change",
+            "goal_id": null,
+            "purpose": "Record a deliberate no-op instead of inventing activity",
+            "risk": "READ",
+            "skill_id": null,
+            "tool": "noop"
+          }
+        ],
+        "claim": "No additional external action is justified.",
+        "key": "deliberate_safe_noop",
+        "score": 0.35428571428571426
+      },
+      "created_at": "2026-06-24T05:36:49.513068+00:00",
+      "cycle_id": "cycle_69b6c4cb6fac4f1980608ccfb049eb7f",
+      "decision_trace_id": "cogtrace_847b733aa11c4e4ab86874fc63b19298",
+      "goal_delta": 0.5037142857142858,
+      "goal_influenced_decision": true,
+      "goal_trace_id": "goaltrace_5e5e74d49e3b4dec84a796958310aa3e",
+      "outcome": {
+        "frozen": false,
+        "goal_updates": [
+          {
+            "decided_progress": 1.0,
+            "decided_status": "COMPLETED",
+            "goal_id": "goal_07c92a7a63824f0f8dd38648c9c9b944",
+            "previous_progress": 1.0,
+            "previous_status": "COMPLETED",
+            "reason": "action_outcome",
+            "review_id": "goalreview_99909cbecd034012811f9fc9713c5cee"
+          },
+          {
+            "decided_progress": 0.5,
+            "decided_status": "DECOMPOSED",
+            "goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+            "previous_progress": 0.25,
+            "previous_status": "DECOMPOSED",
+            "reason": "child_progress_aggregation",
+            "review_id": "goalreview_115a70c567b5495ba76371012fbf0fcc"
+          }
+        ],
+        "mode": "enabled",
+        "observed_actions": 1,
+        "successful_actions": 1
+      },
+      "resolved_at": "2026-06-24T05:36:49.578618+00:00",
+      "selected_goal_ids": [
+        "goal_07c92a7a63824f0f8dd38648c9c9b944"
+      ],
+      "selected_key": "goal_task:goal_07c92a7a63824f0f8dd38648c9c9b944:inspect_path:/tmp/wls-et004-0h6czr_l/enabled/sandbox/task-2"
+    },
+    {
+      "causal_reason": "selected=goal_task:goal_1a1a849750e340c39296127537122f15:inspect_path:/tmp/wls-et004-0h6czr_l/enabled/sandbox/task-1; goal_free=deliberate_safe_noop; selected_goal_ids=goal_1a1a849750e340c39296127537122f15",
+      "counterfactual_without_goal": {
+        "actions": [
+          {
+            "acceptance": [
+              "output ok is true"
+            ],
+            "arguments": {
+              "reason": "No supported action"
+            },
+            "expected_result": "No external change",
+            "goal_id": null,
+            "purpose": "Record a deliberate no-op instead of inventing activity",
+            "risk": "READ",
+            "skill_id": null,
+            "tool": "noop"
+          }
+        ],
+        "claim": "No additional external action is justified.",
+        "key": "deliberate_safe_noop",
+        "score": 0.35582810559006206
+      },
+      "created_at": "2026-06-24T05:36:49.348294+00:00",
+      "cycle_id": "cycle_a1db159ecaa34832bc1caf83a523ea1d",
+      "decision_trace_id": "cogtrace_df783c2d35cf4b49a53d679048f71074",
+      "goal_delta": 0.5112067258706121,
+      "goal_influenced_decision": true,
+      "goal_trace_id": "goaltrace_baa6c200c0cb4822ab305a06521c5b1f",
+      "outcome": {
+        "frozen": false,
+        "goal_updates": [
+          {
+            "decided_progress": 1.0,
+            "decided_status": "COMPLETED",
+            "goal_id": "goal_1a1a849750e340c39296127537122f15",
+            "previous_progress": 1.0,
+            "previous_status": "COMPLETED",
+            "reason": "action_outcome",
+            "review_id": "goalreview_32b7687a98224ffc989d747ef7b56586"
+          },
+          {
+            "decided_progress": 0.25,
+            "decided_status": "DECOMPOSED",
+            "goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+            "previous_progress": 0.0,
+            "previous_status": "DECOMPOSED",
+            "reason": "child_progress_aggregation",
+            "review_id": "goalreview_124a528a5aa74540b8f78049d8adb2e5"
+          }
+        ],
+        "mode": "enabled",
+        "observed_actions": 1,
+        "successful_actions": 1
+      },
+      "resolved_at": "2026-06-24T05:36:49.414322+00:00",
+      "selected_goal_ids": [
+        "goal_1a1a849750e340c39296127537122f15"
+      ],
+      "selected_key": "goal_task:goal_1a1a849750e340c39296127537122f15:inspect_path:/tmp/wls-et004-0h6czr_l/enabled/sandbox/task-1"
+    },
+    {
+      "causal_reason": "selected=inspect_requested_path:/tmp/wls-et004-0h6czr_l/enabled/sandbox/unrelated; goal_free=inspect_requested_path:/tmp/wls-et004-0h6czr_l/enabled/sandbox/unrelated; selected_goal_ids=none",
+      "counterfactual_without_goal": {
+        "actions": [
+          {
+            "acceptance": [
+              "output contains items"
+            ],
+            "arguments": {
+              "limit": 200,
+              "path": "/tmp/wls-et004-0h6czr_l/enabled/sandbox/unrelated"
+            },
+            "expected_result": "Bounded directory listing",
+            "goal_id": null,
+            "purpose": "Inspect the explicitly requested path",
+            "risk": "READ",
+            "skill_id": null,
+            "tool": "list_directory"
+          }
+        ],
+        "claim": "The explicit human path request should be inspected read-only.",
+        "key": "inspect_requested_path:/tmp/wls-et004-0h6czr_l/enabled/sandbox/unrelated",
+        "score": 0.98
+      },
+      "created_at": "2026-06-24T05:36:49.151299+00:00",
+      "cycle_id": "cycle_fef7cdc7f4194f5488ce28efe282f24d",
+      "decision_trace_id": "cogtrace_05aaa12dc48d4875bcba21402ce5ad24",
+      "goal_delta": 0.0028846153846153744,
+      "goal_influenced_decision": false,
+      "goal_trace_id": "goaltrace_16d922e6c3614559a55bf4e342a931f6",
+      "outcome": {
+        "frozen": false,
+        "goal_updates": [
+          {
+            "decided_progress": 0.0,
+            "decided_status": "BLOCKED",
+            "goal_id": "goal_1a1a849750e340c39296127537122f15",
+            "previous_progress": 0.0,
+            "previous_status": "BLOCKED",
+            "reason": "interruption_recorded",
+            "review_id": "goalreview_e9166be89e714b67868a218b995b37e3"
+          },
+          {
+            "decided_progress": 0.0,
+            "decided_status": "DECOMPOSED",
+            "goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+            "previous_progress": 0.0,
+            "previous_status": "DECOMPOSED",
+            "reason": "child_progress_aggregation",
+            "review_id": "goalreview_b6e893dad8914698a541245e0d77f4d7"
+          }
+        ],
+        "mode": "enabled",
+        "observed_actions": 1,
+        "successful_actions": 1
+      },
+      "resolved_at": "2026-06-24T05:36:49.242978+00:00",
+      "selected_goal_ids": [],
+      "selected_key": "inspect_requested_path:/tmp/wls-et004-0h6czr_l/enabled/sandbox/unrelated"
+    }
+  ],
+  "goal_debt": {
+    "final_open": [],
+    "interruption_was_recorded": true
+  },
+  "goal_decomposition": {
+    "decomposition_id": "goaldecomp_b7e5c22723cf4428a8698cb0a48cbf9b",
+    "goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+    "subgoal_ids": [
+      "goal_1a1a849750e340c39296127537122f15",
+      "goal_07c92a7a63824f0f8dd38648c9c9b944",
+      "goal_31b440594a0b4cda80f106ffca135ed3",
+      "goal_1881464ec5cb4180a0be91eb5ed19024"
+    ],
+    "task_specs": [
+      {
+        "dependencies": [],
+        "goal_id": "goal_1a1a849750e340c39296127537122f15",
+        "task_spec": {
+          "action": "inspect_path",
+          "path": "/tmp/wls-et004-0h6czr_l/enabled/sandbox/task-1"
+        },
+        "title": "Inspect controlled path 1"
+      },
+      {
+        "dependencies": [
+          "goal_1a1a849750e340c39296127537122f15"
+        ],
+        "goal_id": "goal_07c92a7a63824f0f8dd38648c9c9b944",
+        "task_spec": {
+          "action": "inspect_path",
+          "path": "/tmp/wls-et004-0h6czr_l/enabled/sandbox/task-2"
+        },
+        "title": "Inspect controlled path 2"
+      },
+      {
+        "dependencies": [
+          "goal_07c92a7a63824f0f8dd38648c9c9b944"
+        ],
+        "goal_id": "goal_31b440594a0b4cda80f106ffca135ed3",
+        "task_spec": {
+          "action": "inspect_path",
+          "path": "/tmp/wls-et004-0h6czr_l/enabled/sandbox/task-3"
+        },
+        "title": "Inspect controlled path 3"
+      },
+      {
+        "dependencies": [
+          "goal_31b440594a0b4cda80f106ffca135ed3"
+        ],
+        "goal_id": "goal_1881464ec5cb4180a0be91eb5ed19024",
+        "task_spec": {
+          "action": "record_progress"
+        },
+        "title": "Record verified goal progress"
+      }
+    ]
+  },
+  "goal_disabled_baseline": {
+    "before_restart": {
+      "children": [
+        {
+          "archived_at": null,
+          "autonomous": false,
+          "blocked_reason": null,
+          "completed_at": null,
+          "contradiction_reason": null,
+          "created_at": "2026-06-24T05:36:50.182496+00:00",
+          "deadline": null,
+          "dependencies": [],
+          "description": "Inspect controlled path 1",
+          "goal_id": "goal_5ac9f57d44ac4418b738c18dec5af801",
+          "interruption_count": 0,
+          "last_reviewed_at": null,
+          "origin": "decomposition:goal_6710f5e198db41e28322baf5dd38c04c",
+          "parent_goal_id": "goal_6710f5e198db41e28322baf5dd38c04c",
+          "priority": 0.5,
+          "progress": 0.0,
+          "progress_evidence": [],
+          "rationale": "Bounded child task derived from the accepted parent goal.",
+          "recovery_count": 0,
+          "remaining_work": [
+            "Inspect controlled path 1"
+          ],
+          "risk": "READ",
+          "source": "verification",
+          "status": "ACTIVE",
+          "success_criteria": [
+            "governed action succeeds with evidence"
+          ],
+          "task_spec": {
+            "action": "inspect_path",
+            "path": "/tmp/wls-et004-0h6czr_l/disabled/sandbox/task-1"
+          },
+          "title": "Inspect controlled path 1",
+          "updated_at": "2026-06-24T05:36:50.182503+00:00"
+        },
+        {
+          "archived_at": null,
+          "autonomous": false,
+          "blocked_reason": null,
+          "completed_at": null,
+          "contradiction_reason": null,
+          "created_at": "2026-06-24T05:36:50.184887+00:00",
+          "deadline": null,
+          "dependencies": [
+            "goal_5ac9f57d44ac4418b738c18dec5af801"
+          ],
+          "description": "Inspect controlled path 2",
+          "goal_id": "goal_f511505d6ab64c64a58de988edb4fbfc",
+          "interruption_count": 0,
+          "last_reviewed_at": null,
+          "origin": "decomposition:goal_6710f5e198db41e28322baf5dd38c04c",
+          "parent_goal_id": "goal_6710f5e198db41e28322baf5dd38c04c",
+          "priority": 0.5,
+          "progress": 0.0,
+          "progress_evidence": [],
+          "rationale": "Bounded child task derived from the accepted parent goal.",
+          "recovery_count": 0,
+          "remaining_work": [
+            "Inspect controlled path 2"
+          ],
+          "risk": "READ",
+          "source": "verification",
+          "status": "WAITING",
+          "success_criteria": [
+            "governed action succeeds with evidence"
+          ],
+          "task_spec": {
+            "action": "inspect_path",
+            "path": "/tmp/wls-et004-0h6czr_l/disabled/sandbox/task-2"
+          },
+          "title": "Inspect controlled path 2",
+          "updated_at": "2026-06-24T05:36:50.184894+00:00"
+        },
+        {
+          "archived_at": null,
+          "autonomous": false,
+          "blocked_reason": null,
+          "completed_at": null,
+          "contradiction_reason": null,
+          "created_at": "2026-06-24T05:36:50.187340+00:00",
+          "deadline": null,
+          "dependencies": [
+            "goal_f511505d6ab64c64a58de988edb4fbfc"
+          ],
+          "description": "Inspect controlled path 3",
+          "goal_id": "goal_265dc48439a5497eacf035653b0e5d19",
+          "interruption_count": 0,
+          "last_reviewed_at": null,
+          "origin": "decomposition:goal_6710f5e198db41e28322baf5dd38c04c",
+          "parent_goal_id": "goal_6710f5e198db41e28322baf5dd38c04c",
+          "priority": 0.5,
+          "progress": 0.0,
+          "progress_evidence": [],
+          "rationale": "Bounded child task derived from the accepted parent goal.",
+          "recovery_count": 0,
+          "remaining_work": [
+            "Inspect controlled path 3"
+          ],
+          "risk": "READ",
+          "source": "verification",
+          "status": "WAITING",
+          "success_criteria": [
+            "governed action succeeds with evidence"
+          ],
+          "task_spec": {
+            "action": "inspect_path",
+            "path": "/tmp/wls-et004-0h6czr_l/disabled/sandbox/task-3"
+          },
+          "title": "Inspect controlled path 3",
+          "updated_at": "2026-06-24T05:36:50.187347+00:00"
+        },
+        {
+          "archived_at": null,
+          "autonomous": false,
+          "blocked_reason": null,
+          "completed_at": null,
+          "contradiction_reason": null,
+          "created_at": "2026-06-24T05:36:50.189452+00:00",
+          "deadline": null,
+          "dependencies": [
+            "goal_265dc48439a5497eacf035653b0e5d19"
+          ],
+          "description": "Record verified goal progress",
+          "goal_id": "goal_50ce2e68d64b4d33b6eae2d9a3d59828",
+          "interruption_count": 0,
+          "last_reviewed_at": null,
+          "origin": "decomposition:goal_6710f5e198db41e28322baf5dd38c04c",
+          "parent_goal_id": "goal_6710f5e198db41e28322baf5dd38c04c",
+          "priority": 0.5,
+          "progress": 0.0,
+          "progress_evidence": [],
+          "rationale": "Bounded child task derived from the accepted parent goal.",
+          "recovery_count": 0,
+          "remaining_work": [
+            "Record verified goal progress"
+          ],
+          "risk": "READ",
+          "source": "verification",
+          "status": "WAITING",
+          "success_criteria": [
+            "governed action succeeds with evidence"
+          ],
+          "task_spec": {
+            "action": "record_progress"
+          },
+          "title": "Record verified goal progress",
+          "updated_at": "2026-06-24T05:36:50.189459+00:00"
+        }
+      ],
+      "completed_children": 0,
+      "goal_abandonment_rate": 0.0,
+      "goal_completion_rate": 0.0,
+      "interruption_recovery": false,
+      "parent_progress": 0.0,
+      "parent_status": "DECOMPOSED",
+      "progress_accumulation": 0.0,
+      "task_completion": false,
+      "wrong_action_rate": 0.0
+    },
+    "children": [
+      {
+        "archived_at": null,
+        "autonomous": false,
+        "blocked_reason": null,
+        "completed_at": null,
+        "contradiction_reason": null,
+        "created_at": "2026-06-24T05:36:50.182496+00:00",
+        "deadline": null,
+        "dependencies": [],
+        "description": "Inspect controlled path 1",
+        "goal_id": "goal_5ac9f57d44ac4418b738c18dec5af801",
+        "interruption_count": 0,
+        "last_reviewed_at": "2026-06-24T05:36:50.544642+00:00",
+        "origin": "decomposition:goal_6710f5e198db41e28322baf5dd38c04c",
+        "parent_goal_id": "goal_6710f5e198db41e28322baf5dd38c04c",
+        "priority": 0.5,
+        "progress": 0.0,
+        "progress_evidence": [],
+        "rationale": "Bounded child task derived from the accepted parent goal.",
+        "recovery_count": 0,
+        "remaining_work": [
+          "Inspect controlled path 1"
+        ],
+        "risk": "READ",
+        "source": "verification",
+        "status": "IN_PROGRESS",
+        "success_criteria": [
+          "governed action succeeds with evidence"
+        ],
+        "task_spec": {
+          "action": "inspect_path",
+          "path": "/tmp/wls-et004-0h6czr_l/disabled/sandbox/task-1"
+        },
+        "title": "Inspect controlled path 1",
+        "updated_at": "2026-06-24T05:36:50.545484+00:00"
+      },
+      {
+        "archived_at": null,
+        "autonomous": false,
+        "blocked_reason": null,
+        "completed_at": null,
+        "contradiction_reason": null,
+        "created_at": "2026-06-24T05:36:50.184887+00:00",
+        "deadline": null,
+        "dependencies": [
+          "goal_5ac9f57d44ac4418b738c18dec5af801"
+        ],
+        "description": "Inspect controlled path 2",
+        "goal_id": "goal_f511505d6ab64c64a58de988edb4fbfc",
+        "interruption_count": 0,
+        "last_reviewed_at": "2026-06-24T05:36:50.551900+00:00",
+        "origin": "decomposition:goal_6710f5e198db41e28322baf5dd38c04c",
+        "parent_goal_id": "goal_6710f5e198db41e28322baf5dd38c04c",
+        "priority": 0.5,
+        "progress": 0.0,
+        "progress_evidence": [],
+        "rationale": "Bounded child task derived from the accepted parent goal.",
+        "recovery_count": 0,
+        "remaining_work": [
+          "Inspect controlled path 2"
+        ],
+        "risk": "READ",
+        "source": "verification",
+        "status": "WAITING",
+        "success_criteria": [
+          "governed action succeeds with evidence"
+        ],
+        "task_spec": {
+          "action": "inspect_path",
+          "path": "/tmp/wls-et004-0h6czr_l/disabled/sandbox/task-2"
+        },
+        "title": "Inspect controlled path 2",
+        "updated_at": "2026-06-24T05:36:50.552689+00:00"
+      },
+      {
+        "archived_at": null,
+        "autonomous": false,
+        "blocked_reason": null,
+        "completed_at": null,
+        "contradiction_reason": null,
+        "created_at": "2026-06-24T05:36:50.187340+00:00",
+        "deadline": null,
+        "dependencies": [
+          "goal_f511505d6ab64c64a58de988edb4fbfc"
+        ],
+        "description": "Inspect controlled path 3",
+        "goal_id": "goal_265dc48439a5497eacf035653b0e5d19",
+        "interruption_count": 0,
+        "last_reviewed_at": "2026-06-24T05:36:50.559287+00:00",
+        "origin": "decomposition:goal_6710f5e198db41e28322baf5dd38c04c",
+        "parent_goal_id": "goal_6710f5e198db41e28322baf5dd38c04c",
+        "priority": 0.5,
+        "progress": 0.0,
+        "progress_evidence": [],
+        "rationale": "Bounded child task derived from the accepted parent goal.",
+        "recovery_count": 0,
+        "remaining_work": [
+          "Inspect controlled path 3"
+        ],
+        "risk": "READ",
+        "source": "verification",
+        "status": "WAITING",
+        "success_criteria": [
+          "governed action succeeds with evidence"
+        ],
+        "task_spec": {
+          "action": "inspect_path",
+          "path": "/tmp/wls-et004-0h6czr_l/disabled/sandbox/task-3"
+        },
+        "title": "Inspect controlled path 3",
+        "updated_at": "2026-06-24T05:36:50.560111+00:00"
+      },
+      {
+        "archived_at": null,
+        "autonomous": false,
+        "blocked_reason": null,
+        "completed_at": null,
+        "contradiction_reason": null,
+        "created_at": "2026-06-24T05:36:50.189452+00:00",
+        "deadline": null,
+        "dependencies": [
+          "goal_265dc48439a5497eacf035653b0e5d19"
+        ],
+        "description": "Record verified goal progress",
+        "goal_id": "goal_50ce2e68d64b4d33b6eae2d9a3d59828",
+        "interruption_count": 0,
+        "last_reviewed_at": "2026-06-24T05:36:50.566485+00:00",
+        "origin": "decomposition:goal_6710f5e198db41e28322baf5dd38c04c",
+        "parent_goal_id": "goal_6710f5e198db41e28322baf5dd38c04c",
+        "priority": 0.5,
+        "progress": 0.0,
+        "progress_evidence": [],
+        "rationale": "Bounded child task derived from the accepted parent goal.",
+        "recovery_count": 0,
+        "remaining_work": [
+          "Record verified goal progress"
+        ],
+        "risk": "READ",
+        "source": "verification",
+        "status": "WAITING",
+        "success_criteria": [
+          "governed action succeeds with evidence"
+        ],
+        "task_spec": {
+          "action": "record_progress"
+        },
+        "title": "Record verified goal progress",
+        "updated_at": "2026-06-24T05:36:50.567330+00:00"
+      }
+    ],
+    "completed_children": 0,
+    "cycles": [
+      {
+        "actions": [
+          {
+            "action_id": "act_c1ed58ad32bb45bda28c15927b3f647f",
+            "status": "SUCCEEDED",
+            "success": true
+          }
+        ],
+        "counterfactual_without_goal": {
+          "actions": [
+            {
+              "acceptance": [
+                "output contains items"
+              ],
+              "arguments": {
+                "limit": 200,
+                "path": "/tmp/wls-et004-0h6czr_l/disabled/sandbox/unrelated"
+              },
+              "expected_result": "Bounded directory listing",
+              "goal_id": null,
+              "purpose": "Inspect the explicitly requested path",
+              "risk": "READ",
+              "skill_id": null,
+              "tool": "list_directory"
+            }
+          ],
+          "claim": "The explicit human path request should be inspected read-only.",
+          "key": "inspect_requested_path:/tmp/wls-et004-0h6czr_l/disabled/sandbox/unrelated",
+          "score": 0.98
+        },
+        "cycle_id": "cycle_799d167269354eb78fde224e73c7d3b3",
+        "expected_goal_ids": [],
+        "goal_delta": 0.0,
+        "goal_influenced_decision": false,
+        "label": "interruption",
+        "resumed_goal_ids": [],
+        "selected_key": "inspect_requested_path:/tmp/wls-et004-0h6czr_l/disabled/sandbox/unrelated",
+        "status": "SUCCEEDED"
+      },
+      {
+        "actions": [],
+        "counterfactual_without_goal": {
+          "actions": [],
+          "claim": "No meaningful input",
+          "key": "idle",
+          "score": 0.0
+        },
+        "cycle_id": "cycle_2015d1848b294ec79a5788265e26ef83",
+        "expected_goal_ids": [],
+        "goal_delta": null,
+        "goal_influenced_decision": null,
+        "label": "pre_restart_1",
+        "resumed_goal_ids": [],
+        "selected_key": null,
+        "status": "SUCCEEDED"
+      },
+      {
+        "actions": [],
+        "counterfactual_without_goal": {
+          "actions": [],
+          "claim": "No meaningful input",
+          "key": "idle",
+          "score": 0.0
+        },
+        "cycle_id": "cycle_767e89e1337d416fac3ca83c54edc75e",
+        "expected_goal_ids": [],
+        "goal_delta": null,
+        "goal_influenced_decision": null,
+        "label": "pre_restart_2",
+        "resumed_goal_ids": [],
+        "selected_key": null,
+        "status": "SUCCEEDED"
+      },
+      {
+        "actions": [],
+        "counterfactual_without_goal": {
+          "actions": [],
+          "claim": "No meaningful input",
+          "key": "idle",
+          "score": 0.0
+        },
+        "cycle_id": "cycle_188098322e7b4f75a4737d076cec7385",
+        "expected_goal_ids": [],
+        "goal_delta": null,
+        "goal_influenced_decision": null,
+        "label": "post_restart_1",
+        "resumed_goal_ids": [],
+        "selected_key": null,
+        "status": "SUCCEEDED"
+      },
+      {
+        "actions": [],
+        "counterfactual_without_goal": {
+          "actions": [],
+          "claim": "No meaningful input",
+          "key": "idle",
+          "score": 0.0
+        },
+        "cycle_id": "cycle_6e179e6f7cb8423fa8ba490ccf911215",
+        "expected_goal_ids": [],
+        "goal_delta": null,
+        "goal_influenced_decision": null,
+        "label": "post_restart_2",
+        "resumed_goal_ids": [],
+        "selected_key": null,
+        "status": "SUCCEEDED"
+      },
+      {
+        "actions": [],
+        "counterfactual_without_goal": {
+          "actions": [],
+          "claim": "No meaningful input",
+          "key": "idle",
+          "score": 0.0
+        },
+        "cycle_id": "cycle_c22204b8668344c6a24e3b9f43959aa2",
+        "expected_goal_ids": [],
+        "goal_delta": null,
+        "goal_influenced_decision": null,
+        "label": "post_restart_3",
+        "resumed_goal_ids": [],
+        "selected_key": null,
+        "status": "SUCCEEDED"
+      },
+      {
+        "actions": [],
+        "counterfactual_without_goal": {
+          "actions": [],
+          "claim": "No meaningful input",
+          "key": "idle",
+          "score": 0.0
+        },
+        "cycle_id": "cycle_d6fb22450f3a4758878eb6c0692c8839",
+        "expected_goal_ids": [],
+        "goal_delta": null,
+        "goal_influenced_decision": null,
+        "label": "post_restart_4",
+        "resumed_goal_ids": [],
+        "selected_key": null,
+        "status": "SUCCEEDED"
+      }
+    ],
+    "decomposition": {
+      "decomposition_id": "goaldecomp_d98f390db9f940b5b29238cae81af54c",
+      "goal_id": "goal_6710f5e198db41e28322baf5dd38c04c",
+      "subgoal_ids": [
+        "goal_5ac9f57d44ac4418b738c18dec5af801",
+        "goal_f511505d6ab64c64a58de988edb4fbfc",
+        "goal_265dc48439a5497eacf035653b0e5d19",
+        "goal_50ce2e68d64b4d33b6eae2d9a3d59828"
+      ],
+      "task_specs": [
+        {
+          "dependencies": [],
+          "goal_id": "goal_5ac9f57d44ac4418b738c18dec5af801",
+          "task_spec": {
+            "action": "inspect_path",
+            "path": "/tmp/wls-et004-0h6czr_l/disabled/sandbox/task-1"
+          },
+          "title": "Inspect controlled path 1"
+        },
+        {
+          "dependencies": [
+            "goal_5ac9f57d44ac4418b738c18dec5af801"
+          ],
+          "goal_id": "goal_f511505d6ab64c64a58de988edb4fbfc",
+          "task_spec": {
+            "action": "inspect_path",
+            "path": "/tmp/wls-et004-0h6czr_l/disabled/sandbox/task-2"
+          },
+          "title": "Inspect controlled path 2"
+        },
+        {
+          "dependencies": [
+            "goal_f511505d6ab64c64a58de988edb4fbfc"
+          ],
+          "goal_id": "goal_265dc48439a5497eacf035653b0e5d19",
+          "task_spec": {
+            "action": "inspect_path",
+            "path": "/tmp/wls-et004-0h6czr_l/disabled/sandbox/task-3"
+          },
+          "title": "Inspect controlled path 3"
+        },
+        {
+          "dependencies": [
+            "goal_265dc48439a5497eacf035653b0e5d19"
+          ],
+          "goal_id": "goal_50ce2e68d64b4d33b6eae2d9a3d59828",
+          "task_spec": {
+            "action": "record_progress"
+          },
+          "title": "Record verified goal progress"
+        }
+      ]
+    },
+    "goal_abandonment_rate": 0.0,
+    "goal_attributions": [
+      {
+        "causal_reason": "selected=inspect_requested_path:/tmp/wls-et004-0h6czr_l/disabled/sandbox/unrelated; goal_free=inspect_requested_path:/tmp/wls-et004-0h6czr_l/disabled/sandbox/unrelated; selected_goal_ids=none",
+        "counterfactual_without_goal": {
+          "actions": [
+            {
+              "acceptance": [
+                "output contains items"
+              ],
+              "arguments": {
+                "limit": 200,
+                "path": "/tmp/wls-et004-0h6czr_l/disabled/sandbox/unrelated"
+              },
+              "expected_result": "Bounded directory listing",
+              "goal_id": null,
+              "purpose": "Inspect the explicitly requested path",
+              "risk": "READ",
+              "skill_id": null,
+              "tool": "list_directory"
+            }
+          ],
+          "claim": "The explicit human path request should be inspected read-only.",
+          "key": "inspect_requested_path:/tmp/wls-et004-0h6czr_l/disabled/sandbox/unrelated",
+          "score": 0.98
+        },
+        "created_at": "2026-06-24T05:36:50.246997+00:00",
+        "cycle_id": "cycle_799d167269354eb78fde224e73c7d3b3",
+        "decision_trace_id": "cogtrace_c1947c35d39e4bf69173ab5510063eb5",
+        "goal_delta": 0.0,
+        "goal_influenced_decision": false,
+        "goal_trace_id": "goaltrace_06833963b23e4478b3e65e811338d1ab",
+        "outcome": null,
+        "resolved_at": null,
+        "selected_goal_ids": [],
+        "selected_key": "inspect_requested_path:/tmp/wls-et004-0h6czr_l/disabled/sandbox/unrelated"
+      }
+    ],
+    "goal_completion_rate": 0.0,
+    "goal_debt": [],
+    "goal_reviews": [
+      {
+        "created_at": "2026-06-24T05:36:50.544642+00:00",
+        "cycle_id": null,
+        "decided_progress": 0.0,
+        "decided_status": "IN_PROGRESS",
+        "goal_id": "goal_5ac9f57d44ac4418b738c18dec5af801",
+        "previous_progress": 0.0,
+        "previous_status": "ACTIVE",
+        "reason": "verification_final",
+        "review_id": "goalreview_820532b0cac8435091d2895657ba468d",
+        "source_ids_json": "[]"
+      },
+      {
+        "created_at": "2026-06-24T05:36:50.551900+00:00",
+        "cycle_id": null,
+        "decided_progress": 0.0,
+        "decided_status": "WAITING",
+        "goal_id": "goal_f511505d6ab64c64a58de988edb4fbfc",
+        "previous_progress": 0.0,
+        "previous_status": "WAITING",
+        "reason": "verification_final",
+        "review_id": "goalreview_4cbfbf1db7274373b496194048ea31ac",
+        "source_ids_json": "[]"
+      },
+      {
+        "created_at": "2026-06-24T05:36:50.559287+00:00",
+        "cycle_id": null,
+        "decided_progress": 0.0,
+        "decided_status": "WAITING",
+        "goal_id": "goal_265dc48439a5497eacf035653b0e5d19",
+        "previous_progress": 0.0,
+        "previous_status": "WAITING",
+        "reason": "verification_final",
+        "review_id": "goalreview_c2e7be29335f4227a5a06aa2b926065c",
+        "source_ids_json": "[]"
+      },
+      {
+        "created_at": "2026-06-24T05:36:50.566485+00:00",
+        "cycle_id": null,
+        "decided_progress": 0.0,
+        "decided_status": "WAITING",
+        "goal_id": "goal_50ce2e68d64b4d33b6eae2d9a3d59828",
+        "previous_progress": 0.0,
+        "previous_status": "WAITING",
+        "reason": "verification_final",
+        "review_id": "goalreview_cc159b6df02648b2b94b19081304c690",
+        "source_ids_json": "[]"
+      },
+      {
+        "created_at": "2026-06-24T05:36:50.573050+00:00",
+        "cycle_id": null,
+        "decided_progress": 0.0,
+        "decided_status": "DECOMPOSED",
+        "goal_id": "goal_6710f5e198db41e28322baf5dd38c04c",
+        "previous_progress": 0.0,
+        "previous_status": "DECOMPOSED",
+        "reason": "verification_final",
+        "review_id": "goalreview_37c6eea048cc47fd9b662564bd60cfa1",
+        "source_ids_json": "[]"
+      }
+    ],
+    "interruption_recovery": false,
+    "parent_id": "goal_6710f5e198db41e28322baf5dd38c04c",
+    "parent_progress": 0.0,
+    "parent_status": "DECOMPOSED",
+    "post_restart_goal": {
+      "archived_at": null,
+      "autonomous": false,
+      "blocked_reason": null,
+      "completed_at": null,
+      "contradiction_reason": null,
+      "created_at": "2026-06-24T05:36:50.178638+00:00",
+      "deadline": null,
+      "dependencies": [],
+      "description": "Complete ordered, bounded, read-only tasks and preserve progress across interruption and restart.",
+      "goal_id": "goal_6710f5e198db41e28322baf5dd38c04c",
+      "interruption_count": 0,
+      "last_reviewed_at": null,
+      "origin": "verification",
+      "parent_goal_id": null,
+      "priority": 0.5,
+      "progress": 0.0,
+      "progress_evidence": [],
+      "rationale": "Controlled long-horizon continuity probe.",
+      "recovery_count": 0,
+      "remaining_work": [
+        "complete four dependency-ordered child tasks"
+      ],
+      "risk": "READ",
+      "source": "verification",
+      "status": "DECOMPOSED",
+      "success_criteria": [
+        "all four child tasks complete with action evidence"
+      ],
+      "task_spec": {},
+      "title": "Maintain a four-step repository inspection objective",
+      "updated_at": "2026-06-24T05:36:50.192353+00:00"
+    },
+    "progress_accumulation": 0.0,
+    "selected_goal_ids": [],
+    "task_completion": false,
+    "wrong_action_rate": 0.0
+  },
+  "goal_enabled": {
+    "before_restart": {
+      "children": [
+        {
+          "archived_at": null,
+          "autonomous": false,
+          "blocked_reason": null,
+          "completed_at": "2026-06-24T05:36:49.400863+00:00",
+          "contradiction_reason": null,
+          "created_at": "2026-06-24T05:36:49.055645+00:00",
+          "deadline": null,
+          "dependencies": [],
+          "description": "Inspect controlled path 1",
+          "goal_id": "goal_1a1a849750e340c39296127537122f15",
+          "interruption_count": 1,
+          "last_reviewed_at": "2026-06-24T05:36:49.400863+00:00",
+          "origin": "decomposition:goal_23f9d8b03a9345e5b138a0aea49fd87e",
+          "parent_goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+          "priority": 0.5,
+          "progress": 1.0,
+          "progress_evidence": [
+            "act_f9686b18c6974ed58ab722c4ff227a09"
+          ],
+          "rationale": "Bounded child task derived from the accepted parent goal.",
+          "recovery_count": 1,
+          "remaining_work": [
+            "resume the same bounded task after interruption"
+          ],
+          "risk": "READ",
+          "source": "verification",
+          "status": "COMPLETED",
+          "success_criteria": [
+            "governed action succeeds with evidence"
+          ],
+          "task_spec": {
+            "action": "inspect_path",
+            "path": "/tmp/wls-et004-0h6czr_l/enabled/sandbox/task-1"
+          },
+          "title": "Inspect controlled path 1",
+          "updated_at": "2026-06-24T05:36:49.401655+00:00"
+        },
+        {
+          "archived_at": null,
+          "autonomous": false,
+          "blocked_reason": null,
+          "completed_at": "2026-06-24T05:36:49.565234+00:00",
+          "contradiction_reason": null,
+          "created_at": "2026-06-24T05:36:49.057925+00:00",
+          "deadline": null,
+          "dependencies": [
+            "goal_1a1a849750e340c39296127537122f15"
+          ],
+          "description": "Inspect controlled path 2",
+          "goal_id": "goal_07c92a7a63824f0f8dd38648c9c9b944",
+          "interruption_count": 0,
+          "last_reviewed_at": "2026-06-24T05:36:49.565234+00:00",
+          "origin": "decomposition:goal_23f9d8b03a9345e5b138a0aea49fd87e",
+          "parent_goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+          "priority": 0.5,
+          "progress": 1.0,
+          "progress_evidence": [
+            "act_a4707132395948e4967b95e091d551ce"
+          ],
+          "rationale": "Bounded child task derived from the accepted parent goal.",
+          "recovery_count": 0,
+          "remaining_work": [
+            "Inspect controlled path 2"
+          ],
+          "risk": "READ",
+          "source": "verification",
+          "status": "COMPLETED",
+          "success_criteria": [
+            "governed action succeeds with evidence"
+          ],
+          "task_spec": {
+            "action": "inspect_path",
+            "path": "/tmp/wls-et004-0h6czr_l/enabled/sandbox/task-2"
+          },
+          "title": "Inspect controlled path 2",
+          "updated_at": "2026-06-24T05:36:49.566107+00:00"
+        },
+        {
+          "archived_at": null,
+          "autonomous": false,
+          "blocked_reason": null,
+          "completed_at": null,
+          "contradiction_reason": null,
+          "created_at": "2026-06-24T05:36:49.060435+00:00",
+          "deadline": null,
+          "dependencies": [
+            "goal_07c92a7a63824f0f8dd38648c9c9b944"
+          ],
+          "description": "Inspect controlled path 3",
+          "goal_id": "goal_31b440594a0b4cda80f106ffca135ed3",
+          "interruption_count": 0,
+          "last_reviewed_at": null,
+          "origin": "decomposition:goal_23f9d8b03a9345e5b138a0aea49fd87e",
+          "parent_goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+          "priority": 0.5,
+          "progress": 0.0,
+          "progress_evidence": [],
+          "rationale": "Bounded child task derived from the accepted parent goal.",
+          "recovery_count": 0,
+          "remaining_work": [
+            "Inspect controlled path 3"
+          ],
+          "risk": "READ",
+          "source": "verification",
+          "status": "WAITING",
+          "success_criteria": [
+            "governed action succeeds with evidence"
+          ],
+          "task_spec": {
+            "action": "inspect_path",
+            "path": "/tmp/wls-et004-0h6czr_l/enabled/sandbox/task-3"
+          },
+          "title": "Inspect controlled path 3",
+          "updated_at": "2026-06-24T05:36:49.060442+00:00"
+        },
+        {
+          "archived_at": null,
+          "autonomous": false,
+          "blocked_reason": null,
+          "completed_at": null,
+          "contradiction_reason": null,
+          "created_at": "2026-06-24T05:36:49.062604+00:00",
+          "deadline": null,
+          "dependencies": [
+            "goal_31b440594a0b4cda80f106ffca135ed3"
+          ],
+          "description": "Record verified goal progress",
+          "goal_id": "goal_1881464ec5cb4180a0be91eb5ed19024",
+          "interruption_count": 0,
+          "last_reviewed_at": null,
+          "origin": "decomposition:goal_23f9d8b03a9345e5b138a0aea49fd87e",
+          "parent_goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+          "priority": 0.5,
+          "progress": 0.0,
+          "progress_evidence": [],
+          "rationale": "Bounded child task derived from the accepted parent goal.",
+          "recovery_count": 0,
+          "remaining_work": [
+            "Record verified goal progress"
+          ],
+          "risk": "READ",
+          "source": "verification",
+          "status": "WAITING",
+          "success_criteria": [
+            "governed action succeeds with evidence"
+          ],
+          "task_spec": {
+            "action": "record_progress"
+          },
+          "title": "Record verified goal progress",
+          "updated_at": "2026-06-24T05:36:49.062611+00:00"
+        }
+      ],
+      "completed_children": 2,
+      "goal_abandonment_rate": 0.0,
+      "goal_completion_rate": 0.5,
+      "interruption_recovery": true,
+      "parent_progress": 0.5,
+      "parent_status": "DECOMPOSED",
+      "progress_accumulation": 0.5,
+      "task_completion": false,
+      "wrong_action_rate": 0.0
+    },
+    "children": [
+      {
+        "archived_at": null,
+        "autonomous": false,
+        "blocked_reason": null,
+        "completed_at": "2026-06-24T05:36:50.078198+00:00",
+        "contradiction_reason": null,
+        "created_at": "2026-06-24T05:36:49.055645+00:00",
+        "deadline": null,
+        "dependencies": [],
+        "description": "Inspect controlled path 1",
+        "goal_id": "goal_1a1a849750e340c39296127537122f15",
+        "interruption_count": 1,
+        "last_reviewed_at": "2026-06-24T05:36:50.078198+00:00",
+        "origin": "decomposition:goal_23f9d8b03a9345e5b138a0aea49fd87e",
+        "parent_goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+        "priority": 0.5,
+        "progress": 1.0,
+        "progress_evidence": [
+          "act_f9686b18c6974ed58ab722c4ff227a09"
+        ],
+        "rationale": "Bounded child task derived from the accepted parent goal.",
+        "recovery_count": 1,
+        "remaining_work": [
+          "resume the same bounded task after interruption"
+        ],
+        "risk": "READ",
+        "source": "verification",
+        "status": "COMPLETED",
+        "success_criteria": [
+          "governed action succeeds with evidence"
+        ],
+        "task_spec": {
+          "action": "inspect_path",
+          "path": "/tmp/wls-et004-0h6czr_l/enabled/sandbox/task-1"
+        },
+        "title": "Inspect controlled path 1",
+        "updated_at": "2026-06-24T05:36:50.079411+00:00"
+      },
+      {
+        "archived_at": null,
+        "autonomous": false,
+        "blocked_reason": null,
+        "completed_at": "2026-06-24T05:36:50.085389+00:00",
+        "contradiction_reason": null,
+        "created_at": "2026-06-24T05:36:49.057925+00:00",
+        "deadline": null,
+        "dependencies": [
+          "goal_1a1a849750e340c39296127537122f15"
+        ],
+        "description": "Inspect controlled path 2",
+        "goal_id": "goal_07c92a7a63824f0f8dd38648c9c9b944",
+        "interruption_count": 0,
+        "last_reviewed_at": "2026-06-24T05:36:50.085389+00:00",
+        "origin": "decomposition:goal_23f9d8b03a9345e5b138a0aea49fd87e",
+        "parent_goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+        "priority": 0.5,
+        "progress": 1.0,
+        "progress_evidence": [
+          "act_a4707132395948e4967b95e091d551ce"
+        ],
+        "rationale": "Bounded child task derived from the accepted parent goal.",
+        "recovery_count": 0,
+        "remaining_work": [
+          "Inspect controlled path 2"
+        ],
+        "risk": "READ",
+        "source": "verification",
+        "status": "COMPLETED",
+        "success_criteria": [
+          "governed action succeeds with evidence"
+        ],
+        "task_spec": {
+          "action": "inspect_path",
+          "path": "/tmp/wls-et004-0h6czr_l/enabled/sandbox/task-2"
+        },
+        "title": "Inspect controlled path 2",
+        "updated_at": "2026-06-24T05:36:50.086322+00:00"
+      },
+      {
+        "archived_at": null,
+        "autonomous": false,
+        "blocked_reason": null,
+        "completed_at": "2026-06-24T05:36:50.092250+00:00",
+        "contradiction_reason": null,
+        "created_at": "2026-06-24T05:36:49.060435+00:00",
+        "deadline": null,
+        "dependencies": [
+          "goal_07c92a7a63824f0f8dd38648c9c9b944"
+        ],
+        "description": "Inspect controlled path 3",
+        "goal_id": "goal_31b440594a0b4cda80f106ffca135ed3",
+        "interruption_count": 0,
+        "last_reviewed_at": "2026-06-24T05:36:50.092250+00:00",
+        "origin": "decomposition:goal_23f9d8b03a9345e5b138a0aea49fd87e",
+        "parent_goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+        "priority": 0.5,
+        "progress": 1.0,
+        "progress_evidence": [
+          "act_e6c6e8b8b7be4998be636c32152e4738"
+        ],
+        "rationale": "Bounded child task derived from the accepted parent goal.",
+        "recovery_count": 0,
+        "remaining_work": [
+          "Inspect controlled path 3"
+        ],
+        "risk": "READ",
+        "source": "verification",
+        "status": "COMPLETED",
+        "success_criteria": [
+          "governed action succeeds with evidence"
+        ],
+        "task_spec": {
+          "action": "inspect_path",
+          "path": "/tmp/wls-et004-0h6czr_l/enabled/sandbox/task-3"
+        },
+        "title": "Inspect controlled path 3",
+        "updated_at": "2026-06-24T05:36:50.093059+00:00"
+      },
+      {
+        "archived_at": null,
+        "autonomous": false,
+        "blocked_reason": null,
+        "completed_at": "2026-06-24T05:36:50.099770+00:00",
+        "contradiction_reason": null,
+        "created_at": "2026-06-24T05:36:49.062604+00:00",
+        "deadline": null,
+        "dependencies": [
+          "goal_31b440594a0b4cda80f106ffca135ed3"
+        ],
+        "description": "Record verified goal progress",
+        "goal_id": "goal_1881464ec5cb4180a0be91eb5ed19024",
+        "interruption_count": 0,
+        "last_reviewed_at": "2026-06-24T05:36:50.099770+00:00",
+        "origin": "decomposition:goal_23f9d8b03a9345e5b138a0aea49fd87e",
+        "parent_goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+        "priority": 0.5,
+        "progress": 1.0,
+        "progress_evidence": [
+          "act_97dc30a6301d43a7b176a3b7305bcf89"
+        ],
+        "rationale": "Bounded child task derived from the accepted parent goal.",
+        "recovery_count": 0,
+        "remaining_work": [
+          "Record verified goal progress"
+        ],
+        "risk": "READ",
+        "source": "verification",
+        "status": "COMPLETED",
+        "success_criteria": [
+          "governed action succeeds with evidence"
+        ],
+        "task_spec": {
+          "action": "record_progress"
+        },
+        "title": "Record verified goal progress",
+        "updated_at": "2026-06-24T05:36:50.100562+00:00"
+      }
+    ],
+    "completed_children": 4,
+    "cycles": [
+      {
+        "actions": [
+          {
+            "action_id": "act_9fd7a7dc008d458696b7cbb88df45c9a",
+            "status": "SUCCEEDED",
+            "success": true
+          }
+        ],
+        "counterfactual_without_goal": {
+          "actions": [
+            {
+              "acceptance": [
+                "output contains items"
+              ],
+              "arguments": {
+                "limit": 200,
+                "path": "/tmp/wls-et004-0h6czr_l/enabled/sandbox/unrelated"
+              },
+              "expected_result": "Bounded directory listing",
+              "goal_id": null,
+              "purpose": "Inspect the explicitly requested path",
+              "risk": "READ",
+              "skill_id": null,
+              "tool": "list_directory"
+            }
+          ],
+          "claim": "The explicit human path request should be inspected read-only.",
+          "key": "inspect_requested_path:/tmp/wls-et004-0h6czr_l/enabled/sandbox/unrelated",
+          "score": 0.98
+        },
+        "cycle_id": "cycle_fef7cdc7f4194f5488ce28efe282f24d",
+        "expected_goal_ids": [
+          "goal_1a1a849750e340c39296127537122f15"
+        ],
+        "goal_delta": 0.0028846153846153744,
+        "goal_influenced_decision": false,
+        "label": "interruption",
+        "resumed_goal_ids": [],
+        "selected_key": "inspect_requested_path:/tmp/wls-et004-0h6czr_l/enabled/sandbox/unrelated",
+        "status": "SUCCEEDED"
+      },
+      {
+        "actions": [
+          {
+            "action_id": "act_f9686b18c6974ed58ab722c4ff227a09",
+            "status": "SUCCEEDED",
+            "success": true
+          }
+        ],
+        "counterfactual_without_goal": {
+          "actions": [
+            {
+              "acceptance": [
+                "output ok is true"
+              ],
+              "arguments": {
+                "reason": "No supported action"
+              },
+              "expected_result": "No external change",
+              "goal_id": null,
+              "purpose": "Record a deliberate no-op instead of inventing activity",
+              "risk": "READ",
+              "skill_id": null,
+              "tool": "noop"
+            }
+          ],
+          "claim": "No additional external action is justified.",
+          "key": "deliberate_safe_noop",
+          "score": 0.35582810559006206
+        },
+        "cycle_id": "cycle_a1db159ecaa34832bc1caf83a523ea1d",
+        "expected_goal_ids": [
+          "goal_1a1a849750e340c39296127537122f15"
+        ],
+        "goal_delta": 0.5112067258706121,
+        "goal_influenced_decision": true,
+        "label": "pre_restart_1",
+        "resumed_goal_ids": [
+          "goal_1a1a849750e340c39296127537122f15"
+        ],
+        "selected_key": "goal_task:goal_1a1a849750e340c39296127537122f15:inspect_path:/tmp/wls-et004-0h6czr_l/enabled/sandbox/task-1",
+        "status": "SUCCEEDED"
+      },
+      {
+        "actions": [
+          {
+            "action_id": "act_a4707132395948e4967b95e091d551ce",
+            "status": "SUCCEEDED",
+            "success": true
+          }
+        ],
+        "counterfactual_without_goal": {
+          "actions": [
+            {
+              "acceptance": [
+                "output ok is true"
+              ],
+              "arguments": {
+                "reason": "No supported action"
+              },
+              "expected_result": "No external change",
+              "goal_id": null,
+              "purpose": "Record a deliberate no-op instead of inventing activity",
+              "risk": "READ",
+              "skill_id": null,
+              "tool": "noop"
+            }
+          ],
+          "claim": "No additional external action is justified.",
+          "key": "deliberate_safe_noop",
+          "score": 0.35428571428571426
+        },
+        "cycle_id": "cycle_69b6c4cb6fac4f1980608ccfb049eb7f",
+        "expected_goal_ids": [
+          "goal_07c92a7a63824f0f8dd38648c9c9b944"
+        ],
+        "goal_delta": 0.5037142857142858,
+        "goal_influenced_decision": true,
+        "label": "pre_restart_2",
+        "resumed_goal_ids": [],
+        "selected_key": "goal_task:goal_07c92a7a63824f0f8dd38648c9c9b944:inspect_path:/tmp/wls-et004-0h6czr_l/enabled/sandbox/task-2",
+        "status": "SUCCEEDED"
+      },
+      {
+        "actions": [
+          {
+            "action_id": "act_e6c6e8b8b7be4998be636c32152e4738",
+            "status": "SUCCEEDED",
+            "success": true
+          }
+        ],
+        "counterfactual_without_goal": {
+          "actions": [
+            {
+              "acceptance": [
+                "output ok is true"
+              ],
+              "arguments": {
+                "reason": "No supported action"
+              },
+              "expected_result": "No external change",
+              "goal_id": null,
+              "purpose": "Record a deliberate no-op instead of inventing activity",
+              "risk": "READ",
+              "skill_id": null,
+              "tool": "noop"
+            }
+          ],
+          "claim": "No additional external action is justified.",
+          "key": "deliberate_safe_noop",
+          "score": 0.35428571428571426
+        },
+        "cycle_id": "cycle_ab3d839e866b47d2adeba7437f49ebb3",
+        "expected_goal_ids": [
+          "goal_31b440594a0b4cda80f106ffca135ed3"
+        ],
+        "goal_delta": 0.5037142857142858,
+        "goal_influenced_decision": true,
+        "label": "post_restart_1",
+        "resumed_goal_ids": [],
+        "selected_key": "goal_task:goal_31b440594a0b4cda80f106ffca135ed3:inspect_path:/tmp/wls-et004-0h6czr_l/enabled/sandbox/task-3",
+        "status": "SUCCEEDED"
+      },
+      {
+        "actions": [
+          {
+            "action_id": "act_97dc30a6301d43a7b176a3b7305bcf89",
+            "status": "SUCCEEDED",
+            "success": true
+          }
+        ],
+        "counterfactual_without_goal": {
+          "actions": [
+            {
+              "acceptance": [
+                "output ok is true"
+              ],
+              "arguments": {
+                "reason": "No supported action"
+              },
+              "expected_result": "No external change",
+              "goal_id": null,
+              "purpose": "Record a deliberate no-op instead of inventing activity",
+              "risk": "READ",
+              "skill_id": null,
+              "tool": "noop"
+            }
+          ],
+          "claim": "No additional external action is justified.",
+          "key": "deliberate_safe_noop",
+          "score": 0.35428571428571426
+        },
+        "cycle_id": "cycle_9b371156d81a4a81ae4980fe5affcb82",
+        "expected_goal_ids": [
+          "goal_1881464ec5cb4180a0be91eb5ed19024"
+        ],
+        "goal_delta": 0.49298701298701303,
+        "goal_influenced_decision": true,
+        "label": "post_restart_2",
+        "resumed_goal_ids": [],
+        "selected_key": "goal_task:goal_1881464ec5cb4180a0be91eb5ed19024:record_progress:Record verified goal progress",
+        "status": "SUCCEEDED"
+      },
+      {
+        "actions": [],
+        "counterfactual_without_goal": {
+          "actions": [],
+          "claim": "No meaningful input",
+          "key": "idle",
+          "score": 0.0
+        },
+        "cycle_id": "cycle_9e81591b1ca54e72a128aae66e96bef3",
+        "expected_goal_ids": [],
+        "goal_delta": null,
+        "goal_influenced_decision": null,
+        "label": "post_restart_3",
+        "resumed_goal_ids": [],
+        "selected_key": null,
+        "status": "SUCCEEDED"
+      },
+      {
+        "actions": [],
+        "counterfactual_without_goal": {
+          "actions": [],
+          "claim": "No meaningful input",
+          "key": "idle",
+          "score": 0.0
+        },
+        "cycle_id": "cycle_171d691650824a30862809bb2262e813",
+        "expected_goal_ids": [],
+        "goal_delta": null,
+        "goal_influenced_decision": null,
+        "label": "post_restart_4",
+        "resumed_goal_ids": [],
+        "selected_key": null,
+        "status": "SUCCEEDED"
+      }
+    ],
+    "decomposition": {
+      "decomposition_id": "goaldecomp_b7e5c22723cf4428a8698cb0a48cbf9b",
+      "goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+      "subgoal_ids": [
+        "goal_1a1a849750e340c39296127537122f15",
+        "goal_07c92a7a63824f0f8dd38648c9c9b944",
+        "goal_31b440594a0b4cda80f106ffca135ed3",
+        "goal_1881464ec5cb4180a0be91eb5ed19024"
+      ],
+      "task_specs": [
+        {
+          "dependencies": [],
+          "goal_id": "goal_1a1a849750e340c39296127537122f15",
+          "task_spec": {
+            "action": "inspect_path",
+            "path": "/tmp/wls-et004-0h6czr_l/enabled/sandbox/task-1"
+          },
+          "title": "Inspect controlled path 1"
+        },
+        {
+          "dependencies": [
+            "goal_1a1a849750e340c39296127537122f15"
+          ],
+          "goal_id": "goal_07c92a7a63824f0f8dd38648c9c9b944",
+          "task_spec": {
+            "action": "inspect_path",
+            "path": "/tmp/wls-et004-0h6czr_l/enabled/sandbox/task-2"
+          },
+          "title": "Inspect controlled path 2"
+        },
+        {
+          "dependencies": [
+            "goal_07c92a7a63824f0f8dd38648c9c9b944"
+          ],
+          "goal_id": "goal_31b440594a0b4cda80f106ffca135ed3",
+          "task_spec": {
+            "action": "inspect_path",
+            "path": "/tmp/wls-et004-0h6czr_l/enabled/sandbox/task-3"
+          },
+          "title": "Inspect controlled path 3"
+        },
+        {
+          "dependencies": [
+            "goal_31b440594a0b4cda80f106ffca135ed3"
+          ],
+          "goal_id": "goal_1881464ec5cb4180a0be91eb5ed19024",
+          "task_spec": {
+            "action": "record_progress"
+          },
+          "title": "Record verified goal progress"
+        }
+      ]
+    },
+    "goal_abandonment_rate": 0.0,
+    "goal_attributions": [
+      {
+        "causal_reason": "selected=goal_task:goal_1881464ec5cb4180a0be91eb5ed19024:record_progress:Record verified goal progress; goal_free=deliberate_safe_noop; selected_goal_ids=goal_1881464ec5cb4180a0be91eb5ed19024",
+        "counterfactual_without_goal": {
+          "actions": [
+            {
+              "acceptance": [
+                "output ok is true"
+              ],
+              "arguments": {
+                "reason": "No supported action"
+              },
+              "expected_result": "No external change",
+              "goal_id": null,
+              "purpose": "Record a deliberate no-op instead of inventing activity",
+              "risk": "READ",
+              "skill_id": null,
+              "tool": "noop"
+            }
+          ],
+          "claim": "No additional external action is justified.",
+          "key": "deliberate_safe_noop",
+          "score": 0.35428571428571426
+        },
+        "created_at": "2026-06-24T05:36:49.869171+00:00",
+        "cycle_id": "cycle_9b371156d81a4a81ae4980fe5affcb82",
+        "decision_trace_id": "cogtrace_e06451e85ce741768f9f1d1ef6620f1e",
+        "goal_delta": 0.49298701298701303,
+        "goal_influenced_decision": true,
+        "goal_trace_id": "goaltrace_c406d04312014e62a0c8cd67c58bf723",
+        "outcome": {
+          "frozen": false,
+          "goal_updates": [
+            {
+              "decided_progress": 1.0,
+              "decided_status": "COMPLETED",
+              "goal_id": "goal_1881464ec5cb4180a0be91eb5ed19024",
+              "previous_progress": 1.0,
+              "previous_status": "COMPLETED",
+              "reason": "action_outcome",
+              "review_id": "goalreview_15a3af5cf9cf4bba8e5eeb4022778723"
+            },
+            {
+              "decided_progress": 1.0,
+              "decided_status": "COMPLETED",
+              "goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+              "previous_progress": 0.75,
+              "previous_status": "DECOMPOSED",
+              "reason": "child_progress_aggregation",
+              "review_id": "goalreview_e8bfba50e80549b8a4b3beaa22906747"
+            }
+          ],
+          "mode": "enabled",
+          "observed_actions": 1,
+          "successful_actions": 1
+        },
+        "resolved_at": "2026-06-24T05:36:49.934547+00:00",
+        "selected_goal_ids": [
+          "goal_1881464ec5cb4180a0be91eb5ed19024"
+        ],
+        "selected_key": "goal_task:goal_1881464ec5cb4180a0be91eb5ed19024:record_progress:Record verified goal progress"
+      },
+      {
+        "causal_reason": "selected=goal_task:goal_31b440594a0b4cda80f106ffca135ed3:inspect_path:/tmp/wls-et004-0h6czr_l/enabled/sandbox/task-3; goal_free=deliberate_safe_noop; selected_goal_ids=goal_31b440594a0b4cda80f106ffca135ed3",
+        "counterfactual_without_goal": {
+          "actions": [
+            {
+              "acceptance": [
+                "output ok is true"
+              ],
+              "arguments": {
+                "reason": "No supported action"
+              },
+              "expected_result": "No external change",
+              "goal_id": null,
+              "purpose": "Record a deliberate no-op instead of inventing activity",
+              "risk": "READ",
+              "skill_id": null,
+              "tool": "noop"
+            }
+          ],
+          "claim": "No additional external action is justified.",
+          "key": "deliberate_safe_noop",
+          "score": 0.35428571428571426
+        },
+        "created_at": "2026-06-24T05:36:49.703476+00:00",
+        "cycle_id": "cycle_ab3d839e866b47d2adeba7437f49ebb3",
+        "decision_trace_id": "cogtrace_fd5f65e38a644b2196aae2afcfa9c199",
+        "goal_delta": 0.5037142857142858,
+        "goal_influenced_decision": true,
+        "goal_trace_id": "goaltrace_93e564dd3de349bb8324f4d803afe33d",
+        "outcome": {
+          "frozen": false,
+          "goal_updates": [
+            {
+              "decided_progress": 1.0,
+              "decided_status": "COMPLETED",
+              "goal_id": "goal_31b440594a0b4cda80f106ffca135ed3",
+              "previous_progress": 1.0,
+              "previous_status": "COMPLETED",
+              "reason": "action_outcome",
+              "review_id": "goalreview_8a1dde3cf40540c4bdb5fc8f0c4ad3bb"
+            },
+            {
+              "decided_progress": 0.75,
+              "decided_status": "DECOMPOSED",
+              "goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+              "previous_progress": 0.5,
+              "previous_status": "DECOMPOSED",
+              "reason": "child_progress_aggregation",
+              "review_id": "goalreview_07c23e9d5c2a4cc890d1882dc10c3cf1"
+            }
+          ],
+          "mode": "enabled",
+          "observed_actions": 1,
+          "successful_actions": 1
+        },
+        "resolved_at": "2026-06-24T05:36:49.770501+00:00",
+        "selected_goal_ids": [
+          "goal_31b440594a0b4cda80f106ffca135ed3"
+        ],
+        "selected_key": "goal_task:goal_31b440594a0b4cda80f106ffca135ed3:inspect_path:/tmp/wls-et004-0h6czr_l/enabled/sandbox/task-3"
+      },
+      {
+        "causal_reason": "selected=goal_task:goal_07c92a7a63824f0f8dd38648c9c9b944:inspect_path:/tmp/wls-et004-0h6czr_l/enabled/sandbox/task-2; goal_free=deliberate_safe_noop; selected_goal_ids=goal_07c92a7a63824f0f8dd38648c9c9b944",
+        "counterfactual_without_goal": {
+          "actions": [
+            {
+              "acceptance": [
+                "output ok is true"
+              ],
+              "arguments": {
+                "reason": "No supported action"
+              },
+              "expected_result": "No external change",
+              "goal_id": null,
+              "purpose": "Record a deliberate no-op instead of inventing activity",
+              "risk": "READ",
+              "skill_id": null,
+              "tool": "noop"
+            }
+          ],
+          "claim": "No additional external action is justified.",
+          "key": "deliberate_safe_noop",
+          "score": 0.35428571428571426
+        },
+        "created_at": "2026-06-24T05:36:49.513068+00:00",
+        "cycle_id": "cycle_69b6c4cb6fac4f1980608ccfb049eb7f",
+        "decision_trace_id": "cogtrace_847b733aa11c4e4ab86874fc63b19298",
+        "goal_delta": 0.5037142857142858,
+        "goal_influenced_decision": true,
+        "goal_trace_id": "goaltrace_5e5e74d49e3b4dec84a796958310aa3e",
+        "outcome": {
+          "frozen": false,
+          "goal_updates": [
+            {
+              "decided_progress": 1.0,
+              "decided_status": "COMPLETED",
+              "goal_id": "goal_07c92a7a63824f0f8dd38648c9c9b944",
+              "previous_progress": 1.0,
+              "previous_status": "COMPLETED",
+              "reason": "action_outcome",
+              "review_id": "goalreview_99909cbecd034012811f9fc9713c5cee"
+            },
+            {
+              "decided_progress": 0.5,
+              "decided_status": "DECOMPOSED",
+              "goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+              "previous_progress": 0.25,
+              "previous_status": "DECOMPOSED",
+              "reason": "child_progress_aggregation",
+              "review_id": "goalreview_115a70c567b5495ba76371012fbf0fcc"
+            }
+          ],
+          "mode": "enabled",
+          "observed_actions": 1,
+          "successful_actions": 1
+        },
+        "resolved_at": "2026-06-24T05:36:49.578618+00:00",
+        "selected_goal_ids": [
+          "goal_07c92a7a63824f0f8dd38648c9c9b944"
+        ],
+        "selected_key": "goal_task:goal_07c92a7a63824f0f8dd38648c9c9b944:inspect_path:/tmp/wls-et004-0h6czr_l/enabled/sandbox/task-2"
+      },
+      {
+        "causal_reason": "selected=goal_task:goal_1a1a849750e340c39296127537122f15:inspect_path:/tmp/wls-et004-0h6czr_l/enabled/sandbox/task-1; goal_free=deliberate_safe_noop; selected_goal_ids=goal_1a1a849750e340c39296127537122f15",
+        "counterfactual_without_goal": {
+          "actions": [
+            {
+              "acceptance": [
+                "output ok is true"
+              ],
+              "arguments": {
+                "reason": "No supported action"
+              },
+              "expected_result": "No external change",
+              "goal_id": null,
+              "purpose": "Record a deliberate no-op instead of inventing activity",
+              "risk": "READ",
+              "skill_id": null,
+              "tool": "noop"
+            }
+          ],
+          "claim": "No additional external action is justified.",
+          "key": "deliberate_safe_noop",
+          "score": 0.35582810559006206
+        },
+        "created_at": "2026-06-24T05:36:49.348294+00:00",
+        "cycle_id": "cycle_a1db159ecaa34832bc1caf83a523ea1d",
+        "decision_trace_id": "cogtrace_df783c2d35cf4b49a53d679048f71074",
+        "goal_delta": 0.5112067258706121,
+        "goal_influenced_decision": true,
+        "goal_trace_id": "goaltrace_baa6c200c0cb4822ab305a06521c5b1f",
+        "outcome": {
+          "frozen": false,
+          "goal_updates": [
+            {
+              "decided_progress": 1.0,
+              "decided_status": "COMPLETED",
+              "goal_id": "goal_1a1a849750e340c39296127537122f15",
+              "previous_progress": 1.0,
+              "previous_status": "COMPLETED",
+              "reason": "action_outcome",
+              "review_id": "goalreview_32b7687a98224ffc989d747ef7b56586"
+            },
+            {
+              "decided_progress": 0.25,
+              "decided_status": "DECOMPOSED",
+              "goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+              "previous_progress": 0.0,
+              "previous_status": "DECOMPOSED",
+              "reason": "child_progress_aggregation",
+              "review_id": "goalreview_124a528a5aa74540b8f78049d8adb2e5"
+            }
+          ],
+          "mode": "enabled",
+          "observed_actions": 1,
+          "successful_actions": 1
+        },
+        "resolved_at": "2026-06-24T05:36:49.414322+00:00",
+        "selected_goal_ids": [
+          "goal_1a1a849750e340c39296127537122f15"
+        ],
+        "selected_key": "goal_task:goal_1a1a849750e340c39296127537122f15:inspect_path:/tmp/wls-et004-0h6czr_l/enabled/sandbox/task-1"
+      },
+      {
+        "causal_reason": "selected=inspect_requested_path:/tmp/wls-et004-0h6czr_l/enabled/sandbox/unrelated; goal_free=inspect_requested_path:/tmp/wls-et004-0h6czr_l/enabled/sandbox/unrelated; selected_goal_ids=none",
+        "counterfactual_without_goal": {
+          "actions": [
+            {
+              "acceptance": [
+                "output contains items"
+              ],
+              "arguments": {
+                "limit": 200,
+                "path": "/tmp/wls-et004-0h6czr_l/enabled/sandbox/unrelated"
+              },
+              "expected_result": "Bounded directory listing",
+              "goal_id": null,
+              "purpose": "Inspect the explicitly requested path",
+              "risk": "READ",
+              "skill_id": null,
+              "tool": "list_directory"
+            }
+          ],
+          "claim": "The explicit human path request should be inspected read-only.",
+          "key": "inspect_requested_path:/tmp/wls-et004-0h6czr_l/enabled/sandbox/unrelated",
+          "score": 0.98
+        },
+        "created_at": "2026-06-24T05:36:49.151299+00:00",
+        "cycle_id": "cycle_fef7cdc7f4194f5488ce28efe282f24d",
+        "decision_trace_id": "cogtrace_05aaa12dc48d4875bcba21402ce5ad24",
+        "goal_delta": 0.0028846153846153744,
+        "goal_influenced_decision": false,
+        "goal_trace_id": "goaltrace_16d922e6c3614559a55bf4e342a931f6",
+        "outcome": {
+          "frozen": false,
+          "goal_updates": [
+            {
+              "decided_progress": 0.0,
+              "decided_status": "BLOCKED",
+              "goal_id": "goal_1a1a849750e340c39296127537122f15",
+              "previous_progress": 0.0,
+              "previous_status": "BLOCKED",
+              "reason": "interruption_recorded",
+              "review_id": "goalreview_e9166be89e714b67868a218b995b37e3"
+            },
+            {
+              "decided_progress": 0.0,
+              "decided_status": "DECOMPOSED",
+              "goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+              "previous_progress": 0.0,
+              "previous_status": "DECOMPOSED",
+              "reason": "child_progress_aggregation",
+              "review_id": "goalreview_b6e893dad8914698a541245e0d77f4d7"
+            }
+          ],
+          "mode": "enabled",
+          "observed_actions": 1,
+          "successful_actions": 1
+        },
+        "resolved_at": "2026-06-24T05:36:49.242978+00:00",
+        "selected_goal_ids": [],
+        "selected_key": "inspect_requested_path:/tmp/wls-et004-0h6czr_l/enabled/sandbox/unrelated"
+      }
+    ],
+    "goal_completion_rate": 1.0,
+    "goal_debt": [],
+    "goal_reviews": [
+      {
+        "created_at": "2026-06-24T05:36:49.092774+00:00",
+        "cycle_id": "cycle_fef7cdc7f4194f5488ce28efe282f24d",
+        "decided_progress": 0.0,
+        "decided_status": "IN_PROGRESS",
+        "goal_id": "goal_1a1a849750e340c39296127537122f15",
+        "previous_progress": 0.0,
+        "previous_status": "ACTIVE",
+        "reason": "cycle_prepare",
+        "review_id": "goalreview_ea3fa7934783433196153bc644eb5142",
+        "source_ids_json": "[]"
+      },
+      {
+        "created_at": "2026-06-24T05:36:49.225216+00:00",
+        "cycle_id": "cycle_fef7cdc7f4194f5488ce28efe282f24d",
+        "decided_progress": 0.0,
+        "decided_status": "BLOCKED",
+        "goal_id": "goal_1a1a849750e340c39296127537122f15",
+        "previous_progress": 0.0,
+        "previous_status": "BLOCKED",
+        "reason": "interruption_recorded",
+        "review_id": "goalreview_e9166be89e714b67868a218b995b37e3",
+        "source_ids_json": "[\"cycle_fef7cdc7f4194f5488ce28efe282f24d\"]"
+      },
+      {
+        "created_at": "2026-06-24T05:36:49.235615+00:00",
+        "cycle_id": "cycle_fef7cdc7f4194f5488ce28efe282f24d",
+        "decided_progress": 0.0,
+        "decided_status": "DECOMPOSED",
+        "goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+        "previous_progress": 0.0,
+        "previous_status": "DECOMPOSED",
+        "reason": "child_progress_aggregation",
+        "review_id": "goalreview_b6e893dad8914698a541245e0d77f4d7",
+        "source_ids_json": "[\"cycle_fef7cdc7f4194f5488ce28efe282f24d\"]"
+      },
+      {
+        "created_at": "2026-06-24T05:36:49.287591+00:00",
+        "cycle_id": "cycle_a1db159ecaa34832bc1caf83a523ea1d",
+        "decided_progress": 0.0,
+        "decided_status": "IN_PROGRESS",
+        "goal_id": "goal_1a1a849750e340c39296127537122f15",
+        "previous_progress": 0.0,
+        "previous_status": "BLOCKED",
+        "reason": "cycle_prepare",
+        "review_id": "goalreview_c3c3498fe3634cd4b1a639e42f6e8513",
+        "source_ids_json": "[]"
+      },
+      {
+        "created_at": "2026-06-24T05:36:49.400863+00:00",
+        "cycle_id": "cycle_a1db159ecaa34832bc1caf83a523ea1d",
+        "decided_progress": 1.0,
+        "decided_status": "COMPLETED",
+        "goal_id": "goal_1a1a849750e340c39296127537122f15",
+        "previous_progress": 1.0,
+        "previous_status": "COMPLETED",
+        "reason": "action_outcome",
+        "review_id": "goalreview_32b7687a98224ffc989d747ef7b56586",
+        "source_ids_json": "[\"act_f9686b18c6974ed58ab722c4ff227a09\"]"
+      },
+      {
+        "created_at": "2026-06-24T05:36:49.408269+00:00",
+        "cycle_id": "cycle_a1db159ecaa34832bc1caf83a523ea1d",
+        "decided_progress": 0.25,
+        "decided_status": "DECOMPOSED",
+        "goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+        "previous_progress": 0.0,
+        "previous_status": "DECOMPOSED",
+        "reason": "child_progress_aggregation",
+        "review_id": "goalreview_124a528a5aa74540b8f78049d8adb2e5",
+        "source_ids_json": "[\"cycle_a1db159ecaa34832bc1caf83a523ea1d\"]"
+      },
+      {
+        "created_at": "2026-06-24T05:36:49.457957+00:00",
+        "cycle_id": "cycle_69b6c4cb6fac4f1980608ccfb049eb7f",
+        "decided_progress": 0.0,
+        "decided_status": "IN_PROGRESS",
+        "goal_id": "goal_07c92a7a63824f0f8dd38648c9c9b944",
+        "previous_progress": 0.0,
+        "previous_status": "WAITING",
+        "reason": "cycle_prepare",
+        "review_id": "goalreview_30aead884033412aa7a9301c28fdbcf3",
+        "source_ids_json": "[]"
+      },
+      {
+        "created_at": "2026-06-24T05:36:49.565234+00:00",
+        "cycle_id": "cycle_69b6c4cb6fac4f1980608ccfb049eb7f",
+        "decided_progress": 1.0,
+        "decided_status": "COMPLETED",
+        "goal_id": "goal_07c92a7a63824f0f8dd38648c9c9b944",
+        "previous_progress": 1.0,
+        "previous_status": "COMPLETED",
+        "reason": "action_outcome",
+        "review_id": "goalreview_99909cbecd034012811f9fc9713c5cee",
+        "source_ids_json": "[\"act_a4707132395948e4967b95e091d551ce\"]"
+      },
+      {
+        "created_at": "2026-06-24T05:36:49.573024+00:00",
+        "cycle_id": "cycle_69b6c4cb6fac4f1980608ccfb049eb7f",
+        "decided_progress": 0.5,
+        "decided_status": "DECOMPOSED",
+        "goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+        "previous_progress": 0.25,
+        "previous_status": "DECOMPOSED",
+        "reason": "child_progress_aggregation",
+        "review_id": "goalreview_115a70c567b5495ba76371012fbf0fcc",
+        "source_ids_json": "[\"cycle_69b6c4cb6fac4f1980608ccfb049eb7f\"]"
+      },
+      {
+        "created_at": "2026-06-24T05:36:49.646072+00:00",
+        "cycle_id": "cycle_ab3d839e866b47d2adeba7437f49ebb3",
+        "decided_progress": 0.0,
+        "decided_status": "IN_PROGRESS",
+        "goal_id": "goal_31b440594a0b4cda80f106ffca135ed3",
+        "previous_progress": 0.0,
+        "previous_status": "WAITING",
+        "reason": "cycle_prepare",
+        "review_id": "goalreview_4d36944dc1e8498c85daf76047df3fe6",
+        "source_ids_json": "[]"
+      },
+      {
+        "created_at": "2026-06-24T05:36:49.757486+00:00",
+        "cycle_id": "cycle_ab3d839e866b47d2adeba7437f49ebb3",
+        "decided_progress": 1.0,
+        "decided_status": "COMPLETED",
+        "goal_id": "goal_31b440594a0b4cda80f106ffca135ed3",
+        "previous_progress": 1.0,
+        "previous_status": "COMPLETED",
+        "reason": "action_outcome",
+        "review_id": "goalreview_8a1dde3cf40540c4bdb5fc8f0c4ad3bb",
+        "source_ids_json": "[\"act_e6c6e8b8b7be4998be636c32152e4738\"]"
+      },
+      {
+        "created_at": "2026-06-24T05:36:49.765165+00:00",
+        "cycle_id": "cycle_ab3d839e866b47d2adeba7437f49ebb3",
+        "decided_progress": 0.75,
+        "decided_status": "DECOMPOSED",
+        "goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+        "previous_progress": 0.5,
+        "previous_status": "DECOMPOSED",
+        "reason": "child_progress_aggregation",
+        "review_id": "goalreview_07c23e9d5c2a4cc890d1882dc10c3cf1",
+        "source_ids_json": "[\"cycle_ab3d839e866b47d2adeba7437f49ebb3\"]"
+      },
+      {
+        "created_at": "2026-06-24T05:36:49.813144+00:00",
+        "cycle_id": "cycle_9b371156d81a4a81ae4980fe5affcb82",
+        "decided_progress": 0.0,
+        "decided_status": "IN_PROGRESS",
+        "goal_id": "goal_1881464ec5cb4180a0be91eb5ed19024",
+        "previous_progress": 0.0,
+        "previous_status": "WAITING",
+        "reason": "cycle_prepare",
+        "review_id": "goalreview_8ecf42271a4d47ca9873cc80615a6b9d",
+        "source_ids_json": "[]"
+      },
+      {
+        "created_at": "2026-06-24T05:36:49.921682+00:00",
+        "cycle_id": "cycle_9b371156d81a4a81ae4980fe5affcb82",
+        "decided_progress": 1.0,
+        "decided_status": "COMPLETED",
+        "goal_id": "goal_1881464ec5cb4180a0be91eb5ed19024",
+        "previous_progress": 1.0,
+        "previous_status": "COMPLETED",
+        "reason": "action_outcome",
+        "review_id": "goalreview_15a3af5cf9cf4bba8e5eeb4022778723",
+        "source_ids_json": "[\"act_97dc30a6301d43a7b176a3b7305bcf89\"]"
+      },
+      {
+        "created_at": "2026-06-24T05:36:49.929148+00:00",
+        "cycle_id": "cycle_9b371156d81a4a81ae4980fe5affcb82",
+        "decided_progress": 1.0,
+        "decided_status": "COMPLETED",
+        "goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+        "previous_progress": 0.75,
+        "previous_status": "DECOMPOSED",
+        "reason": "child_progress_aggregation",
+        "review_id": "goalreview_e8bfba50e80549b8a4b3beaa22906747",
+        "source_ids_json": "[\"cycle_9b371156d81a4a81ae4980fe5affcb82\"]"
+      },
+      {
+        "created_at": "2026-06-24T05:36:50.078198+00:00",
+        "cycle_id": null,
+        "decided_progress": 1.0,
+        "decided_status": "COMPLETED",
+        "goal_id": "goal_1a1a849750e340c39296127537122f15",
+        "previous_progress": 1.0,
+        "previous_status": "COMPLETED",
+        "reason": "verification_final",
+        "review_id": "goalreview_54adf13799c143a99f9cf7fca1f023c4",
+        "source_ids_json": "[]"
+      },
+      {
+        "created_at": "2026-06-24T05:36:50.085389+00:00",
+        "cycle_id": null,
+        "decided_progress": 1.0,
+        "decided_status": "COMPLETED",
+        "goal_id": "goal_07c92a7a63824f0f8dd38648c9c9b944",
+        "previous_progress": 1.0,
+        "previous_status": "COMPLETED",
+        "reason": "verification_final",
+        "review_id": "goalreview_2d8e6c8085c2449a8e85afcb38fac398",
+        "source_ids_json": "[]"
+      },
+      {
+        "created_at": "2026-06-24T05:36:50.092250+00:00",
+        "cycle_id": null,
+        "decided_progress": 1.0,
+        "decided_status": "COMPLETED",
+        "goal_id": "goal_31b440594a0b4cda80f106ffca135ed3",
+        "previous_progress": 1.0,
+        "previous_status": "COMPLETED",
+        "reason": "verification_final",
+        "review_id": "goalreview_8ce38a82cca341938163cba7773f7151",
+        "source_ids_json": "[]"
+      },
+      {
+        "created_at": "2026-06-24T05:36:50.099770+00:00",
+        "cycle_id": null,
+        "decided_progress": 1.0,
+        "decided_status": "COMPLETED",
+        "goal_id": "goal_1881464ec5cb4180a0be91eb5ed19024",
+        "previous_progress": 1.0,
+        "previous_status": "COMPLETED",
+        "reason": "verification_final",
+        "review_id": "goalreview_09b627733ad043138d79fc33e3a7e33c",
+        "source_ids_json": "[]"
+      },
+      {
+        "created_at": "2026-06-24T05:36:50.106583+00:00",
+        "cycle_id": null,
+        "decided_progress": 1.0,
+        "decided_status": "COMPLETED",
+        "goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+        "previous_progress": 1.0,
+        "previous_status": "COMPLETED",
+        "reason": "verification_final",
+        "review_id": "goalreview_2f21a84b82b049baa001ffc01174aab5",
+        "source_ids_json": "[]"
+      }
+    ],
+    "interruption_recovery": true,
+    "parent_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+    "parent_progress": 1.0,
+    "parent_status": "COMPLETED",
+    "post_restart_goal": {
+      "archived_at": null,
+      "autonomous": false,
+      "blocked_reason": null,
+      "completed_at": null,
+      "contradiction_reason": null,
+      "created_at": "2026-06-24T05:36:49.051809+00:00",
+      "deadline": null,
+      "dependencies": [],
+      "description": "Complete ordered, bounded, read-only tasks and preserve progress across interruption and restart.",
+      "goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+      "interruption_count": 0,
+      "last_reviewed_at": "2026-06-24T05:36:49.573024+00:00",
+      "origin": "verification",
+      "parent_goal_id": null,
+      "priority": 0.5,
+      "progress": 0.5,
+      "progress_evidence": [],
+      "rationale": "Controlled long-horizon continuity probe.",
+      "recovery_count": 0,
+      "remaining_work": [
+        "complete four dependency-ordered child tasks"
+      ],
+      "risk": "READ",
+      "source": "verification",
+      "status": "DECOMPOSED",
+      "success_criteria": [
+        "all four child tasks complete with action evidence"
+      ],
+      "task_spec": {},
+      "title": "Maintain a four-step repository inspection objective",
+      "updated_at": "2026-06-24T05:36:49.573846+00:00"
+    },
+    "progress_accumulation": 1.0,
+    "selected_goal_ids": [
+      "goal_1881464ec5cb4180a0be91eb5ed19024",
+      "goal_31b440594a0b4cda80f106ffca135ed3",
+      "goal_07c92a7a63824f0f8dd38648c9c9b944",
+      "goal_1a1a849750e340c39296127537122f15"
+    ],
+    "task_completion": true,
+    "wrong_action_rate": 0.0
+  },
+  "goal_reviews": [
+    {
+      "created_at": "2026-06-24T05:36:49.092774+00:00",
+      "cycle_id": "cycle_fef7cdc7f4194f5488ce28efe282f24d",
+      "decided_progress": 0.0,
+      "decided_status": "IN_PROGRESS",
+      "goal_id": "goal_1a1a849750e340c39296127537122f15",
+      "previous_progress": 0.0,
+      "previous_status": "ACTIVE",
+      "reason": "cycle_prepare",
+      "review_id": "goalreview_ea3fa7934783433196153bc644eb5142",
+      "source_ids_json": "[]"
+    },
+    {
+      "created_at": "2026-06-24T05:36:49.225216+00:00",
+      "cycle_id": "cycle_fef7cdc7f4194f5488ce28efe282f24d",
+      "decided_progress": 0.0,
+      "decided_status": "BLOCKED",
+      "goal_id": "goal_1a1a849750e340c39296127537122f15",
+      "previous_progress": 0.0,
+      "previous_status": "BLOCKED",
+      "reason": "interruption_recorded",
+      "review_id": "goalreview_e9166be89e714b67868a218b995b37e3",
+      "source_ids_json": "[\"cycle_fef7cdc7f4194f5488ce28efe282f24d\"]"
+    },
+    {
+      "created_at": "2026-06-24T05:36:49.235615+00:00",
+      "cycle_id": "cycle_fef7cdc7f4194f5488ce28efe282f24d",
+      "decided_progress": 0.0,
+      "decided_status": "DECOMPOSED",
+      "goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+      "previous_progress": 0.0,
+      "previous_status": "DECOMPOSED",
+      "reason": "child_progress_aggregation",
+      "review_id": "goalreview_b6e893dad8914698a541245e0d77f4d7",
+      "source_ids_json": "[\"cycle_fef7cdc7f4194f5488ce28efe282f24d\"]"
+    },
+    {
+      "created_at": "2026-06-24T05:36:49.287591+00:00",
+      "cycle_id": "cycle_a1db159ecaa34832bc1caf83a523ea1d",
+      "decided_progress": 0.0,
+      "decided_status": "IN_PROGRESS",
+      "goal_id": "goal_1a1a849750e340c39296127537122f15",
+      "previous_progress": 0.0,
+      "previous_status": "BLOCKED",
+      "reason": "cycle_prepare",
+      "review_id": "goalreview_c3c3498fe3634cd4b1a639e42f6e8513",
+      "source_ids_json": "[]"
+    },
+    {
+      "created_at": "2026-06-24T05:36:49.400863+00:00",
+      "cycle_id": "cycle_a1db159ecaa34832bc1caf83a523ea1d",
+      "decided_progress": 1.0,
+      "decided_status": "COMPLETED",
+      "goal_id": "goal_1a1a849750e340c39296127537122f15",
+      "previous_progress": 1.0,
+      "previous_status": "COMPLETED",
+      "reason": "action_outcome",
+      "review_id": "goalreview_32b7687a98224ffc989d747ef7b56586",
+      "source_ids_json": "[\"act_f9686b18c6974ed58ab722c4ff227a09\"]"
+    },
+    {
+      "created_at": "2026-06-24T05:36:49.408269+00:00",
+      "cycle_id": "cycle_a1db159ecaa34832bc1caf83a523ea1d",
+      "decided_progress": 0.25,
+      "decided_status": "DECOMPOSED",
+      "goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+      "previous_progress": 0.0,
+      "previous_status": "DECOMPOSED",
+      "reason": "child_progress_aggregation",
+      "review_id": "goalreview_124a528a5aa74540b8f78049d8adb2e5",
+      "source_ids_json": "[\"cycle_a1db159ecaa34832bc1caf83a523ea1d\"]"
+    },
+    {
+      "created_at": "2026-06-24T05:36:49.457957+00:00",
+      "cycle_id": "cycle_69b6c4cb6fac4f1980608ccfb049eb7f",
+      "decided_progress": 0.0,
+      "decided_status": "IN_PROGRESS",
+      "goal_id": "goal_07c92a7a63824f0f8dd38648c9c9b944",
+      "previous_progress": 0.0,
+      "previous_status": "WAITING",
+      "reason": "cycle_prepare",
+      "review_id": "goalreview_30aead884033412aa7a9301c28fdbcf3",
+      "source_ids_json": "[]"
+    },
+    {
+      "created_at": "2026-06-24T05:36:49.565234+00:00",
+      "cycle_id": "cycle_69b6c4cb6fac4f1980608ccfb049eb7f",
+      "decided_progress": 1.0,
+      "decided_status": "COMPLETED",
+      "goal_id": "goal_07c92a7a63824f0f8dd38648c9c9b944",
+      "previous_progress": 1.0,
+      "previous_status": "COMPLETED",
+      "reason": "action_outcome",
+      "review_id": "goalreview_99909cbecd034012811f9fc9713c5cee",
+      "source_ids_json": "[\"act_a4707132395948e4967b95e091d551ce\"]"
+    },
+    {
+      "created_at": "2026-06-24T05:36:49.573024+00:00",
+      "cycle_id": "cycle_69b6c4cb6fac4f1980608ccfb049eb7f",
+      "decided_progress": 0.5,
+      "decided_status": "DECOMPOSED",
+      "goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+      "previous_progress": 0.25,
+      "previous_status": "DECOMPOSED",
+      "reason": "child_progress_aggregation",
+      "review_id": "goalreview_115a70c567b5495ba76371012fbf0fcc",
+      "source_ids_json": "[\"cycle_69b6c4cb6fac4f1980608ccfb049eb7f\"]"
+    },
+    {
+      "created_at": "2026-06-24T05:36:49.646072+00:00",
+      "cycle_id": "cycle_ab3d839e866b47d2adeba7437f49ebb3",
+      "decided_progress": 0.0,
+      "decided_status": "IN_PROGRESS",
+      "goal_id": "goal_31b440594a0b4cda80f106ffca135ed3",
+      "previous_progress": 0.0,
+      "previous_status": "WAITING",
+      "reason": "cycle_prepare",
+      "review_id": "goalreview_4d36944dc1e8498c85daf76047df3fe6",
+      "source_ids_json": "[]"
+    },
+    {
+      "created_at": "2026-06-24T05:36:49.757486+00:00",
+      "cycle_id": "cycle_ab3d839e866b47d2adeba7437f49ebb3",
+      "decided_progress": 1.0,
+      "decided_status": "COMPLETED",
+      "goal_id": "goal_31b440594a0b4cda80f106ffca135ed3",
+      "previous_progress": 1.0,
+      "previous_status": "COMPLETED",
+      "reason": "action_outcome",
+      "review_id": "goalreview_8a1dde3cf40540c4bdb5fc8f0c4ad3bb",
+      "source_ids_json": "[\"act_e6c6e8b8b7be4998be636c32152e4738\"]"
+    },
+    {
+      "created_at": "2026-06-24T05:36:49.765165+00:00",
+      "cycle_id": "cycle_ab3d839e866b47d2adeba7437f49ebb3",
+      "decided_progress": 0.75,
+      "decided_status": "DECOMPOSED",
+      "goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+      "previous_progress": 0.5,
+      "previous_status": "DECOMPOSED",
+      "reason": "child_progress_aggregation",
+      "review_id": "goalreview_07c23e9d5c2a4cc890d1882dc10c3cf1",
+      "source_ids_json": "[\"cycle_ab3d839e866b47d2adeba7437f49ebb3\"]"
+    },
+    {
+      "created_at": "2026-06-24T05:36:49.813144+00:00",
+      "cycle_id": "cycle_9b371156d81a4a81ae4980fe5affcb82",
+      "decided_progress": 0.0,
+      "decided_status": "IN_PROGRESS",
+      "goal_id": "goal_1881464ec5cb4180a0be91eb5ed19024",
+      "previous_progress": 0.0,
+      "previous_status": "WAITING",
+      "reason": "cycle_prepare",
+      "review_id": "goalreview_8ecf42271a4d47ca9873cc80615a6b9d",
+      "source_ids_json": "[]"
+    },
+    {
+      "created_at": "2026-06-24T05:36:49.921682+00:00",
+      "cycle_id": "cycle_9b371156d81a4a81ae4980fe5affcb82",
+      "decided_progress": 1.0,
+      "decided_status": "COMPLETED",
+      "goal_id": "goal_1881464ec5cb4180a0be91eb5ed19024",
+      "previous_progress": 1.0,
+      "previous_status": "COMPLETED",
+      "reason": "action_outcome",
+      "review_id": "goalreview_15a3af5cf9cf4bba8e5eeb4022778723",
+      "source_ids_json": "[\"act_97dc30a6301d43a7b176a3b7305bcf89\"]"
+    },
+    {
+      "created_at": "2026-06-24T05:36:49.929148+00:00",
+      "cycle_id": "cycle_9b371156d81a4a81ae4980fe5affcb82",
+      "decided_progress": 1.0,
+      "decided_status": "COMPLETED",
+      "goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+      "previous_progress": 0.75,
+      "previous_status": "DECOMPOSED",
+      "reason": "child_progress_aggregation",
+      "review_id": "goalreview_e8bfba50e80549b8a4b3beaa22906747",
+      "source_ids_json": "[\"cycle_9b371156d81a4a81ae4980fe5affcb82\"]"
+    },
+    {
+      "created_at": "2026-06-24T05:36:50.078198+00:00",
+      "cycle_id": null,
+      "decided_progress": 1.0,
+      "decided_status": "COMPLETED",
+      "goal_id": "goal_1a1a849750e340c39296127537122f15",
+      "previous_progress": 1.0,
+      "previous_status": "COMPLETED",
+      "reason": "verification_final",
+      "review_id": "goalreview_54adf13799c143a99f9cf7fca1f023c4",
+      "source_ids_json": "[]"
+    },
+    {
+      "created_at": "2026-06-24T05:36:50.085389+00:00",
+      "cycle_id": null,
+      "decided_progress": 1.0,
+      "decided_status": "COMPLETED",
+      "goal_id": "goal_07c92a7a63824f0f8dd38648c9c9b944",
+      "previous_progress": 1.0,
+      "previous_status": "COMPLETED",
+      "reason": "verification_final",
+      "review_id": "goalreview_2d8e6c8085c2449a8e85afcb38fac398",
+      "source_ids_json": "[]"
+    },
+    {
+      "created_at": "2026-06-24T05:36:50.092250+00:00",
+      "cycle_id": null,
+      "decided_progress": 1.0,
+      "decided_status": "COMPLETED",
+      "goal_id": "goal_31b440594a0b4cda80f106ffca135ed3",
+      "previous_progress": 1.0,
+      "previous_status": "COMPLETED",
+      "reason": "verification_final",
+      "review_id": "goalreview_8ce38a82cca341938163cba7773f7151",
+      "source_ids_json": "[]"
+    },
+    {
+      "created_at": "2026-06-24T05:36:50.099770+00:00",
+      "cycle_id": null,
+      "decided_progress": 1.0,
+      "decided_status": "COMPLETED",
+      "goal_id": "goal_1881464ec5cb4180a0be91eb5ed19024",
+      "previous_progress": 1.0,
+      "previous_status": "COMPLETED",
+      "reason": "verification_final",
+      "review_id": "goalreview_09b627733ad043138d79fc33e3a7e33c",
+      "source_ids_json": "[]"
+    },
+    {
+      "created_at": "2026-06-24T05:36:50.106583+00:00",
+      "cycle_id": null,
+      "decided_progress": 1.0,
+      "decided_status": "COMPLETED",
+      "goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+      "previous_progress": 1.0,
+      "previous_status": "COMPLETED",
+      "reason": "verification_final",
+      "review_id": "goalreview_2f21a84b82b049baa001ffc01174aab5",
+      "source_ids_json": "[]"
+    }
+  ],
+  "passed": true,
+  "regressions": 0,
+  "restart_continuity": {
+    "completion_after_restart": true,
+    "disabled_before_restart": {
+      "children": [
+        {
+          "archived_at": null,
+          "autonomous": false,
+          "blocked_reason": null,
+          "completed_at": null,
+          "contradiction_reason": null,
+          "created_at": "2026-06-24T05:36:50.182496+00:00",
+          "deadline": null,
+          "dependencies": [],
+          "description": "Inspect controlled path 1",
+          "goal_id": "goal_5ac9f57d44ac4418b738c18dec5af801",
+          "interruption_count": 0,
+          "last_reviewed_at": null,
+          "origin": "decomposition:goal_6710f5e198db41e28322baf5dd38c04c",
+          "parent_goal_id": "goal_6710f5e198db41e28322baf5dd38c04c",
+          "priority": 0.5,
+          "progress": 0.0,
+          "progress_evidence": [],
+          "rationale": "Bounded child task derived from the accepted parent goal.",
+          "recovery_count": 0,
+          "remaining_work": [
+            "Inspect controlled path 1"
+          ],
+          "risk": "READ",
+          "source": "verification",
+          "status": "ACTIVE",
+          "success_criteria": [
+            "governed action succeeds with evidence"
+          ],
+          "task_spec": {
+            "action": "inspect_path",
+            "path": "/tmp/wls-et004-0h6czr_l/disabled/sandbox/task-1"
+          },
+          "title": "Inspect controlled path 1",
+          "updated_at": "2026-06-24T05:36:50.182503+00:00"
+        },
+        {
+          "archived_at": null,
+          "autonomous": false,
+          "blocked_reason": null,
+          "completed_at": null,
+          "contradiction_reason": null,
+          "created_at": "2026-06-24T05:36:50.184887+00:00",
+          "deadline": null,
+          "dependencies": [
+            "goal_5ac9f57d44ac4418b738c18dec5af801"
+          ],
+          "description": "Inspect controlled path 2",
+          "goal_id": "goal_f511505d6ab64c64a58de988edb4fbfc",
+          "interruption_count": 0,
+          "last_reviewed_at": null,
+          "origin": "decomposition:goal_6710f5e198db41e28322baf5dd38c04c",
+          "parent_goal_id": "goal_6710f5e198db41e28322baf5dd38c04c",
+          "priority": 0.5,
+          "progress": 0.0,
+          "progress_evidence": [],
+          "rationale": "Bounded child task derived from the accepted parent goal.",
+          "recovery_count": 0,
+          "remaining_work": [
+            "Inspect controlled path 2"
+          ],
+          "risk": "READ",
+          "source": "verification",
+          "status": "WAITING",
+          "success_criteria": [
+            "governed action succeeds with evidence"
+          ],
+          "task_spec": {
+            "action": "inspect_path",
+            "path": "/tmp/wls-et004-0h6czr_l/disabled/sandbox/task-2"
+          },
+          "title": "Inspect controlled path 2",
+          "updated_at": "2026-06-24T05:36:50.184894+00:00"
+        },
+        {
+          "archived_at": null,
+          "autonomous": false,
+          "blocked_reason": null,
+          "completed_at": null,
+          "contradiction_reason": null,
+          "created_at": "2026-06-24T05:36:50.187340+00:00",
+          "deadline": null,
+          "dependencies": [
+            "goal_f511505d6ab64c64a58de988edb4fbfc"
+          ],
+          "description": "Inspect controlled path 3",
+          "goal_id": "goal_265dc48439a5497eacf035653b0e5d19",
+          "interruption_count": 0,
+          "last_reviewed_at": null,
+          "origin": "decomposition:goal_6710f5e198db41e28322baf5dd38c04c",
+          "parent_goal_id": "goal_6710f5e198db41e28322baf5dd38c04c",
+          "priority": 0.5,
+          "progress": 0.0,
+          "progress_evidence": [],
+          "rationale": "Bounded child task derived from the accepted parent goal.",
+          "recovery_count": 0,
+          "remaining_work": [
+            "Inspect controlled path 3"
+          ],
+          "risk": "READ",
+          "source": "verification",
+          "status": "WAITING",
+          "success_criteria": [
+            "governed action succeeds with evidence"
+          ],
+          "task_spec": {
+            "action": "inspect_path",
+            "path": "/tmp/wls-et004-0h6czr_l/disabled/sandbox/task-3"
+          },
+          "title": "Inspect controlled path 3",
+          "updated_at": "2026-06-24T05:36:50.187347+00:00"
+        },
+        {
+          "archived_at": null,
+          "autonomous": false,
+          "blocked_reason": null,
+          "completed_at": null,
+          "contradiction_reason": null,
+          "created_at": "2026-06-24T05:36:50.189452+00:00",
+          "deadline": null,
+          "dependencies": [
+            "goal_265dc48439a5497eacf035653b0e5d19"
+          ],
+          "description": "Record verified goal progress",
+          "goal_id": "goal_50ce2e68d64b4d33b6eae2d9a3d59828",
+          "interruption_count": 0,
+          "last_reviewed_at": null,
+          "origin": "decomposition:goal_6710f5e198db41e28322baf5dd38c04c",
+          "parent_goal_id": "goal_6710f5e198db41e28322baf5dd38c04c",
+          "priority": 0.5,
+          "progress": 0.0,
+          "progress_evidence": [],
+          "rationale": "Bounded child task derived from the accepted parent goal.",
+          "recovery_count": 0,
+          "remaining_work": [
+            "Record verified goal progress"
+          ],
+          "risk": "READ",
+          "source": "verification",
+          "status": "WAITING",
+          "success_criteria": [
+            "governed action succeeds with evidence"
+          ],
+          "task_spec": {
+            "action": "record_progress"
+          },
+          "title": "Record verified goal progress",
+          "updated_at": "2026-06-24T05:36:50.189459+00:00"
+        }
+      ],
+      "completed_children": 0,
+      "goal_abandonment_rate": 0.0,
+      "goal_completion_rate": 0.0,
+      "interruption_recovery": false,
+      "parent_progress": 0.0,
+      "parent_status": "DECOMPOSED",
+      "progress_accumulation": 0.0,
+      "task_completion": false,
+      "wrong_action_rate": 0.0
+    },
+    "enabled_before_restart": {
+      "children": [
+        {
+          "archived_at": null,
+          "autonomous": false,
+          "blocked_reason": null,
+          "completed_at": "2026-06-24T05:36:49.400863+00:00",
+          "contradiction_reason": null,
+          "created_at": "2026-06-24T05:36:49.055645+00:00",
+          "deadline": null,
+          "dependencies": [],
+          "description": "Inspect controlled path 1",
+          "goal_id": "goal_1a1a849750e340c39296127537122f15",
+          "interruption_count": 1,
+          "last_reviewed_at": "2026-06-24T05:36:49.400863+00:00",
+          "origin": "decomposition:goal_23f9d8b03a9345e5b138a0aea49fd87e",
+          "parent_goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+          "priority": 0.5,
+          "progress": 1.0,
+          "progress_evidence": [
+            "act_f9686b18c6974ed58ab722c4ff227a09"
+          ],
+          "rationale": "Bounded child task derived from the accepted parent goal.",
+          "recovery_count": 1,
+          "remaining_work": [
+            "resume the same bounded task after interruption"
+          ],
+          "risk": "READ",
+          "source": "verification",
+          "status": "COMPLETED",
+          "success_criteria": [
+            "governed action succeeds with evidence"
+          ],
+          "task_spec": {
+            "action": "inspect_path",
+            "path": "/tmp/wls-et004-0h6czr_l/enabled/sandbox/task-1"
+          },
+          "title": "Inspect controlled path 1",
+          "updated_at": "2026-06-24T05:36:49.401655+00:00"
+        },
+        {
+          "archived_at": null,
+          "autonomous": false,
+          "blocked_reason": null,
+          "completed_at": "2026-06-24T05:36:49.565234+00:00",
+          "contradiction_reason": null,
+          "created_at": "2026-06-24T05:36:49.057925+00:00",
+          "deadline": null,
+          "dependencies": [
+            "goal_1a1a849750e340c39296127537122f15"
+          ],
+          "description": "Inspect controlled path 2",
+          "goal_id": "goal_07c92a7a63824f0f8dd38648c9c9b944",
+          "interruption_count": 0,
+          "last_reviewed_at": "2026-06-24T05:36:49.565234+00:00",
+          "origin": "decomposition:goal_23f9d8b03a9345e5b138a0aea49fd87e",
+          "parent_goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+          "priority": 0.5,
+          "progress": 1.0,
+          "progress_evidence": [
+            "act_a4707132395948e4967b95e091d551ce"
+          ],
+          "rationale": "Bounded child task derived from the accepted parent goal.",
+          "recovery_count": 0,
+          "remaining_work": [
+            "Inspect controlled path 2"
+          ],
+          "risk": "READ",
+          "source": "verification",
+          "status": "COMPLETED",
+          "success_criteria": [
+            "governed action succeeds with evidence"
+          ],
+          "task_spec": {
+            "action": "inspect_path",
+            "path": "/tmp/wls-et004-0h6czr_l/enabled/sandbox/task-2"
+          },
+          "title": "Inspect controlled path 2",
+          "updated_at": "2026-06-24T05:36:49.566107+00:00"
+        },
+        {
+          "archived_at": null,
+          "autonomous": false,
+          "blocked_reason": null,
+          "completed_at": null,
+          "contradiction_reason": null,
+          "created_at": "2026-06-24T05:36:49.060435+00:00",
+          "deadline": null,
+          "dependencies": [
+            "goal_07c92a7a63824f0f8dd38648c9c9b944"
+          ],
+          "description": "Inspect controlled path 3",
+          "goal_id": "goal_31b440594a0b4cda80f106ffca135ed3",
+          "interruption_count": 0,
+          "last_reviewed_at": null,
+          "origin": "decomposition:goal_23f9d8b03a9345e5b138a0aea49fd87e",
+          "parent_goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+          "priority": 0.5,
+          "progress": 0.0,
+          "progress_evidence": [],
+          "rationale": "Bounded child task derived from the accepted parent goal.",
+          "recovery_count": 0,
+          "remaining_work": [
+            "Inspect controlled path 3"
+          ],
+          "risk": "READ",
+          "source": "verification",
+          "status": "WAITING",
+          "success_criteria": [
+            "governed action succeeds with evidence"
+          ],
+          "task_spec": {
+            "action": "inspect_path",
+            "path": "/tmp/wls-et004-0h6czr_l/enabled/sandbox/task-3"
+          },
+          "title": "Inspect controlled path 3",
+          "updated_at": "2026-06-24T05:36:49.060442+00:00"
+        },
+        {
+          "archived_at": null,
+          "autonomous": false,
+          "blocked_reason": null,
+          "completed_at": null,
+          "contradiction_reason": null,
+          "created_at": "2026-06-24T05:36:49.062604+00:00",
+          "deadline": null,
+          "dependencies": [
+            "goal_31b440594a0b4cda80f106ffca135ed3"
+          ],
+          "description": "Record verified goal progress",
+          "goal_id": "goal_1881464ec5cb4180a0be91eb5ed19024",
+          "interruption_count": 0,
+          "last_reviewed_at": null,
+          "origin": "decomposition:goal_23f9d8b03a9345e5b138a0aea49fd87e",
+          "parent_goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+          "priority": 0.5,
+          "progress": 0.0,
+          "progress_evidence": [],
+          "rationale": "Bounded child task derived from the accepted parent goal.",
+          "recovery_count": 0,
+          "remaining_work": [
+            "Record verified goal progress"
+          ],
+          "risk": "READ",
+          "source": "verification",
+          "status": "WAITING",
+          "success_criteria": [
+            "governed action succeeds with evidence"
+          ],
+          "task_spec": {
+            "action": "record_progress"
+          },
+          "title": "Record verified goal progress",
+          "updated_at": "2026-06-24T05:36:49.062611+00:00"
+        }
+      ],
+      "completed_children": 2,
+      "goal_abandonment_rate": 0.0,
+      "goal_completion_rate": 0.5,
+      "interruption_recovery": true,
+      "parent_progress": 0.5,
+      "parent_status": "DECOMPOSED",
+      "progress_accumulation": 0.5,
+      "task_completion": false,
+      "wrong_action_rate": 0.0
+    },
+    "post_restart_goal": {
+      "archived_at": null,
+      "autonomous": false,
+      "blocked_reason": null,
+      "completed_at": null,
+      "contradiction_reason": null,
+      "created_at": "2026-06-24T05:36:49.051809+00:00",
+      "deadline": null,
+      "dependencies": [],
+      "description": "Complete ordered, bounded, read-only tasks and preserve progress across interruption and restart.",
+      "goal_id": "goal_23f9d8b03a9345e5b138a0aea49fd87e",
+      "interruption_count": 0,
+      "last_reviewed_at": "2026-06-24T05:36:49.573024+00:00",
+      "origin": "verification",
+      "parent_goal_id": null,
+      "priority": 0.5,
+      "progress": 0.5,
+      "progress_evidence": [],
+      "rationale": "Controlled long-horizon continuity probe.",
+      "recovery_count": 0,
+      "remaining_work": [
+        "complete four dependency-ordered child tasks"
+      ],
+      "risk": "READ",
+      "source": "verification",
+      "status": "DECOMPOSED",
+      "success_criteria": [
+        "all four child tasks complete with action evidence"
+      ],
+      "task_spec": {},
+      "title": "Maintain a four-step repository inspection objective",
+      "updated_at": "2026-06-24T05:36:49.573846+00:00"
+    },
+    "progress_preserved": true
+  },
+  "selected_goal_ids": [
+    "goal_1881464ec5cb4180a0be91eb5ed19024",
+    "goal_31b440594a0b4cda80f106ffca135ed3",
+    "goal_07c92a7a63824f0f8dd38648c9c9b944",
+    "goal_1a1a849750e340c39296127537122f15"
+  ],
+  "target": "EVOLUTION-TARGET-004"
+}

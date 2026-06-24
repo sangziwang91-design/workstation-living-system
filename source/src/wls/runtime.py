@@ -20,6 +20,7 @@ from .drives import DriveSystem
 from .evaluator import Evaluator
 from .evidence import EvidenceLedger
 from .growth_cycle import GrowthCycleManager
+from .goal_runtime import GoalRuntime
 from .learning import LearningSystem
 from .memory_attribution import MemoryAttributionStore
 from .lease import ProcessLease
@@ -57,6 +58,7 @@ class LivingSystem:
         self.ledger = EvidenceLedger(self.db, config.secret_path)
         self.events = EventStore(self.db, self.ledger)
         self.goals = GoalStore(self.db, self.ledger)
+        self.goal_runtime = GoalRuntime(self.db, self.ledger, self.goals, config)
         self.memories = MemoryStore(self.db, self.ledger)
         self.world = WorldModel(self.db, self.ledger)
         self.temporal_world = TemporalCausalWorld(self.db, self.ledger)
@@ -82,6 +84,7 @@ class LivingSystem:
             self.self_model,
             self.skills,
             self.learning,
+            self.goal_runtime,
         )
         self.attention = AttentionSystem(config.workspace_capacity)
         self.cognition = CognitiveEngine(
@@ -206,7 +209,8 @@ class LivingSystem:
                 self.worker_id, self.config.max_events_per_cycle
             )
             autonomous_goal_ids = self.autonomy.consider()
-            active_goals = self.goals.active(limit=20)
+            goal_context = self.goal_runtime.prepare_cycle(cycle_id, limit=20)
+            active_goals = goal_context["goals"]
             query_text = self._query_text(reserved, active_goals)
             memory_mode = str(
                 self.config.provider.get("memory_mode", "enabled")
@@ -260,6 +264,8 @@ class LivingSystem:
                 "cycle_id": cycle_id,
                 "workspace": [item.to_dict() for item in workspace],
                 "goals": [goal.to_dict() for goal in active_goals],
+                "goal_mode": goal_context["mode"],
+                "goal_debt": self.goal_runtime.debts.open_all(limit=20),
                 "world_facts": world_facts,
                 "memories": retrieved_memories,
                 "memory_retrieval": memory_retrieval,
@@ -281,7 +287,16 @@ class LivingSystem:
                 },
             }
             if meaningful_input:
+                goal_counterfactual = self.cognition.goal_counterfactual(context)
                 plan = self.planner.plan(context)
+                plan_goal_ids = list(dict.fromkeys(
+                    action.goal_id for action in plan.actions if action.goal_id
+                ))
+                goal_attribution = self.goal_runtime.record_decision(
+                    cycle_id,
+                    selected_goal_ids=plan_goal_ids,
+                    counterfactual=goal_counterfactual,
+                )
                 self.memory_attribution.record(
                     cycle_id, plan.memory_ids, memory_retrieval
                 )
@@ -301,6 +316,15 @@ class LivingSystem:
                 )
                 if cognition_result is not None and memory_resolution is not None:
                     cognition_result["memory_attribution"] = memory_resolution
+                goal_resolution = self.goal_runtime.resolve_cycle(
+                    cycle_id,
+                    selected_goal_ids=goal_context["selected_goal_ids"],
+                    outcomes=outcomes,
+                    attribution=goal_attribution,
+                )
+                if cognition_result is not None:
+                    cognition_result["goal_attribution"] = goal_attribution
+                    cognition_result["goal_resolution"] = goal_resolution
                 plan_status = self._plan_status(plan.plan_id)
                 episode_id = self.learning.record_episode(
                     cycle_id=cycle_id,
@@ -322,6 +346,13 @@ class LivingSystem:
                 )
                 outcomes = []
                 cognition_result = None
+                goal_counterfactual = {"key": "idle", "claim": "No meaningful input", "score": 0.0, "actions": []}
+                goal_attribution = None
+                goal_resolution = {
+                    "mode": goal_context["mode"],
+                    "goal_updates": [],
+                    "frozen": self.goal_runtime.frozen,
+                }
                 plan_status = "IDLE"
                 episode_id = None
                 post_appraisal = {"idle": True}
@@ -353,6 +384,14 @@ class LivingSystem:
                 },
                 "actions": len(plan.actions),
                 "outcomes": outcomes,
+                "goals": {
+                    "mode": goal_context["mode"],
+                    "actionable_goal_ids": goal_context["selected_goal_ids"],
+                    "resumed_goal_ids": goal_context["resumed_goal_ids"],
+                    "counterfactual_without_goal": goal_counterfactual,
+                    "attribution": goal_attribution,
+                    "resolution": goal_resolution,
+                },
                 "episode_id": episode_id,
                 "plan_status": plan_status,
                 "cognition": cognition_result,
@@ -882,6 +921,7 @@ class LivingSystem:
             "temporal_world": self.temporal_world.summary(),
             "causal_memory": self.memories.memory_summary(),
             "memory_attribution": self.memory_attribution.summary(),
+            "persistent_goals": self.goal_runtime.summary(),
             "next_focus": self.db.get_runtime("next_focus", []),
         }
 
@@ -891,6 +931,7 @@ class LivingSystem:
         cognition_ok, cognition_details = self.cognition.integrity()
         memory_ok, memory_details = self.memories.memory_integrity()
         attribution_ok, attribution_details = self.memory_attribution.integrity()
+        goals_ok, goals_details = self.goal_runtime.integrity()
         result = {
             "ok": (
                 ledger_ok
@@ -898,12 +939,14 @@ class LivingSystem:
                 and cognition_ok
                 and memory_ok
                 and attribution_ok
+                and goals_ok
             ),
             "ledger": ledger_details,
             "database": db_details,
             "cognition": cognition_details,
             "causal_memory": memory_details,
             "memory_attribution": attribution_details,
+            "persistent_goals": goals_details,
         }
         if not result["ok"]:
             self.kill(f"integrity failure: {result}")

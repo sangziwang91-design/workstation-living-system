@@ -261,6 +261,25 @@ class CognitiveEngine:
             ])),
         }
 
+    def goal_counterfactual(self, context: dict[str, Any]) -> dict[str, Any]:
+        """Return the best bounded decision with persistent goals removed.
+
+        This is a frozen decision counterfactual only. It does not persist a second
+        cognitive trace and cannot act or mutate canonical state.
+        """
+        counter_context = dict(context)
+        counter_context["goals"] = []
+        ranked = self._rank(counter_context, include_memories=True)
+        if not ranked:
+            return {"key": "none", "claim": "No candidate", "score": 0.0, "actions": []}
+        selected = ranked[0]
+        return {
+            "key": selected.key,
+            "claim": selected.claim,
+            "score": selected.score,
+            "actions": selected.actions,
+        }
+
     def attach_plan(self, cycle_id: str, plan: Plan) -> None:
         with self.db.transaction() as connection:
             updated = connection.execute(
@@ -469,6 +488,7 @@ class CognitiveEngine:
                 ))
             elif kind == "external_event" and isinstance(value, dict) and value.get("action") == "inspect_path":
                 target = str(value.get("path", ""))
+                goal_id = self._goal_for_task_path(context, target)
                 if target:
                     candidates.append(HypothesisCandidate(
                         key=f"inspect_requested_path:{target}", subject=target,
@@ -727,15 +747,79 @@ class CognitiveEngine:
             title = str(goal.get("title", ""))
             description = str(goal.get("description", ""))
             goal_id = str(goal.get("goal_id", "")) or None
-            goal_target = self._extract_path(f"{title} {description}")
-            if goal_target and any(word in f"{title} {description}".lower() for word in ("inspect", "read", "list", "check")):
+            task_spec = goal.get("task_spec", {})
+            task_spec = task_spec if isinstance(task_spec, dict) else {}
+            action_kind = str(task_spec.get("action", ""))
+            risk = str(goal.get("risk", RiskLevel.READ.value))
+            priority = float(goal.get("priority", 0.5))
+            candidate_action: dict[str, Any] | None = None
+            subject = title or str(goal_id or "goal")
+            if action_kind == "inspect_path" and task_spec.get("path"):
+                target = str(task_spec["path"])
+                subject = target
+                candidate_action = self._action(
+                    "list_directory",
+                    {"path": target, "limit": int(task_spec.get("limit", 200))},
+                    f"Advance persistent goal: {title}",
+                    "Bounded directory listing",
+                    ["output contains items"],
+                    goal_id,
+                )
+            elif action_kind == "read_file" and task_spec.get("path"):
+                target = str(task_spec["path"])
+                subject = target
+                candidate_action = self._action(
+                    "read_file",
+                    {"path": target, "max_bytes": int(task_spec.get("max_bytes", 524288))},
+                    f"Advance persistent goal: {title}",
+                    "Bounded file content or binary marker",
+                    ["output contains path"],
+                    goal_id,
+                )
+            elif action_kind == "record_progress":
+                candidate_action = self._noop(
+                    f"Record governed completion for persistent goal: {title}",
+                    goal_id,
+                )
+            elif action_kind == "emit_note" and task_spec.get("path"):
+                target = str(task_spec["path"])
+                subject = target
+                candidate_action = self._action(
+                    "emit_note",
+                    {
+                        "path": target,
+                        "title": title,
+                        "body": str(task_spec.get("body", description))[:4000],
+                    },
+                    f"Advance persistent goal: {title}",
+                    "Internal evidence note written",
+                    ["output contains path"],
+                    goal_id,
+                )
+            else:
+                goal_target = self._extract_path(f"{title} {description}")
+                if goal_target and any(word in f"{title} {description}".lower() for word in ("inspect", "read", "list", "check")):
+                    subject = goal_target
+                    candidate_action = self._action(
+                        "list_directory",
+                        {"path": goal_target, "limit": 200},
+                        f"Advance goal: {title}",
+                        "Bounded directory listing",
+                        ["output contains items"],
+                        goal_id,
+                    )
+            if candidate_action is not None:
+                candidate_action["risk"] = risk
                 candidates.append(HypothesisCandidate(
-                    key=f"goal_path_inspection:{goal_id}:{goal_target}", subject=goal_target,
-                    claim="The active goal can advance through a bounded read-only path inspection.",
-                    rationale="The goal contains an inspection intent and a concrete path.",
-                    base_score=0.58 + 0.25 * float(goal.get("priority", 0.5)),
-                    actions=[self._action("list_directory", {"path": goal_target, "limit": 200}, f"Advance goal: {title}", "Bounded directory listing", ["output contains items"], goal_id)],
-                    support_ids=[goal_id] if goal_id else [], goal_id=goal_id, cause_predicate="active_goal",
+                    key=f"goal_task:{goal_id}:{action_kind or candidate_action['tool']}:{subject}",
+                    subject=subject,
+                    claim="The next dependency-satisfied persistent goal task should advance through its bounded governed action.",
+                    rationale=str(goal.get("rationale") or "The persistent goal supplies an explicit governed task specification."),
+                    base_score=0.72 + 0.22 * priority,
+                    actions=[candidate_action],
+                    support_ids=[goal_id] if goal_id else [],
+                    goal_id=goal_id,
+                    cause_predicate="persistent_goal_actionable",
                 ))
 
         if context.get("unknowns"):
@@ -914,6 +998,20 @@ class CognitiveEngine:
             match = re.search(pattern, text)
             if match:
                 return (match.group(1) if match.lastindex else match.group(0)).strip()
+        return None
+
+    @staticmethod
+    def _goal_for_task_path(context: dict[str, Any], target: str) -> str | None:
+        if not target:
+            return None
+        normalized = str(Path(target).expanduser().resolve(strict=False))
+        for goal in context.get("goals", []):
+            task_spec = goal.get("task_spec", {})
+            if not isinstance(task_spec, dict) or not task_spec.get("path"):
+                continue
+            candidate = str(Path(str(task_spec["path"])).expanduser().resolve(strict=False))
+            if candidate == normalized:
+                return str(goal.get("goal_id", "")) or None
         return None
 
     def _best_goal_id(self, context: dict[str, Any], text: str) -> str | None:

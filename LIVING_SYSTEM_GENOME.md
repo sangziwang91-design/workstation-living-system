@@ -169,3 +169,31 @@ Changes to mission, invariants, authority, claim ceiling, lifecycle states, or f
 - affected tests;
 - rollback instructions;
 - synchronized update of `CURRENT_STATE.yaml`.
+
+## 12. Persistent goal continuity invariant
+
+The existing `GoalStore` is the only goal authority. A coordinator may review, decompose,
+attribute, pause, resume, complete, or archive goals, but it may not create a parallel goal
+runtime or hidden source of priorities.
+
+A durable goal must retain enough evidence to answer:
+
+- where it originated and why it exists;
+- what bounded task can advance it;
+- which dependencies remain unmet;
+- what real action evidence changed progress;
+- why it was blocked, contradicted, interrupted, recovered, completed, or archived;
+- whether it changed a cognitive decision relative to a goal-free counterfactual.
+
+Unfinished work is explicit goal debt. Completion removes a goal from active attention but
+never deletes its evidence. Goal-disabled evaluation must preserve the stored records while
+preventing them from influencing cognition.
+
+## 13. Current evolution boundary
+
+ET004 is the active implementation target until the exact remote implementation head passes
+the full Linux/Windows Python 3.11/3.13 matrix and reaches the owner merge gate.
+
+After ET004 merge, ET005 may add a repository-native evolution control plane and canonical
+trajectory data contract. ET005 must not create a second LivingSystem, train a neural model,
+ingest GitHub at scale, or treat Notion or any external model as canonical state.
