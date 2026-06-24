@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sangziwang91-design/workstation-living-system-private/.evolution/EVOLUTION_PACKET.schema.json",
+  "title": "WLS Evolution Packet",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "task_id",
+    "target_id",
+    "title",
+    "status",
+    "priority",
+    "risk",
+    "minimum_worker_capability",
+    "worker",
+    "context",
+    "objective",
+    "allowed_paths",
+    "forbidden_changes",
+    "acceptance",
+    "stop_conditions",
+    "output_contract",
+    "handoff",
+    "timestamps"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "task_id": {
+      "type": "string",
+      "pattern": "^[A-Z0-9][A-Z0-9._-]{2,127}$"
+    },
+    "target_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 160
+    },
+    "title": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 240
+    },
+    "status": {
+      "enum": ["READY", "CLAIMED", "BLOCKED", "VERIFICATION", "COMPLETED"]
+    },
+    "priority": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "risk": {
+      "enum": ["LOW", "MODERATE", "HIGH", "CRITICAL"]
+    },
+    "minimum_worker_capability": {
+      "enum": ["bounded_deterministic", "repository_engineering", "architecture_and_review"]
+    },
+    "worker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assigned_worker_id", "lease_mode", "provider_status_required"],
+      "properties": {
+        "assigned_worker_id": {
+          "type": ["string", "null"]
+        },
+        "lease_mode": {
+          "enum": ["UNCLAIMED", "EXCLUSIVE", "OWNER_ASSIGNED"]
+        },
+        "provider_status_required": {
+          "enum": ["ACTIVE", "ACTIVE_CONTEXT_ONLY"]
+        }
+      }
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "base_ref",
+        "canonical_runtime",
+        "github_evidence",
+        "notion_page_id",
+        "notion_page_url",
+        "context_claim_class"
+      ],
+      "properties": {
+        "repository": {
+          "const": "sangziwang91-design/workstation-living-system-private"
+        },
+        "base_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "canonical_runtime": {
+          "const": "source/src/wls/runtime.py::LivingSystem"
+        },
+        "github_evidence": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "notion_page_id": {
+          "const": "38940ff6ad6281b6bd69d700c9322d77"
+        },
+        "notion_page_url": {
+          "const": "https://app.notion.com/p/38940ff6ad6281b6bd69d700c9322d77"
+        },
+        "context_claim_class": {
+          "enum": ["VERIFIED", "INFERENCE", "NOTION_CONTEXT", "USER_REPORTED", "UNKNOWN"]
+        }
+      }
+    },
+    "objective": {
+      "type": "string",
+      "minLength": 20
+    },
+    "allowed_paths": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "forbidden_changes": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 5},
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "acceptance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commands", "conditions", "evidence_required"],
+      "properties": {
+        "commands": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "minItems": 1
+        },
+        "conditions": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 5},
+          "minItems": 1
+        },
+        "evidence_required": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 3},
+          "minItems": 1
+        }
+      }
+    },
+    "stop_conditions": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 5},
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "dependencies": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "default": []
+    },
+    "output_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["changed_files", "tests", "evidence", "unknowns", "next_action"],
+      "properties": {
+        "changed_files": {"type": "array", "items": {"type": "string"}},
+        "tests": {"type": "array", "items": {"type": "string"}},
+        "evidence": {"type": "array", "items": {"type": "string"}},
+        "unknowns": {"type": "array", "items": {"type": "string"}},
+        "next_action": {"type": ["string", "null"]}
+      }
+    },
+    "handoff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "blocker", "supersedes"],
+      "properties": {
+        "summary": {"type": "string"},
+        "blocker": {"type": ["string", "null"]},
+        "supersedes": {"type": ["string", "null"]}
+      }
+    },
+    "timestamps": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["created_at", "updated_at"],
+      "properties": {
+        "created_at": {"type": "string", "format": "date-time"},
+        "updated_at": {"type": "string", "format": "date-time"}
+      }
+    }
+  }
+}
