@@ -2,12 +2,9 @@
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
-# Root compatibility entry point for `python -m pip install -e .`.
-# The canonical package code remains under source/src/wls and metadata parity
-# with source/pyproject.toml is enforced by verify_packaging_layout.py.
 [project]
 name = "workstation-living-system"
-version = "0.9.0.dev1"
+dynamic = ["version"]
 description = "A bounded functional software-life runtime for persistent observation, learning, memory, skills, and governed action."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -32,6 +29,9 @@ package-dir = {"" = "source/src"}
 
 [tool.setuptools.packages.find]
 where = ["source/src"]
+
+[tool.setuptools.dynamic]
+version = {attr = "wls._version.__version__"}
 
 [tool.pytest.ini_options]
 testpaths = ["source/tests"]
