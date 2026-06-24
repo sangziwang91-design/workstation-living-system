@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 import hashlib
 import json
 
@@ -13,6 +13,26 @@ from .schemas import MemoryItem, Observation
 
 ADVANTAGE_MEMORY_ID = "mem_et003_advantage"
 REFUTED_MEMORY_ID = "mem_et003_refutation"
+
+
+class _AblationTask(TypedDict):
+    task_id: str
+    project_id: str
+    entity_id: str
+    failure_signature: str
+    task_kind: str
+    expected_behavior: str
+    path_enabled: Path
+    path_disabled: Path
+
+
+class _RefutationTask(TypedDict):
+    path: Path
+    project_id: str
+    entity_id: str
+    failure_signature: str
+    task_kind: str
+    expected_behavior: str
 
 
 def _make_runtime(home: Path, memory_mode: str = "enabled") -> LivingSystem:
@@ -254,7 +274,7 @@ def run_controlled_ablation(root: Path) -> dict[str, Any]:
     enabled_missing = enabled.config.sandbox_path / "known-missing"
     disabled_missing = disabled.config.sandbox_path / "known-missing"
 
-    tasks = [
+    tasks: list[_AblationTask] = [
         {
             "task_id": "missing-001",
             "project_id": "project-et003-ablation",
@@ -408,7 +428,7 @@ def run_refutation_probe(root: Path) -> dict[str, Any]:
     target = runtime.config.sandbox_path / "valid-target"
     target.mkdir(parents=True)
     (target / "evidence.txt").write_text("verified", encoding="utf-8")
-    common = {
+    common: _RefutationTask = {
         "path": target,
         "project_id": "project-et003-refutation",
         "entity_id": "entity-valid-target",
