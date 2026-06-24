@@ -152,7 +152,7 @@ class CognitiveEngine:
 
         trace_id = new_id("cogtrace")
         now = utc_now()
-        memory_free_score = self._score(selected, context, include_memories=False)
+        memory_free_score = counter_selected.score
         memory_delta = selected.score - memory_free_score
         memory_changed = selected.key != counter_selected.key
         alternatives = [

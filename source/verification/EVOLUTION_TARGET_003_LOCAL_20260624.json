@@ -1,0 +1,850 @@
+{
+  "attributed_memory_ids": [
+    "mem_645ebf8fece84373a9a99fce3bbda881",
+    "mem_97abc448eaf14d18a987f4676b54200b",
+    "mem_98a4a6ed4b504dd7bb4fe82d690c7a5d",
+    "mem_et003_advantage"
+  ],
+  "claim_boundary": "This verifies local, controlled causal-memory retrieval, explicit memory-to-decision attribution, contradiction-driven memory suppression, a frozen memory-disabled ablation advantage, and restart continuity. It does not prove real-host longitudinal learning, multi-month autonomous adaptation, production readiness, AGI, consciousness, or subjective emotion.",
+  "decision_differences": [
+    {
+      "attributed_memory_ids": [
+        "mem_et003_advantage"
+      ],
+      "different": true,
+      "memory_disabled_key": "inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/disabled/sandbox/known-missing",
+      "memory_disabled_success": false,
+      "memory_enabled_key": "causal_memory_avoid_tool:mem_et003_advantage:inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/enabled/sandbox/known-missing",
+      "memory_enabled_success": true,
+      "task_id": "missing-001"
+    },
+    {
+      "attributed_memory_ids": [
+        "mem_et003_advantage"
+      ],
+      "different": true,
+      "memory_disabled_key": "inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/disabled/sandbox/known-missing",
+      "memory_disabled_success": false,
+      "memory_enabled_key": "causal_memory_avoid_tool:mem_et003_advantage:inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/enabled/sandbox/known-missing",
+      "memory_enabled_success": true,
+      "task_id": "missing-002"
+    },
+    {
+      "attributed_memory_ids": [
+        "mem_et003_advantage"
+      ],
+      "different": true,
+      "memory_disabled_key": "inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/disabled/sandbox/known-missing",
+      "memory_disabled_success": false,
+      "memory_enabled_key": "causal_memory_avoid_tool:mem_et003_advantage:inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/enabled/sandbox/known-missing",
+      "memory_enabled_success": true,
+      "task_id": "missing-003-after-restart"
+    },
+    {
+      "attributed_memory_ids": [
+        "mem_645ebf8fece84373a9a99fce3bbda881",
+        "mem_97abc448eaf14d18a987f4676b54200b",
+        "mem_98a4a6ed4b504dd7bb4fe82d690c7a5d"
+      ],
+      "different": true,
+      "memory_disabled_key": "inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/disabled/sandbox/valid-control",
+      "memory_disabled_success": true,
+      "memory_enabled_key": "inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/enabled/sandbox/valid-control",
+      "memory_enabled_success": true,
+      "task_id": "valid-control-after-restart"
+    }
+  ],
+  "event_stream_equivalent": true,
+  "evidence_classification": {
+    "INFERENCE": [
+      "the mechanism may support longer-term adaptation when validated on genuine host tasks"
+    ],
+    "UNKNOWN": [
+      "owner production-host advantage",
+      "multi-month longitudinal advantage",
+      "real-world statistical generalization"
+    ],
+    "VERIFIED": [
+      "controlled memory-enabled versus memory-disabled ablation",
+      "structured project/entity/failure/applicability retrieval",
+      "decision trace attribution to concrete memory identifiers",
+      "repeated failure weakens then refutes a memory",
+      "refuted-memory suppression persists across restart",
+      "valid-memory advantage persists across restart"
+    ]
+  },
+  "generated_at": "2026-06-24T01:43:00.344245+00:00",
+  "memory_disabled_baseline": {
+    "decision_stability": 1.0,
+    "failure_recurrence": 2,
+    "failures": 3,
+    "memory_state": {
+      "consecutive_negative": 0,
+      "last_outcome_at": null,
+      "memory_id": "mem_et003_advantage",
+      "negative_outcomes": 0,
+      "positive_outcomes": 0,
+      "refutation_state": "NONE",
+      "valid_from": "2026-06-24T01:42:59.085968+00:00",
+      "valid_until": null,
+      "validity_state": "ACTIVE"
+    },
+    "prediction_confirmation_rate": 0.25,
+    "results": [
+      {
+        "action_status": "FAILED",
+        "after_restart": false,
+        "causal_reason": "selected=inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/disabled/sandbox/known-missing; counterfactual=inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/disabled/sandbox/known-missing; A direct external request supplies the target and allowed read intent.",
+        "counterfactual_without_memory": {
+          "actions": [
+            {
+              "acceptance": [
+                "output contains items"
+              ],
+              "arguments": {
+                "limit": 200,
+                "path": "/tmp/wls-et003-i68lk6jq/ablation/disabled/sandbox/known-missing"
+              },
+              "expected_result": "Bounded directory listing",
+              "goal_id": null,
+              "purpose": "Inspect the explicitly requested path",
+              "risk": "READ",
+              "skill_id": null,
+              "tool": "list_directory"
+            }
+          ],
+          "claim": "The explicit human path request should be inspected read-only.",
+          "key": "inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/disabled/sandbox/known-missing",
+          "persisted_hypothesis": true,
+          "rationale": "A direct external request supplies the target and allowed read intent.",
+          "score": 0.984
+        },
+        "cycle_id": "cycle_80d693a4162240c08f98fe55c1d22257",
+        "memory_changed_decision": false,
+        "memory_delta": 0.0,
+        "prediction_confirmed": false,
+        "selected_key": "inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/disabled/sandbox/known-missing",
+        "selected_memory_ids": [],
+        "semantic_event": {
+          "entity_id": "entity-missing-target",
+          "expected_behavior": "avoid_known_failure",
+          "failure_signature": "list_directory:missing_path",
+          "project_id": "project-et003-ablation",
+          "task_kind": "inspect_known_missing_path"
+        },
+        "semantic_event_sha256": "1b2fcb6b755187ad36b6fb21d74087499bf848e25a327eab754c18b60fa13898",
+        "success": false,
+        "suppressed_memory_ids": [
+          "mem_et003_advantage"
+        ],
+        "task_completed": false,
+        "task_id": "missing-001",
+        "tool": "list_directory",
+        "wrong_tool": true
+      },
+      {
+        "action_status": "FAILED",
+        "after_restart": false,
+        "causal_reason": "selected=inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/disabled/sandbox/known-missing; counterfactual=inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/disabled/sandbox/known-missing; A direct external request supplies the target and allowed read intent.",
+        "counterfactual_without_memory": {
+          "actions": [
+            {
+              "acceptance": [
+                "output contains items"
+              ],
+              "arguments": {
+                "limit": 200,
+                "path": "/tmp/wls-et003-i68lk6jq/ablation/disabled/sandbox/known-missing"
+              },
+              "expected_result": "Bounded directory listing",
+              "goal_id": null,
+              "purpose": "Inspect the explicitly requested path",
+              "risk": "READ",
+              "skill_id": null,
+              "tool": "list_directory"
+            }
+          ],
+          "claim": "The explicit human path request should be inspected read-only.",
+          "key": "inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/disabled/sandbox/known-missing",
+          "persisted_hypothesis": true,
+          "rationale": "A direct external request supplies the target and allowed read intent.",
+          "score": 1.0
+        },
+        "cycle_id": "cycle_06f220cb50ed402899d58e87fb6cefed",
+        "memory_changed_decision": false,
+        "memory_delta": 0.0,
+        "prediction_confirmed": false,
+        "selected_key": "inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/disabled/sandbox/known-missing",
+        "selected_memory_ids": [],
+        "semantic_event": {
+          "entity_id": "entity-missing-target",
+          "expected_behavior": "avoid_known_failure",
+          "failure_signature": "list_directory:missing_path",
+          "project_id": "project-et003-ablation",
+          "task_kind": "inspect_known_missing_path"
+        },
+        "semantic_event_sha256": "1b2fcb6b755187ad36b6fb21d74087499bf848e25a327eab754c18b60fa13898",
+        "success": false,
+        "suppressed_memory_ids": [
+          "mem_et003_advantage",
+          "mem_c52f3adbbd6d446d86f8a01f5a279276"
+        ],
+        "task_completed": false,
+        "task_id": "missing-002",
+        "tool": "list_directory",
+        "wrong_tool": true
+      },
+      {
+        "action_status": "FAILED",
+        "after_restart": true,
+        "causal_reason": "selected=inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/disabled/sandbox/known-missing; counterfactual=inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/disabled/sandbox/known-missing; A direct external request supplies the target and allowed read intent.",
+        "counterfactual_without_memory": {
+          "actions": [
+            {
+              "acceptance": [
+                "output contains items"
+              ],
+              "arguments": {
+                "limit": 200,
+                "path": "/tmp/wls-et003-i68lk6jq/ablation/disabled/sandbox/known-missing"
+              },
+              "expected_result": "Bounded directory listing",
+              "goal_id": null,
+              "purpose": "Inspect the explicitly requested path",
+              "risk": "READ",
+              "skill_id": null,
+              "tool": "list_directory"
+            }
+          ],
+          "claim": "The explicit human path request should be inspected read-only.",
+          "key": "inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/disabled/sandbox/known-missing",
+          "persisted_hypothesis": true,
+          "rationale": "A direct external request supplies the target and allowed read intent.",
+          "score": 1.0
+        },
+        "cycle_id": "cycle_73412365f4b0436db5ed325a957366ff",
+        "memory_changed_decision": false,
+        "memory_delta": 0.0,
+        "prediction_confirmed": false,
+        "selected_key": "inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/disabled/sandbox/known-missing",
+        "selected_memory_ids": [],
+        "semantic_event": {
+          "entity_id": "entity-missing-target",
+          "expected_behavior": "avoid_known_failure",
+          "failure_signature": "list_directory:missing_path",
+          "project_id": "project-et003-ablation",
+          "task_kind": "inspect_known_missing_path"
+        },
+        "semantic_event_sha256": "1b2fcb6b755187ad36b6fb21d74087499bf848e25a327eab754c18b60fa13898",
+        "success": false,
+        "suppressed_memory_ids": [
+          "mem_et003_advantage",
+          "mem_c52f3adbbd6d446d86f8a01f5a279276",
+          "mem_16af6ef346374295b0831f462ae96720"
+        ],
+        "task_completed": false,
+        "task_id": "missing-003-after-restart",
+        "tool": "list_directory",
+        "wrong_tool": true
+      },
+      {
+        "action_status": "SUCCEEDED",
+        "after_restart": true,
+        "causal_reason": "selected=inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/disabled/sandbox/valid-control; counterfactual=inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/disabled/sandbox/valid-control; A direct external request supplies the target and allowed read intent.",
+        "counterfactual_without_memory": {
+          "actions": [
+            {
+              "acceptance": [
+                "output contains items"
+              ],
+              "arguments": {
+                "limit": 200,
+                "path": "/tmp/wls-et003-i68lk6jq/ablation/disabled/sandbox/valid-control"
+              },
+              "expected_result": "Bounded directory listing",
+              "goal_id": null,
+              "purpose": "Inspect the explicitly requested path",
+              "risk": "READ",
+              "skill_id": null,
+              "tool": "list_directory"
+            }
+          ],
+          "claim": "The explicit human path request should be inspected read-only.",
+          "key": "inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/disabled/sandbox/valid-control",
+          "persisted_hypothesis": true,
+          "rationale": "A direct external request supplies the target and allowed read intent.",
+          "score": 1.0
+        },
+        "cycle_id": "cycle_7fbce2c1aaba4d528a78e27a99e57e5a",
+        "memory_changed_decision": false,
+        "memory_delta": 0.0,
+        "prediction_confirmed": true,
+        "selected_key": "inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/disabled/sandbox/valid-control",
+        "selected_memory_ids": [],
+        "semantic_event": {
+          "entity_id": "entity-valid-control",
+          "expected_behavior": "inspect_valid_path",
+          "failure_signature": "none",
+          "project_id": "project-et003-ablation",
+          "task_kind": "inspect_valid_path"
+        },
+        "semantic_event_sha256": "7b9e9688bfe124cbe5363f38e6221e40ed297a6b8ec71e5645588309095cfc69",
+        "success": true,
+        "suppressed_memory_ids": [
+          "mem_et003_advantage",
+          "mem_c52f3adbbd6d446d86f8a01f5a279276",
+          "mem_16af6ef346374295b0831f462ae96720",
+          "mem_df699dfeca4b44c4bf9f362b1ca3bc28"
+        ],
+        "task_completed": true,
+        "task_id": "valid-control-after-restart",
+        "tool": "list_directory",
+        "wrong_tool": false
+      }
+    ],
+    "rollback_rate": 0.0,
+    "success_rate": 0.25,
+    "task_completion": 0.25,
+    "tasks": 4,
+    "wrong_tool_rate": 0.75
+  },
+  "memory_enabled": {
+    "decision_stability": 1.0,
+    "failure_recurrence": 0,
+    "failures": 0,
+    "memory_state": {
+      "consecutive_negative": 0,
+      "last_outcome_at": "2026-06-24T01:42:59.568103+00:00",
+      "memory_id": "mem_et003_advantage",
+      "negative_outcomes": 0,
+      "positive_outcomes": 3,
+      "refutation_state": "NONE",
+      "valid_from": "2026-06-24T01:42:59.081754+00:00",
+      "valid_until": null,
+      "validity_state": "ACTIVE"
+    },
+    "prediction_confirmation_rate": 1.0,
+    "results": [
+      {
+        "action_status": "SUCCEEDED",
+        "after_restart": false,
+        "causal_reason": "selected=causal_memory_avoid_tool:mem_et003_advantage:inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/enabled/sandbox/known-missing; counterfactual=inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/enabled/sandbox/known-missing; The same project/entity/failure mechanism previously showed that the requested path is absent; do not repeat the wrong tool.; mem_et003_advantage matched project:project-et003-ablation,entity:entity-missing-target,failure:list_directory:missing_path,time_window",
+        "counterfactual_without_memory": {
+          "actions": [
+            {
+              "acceptance": [
+                "output contains items"
+              ],
+              "arguments": {
+                "limit": 200,
+                "path": "/tmp/wls-et003-i68lk6jq/ablation/enabled/sandbox/known-missing"
+              },
+              "expected_result": "Bounded directory listing",
+              "goal_id": null,
+              "purpose": "Inspect the explicitly requested path",
+              "risk": "READ",
+              "skill_id": null,
+              "tool": "list_directory"
+            }
+          ],
+          "claim": "The explicit human path request should be inspected read-only.",
+          "key": "inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/enabled/sandbox/known-missing",
+          "persisted_hypothesis": true,
+          "rationale": "A direct external request supplies the target and allowed read intent.",
+          "score": 0.984
+        },
+        "cycle_id": "cycle_2b736ab252f348b8bd58e5c6520316f3",
+        "memory_changed_decision": true,
+        "memory_delta": 0.016000000000000014,
+        "prediction_confirmed": true,
+        "selected_key": "causal_memory_avoid_tool:mem_et003_advantage:inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/enabled/sandbox/known-missing",
+        "selected_memory_ids": [
+          "mem_et003_advantage"
+        ],
+        "semantic_event": {
+          "entity_id": "entity-missing-target",
+          "expected_behavior": "avoid_known_failure",
+          "failure_signature": "list_directory:missing_path",
+          "project_id": "project-et003-ablation",
+          "task_kind": "inspect_known_missing_path"
+        },
+        "semantic_event_sha256": "1b2fcb6b755187ad36b6fb21d74087499bf848e25a327eab754c18b60fa13898",
+        "success": true,
+        "suppressed_memory_ids": [],
+        "task_completed": true,
+        "task_id": "missing-001",
+        "tool": "noop",
+        "wrong_tool": false
+      },
+      {
+        "action_status": "SUCCEEDED",
+        "after_restart": false,
+        "causal_reason": "selected=causal_memory_avoid_tool:mem_et003_advantage:inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/enabled/sandbox/known-missing; counterfactual=inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/enabled/sandbox/known-missing; The same project/entity/failure mechanism previously showed that the requested path is absent; do not repeat the wrong tool.; mem_et003_advantage matched project:project-et003-ablation,entity:entity-missing-target,failure:list_directory:missing_path,time_window",
+        "counterfactual_without_memory": {
+          "actions": [
+            {
+              "acceptance": [
+                "output contains items"
+              ],
+              "arguments": {
+                "limit": 200,
+                "path": "/tmp/wls-et003-i68lk6jq/ablation/enabled/sandbox/known-missing"
+              },
+              "expected_result": "Bounded directory listing",
+              "goal_id": null,
+              "purpose": "Inspect the explicitly requested path",
+              "risk": "READ",
+              "skill_id": null,
+              "tool": "list_directory"
+            }
+          ],
+          "claim": "The explicit human path request should be inspected read-only.",
+          "key": "inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/enabled/sandbox/known-missing",
+          "persisted_hypothesis": true,
+          "rationale": "A direct external request supplies the target and allowed read intent.",
+          "score": 1.0
+        },
+        "cycle_id": "cycle_c988b6c36b734e80b26311416595c027",
+        "memory_changed_decision": true,
+        "memory_delta": 0.0,
+        "prediction_confirmed": true,
+        "selected_key": "causal_memory_avoid_tool:mem_et003_advantage:inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/enabled/sandbox/known-missing",
+        "selected_memory_ids": [
+          "mem_et003_advantage"
+        ],
+        "semantic_event": {
+          "entity_id": "entity-missing-target",
+          "expected_behavior": "avoid_known_failure",
+          "failure_signature": "list_directory:missing_path",
+          "project_id": "project-et003-ablation",
+          "task_kind": "inspect_known_missing_path"
+        },
+        "semantic_event_sha256": "1b2fcb6b755187ad36b6fb21d74087499bf848e25a327eab754c18b60fa13898",
+        "success": true,
+        "suppressed_memory_ids": [],
+        "task_completed": true,
+        "task_id": "missing-002",
+        "tool": "noop",
+        "wrong_tool": false
+      },
+      {
+        "action_status": "SUCCEEDED",
+        "after_restart": true,
+        "causal_reason": "selected=causal_memory_avoid_tool:mem_et003_advantage:inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/enabled/sandbox/known-missing; counterfactual=inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/enabled/sandbox/known-missing; The same project/entity/failure mechanism previously showed that the requested path is absent; do not repeat the wrong tool.; mem_et003_advantage matched project:project-et003-ablation,entity:entity-missing-target,failure:list_directory:missing_path,time_window",
+        "counterfactual_without_memory": {
+          "actions": [
+            {
+              "acceptance": [
+                "output contains items"
+              ],
+              "arguments": {
+                "limit": 200,
+                "path": "/tmp/wls-et003-i68lk6jq/ablation/enabled/sandbox/known-missing"
+              },
+              "expected_result": "Bounded directory listing",
+              "goal_id": null,
+              "purpose": "Inspect the explicitly requested path",
+              "risk": "READ",
+              "skill_id": null,
+              "tool": "list_directory"
+            }
+          ],
+          "claim": "The explicit human path request should be inspected read-only.",
+          "key": "inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/enabled/sandbox/known-missing",
+          "persisted_hypothesis": true,
+          "rationale": "A direct external request supplies the target and allowed read intent.",
+          "score": 1.0
+        },
+        "cycle_id": "cycle_0f61ac6f41c442a3854a4e3d03f8a187",
+        "memory_changed_decision": true,
+        "memory_delta": 0.0,
+        "prediction_confirmed": true,
+        "selected_key": "causal_memory_avoid_tool:mem_et003_advantage:inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/enabled/sandbox/known-missing",
+        "selected_memory_ids": [
+          "mem_et003_advantage"
+        ],
+        "semantic_event": {
+          "entity_id": "entity-missing-target",
+          "expected_behavior": "avoid_known_failure",
+          "failure_signature": "list_directory:missing_path",
+          "project_id": "project-et003-ablation",
+          "task_kind": "inspect_known_missing_path"
+        },
+        "semantic_event_sha256": "1b2fcb6b755187ad36b6fb21d74087499bf848e25a327eab754c18b60fa13898",
+        "success": true,
+        "suppressed_memory_ids": [],
+        "task_completed": true,
+        "task_id": "missing-003-after-restart",
+        "tool": "noop",
+        "wrong_tool": false
+      },
+      {
+        "action_status": "SUCCEEDED",
+        "after_restart": true,
+        "causal_reason": "selected=inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/enabled/sandbox/valid-control; counterfactual=inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/enabled/sandbox/valid-control; A direct external request supplies the target and allowed read intent.; mem_645ebf8fece84373a9a99fce3bbda881 matched project:project-et003-ablation,time_window; mem_97abc448eaf14d18a987f4676b54200b matched project:project-et003-ablation,time_window; mem_98a4a6ed4b504dd7bb4fe82d690c7a5d matched project:project-et003-ablation,time_window",
+        "counterfactual_without_memory": {
+          "actions": [
+            {
+              "acceptance": [
+                "output contains items"
+              ],
+              "arguments": {
+                "limit": 200,
+                "path": "/tmp/wls-et003-i68lk6jq/ablation/enabled/sandbox/valid-control"
+              },
+              "expected_result": "Bounded directory listing",
+              "goal_id": null,
+              "purpose": "Inspect the explicitly requested path",
+              "risk": "READ",
+              "skill_id": null,
+              "tool": "list_directory"
+            }
+          ],
+          "claim": "The explicit human path request should be inspected read-only.",
+          "key": "inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/enabled/sandbox/valid-control",
+          "persisted_hypothesis": true,
+          "rationale": "A direct external request supplies the target and allowed read intent.",
+          "score": 1.0
+        },
+        "cycle_id": "cycle_ec1cce2b7f7a4af3b1d3ed33ef2b8459",
+        "memory_changed_decision": false,
+        "memory_delta": 0.0,
+        "prediction_confirmed": true,
+        "selected_key": "inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/enabled/sandbox/valid-control",
+        "selected_memory_ids": [
+          "mem_645ebf8fece84373a9a99fce3bbda881",
+          "mem_97abc448eaf14d18a987f4676b54200b",
+          "mem_98a4a6ed4b504dd7bb4fe82d690c7a5d"
+        ],
+        "semantic_event": {
+          "entity_id": "entity-valid-control",
+          "expected_behavior": "inspect_valid_path",
+          "failure_signature": "none",
+          "project_id": "project-et003-ablation",
+          "task_kind": "inspect_valid_path"
+        },
+        "semantic_event_sha256": "7b9e9688bfe124cbe5363f38e6221e40ed297a6b8ec71e5645588309095cfc69",
+        "success": true,
+        "suppressed_memory_ids": [
+          "mem_et003_advantage"
+        ],
+        "task_completed": true,
+        "task_id": "valid-control-after-restart",
+        "tool": "list_directory",
+        "wrong_tool": false
+      }
+    ],
+    "rollback_rate": 0.0,
+    "success_rate": 1.0,
+    "task_completion": 1.0,
+    "tasks": 4,
+    "wrong_tool_rate": 0.0
+  },
+  "memory_refutation": {
+    "first_failure": {
+      "action_status": "FAILED",
+      "after_restart": false,
+      "causal_reason": "selected=causal_memory_contract:mem_et003_refutation:inspect_requested_path:/tmp/wls-et003-i68lk6jq/refutation-probe/refutation/sandbox/valid-target; counterfactual=inspect_requested_path:/tmp/wls-et003-i68lk6jq/refutation-probe/refutation/sandbox/valid-target; A legacy causal memory incorrectly predicts that the marker is required for directory inspection.; mem_et003_refutation matched project:project-et003-refutation,entity:entity-valid-target,failure:contract:legacy_listing,time_window",
+      "counterfactual_without_memory": {
+        "actions": [
+          {
+            "acceptance": [
+              "output contains items"
+            ],
+            "arguments": {
+              "limit": 200,
+              "path": "/tmp/wls-et003-i68lk6jq/refutation-probe/refutation/sandbox/valid-target"
+            },
+            "expected_result": "Bounded directory listing",
+            "goal_id": null,
+            "purpose": "Inspect the explicitly requested path",
+            "risk": "READ",
+            "skill_id": null,
+            "tool": "list_directory"
+          }
+        ],
+        "claim": "The explicit human path request should be inspected read-only.",
+        "key": "inspect_requested_path:/tmp/wls-et003-i68lk6jq/refutation-probe/refutation/sandbox/valid-target",
+        "persisted_hypothesis": true,
+        "rationale": "A direct external request supplies the target and allowed read intent.",
+        "score": 0.984
+      },
+      "cycle_id": "cycle_c40b299adada43a3b04fe40b5f431ddf",
+      "memory_changed_decision": true,
+      "memory_delta": 0.016000000000000014,
+      "prediction_confirmed": false,
+      "selected_key": "causal_memory_contract:mem_et003_refutation:inspect_requested_path:/tmp/wls-et003-i68lk6jq/refutation-probe/refutation/sandbox/valid-target",
+      "selected_memory_ids": [
+        "mem_et003_refutation"
+      ],
+      "semantic_event": {
+        "entity_id": "entity-valid-target",
+        "expected_behavior": "inspect_valid_path",
+        "failure_signature": "contract:legacy_listing",
+        "project_id": "project-et003-refutation",
+        "task_kind": "inspect_valid_path_with_legacy_contract"
+      },
+      "semantic_event_sha256": "64e258ece09e9ba86e36f89a1431d0b446261c6a972e5b0a2c1cbbc8e0586120",
+      "success": false,
+      "suppressed_memory_ids": [],
+      "task_completed": false,
+      "task_id": "refute-001",
+      "tool": "list_directory",
+      "wrong_tool": false
+    },
+    "memory_id": "mem_et003_refutation",
+    "passed": true,
+    "restart_decision": {
+      "action_status": "SUCCEEDED",
+      "after_restart": true,
+      "causal_reason": "selected=inspect_requested_path:/tmp/wls-et003-i68lk6jq/refutation-probe/refutation/sandbox/valid-target; counterfactual=inspect_requested_path:/tmp/wls-et003-i68lk6jq/refutation-probe/refutation/sandbox/valid-target; A direct external request supplies the target and allowed read intent.; mem_357f715f118543a78ca269e41f36c3b1 matched project:project-et003-refutation,entity:entity-valid-target,failure:contract:legacy_listing,time_window; mem_54445840da94479984fb9af018371b8b matched project:project-et003-refutation,entity:entity-valid-target,failure:contract:legacy_listing,time_window",
+      "counterfactual_without_memory": {
+        "actions": [
+          {
+            "acceptance": [
+              "output contains items"
+            ],
+            "arguments": {
+              "limit": 200,
+              "path": "/tmp/wls-et003-i68lk6jq/refutation-probe/refutation/sandbox/valid-target"
+            },
+            "expected_result": "Bounded directory listing",
+            "goal_id": null,
+            "purpose": "Inspect the explicitly requested path",
+            "risk": "READ",
+            "skill_id": null,
+            "tool": "list_directory"
+          }
+        ],
+        "claim": "The explicit human path request should be inspected read-only.",
+        "key": "inspect_requested_path:/tmp/wls-et003-i68lk6jq/refutation-probe/refutation/sandbox/valid-target",
+        "persisted_hypothesis": true,
+        "rationale": "A direct external request supplies the target and allowed read intent.",
+        "score": 1.0
+      },
+      "cycle_id": "cycle_95b46677be504bc1965f4111739e1bce",
+      "memory_changed_decision": false,
+      "memory_delta": 0.0,
+      "prediction_confirmed": true,
+      "selected_key": "inspect_requested_path:/tmp/wls-et003-i68lk6jq/refutation-probe/refutation/sandbox/valid-target",
+      "selected_memory_ids": [
+        "mem_357f715f118543a78ca269e41f36c3b1",
+        "mem_54445840da94479984fb9af018371b8b"
+      ],
+      "semantic_event": {
+        "entity_id": "entity-valid-target",
+        "expected_behavior": "inspect_valid_path",
+        "failure_signature": "contract:legacy_listing",
+        "project_id": "project-et003-refutation",
+        "task_kind": "inspect_valid_path_with_legacy_contract"
+      },
+      "semantic_event_sha256": "64e258ece09e9ba86e36f89a1431d0b446261c6a972e5b0a2c1cbbc8e0586120",
+      "success": true,
+      "suppressed_memory_ids": [
+        "mem_et003_refutation"
+      ],
+      "task_completed": true,
+      "task_id": "refute-003-after-restart",
+      "tool": "list_directory",
+      "wrong_tool": false
+    },
+    "second_failure": {
+      "action_status": "FAILED",
+      "after_restart": false,
+      "causal_reason": "selected=causal_memory_contract:mem_et003_refutation:inspect_requested_path:/tmp/wls-et003-i68lk6jq/refutation-probe/refutation/sandbox/valid-target; counterfactual=inspect_requested_path:/tmp/wls-et003-i68lk6jq/refutation-probe/refutation/sandbox/valid-target; A legacy causal memory incorrectly predicts that the marker is required for directory inspection.; mem_et003_refutation matched project:project-et003-refutation,entity:entity-valid-target,failure:contract:legacy_listing,time_window",
+      "counterfactual_without_memory": {
+        "actions": [
+          {
+            "acceptance": [
+              "output contains items"
+            ],
+            "arguments": {
+              "limit": 200,
+              "path": "/tmp/wls-et003-i68lk6jq/refutation-probe/refutation/sandbox/valid-target"
+            },
+            "expected_result": "Bounded directory listing",
+            "goal_id": null,
+            "purpose": "Inspect the explicitly requested path",
+            "risk": "READ",
+            "skill_id": null,
+            "tool": "list_directory"
+          }
+        ],
+        "claim": "The explicit human path request should be inspected read-only.",
+        "key": "inspect_requested_path:/tmp/wls-et003-i68lk6jq/refutation-probe/refutation/sandbox/valid-target",
+        "persisted_hypothesis": true,
+        "rationale": "A direct external request supplies the target and allowed read intent.",
+        "score": 1.0
+      },
+      "cycle_id": "cycle_698b07e160ee4491bb5362c3f7028203",
+      "memory_changed_decision": true,
+      "memory_delta": 0.0,
+      "prediction_confirmed": false,
+      "selected_key": "causal_memory_contract:mem_et003_refutation:inspect_requested_path:/tmp/wls-et003-i68lk6jq/refutation-probe/refutation/sandbox/valid-target",
+      "selected_memory_ids": [
+        "mem_et003_refutation"
+      ],
+      "semantic_event": {
+        "entity_id": "entity-valid-target",
+        "expected_behavior": "inspect_valid_path",
+        "failure_signature": "contract:legacy_listing",
+        "project_id": "project-et003-refutation",
+        "task_kind": "inspect_valid_path_with_legacy_contract"
+      },
+      "semantic_event_sha256": "64e258ece09e9ba86e36f89a1431d0b446261c6a972e5b0a2c1cbbc8e0586120",
+      "success": false,
+      "suppressed_memory_ids": [],
+      "task_completed": false,
+      "task_id": "refute-002",
+      "tool": "list_directory",
+      "wrong_tool": false
+    },
+    "state_after_first": {
+      "consecutive_negative": 1,
+      "last_outcome_at": "2026-06-24T01:43:00.064429+00:00",
+      "memory_id": "mem_et003_refutation",
+      "negative_outcomes": 1,
+      "positive_outcomes": 0,
+      "refutation_state": "PENDING",
+      "valid_from": "2026-06-24T01:42:59.964527+00:00",
+      "valid_until": null,
+      "validity_state": "WEAKENED"
+    },
+    "state_after_restart": {
+      "consecutive_negative": 2,
+      "last_outcome_at": "2026-06-24T01:43:00.179502+00:00",
+      "memory_id": "mem_et003_refutation",
+      "negative_outcomes": 2,
+      "positive_outcomes": 0,
+      "refutation_state": "CONFIRMED",
+      "valid_from": "2026-06-24T01:42:59.964527+00:00",
+      "valid_until": null,
+      "validity_state": "REFUTED"
+    },
+    "state_after_second": {
+      "consecutive_negative": 2,
+      "last_outcome_at": "2026-06-24T01:43:00.179502+00:00",
+      "memory_id": "mem_et003_refutation",
+      "negative_outcomes": 2,
+      "positive_outcomes": 0,
+      "refutation_state": "CONFIRMED",
+      "valid_from": "2026-06-24T01:42:59.964527+00:00",
+      "valid_until": null,
+      "validity_state": "REFUTED"
+    },
+    "suppression_preserved": true
+  },
+  "passed": true,
+  "refuted_memory_ids": [
+    "mem_et003_refutation"
+  ],
+  "regressions": 0,
+  "restart_continuity": {
+    "advantage_preserved": true,
+    "memory_disabled": {
+      "action_status": "FAILED",
+      "after_restart": true,
+      "causal_reason": "selected=inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/disabled/sandbox/known-missing; counterfactual=inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/disabled/sandbox/known-missing; A direct external request supplies the target and allowed read intent.",
+      "counterfactual_without_memory": {
+        "actions": [
+          {
+            "acceptance": [
+              "output contains items"
+            ],
+            "arguments": {
+              "limit": 200,
+              "path": "/tmp/wls-et003-i68lk6jq/ablation/disabled/sandbox/known-missing"
+            },
+            "expected_result": "Bounded directory listing",
+            "goal_id": null,
+            "purpose": "Inspect the explicitly requested path",
+            "risk": "READ",
+            "skill_id": null,
+            "tool": "list_directory"
+          }
+        ],
+        "claim": "The explicit human path request should be inspected read-only.",
+        "key": "inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/disabled/sandbox/known-missing",
+        "persisted_hypothesis": true,
+        "rationale": "A direct external request supplies the target and allowed read intent.",
+        "score": 1.0
+      },
+      "cycle_id": "cycle_73412365f4b0436db5ed325a957366ff",
+      "memory_changed_decision": false,
+      "memory_delta": 0.0,
+      "prediction_confirmed": false,
+      "selected_key": "inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/disabled/sandbox/known-missing",
+      "selected_memory_ids": [],
+      "semantic_event": {
+        "entity_id": "entity-missing-target",
+        "expected_behavior": "avoid_known_failure",
+        "failure_signature": "list_directory:missing_path",
+        "project_id": "project-et003-ablation",
+        "task_kind": "inspect_known_missing_path"
+      },
+      "semantic_event_sha256": "1b2fcb6b755187ad36b6fb21d74087499bf848e25a327eab754c18b60fa13898",
+      "success": false,
+      "suppressed_memory_ids": [
+        "mem_et003_advantage",
+        "mem_c52f3adbbd6d446d86f8a01f5a279276",
+        "mem_16af6ef346374295b0831f462ae96720"
+      ],
+      "task_completed": false,
+      "task_id": "missing-003-after-restart",
+      "tool": "list_directory",
+      "wrong_tool": true
+    },
+    "memory_enabled": {
+      "action_status": "SUCCEEDED",
+      "after_restart": true,
+      "causal_reason": "selected=causal_memory_avoid_tool:mem_et003_advantage:inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/enabled/sandbox/known-missing; counterfactual=inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/enabled/sandbox/known-missing; The same project/entity/failure mechanism previously showed that the requested path is absent; do not repeat the wrong tool.; mem_et003_advantage matched project:project-et003-ablation,entity:entity-missing-target,failure:list_directory:missing_path,time_window",
+      "counterfactual_without_memory": {
+        "actions": [
+          {
+            "acceptance": [
+              "output contains items"
+            ],
+            "arguments": {
+              "limit": 200,
+              "path": "/tmp/wls-et003-i68lk6jq/ablation/enabled/sandbox/known-missing"
+            },
+            "expected_result": "Bounded directory listing",
+            "goal_id": null,
+            "purpose": "Inspect the explicitly requested path",
+            "risk": "READ",
+            "skill_id": null,
+            "tool": "list_directory"
+          }
+        ],
+        "claim": "The explicit human path request should be inspected read-only.",
+        "key": "inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/enabled/sandbox/known-missing",
+        "persisted_hypothesis": true,
+        "rationale": "A direct external request supplies the target and allowed read intent.",
+        "score": 1.0
+      },
+      "cycle_id": "cycle_0f61ac6f41c442a3854a4e3d03f8a187",
+      "memory_changed_decision": true,
+      "memory_delta": 0.0,
+      "prediction_confirmed": true,
+      "selected_key": "causal_memory_avoid_tool:mem_et003_advantage:inspect_requested_path:/tmp/wls-et003-i68lk6jq/ablation/enabled/sandbox/known-missing",
+      "selected_memory_ids": [
+        "mem_et003_advantage"
+      ],
+      "semantic_event": {
+        "entity_id": "entity-missing-target",
+        "expected_behavior": "avoid_known_failure",
+        "failure_signature": "list_directory:missing_path",
+        "project_id": "project-et003-ablation",
+        "task_kind": "inspect_known_missing_path"
+      },
+      "semantic_event_sha256": "1b2fcb6b755187ad36b6fb21d74087499bf848e25a327eab754c18b60fa13898",
+      "success": true,
+      "suppressed_memory_ids": [],
+      "task_completed": true,
+      "task_id": "missing-003-after-restart",
+      "tool": "noop",
+      "wrong_tool": false
+    }
+  },
+  "target": "EVOLUTION-TARGET-003"
+}
