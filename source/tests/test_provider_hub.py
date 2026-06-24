@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from threading import Thread
 from time import sleep
+from types import SimpleNamespace
 from typing import Any
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -139,6 +140,17 @@ def test_browser_page_has_no_credential_input() -> None:
     assert "canonical runtime" in PROVIDER_HUB_JS.lower()
 
 
+def test_server_constructor_preserves_minimal_runtime_compatibility(tmp_path: Path) -> None:
+    secret_path = tmp_path / "minimal" / "owner.secret"
+    runtime = SimpleNamespace(config=SimpleNamespace(secret_path=secret_path))
+
+    server = WLSServer(runtime, "127.0.0.1", 0)
+
+    assert server.providers.home_path == secret_path.parent.resolve()
+    assert server.providers.ledger is None
+    assert server.token
+
+
 def _start_server(tmp_path: Path) -> tuple[WLSServer, Thread, str]:
     runtime = LivingSystem(default_config(tmp_path / "home"))
     provider_hub = ProviderHub(runtime.config.home_path, secret_store=MemoryVault())
@@ -196,6 +208,21 @@ def test_browser_api_rejects_credential_bodies(tmp_path: Path) -> None:
         response_body = error.value.read().decode("utf-8")
         assert "secure local CLI" in response_body
         assert "must-not-pass" not in response_body
+    finally:
+        server.shutdown()
+        thread.join(timeout=3)
+
+
+def test_static_assets_reject_non_loopback_host_header(tmp_path: Path) -> None:
+    server, thread, base = _start_server(tmp_path)
+    request = Request(
+        f"{base}/assets/provider-hub.js",
+        headers={"Host": "attacker.example"},
+    )
+    try:
+        with pytest.raises(HTTPError) as error:
+            urlopen(request, timeout=3)
+        assert error.value.code == 421
     finally:
         server.shutdown()
         thread.join(timeout=3)
