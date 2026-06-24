@@ -10,6 +10,25 @@ import tomllib
 IGNORED_PARTS = {".git", ".venv", "venv", "build", "dist", "__pycache__"}
 CANONICAL_PACKAGE = Path("source/src/wls")
 CANONICAL_VERSION_FILE = CANONICAL_PACKAGE / "_version.py"
+CORE_CONCURRENT_WORKFLOWS = {
+    "ci.yml",
+    "packaging-layout.yml",
+    "evolution-regressions.yml",
+    "evolution-chain.yml",
+}
+RETIRED_DUPLICATE_WORKFLOWS = {
+    "apply-evolution-target-001.yml",
+    "build-evolution-target-002.yml",
+    "verify-evolution-target-003.yml",
+}
+FULL_SUITE_MARKER = "python -m pytest source/tests -q"
+QUALITY_STACK_MARKERS = (
+    FULL_SUITE_MARKER,
+    "python -m ruff check source/src source/tests source/scripts",
+    "python -m mypy source/src/wls source/tests source/scripts",
+    "python -m bandit -q -r source/src/wls source/scripts",
+    "python -m build .",
+)
 
 
 def load_toml(path: Path) -> dict:
@@ -33,7 +52,10 @@ def canonical_version(repository: Path) -> str:
     for node in module.body:
         if not isinstance(node, ast.Assign):
             continue
-        if not any(isinstance(target, ast.Name) and target.id == "__version__" for target in node.targets):
+        if not any(
+            isinstance(target, ast.Name) and target.id == "__version__"
+            for target in node.targets
+        ):
             continue
         value = ast.literal_eval(node.value)
         if isinstance(value, str) and value:
@@ -42,7 +64,11 @@ def canonical_version(repository: Path) -> str:
 
 
 def yaml_development_version(text: str) -> str | None:
-    match = re.search(r'^\s*development_version:\s*["\']?([^"\'\s]+)', text, re.MULTILINE)
+    match = re.search(
+        r'^\s*development_version:\s*["\']?([^"\'\s]+)',
+        text,
+        re.MULTILINE,
+    )
     return match.group(1) if match else None
 
 
@@ -56,14 +82,12 @@ def package_roots(repository: Path) -> list[str]:
     return sorted(roots)
 
 
-def workflow_text(repository: Path) -> str:
-    workflows = repository / ".github" / "workflows"
-    if not workflows.exists():
-        return ""
-    return "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in sorted(workflows.glob("*.yml")) + sorted(workflows.glob("*.yaml"))
-    )
+def workflow_map(repository: Path) -> dict[str, str]:
+    workflow_root = repository / ".github" / "workflows"
+    if not workflow_root.exists():
+        return {}
+    paths = sorted(workflow_root.glob("*.yml")) + sorted(workflow_root.glob("*.yaml"))
+    return {path.name: path.read_text(encoding="utf-8") for path in paths}
 
 
 def main() -> int:
@@ -76,11 +100,20 @@ def main() -> int:
     current_chain = json.loads(
         (repository / ".evolution" / "CURRENT_CHAIN.json").read_text(encoding="utf-8")
     )
-    workflows = workflow_text(repository)
+    workflow_files = workflow_map(repository)
+    workflows = "\n".join(workflow_files.values())
 
     project_manifests = relative_files(repository, "pyproject.toml")
     setup_py = relative_files(repository, "setup.py")
     setup_cfg = relative_files(repository, "setup.cfg")
+    full_suite_owners = sorted(
+        name for name, text in workflow_files.items() if FULL_SUITE_MARKER in text
+    )
+    quality_stack_owners = sorted(
+        name
+        for name, text in workflow_files.items()
+        if all(marker in text for marker in QUALITY_STACK_MARKERS)
+    )
 
     checks: dict[str, bool] = {
         "single_project_manifest": project_manifests == ["pyproject.toml"],
@@ -127,6 +160,19 @@ def main() -> int:
         "retired_metadata_mutator_absent": not (
             repository / ".github/workflows/activate-extended-entrypoint.yml"
         ).exists(),
+        "retired_duplicate_evolution_workflows_absent": not (
+            RETIRED_DUPLICATE_WORKFLOWS & workflow_files.keys()
+        ),
+        "consolidated_evolution_workflow_present": "evolution-regressions.yml"
+        in workflow_files,
+        "single_full_regression_owner": full_suite_owners == ["ci.yml"],
+        "single_quality_stack_owner": quality_stack_owners == ["ci.yml"],
+        "core_workflows_cancel_superseded_runs": all(
+            name in workflow_files
+            and "concurrency:" in workflow_files[name]
+            and "cancel-in-progress: true" in workflow_files[name]
+            for name in CORE_CONCURRENT_WORKFLOWS
+        ),
         "no_direct_main_push_workflow": "git push origin HEAD:main" not in workflows
         and "git push origin main" not in workflows,
         "no_source_project_install": 'pip install -e "source' not in workflows
@@ -143,6 +189,8 @@ def main() -> int:
         "canonical_version": version,
         "project_manifests": project_manifests,
         "package_roots": package_roots(repository),
+        "full_suite_owners": full_suite_owners,
+        "quality_stack_owners": quality_stack_owners,
         "checks": checks,
     }
     print(json.dumps(report, indent=2, sort_keys=True))
