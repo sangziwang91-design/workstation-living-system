@@ -16,6 +16,8 @@ permissions:
 
 jobs:
   verify:
+    env:
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
     strategy:
       fail-fast: false
       matrix:
