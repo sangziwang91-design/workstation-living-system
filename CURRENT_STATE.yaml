@@ -1,4 +1,4 @@
-schema_version: "1.3"
+schema_version: "1.4"
 system:
   name: "Workstation Living System"
   abbreviation: "WLS"
@@ -8,25 +8,28 @@ system:
   canonical_runtime: "source/src/wls/runtime.py::LivingSystem"
 
 state_record:
-  updated_at: "2026-06-24T07:54:00+08:00"
+  updated_at: "2026-06-24T08:56:00+08:00"
   time_zone: "Asia/Singapore"
-  update_type: "bounded-local-cognition-candidate"
+  update_type: "bounded-local-cognition-merged"
   evidence_basis:
     - type: "VERIFIED"
-      source: "source/verification/EVOLUTION_TARGET_001_LOCAL_20260624.json"
-      note: "Two complete isolated canonical-runtime cases passed: retained improvement and detected degradation with rollback."
+      source: "source/verification/EVOLUTION_TARGET_002_CI.json"
+      note: "The bounded local cognition vertical slice passed its observe-predict-act-calibrate-restart verification."
     - type: "VERIFIED"
-      source: "GitHub pull request 3"
-      note: "Canonical implementation was reviewed as a mergeable pull request and squash-merged into main."
+      source: "GitHub Actions run 28067488227"
+      note: "Verify EVOLUTION-TARGET-002 completed successfully on the final reviewed head."
     - type: "VERIFIED"
-      source: "merge commit 37b0fd55987e9d61a08a4934ed7807871a9d3b76"
-      note: "Main now contains the canonical EVOLUTION-TARGET-001 implementation."
+      source: "GitHub Actions run 28067488248"
+      note: "WLS CI completed successfully on Ubuntu and Windows with Python 3.11 and 3.13."
     - type: "VERIFIED"
-      source: "GitHub Actions runs 28065080949 and 28065080982"
-      note: "Lifecycle verification and the Linux/Windows Python 3.11/3.13 matrix completed successfully after the cross-platform typing repair."
+      source: "GitHub Actions run 28067488226"
+      note: "The previously merged EVOLUTION-TARGET-001 growth lifecycle remained green after cognition integration."
+    - type: "VERIFIED"
+      source: "GitHub pull request 6 and merge commit 3fb94c030089543c99ea532e606da7d9cd84b689"
+      note: "The verified implementation was squash-merged into main."
     - type: "UNKNOWN"
-      source: "owner Windows workstation"
-      note: "No genuine owner-authorized target-host growth run has yet been recorded."
+      source: "owner production workstation"
+      note: "No longitudinal owner-host evidence yet proves durable real-world performance improvement."
 
 workflow_state: "PARTIAL"
 phase_chain:
@@ -44,187 +47,218 @@ mission_status:
   identity_continuity_contract_present: true
   parallel_runtime_authority_removed: true
   canonical_growth_cycle_merged: true
+  bounded_local_cognition_merged: true
 
 current_capabilities:
-  status: "CODE_AND_CI_VERIFIED_WITH_HOST_LIMIT"
-  verified_in_this_wave:
-    - "Canonical runtime remains source/src/wls/runtime.py::LivingSystem."
-    - "Repeated failed actions can create evidence-linked failure candidates."
-    - "Recovery candidates are compared with frozen baselines in isolated sandboxes."
-    - "Skill proposals are versioned and linked to failure and recovery evidence."
-    - "SANDBOXED and VALIDATED transitions reject fabricated evidence."
-    - "Approval, promotion, and rollback retain explicit human gates."
-    - "Promoted skills are reused through LivingSystem.run_cycle rather than a parallel executor."
-    - "Post-promotion success, regressions, and RETAIN or ROLLBACK_REQUIRED decisions are persisted."
-    - "A degraded promoted skill can be removed from active and matching sets through rollback."
-    - "Linux and Windows type checking passes for Python 3.11 and 3.13."
-  inherited_not_reverified_in_this_wave:
-    - perception
-    - world_model
-    - internal_regulation
-    - finite_workspace
-    - multi_type_memory
-    - sleep_and_consolidation
-    - loopback_api
+  status: "CODE_AND_CI_VERIFIED_WITH_LONGITUDINAL_LIMIT"
+  verified:
+    - "The authoritative runtime remains source/src/wls/runtime.py::LivingSystem."
+    - "The default standalone planner is a bounded local cognitive provider rather than the legacy reflex planner."
+    - "Current evidence produces multiple scored hypotheses with persisted alternatives."
+    - "The selected hypothesis records a memory-free counterfactual decision."
+    - "Promoted procedural memory can measurably change the selected behavior."
+    - "Planned actions create explicit predictions before execution."
+    - "Predictions are confirmed, refuted, or left unknown from actual governed tool outcomes."
+    - "Observed outcomes update evidence-linked causal confidence in the temporal world model."
+    - "Cognitive traces, hypotheses, predictions, and calibration survive restart."
+    - "Cognitive referential integrity is checked by runtime integrity verification."
+    - "Unsupported or under-evidenced work resolves to an explicit bounded no-op."
+    - "OpenAI-compatible planning remains optional and falls back to local cognition with durable evidence."
+    - "The verified failure-to-skill-to-reuse-to-rollback lifecycle remains regression-tested."
+  inherited_not_comprehensively_reverified_in_this_wave:
+    - perception_connector_breadth
+    - autonomous_goal_depth
+    - relationship_behavior
+    - sleep_and_consolidation_quality
+    - loopback_api_surface
+    - installer_and_upgrade_behavior
 
 frozen_decisions:
   - "Safe-default installation remains read-only."
   - "External providers and plugins remain opt-in."
   - "Writes remain sandboxed and governed."
-  - "No automatic Windows service, scheduled task, publication, deletion, or broad Workstation integration."
+  - "No automatic publication, deletion, unrestricted shell, self-replication, or broad Workstation integration."
   - "Provider output remains subject to deterministic schema, policy, and tool gates."
   - "Human authorization remains mandatory for approval, promotion, and rollback."
   - "Claims remain limited to observable software functions."
   - "No parallel v2/final/brain runtime may replace the canonical LivingSystem without an approved migration."
 
-active_evolution_target:
-  id: "EVOLUTION-TARGET-001"
-  title: "Verified failure-to-skill-to-reuse loop"
-  status: "MERGED_CI_VERIFIED_HOST_PROOF_PENDING"
-  completed_acceptance_conditions:
-    - "Failure records and source action identifiers are durably retained."
-    - "Versioned skill candidates are linked to failure and recovery evidence."
-    - "Sandbox roots, fixtures, manifests, and result digests are recorded."
-    - "Frozen baseline measurements and acceptance thresholds precede evaluation."
-    - "Targeted tests, affected regression tests, lint, type checks, security scan, and build pass."
-    - "Approval, promotion, and rollback gates require explicit human approval parameters."
-    - "A promoted skill is reused through a later canonical-runtime task in the verification harness."
-    - "Post-promotion benefit and regressions are measured."
-    - "A degradation scenario produces ROLLBACK_REQUIRED and passes rollback verification."
-    - "The implementation is merged into main without retaining a parallel runtime authority path."
-  remaining_acceptance_conditions:
-    - "Run the lifecycle on the owner's intended Windows workstation using a genuine failure and non-synthetic later task."
-    - "Record the owner's actual approval identity and authorization reference."
-    - "Measure benefit, regressions, and retain-or-rollback outcome on that host."
-  claim_boundary: >-
-    WLS may claim an implemented, merged, and CI-verified bounded growth-cycle lifecycle.
-    It may not yet claim long-term self-improvement, production readiness, unrestricted
-    self-evolution, consciousness, or completion of the full software-life objective.
-
-verification:
-  local:
-    report: "source/verification/EVOLUTION_TARGET_001_LOCAL_20260624.json"
-    passed: true
-    python: "3.13.5"
-    tests: "3 passed"
-    compileall: "PASS"
-    ruff: "PASS"
-    mypy_linux: "PASS; 41 source files"
-    mypy_win32: "PASS; 41 source files"
-    bandit: "PASS"
-    wheel_build: "PASS"
-    clean_install: "PASS"
-    cli_init_self_check: "PASS"
-  github_actions:
-    verified_head_commit: "e022f4de603030aafb98b41b1045f6310aaecc14"
-    lifecycle_run:
-      id: 28065080949
-      name: "Verify EVOLUTION-TARGET-001"
-      conclusion: "success"
-    matrix_run:
-      id: 28065080982
-      name: "WLS CI"
-      conclusion: "success"
-      platforms:
-        - "ubuntu-latest / Python 3.11"
-        - "ubuntu-latest / Python 3.13"
-        - "windows-latest / Python 3.11"
-        - "windows-latest / Python 3.13"
+completed_evolution_targets:
+  - id: "EVOLUTION-TARGET-001"
+    title: "Verified failure-to-skill-to-reuse loop"
+    status: "MERGED_CI_VERIFIED_HOST_PROOF_PENDING"
     pull_request: 3
     merge_commit: "37b0fd55987e9d61a08a4934ed7807871a9d3b76"
+    verified_behaviors:
+      - "Repeated action failures create durable evidence-linked candidates."
+      - "Recovery experiments use a frozen baseline and predetermined thresholds."
+      - "Versioned skill proposals require isolated validation and reject fabricated evidence."
+      - "Approval, promotion, and rollback retain explicit human gates."
+      - "Promoted skills are reused through the canonical runtime."
+      - "Post-promotion outcomes produce RETAIN or ROLLBACK_REQUIRED decisions."
+      - "A degraded promoted skill is removed from active and matching sets by tested rollback."
+    remaining_proof:
+      - "One genuine owner-authorized failure and later-task reuse on the intended production host."
+      - "Longitudinal evidence that retained skills improve external outcomes."
 
-verified_cases:
-  - id: "CASE-RETAIN"
-    result: "PASS"
-    baseline_success_rate: 0.0
-    candidate_success_rate: 1.0
-    improved_cases: 3
-    validation_cases: 3
-    regressions: 0
-    post_promotion_decision: "RETAIN"
-  - id: "CASE-ROLLBACK"
-    result: "PASS"
-    sandbox_candidate_success_rate: 1.0
-    real_task_success_rate: 0.0
-    regressions: 1
-    post_promotion_decision: "ROLLBACK_REQUIRED"
-    rollback_removed_from_active: true
-    rollback_removed_from_matching: true
+  - id: "EVOLUTION-TARGET-002"
+    title: "Bounded local cognition vertical slice"
+    status: "MERGED_CI_VERIFIED"
+    pull_request: 6
+    verified_head: "8fb962204e4a41a2fa764b94479168434522e856"
+    merge_commit: "3fb94c030089543c99ea532e606da7d9cd84b689"
+    objective: >-
+      Integrate the existing temporal causal world model into the canonical LivingSystem,
+      replace the default hard-coded reflex planner with durable local hypothesis
+      competition, preserve memory-free counterfactuals, generate explicit predictions,
+      and calibrate them from real tool outcomes without requiring an external model.
+    completed_acceptance_conditions:
+      - "A direct structured observation produces competing durable hypotheses."
+      - "The selected hypothesis and alternatives are persisted with evidence identifiers."
+      - "The cognitive trace records a memory-free counterfactual."
+      - "A promoted procedural memory demonstrably changes a selected behavior in tests."
+      - "A governed action prediction is created before execution and confirmed from the actual outcome."
+      - "The observed action outcome creates a temporal relation and causal trial."
+      - "The cognitive trace survives a runtime restart."
+      - "External planner failure falls back to local cognition and records fallback evidence."
+      - "Unsupported work produces a deliberate no-op rather than invented activity."
+      - "Compile, regression tests, vertical verification, lint, type checks, security scan, and package build pass."
+      - "Ubuntu and Windows pass under Python 3.11 and 3.13."
+      - "EVOLUTION-TARGET-001 remains green after integration."
+    claim_boundary: >-
+      WLS may claim an implemented, merged, and CI-verified bounded local cognition layer.
+      It may not claim general intelligence, subjective consciousness, unrestricted
+      autonomy, mature long-horizon reasoning, or proven long-term superiority.
+
+verification:
+  evolution_target_001:
+    report: "source/verification/EVOLUTION_TARGET_001_LOCAL_20260624.json"
+    workflow_run: 28067488226
+    conclusion: "success"
+  evolution_target_002:
+    report: "source/verification/EVOLUTION_TARGET_002_CI.json"
+    workflow_run: 28067488227
+    conclusion: "success"
+    checks:
+      bounded_cognition_selected_request: true
+      causal_trial_persisted: true
+      cognition_integrity: true
+      cycle_succeeded: true
+      prediction_confirmed: true
+      runtime_integrity: true
+      trace_survived_restart: true
+    observed_runtime_result:
+      action_count: 1
+      action_status: "SUCCEEDED"
+      plan_status: "COMPLETED"
+      causal_hypotheses: 1
+      causal_trials: 1
+      entities: 1
+      relations: 2
+      orphan_hypotheses: 0
+      orphan_predictions: 0
+      resolved_without_outcome: 0
+  matrix:
+    workflow_run: 28067488248
+    conclusion: "success"
+    platforms:
+      - "ubuntu-latest / Python 3.11"
+      - "ubuntu-latest / Python 3.13"
+      - "windows-latest / Python 3.11"
+      - "windows-latest / Python 3.13"
+    gates:
+      - compile
+      - pytest
+      - ruff
+      - mypy
+      - bandit
 
 known_unknowns:
   - id: "KU-001"
-    item: "Real Windows installation, upgrade, and host integration behavior"
+    item: "Long-horizon autonomous task decomposition and replanning beyond the bounded receding-horizon slice"
     status: "UNKNOWN"
   - id: "KU-002"
-    item: "Long-running soak, resource exhaustion, event storm, and deadlock behavior"
+    item: "Semantic, temporal, project, mechanism, and causal memory retrieval at realistic scale"
     status: "UNKNOWN"
   - id: "KU-003"
-    item: "Long-term measured learning benefit against a frozen non-learning host baseline"
+    item: "Measured longitudinal advantage of memory-enabled behavior over a frozen memory-disabled baseline"
     status: "UNKNOWN"
   - id: "KU-004"
-    item: "Adversarial coverage of every connector, provider, plugin, and external action surface"
+    item: "Real Windows installation, upgrade, backup, restore, and host integration behavior"
     status: "UNKNOWN"
   - id: "KU-005"
+    item: "Long-running soak, resource exhaustion, event storm, deadlock, and fault-injection behavior"
+    status: "UNKNOWN"
+  - id: "KU-006"
+    item: "Adversarial coverage of every connector, provider, plugin, and external action surface"
+    status: "UNKNOWN"
+  - id: "KU-007"
     item: "Subjective consciousness, genuine emotion, AGI, or personhood"
     status: "UNKNOWN_AND_NOT_CLAIMED"
 
 completed:
-  - "Canonical identity and continuity contract recorded."
-  - "Parallel v2 and decision runtime authority paths removed from the active implementation."
-  - "Recovery experiment, skill validation, real reuse measurement, and rollback implemented in the canonical runtime."
-  - "Fabricated machine-stage evidence is rejected."
-  - "Local and GitHub Actions verification completed for isolated retain and rollback cases."
-  - "Windows-specific typing defects in lease and system resource code were reproduced and repaired."
-  - "Generated caches, build products, and package metadata removed from the tracked tree."
-  - "Pull request 3 was squash-merged into main."
+  - "Canonical identity and runtime authority remain singular."
+  - "The verified growth lifecycle remains merged and regression-protected."
+  - "The existing temporal causal world model is now part of the canonical runtime path."
+  - "Bounded local hypothesis competition replaces deterministic reflexes as the default planner."
+  - "Memory-free counterfactual attribution and memory-shaped behavior tests are present."
+  - "Prediction, real outcome resolution, causal calibration, and restart continuity are verified."
+  - "External-provider failure has a tested evidence-recorded local fallback."
+  - "Pull request 6 was verified and squash-merged into main."
 
 not_completed:
-  - "Owner-authorized genuine-failure run on the intended Windows workstation."
-  - "Long-duration autonomous operation and resource-stress validation."
-  - "Broad connector-body integration with real Workstation systems."
-  - "External longitudinal evidence that learning improves real outcomes."
+  - "General-purpose independent reasoning or unrestricted local model cognition."
+  - "Long-horizon autonomous project planning with dependency-aware pause, resume, and exit."
+  - "Scalable causal and semantic memory retrieval with active forgetting and contradiction-aware reconstruction."
+  - "Longitudinal memory-on versus memory-off performance evidence."
+  - "Owner-authorized production-host growth evidence."
+  - "Long-duration survival and fault-injection validation."
 
 branches:
   - name: "main"
     role: "canonical default branch"
     status: "CURRENT"
-    merge_commit: "37b0fd55987e9d61a08a4934ed7807871a9d3b76"
-  - name: "evolution-target-001-canonical"
+    merge_commit: "3fb94c030089543c99ea532e606da7d9cd84b689"
+  - name: "evolution-target-002-local-cognition"
     role: "historical implementation branch"
     status: "MERGED"
-    verified_head: "e022f4de603030aafb98b41b1045f6310aaecc14"
+    verified_head: "8fb962204e4a41a2fa764b94479168434522e856"
 
 current_limitations:
-  - "The approval identities in automated verification are explicit test fixtures, not the owner's production approval."
-  - "The later tasks execute through the real runtime path but inside temporary isolated homes."
-  - "Capabilities outside the growth lifecycle were not comprehensively re-audited in this wave."
+  - "Hypothesis families are bounded, deterministic engineering rules rather than an unrestricted learned reasoning model."
+  - "The receding-horizon decomposition currently covers a single bounded action cycle, not a mature long-term project planner."
+  - "The memory counterfactual proves behavior can change; it does not yet prove sustained performance advantage."
+  - "Verification uses isolated temporary runtime homes, not the owner's production workstation."
+  - "Capabilities outside cognition and the growth lifecycle were not comprehensively re-audited in this wave."
+
+next_evolution_target:
+  id: "EVOLUTION-TARGET-003"
+  title: "Causal memory retrieval and measurable learning advantage"
+  status: "SCOPED_NOT_IMPLEMENTED"
+  objective: >-
+    Replace broad lexical memory scanning with evidence-linked retrieval over project,
+    entity, time, failure mechanism, causal context, validity, and applicability; then
+    run frozen memory-enabled versus memory-disabled longitudinal tasks and retain the
+    memory path only when it produces statistically and operationally meaningful benefit.
+  acceptance_boundary: >-
+    Mere retrieval relevance is insufficient. The target must show reproducible behavior
+    differences, better task outcomes, no unacceptable regressions, contradiction-aware
+    memory invalidation, and persistence across restart.
 
 unique_next_action: >-
-  Execute one genuine owner-authorized EVOLUTION-TARGET-001 run on the intended Windows
-  workstation and persist its failure, approval, later-task reuse, measurement, and
-  retain-or-rollback evidence without adding another runtime.
+  Implement EVOLUTION-TARGET-003 inside the existing MemoryStore, CognitiveEngine,
+  TemporalCausalWorld, and canonical LivingSystem without creating another memory system,
+  planner identity, or parallel runtime.
 
 stop_conditions:
-  - "Stop if the host run would bypass human approval, policy gates, evidence retention, or rollback."
-  - "Stop after host evidence is persisted; do not create a parallel subsystem."
+  - "Stop if the next target would bypass evidence provenance, policy gates, human promotion authority, or rollback."
+  - "Stop if memory-on superiority cannot be measured against a frozen memory-off baseline."
+  - "Stop after one verified target is delivered; do not create a parallel subsystem."
 
 prohibited_misinterpretations:
-  - "CI verification is not proof of long-term external effectiveness."
-  - "A sandbox pass is not promotion."
-  - "A test-fixture approval is not the owner's production authorization."
-  - "A retained skill in an isolated run is not proof of indefinite self-improvement."
+  - "Bounded hypothesis competition is not general intelligence."
+  - "A confirmed prediction is not proof of a complete world model."
+  - "Memory changing one decision is not proof of long-term learning advantage."
+  - "CI verification is not production-host validation."
   - "Persistent state is not subjective consciousness."
   - "Functional affect is not genuine emotion."
-
-active_iteration_candidate:
-  id: "EVOLUTION-TARGET-002"
-  title: "Bounded local cognition vertical slice"
-  status: "IMPLEMENTED_PENDING_CI_AND_MERGE"
-  objective: >-
-    Integrate the existing temporal causal world model into the canonical LivingSystem,
-    replace the default hard-coded reflex planner with durable local hypothesis
-    competition, preserve memory-free counterfactuals, generate explicit predictions,
-    and calibrate them from real tool outcomes without requiring an external model.
-  claim_boundary: >-
-    This target can establish bounded local cognition behavior only. It cannot establish
-    AGI, subjective consciousness, unrestricted autonomy, or long-term superiority.
