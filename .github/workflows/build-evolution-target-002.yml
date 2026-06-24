@@ -37,6 +37,14 @@ jobs:
         run: python source/scripts/verify_evolution_target_002.py --output source/verification/EVOLUTION_TARGET_002_CI.json
       - name: Lint
         run: python -m ruff check source/src source/tests source/scripts
+      - name: Pack patched source for diagnostics
+        shell: bash
+        run: tar -czf evolution-target-002-source.tar.gz source README.md CURRENT_STATE.yaml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: evolution-target-002-patched-source
+          path: evolution-target-002-source.tar.gz
+          if-no-files-found: error
       - name: Types
         run: python -m mypy source/src/wls source/tests source/scripts --ignore-missing-imports
       - name: Security scan
