@@ -25,6 +25,8 @@ jobs:
           python-version: "3.13"
       - name: Apply bounded local cognition target
         run: python source/scripts/apply_evolution_target_002.py
+      - name: Apply targeted typing repair
+        run: python source/scripts/fix_evolution_target_002.py
       - name: Install verification toolchain
         run: python -m pip install --upgrade pip build pytest ruff mypy bandit
       - name: Install WLS editable
