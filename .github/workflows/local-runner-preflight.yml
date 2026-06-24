@@ -1,0 +1,75 @@
+name: Local Runner Preflight
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-runner-preflight
+  cancel-in-progress: false
+
+env:
+  WLS_RUNNER_ROOT: D:\actions-runner
+  PIP_CACHE_DIR: D:\actions-runner\_cache\pip
+  TEMP: D:\actions-runner\_temp
+  TMP: D:\actions-runner\_temp
+
+jobs:
+  preflight:
+    name: Inspect local runner readiness
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 10
+
+    steps:
+      - name: Prepare D-drive directories
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force $env:PIP_CACHE_DIR | Out-Null
+          New-Item -ItemType Directory -Force $env:TEMP | Out-Null
+
+      - name: Inspect identity and storage
+        shell: powershell
+        run: |
+          Write-Host "RUNNER_NAME=$env:RUNNER_NAME"
+          Write-Host "RUNNER_OS=$env:RUNNER_OS"
+          Write-Host "RUNNER_ARCH=$env:RUNNER_ARCH"
+          Write-Host "TEMP=$env:TEMP"
+          Write-Host "TMP=$env:TMP"
+          Write-Host "PIP_CACHE_DIR=$env:PIP_CACHE_DIR"
+          whoami
+          Get-PSDrive -Name D | Format-Table Name,Used,Free,Root
+
+      - name: Inspect required tools
+        shell: powershell
+        run: |
+          git --version
+          python --version
+          py -0p
+
+      - name: Verify GitHub connectivity
+        shell: powershell
+        run: |
+          $result = Test-NetConnection github.com -Port 443 -InformationLevel Detailed
+          if (-not $result.TcpTestSucceeded) {
+            throw "Cannot reach github.com on TCP 443"
+          }
+          Write-Host "GitHub TCP 443 connectivity passed."
+
+      - name: Enforce D-drive execution boundary
+        shell: powershell
+        run: |
+          if (-not $env:WLS_RUNNER_ROOT.StartsWith('D:\')) {
+            throw "Runner root is outside D drive."
+          }
+          if (-not $env:TEMP.StartsWith('D:\')) {
+            throw "TEMP is outside D drive."
+          }
+          if (-not $env:TMP.StartsWith('D:\')) {
+            throw "TMP is outside D drive."
+          }
+          if (-not $env:PIP_CACHE_DIR.StartsWith('D:\')) {
+            throw "PIP cache is outside D drive."
+          }
+          Write-Host "D-drive boundary passed."
