@@ -1,0 +1,125 @@
+name: Recover EVOLUTION-TARGET-004 implementation
+
+on:
+  push:
+    branches:
+      - evolution-target-004-persistent-goals
+    paths:
+      - ".github/workflows/recover-et004-implementation.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  recover-verify-commit:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    env:
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+      PATCH_SHA256: "381a46c7ea8caed272ffdd0a8b2028f5843c051d3c92d2f85ea6b2900a5081c6"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: evolution-target-004-persistent-goals
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Reconstruct verified patch from Git objects
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import base64
+          import json
+          import os
+          import urllib.request
+          from pathlib import Path
+
+          shas = [
+              "638ad99e2a819791af8ac82d6aead6916d4fd06d",
+              "d84ea10d0d98590d6ac7ee0b934439294b22816b",
+              "3e1d50ffa29375e1ed327177a46c58ca561a58b5",
+          ]
+          repository = os.environ["GITHUB_REPOSITORY"]
+          token = os.environ["GH_TOKEN"]
+          target = Path("/tmp/et004.patch.gz.b64")
+          with target.open("wb") as output:
+              for sha in shas:
+                  request = urllib.request.Request(
+                      f"https://api.github.com/repos/{repository}/git/blobs/{sha}",
+                      headers={
+                          "Authorization": f"Bearer {token}",
+                          "Accept": "application/vnd.github+json",
+                          "X-GitHub-Api-Version": "2022-11-28",
+                      },
+                  )
+                  with urllib.request.urlopen(request) as response:
+                      payload = json.load(response)
+                  output.write(base64.b64decode(payload["content"]))
+          PY
+          base64 -d /tmp/et004.patch.gz.b64 > /tmp/et004.patch.gz
+          echo "${PATCH_SHA256}  /tmp/et004.patch.gz" | sha256sum --check --strict
+          gunzip -c /tmp/et004.patch.gz > /tmp/et004.patch
+          git apply --check /tmp/et004.patch
+          git apply /tmp/et004.patch
+          rm -f .github/workflows/recover-et004-implementation.yml
+          rm -f .github/workflows/export-et004-worktree.yml
+
+      - name: Install verification toolchain
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build pytest ruff mypy bandit PyYAML
+          python -m pip install -e "source[dev]"
+
+      - name: Compile
+        run: python -m compileall -q source/src source/tests source/scripts
+
+      - name: Test full suite
+        run: python -m pytest source/tests -q
+
+      - name: Verify ET001
+        run: python source/scripts/verify_evolution_target_001.py
+
+      - name: Verify ET002
+        run: python source/scripts/verify_evolution_target_002.py
+
+      - name: Verify ET003
+        run: python source/scripts/verify_evolution_target_003.py
+
+      - name: Verify ET004
+        run: python source/scripts/verify_evolution_target_004.py --output source/verification/EVOLUTION_TARGET_004_LOCAL_20260624.json
+
+      - name: Lint
+        run: python -m ruff check source/src source/tests source/scripts
+
+      - name: Type check
+        run: python -m mypy source/src/wls source/tests source/scripts --ignore-missing-imports
+
+      - name: Security scan
+        run: python -m bandit -q -r source/src/wls source/scripts
+
+      - name: Validate canonical state
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import yaml
+          state = yaml.safe_load(Path("CURRENT_STATE.yaml").read_text(encoding="utf-8"))
+          assert state["schema_version"] == "1.6"
+          assert state["system"]["development_version"] == "1.0.0.dev1"
+          PY
+
+      - name: Build package
+        run: python -m build source
+
+      - name: Commit verified ET004 implementation
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat(et004): integrate persistent goal continuity"
+          git push origin HEAD:evolution-target-004-persistent-goals
