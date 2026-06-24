@@ -1,0 +1,51 @@
+name: Build EVOLUTION-TARGET-002
+
+on:
+  push:
+    branches: [evolution-target-002-local-cognition]
+    paths:
+      - ".github/workflows/build-evolution-target-002.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Apply bounded local cognition target
+        run: python source/scripts/apply_evolution_target_002.py
+      - name: Install verification toolchain
+        run: python -m pip install --upgrade pip build pytest ruff mypy bandit
+      - name: Install WLS editable
+        run: python -m pip install -e "source[dev]"
+      - name: Verify implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m compileall -q source/src source/tests source/scripts
+          python -m pytest source/tests -q
+          python source/scripts/verify_evolution_target_002.py --output source/verification/EVOLUTION_TARGET_002_CI.json
+          python -m ruff check source/src source/tests source/scripts
+          python -m mypy source/src/wls source/tests source/scripts --ignore-missing-imports
+          python -m bandit -q -r source/src/wls source/scripts
+          python -m build source
+      - name: Create verified patch artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          find source -type d -name __pycache__ -prune -exec rm -rf {} +
+          find source -type f -name '*.pyc' -delete
+          rm -rf source/dist source/build source/src/*.egg-info
+          git add -N .
+          git diff --binary > evolution-target-002.patch
+      - uses: actions/upload-artifact@v4
+        with:
+          name: evolution-target-002-verified-patch
+          path: evolution-target-002.patch
+          if-no-files-found: error
