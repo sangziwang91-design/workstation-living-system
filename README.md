@@ -112,3 +112,16 @@ wls --config CONFIG cognition --limit 20
 ```
 
 This is a bounded engineering cognition layer, not a claim of AGI, subjective consciousness, or unrestricted autonomous reasoning.
+
+## Provider Hub candidate switchboard
+
+Install the optional operating-system credential-vault adapter and open the local switchboard from the sole project root:
+
+```powershell
+python -m pip install -e ".[dev,providers]"
+wls-provider ui
+```
+
+Provider Hub provides supplier registration links, secure terminal credential entry, model discovery, connectivity checks, and preferred-candidate selection. It remains detached from the canonical planner: no provider receives write authority, canonical truth authority, private WLS context, or automatic paid fallback in this target.
+
+See [`docs/PROVIDER_HUB.md`](docs/PROVIDER_HUB.md).
