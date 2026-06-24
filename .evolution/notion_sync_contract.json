@@ -1,0 +1,97 @@
+{
+  "schema_version": "1.0",
+  "contract_id": "WLS-NOTION-GITHUB-SYNC-001",
+  "status": "ACTIVE",
+  "notion": {
+    "page_id": "38940ff6ad6281b6bd69d700c9322d77",
+    "page_url": "https://app.notion.com/p/38940ff6ad6281b6bd69d700c9322d77",
+    "province": "省-003 · 实验库（正式自治省）",
+    "logical_parent": "母页·系统原型 / 草案",
+    "role": "SEMANTIC_MEMORY_AND_EXPERIMENT_GOVERNANCE"
+  },
+  "github": {
+    "repository": "sangziwang91-design/workstation-living-system-private",
+    "role": "CANONICAL_ENGINEERING_TRUTH",
+    "control_plane": ".evolution/",
+    "canonical_runtime": "source/src/wls/runtime.py::LivingSystem"
+  },
+  "notion_to_github": {
+    "allowed": [
+      "historical context",
+      "cross-project failure patterns",
+      "candidate requirements",
+      "contradiction findings",
+      "research rationale",
+      "curriculum candidates"
+    ],
+    "required_claim_class": [
+      "NOTION_CONTEXT",
+      "INFERENCE",
+      "USER_REPORTED",
+      "UNKNOWN"
+    ],
+    "forbidden": [
+      "creating VERIFIED engineering claims without GitHub or runtime evidence",
+      "overwriting CURRENT_STATE.yaml",
+      "approving or promoting a skill, worker or model",
+      "changing runtime authority",
+      "deleting, archiving or moving province 003 pages"
+    ]
+  },
+  "github_to_notion": {
+    "allowed_after_evidence": [
+      "merged pull request summary",
+      "commit and branch anchors",
+      "changed-file list",
+      "CI and verifier outcomes",
+      "claim ceiling changes",
+      "known unknowns",
+      "retain, rollback, revise or retire decisions"
+    ],
+    "required_sources": [
+      "GitHub commit or pull request",
+      "GitHub Actions or deterministic local verification",
+      "runtime evidence when the claim concerns real-world behavior"
+    ],
+    "post_merge_archive_required": true
+  },
+  "notion_ai_jobs": [
+    {
+      "job_id": "PRE_RUN_CONTEXT_RETRIEVAL",
+      "trigger": "OWNER_OR_WORKER_REQUEST",
+      "output": "context bundle with source pages and claim classes",
+      "automatic_code_write": false
+    },
+    {
+      "job_id": "CONTRADICTION_AUDIT",
+      "trigger": "BEFORE_TARGET_AND_AFTER_MERGE",
+      "output": "GitHub/Notion drift report",
+      "automatic_code_write": false
+    },
+    {
+      "job_id": "PACKET_ENRICHMENT",
+      "trigger": "PACKET_DRAFT",
+      "output": "historical constraints and rejected-path context",
+      "automatic_code_write": false
+    },
+    {
+      "job_id": "POST_MERGE_ARCHIVE",
+      "trigger": "MERGED_PULL_REQUEST",
+      "output": "readable experiment and route update",
+      "automatic_code_write": false
+    },
+    {
+      "job_id": "CURRICULUM_CANDIDATE_MINING",
+      "trigger": "OWNER_REQUEST",
+      "output": "candidate developmental tasks, never training truth by itself",
+      "automatic_code_write": false
+    }
+  ],
+  "conflict_resolution": [
+    "Runtime evidence",
+    "GitHub merged code and verification",
+    ".evolution validated packet state",
+    "Notion semantic record",
+    "model proposal"
+  ]
+}

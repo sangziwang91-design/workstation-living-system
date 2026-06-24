@@ -1,0 +1,95 @@
+{
+  "schema_version": "1.0",
+  "task_id": "ET004-HANDOFF-001",
+  "target_id": "EVOLUTION-TARGET-004",
+  "title": "Audit and hand off the existing persistent-goal implementation",
+  "status": "BLOCKED",
+  "priority": 95,
+  "risk": "HIGH",
+  "minimum_worker_capability": "architecture_and_review",
+  "worker": {
+    "assigned_worker_id": null,
+    "lease_mode": "UNCLAIMED",
+    "provider_status_required": "ACTIVE"
+  },
+  "context": {
+    "repository": "sangziwang91-design/workstation-living-system-private",
+    "base_ref": "pull/8@643b65409b324b54f6fbc65845158d8cee605c52",
+    "canonical_runtime": "source/src/wls/runtime.py::LivingSystem",
+    "github_evidence": [
+      "PR #8 title: Implement EVOLUTION-TARGET-004 persistent goal continuity",
+      "PR #8 is draft and mergeable at bootstrap",
+      "PR #8 base is cf3e60d70d6c679891a560effabe89fd30da6709",
+      "PR #8 initially contains only its scoped bootstrap change"
+    ],
+    "notion_page_id": "38940ff6ad6281b6bd69d700c9322d77",
+    "notion_page_url": "https://app.notion.com/p/38940ff6ad6281b6bd69d700c9322d77",
+    "context_claim_class": "VERIFIED"
+  },
+  "objective": "After the existing PR #8 contains a complete implementation and verification evidence, audit it against ET004 persistent-goal, interruption, restart, attribution, frozen-baseline and regression requirements without creating a duplicate implementation branch.",
+  "allowed_paths": [
+    ".evolution/**",
+    "PR #8 review comments",
+    "PR #8 existing implementation branch only after explicit owner assignment"
+  ],
+  "forbidden_changes": [
+    "Do not open a second ET004 implementation branch.",
+    "Do not merge a draft or evidence-incomplete PR.",
+    "Do not replace GoalStore, CognitiveEngine or LivingSystem with parallel authorities.",
+    "Do not infer passing tests from the PR description.",
+    "Do not treat controlled CI as owner-host longitudinal proof."
+  ],
+  "acceptance": {
+    "commands": [
+      "python -m pytest source/tests -q",
+      "python source/scripts/verify_evolution_target_001.py",
+      "python source/scripts/verify_evolution_target_002.py",
+      "python source/scripts/verify_evolution_target_003.py",
+      "python source/scripts/verify_evolution_target_004.py"
+    ],
+    "conditions": [
+      "PR #8 is no longer a one-file scaffold and its implementation head is explicitly identified.",
+      "Persistent goal lifecycle, dependency/debt handling, interruption recovery and restart continuity are demonstrated.",
+      "Goal-enabled behavior is compared with a frozen goal-disabled baseline.",
+      "Goal-to-cognition and goal-to-action attribution are retained in evidence.",
+      "ET001-ET003 regressions remain green on Ubuntu and Windows.",
+      "Claims remain bounded to the observed evidence."
+    ],
+    "evidence_required": [
+      "PR #8 full diff",
+      "ET004 verifier output",
+      "CI matrix results",
+      "frozen baseline result",
+      "restart continuity result"
+    ]
+  },
+  "stop_conditions": [
+    "Stop while PR #8 remains a bootstrap-only draft.",
+    "Stop if the head changes during review without re-reading the diff.",
+    "Stop if ET004 depends on bypassing owner or policy gates.",
+    "Stop if the implementation creates a parallel runtime or goal authority."
+  ],
+  "dependencies": [
+    "CHAIN-BOOTSTRAP-001 accepted",
+    "PR #8 implementation complete",
+    "PR #8 CI evidence available"
+  ],
+  "output_contract": {
+    "changed_files": [],
+    "tests": [],
+    "evidence": [],
+    "unknowns": [
+      "The ET004 implementation and verification are not complete at bootstrap."
+    ],
+    "next_action": "Wait for PR #8 to advance; then assign ChatGPT for a head-pinned audit."
+  },
+  "handoff": {
+    "summary": "The chain recognizes PR #8 as the sole ET004 implementation line and deliberately avoids duplicate work.",
+    "blocker": "PR #8 implementation and CI evidence are not yet complete.",
+    "supersedes": null
+  },
+  "timestamps": {
+    "created_at": "2026-06-24T10:30:00+08:00",
+    "updated_at": "2026-06-24T10:30:00+08:00"
+  }
+}

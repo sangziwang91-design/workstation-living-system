@@ -1,0 +1,42 @@
+name: Verify Repo-Native Evolution Chain
+
+on:
+  pull_request:
+    paths:
+      - "EVOLUTION_CHAIN.md"
+      - ".evolution/**"
+      - "source/scripts/validate_evolution_chain.py"
+      - "source/tests/test_evolution_chain.py"
+      - ".github/workflows/evolution-chain.yml"
+  push:
+    branches: [main]
+    paths:
+      - "EVOLUTION_CHAIN.md"
+      - ".evolution/**"
+      - "source/scripts/validate_evolution_chain.py"
+      - "source/tests/test_evolution_chain.py"
+      - ".github/workflows/evolution-chain.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-control-plane:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install focused test dependency
+        run: python -m pip install pytest
+      - name: Validate evolution control plane
+        run: python source/scripts/validate_evolution_chain.py
+      - name: Run focused evolution-chain tests
+        run: python -m pytest source/tests/test_evolution_chain.py -q

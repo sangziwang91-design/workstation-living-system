@@ -1,0 +1,104 @@
+{
+  "schema_version": "1.0",
+  "task_id": "CHAIN-BOOTSTRAP-001",
+  "target_id": "REPO-NATIVE-EVOLUTION-CONTROL-PLANE",
+  "title": "Activate GitHub, Notion AI and ChatGPT repo-native evolution chain",
+  "status": "VERIFICATION",
+  "priority": 100,
+  "risk": "MODERATE",
+  "minimum_worker_capability": "architecture_and_review",
+  "worker": {
+    "assigned_worker_id": "chatgpt_interactive",
+    "lease_mode": "OWNER_ASSIGNED",
+    "provider_status_required": "ACTIVE"
+  },
+  "context": {
+    "repository": "sangziwang91-design/workstation-living-system-private",
+    "base_ref": "main@cf3e60d70d6c679891a560effabe89fd30da6709",
+    "canonical_runtime": "source/src/wls/runtime.py::LivingSystem",
+    "github_evidence": [
+      "ET003 merge commit cf3e60d70d6c679891a560effabe89fd30da6709",
+      "draft PR #8 is the sole existing ET004 implementation branch",
+      "branch evolution-infra-001-repo-native-chain was created from main"
+    ],
+    "notion_page_id": "38940ff6ad6281b6bd69d700c9322d77",
+    "notion_page_url": "https://app.notion.com/p/38940ff6ad6281b6bd69d700c9322d77",
+    "context_claim_class": "VERIFIED"
+  },
+  "objective": "Create a versioned, CI-validated control plane that lets ChatGPT perform bounded GitHub evolution work while Notion AI supplies semantic context without becoming an engineering truth source.",
+  "allowed_paths": [
+    "EVOLUTION_CHAIN.md",
+    ".evolution/**",
+    ".github/workflows/evolution-chain.yml",
+    "source/scripts/validate_evolution_chain.py",
+    "source/tests/test_evolution_chain.py"
+  ],
+  "forbidden_changes": [
+    "Do not modify source/src/wls/runtime.py or create a parallel runtime.",
+    "Do not change ET004 implementation files or the existing PR #8 branch.",
+    "Do not activate Gemini, Claude, GLM, DeepSeek or any API worker.",
+    "Do not add secrets, credentials or unattended external calls.",
+    "Do not elevate CI bootstrap evidence into owner-host longitudinal claims."
+  ],
+  "acceptance": {
+    "commands": [
+      "python source/scripts/validate_evolution_chain.py",
+      "python -m pytest source/tests/test_evolution_chain.py -q"
+    ],
+    "conditions": [
+      "The Notion EXP-082 anchor is identical across all control-plane files.",
+      "ChatGPT is the only ACTIVE code worker and other provider candidates remain pending.",
+      "Queue packet status matches its directory.",
+      "The validator uses only the Python standard library.",
+      "GitHub Actions runs the validator and focused tests on Ubuntu and Windows.",
+      "The diff does not modify the canonical runtime or PR #8 implementation."
+    ],
+    "evidence_required": [
+      "pull request diff",
+      "evolution-chain workflow result",
+      "focused pytest result",
+      "Notion EXP-082 page URL"
+    ]
+  },
+  "stop_conditions": [
+    "Stop if the implementation requires changing LivingSystem authority.",
+    "Stop if GitHub and Notion cannot retain explicit truth-source separation.",
+    "Stop if another provider must be activated to pass bootstrap.",
+    "Stop if the task collides with the existing ET004 branch."
+  ],
+  "dependencies": [],
+  "output_contract": {
+    "changed_files": [
+      "EVOLUTION_CHAIN.md",
+      ".evolution/README.md",
+      ".evolution/EVOLUTION_PACKET.schema.json",
+      ".evolution/worker_registry.json",
+      ".evolution/CURRENT_CHAIN.json",
+      ".evolution/notion_sync_contract.json",
+      ".evolution/roadmap/WLS_EVOLUTION_ROADMAP.md",
+      ".evolution/queue/verification/CHAIN-BOOTSTRAP-001.json",
+      ".evolution/queue/blocked/ET004-HANDOFF-001.json",
+      "source/scripts/validate_evolution_chain.py",
+      "source/tests/test_evolution_chain.py",
+      ".github/workflows/evolution-chain.yml"
+    ],
+    "tests": [],
+    "evidence": [
+      "Notion page created at https://app.notion.com/p/38940ff6ad6281b6bd69d700c9322d77"
+    ],
+    "unknowns": [
+      "CI result is pending until the pull request is opened.",
+      "Long-term productivity and low-capability model success are not yet measured."
+    ],
+    "next_action": "Open the bootstrap pull request, run gates, repair failures, then record merge evidence in a superseding completion packet."
+  },
+  "handoff": {
+    "summary": "Notion EXP-082 and the GitHub control-plane artifacts are being created on an isolated branch.",
+    "blocker": "GitHub Actions and owner review are pending.",
+    "supersedes": null
+  },
+  "timestamps": {
+    "created_at": "2026-06-24T10:30:00+08:00",
+    "updated_at": "2026-06-24T10:30:00+08:00"
+  }
+}
