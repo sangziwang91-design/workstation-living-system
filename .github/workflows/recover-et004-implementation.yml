@@ -78,8 +78,32 @@ jobs:
       - name: Compile
         run: python -m compileall -q source/src source/tests source/scripts
 
-      - name: Test full suite
-        run: python -m pytest source/tests -q
+      - name: Test full suite with durable diagnostics
+        id: tests
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          python -m pytest source/tests -vv --maxfail=1 --durations=20 2>&1 | tee /tmp/et004-pytest.log
+          code=${PIPESTATUS[0]}
+          echo "$code" > /tmp/et004-pytest.exit
+          exit "$code"
+
+      - name: Upload pytest diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: et004-pytest-diagnostics-${{ github.run_attempt }}
+          path: |
+            /tmp/et004-pytest.log
+            /tmp/et004-pytest.exit
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Enforce test gate
+        if: always()
+        shell: bash
+        run: test "$(cat /tmp/et004-pytest.exit)" = "0"
 
       - name: Verify ET001
         run: python source/scripts/verify_evolution_target_001.py
