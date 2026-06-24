@@ -1,0 +1,44 @@
+name: Verify Packaging Layout
+
+on:
+  pull_request:
+    paths:
+      - "pyproject.toml"
+      - "source/pyproject.toml"
+      - "source/src/wls/**"
+      - "source/scripts/verify_packaging_layout.py"
+      - "source/tests/test_packaging_layout.py"
+      - "src/wls/**"
+      - ".github/workflows/packaging-layout.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  root-install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install from repository root
+        run: python -m pip install -e ".[dev]"
+      - name: Verify packaging metadata and layout
+        run: python source/scripts/verify_packaging_layout.py
+      - name: Smoke test console entry point
+        run: wls --help
+      - name: Smoke test module entry point
+        run: python -m wls --help
+      - name: Verify imported package location
+        run: python -c "from pathlib import Path; import wls; path=Path(wls.__file__).resolve(); print(path); assert 'source/src/wls' in path.as_posix()"
+      - name: Run focused packaging test
+        run: python -m pytest source/tests/test_packaging_layout.py -q
+      - name: Build root wheel
+        run: python -m build --wheel --outdir dist-root .
