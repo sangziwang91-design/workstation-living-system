@@ -22,7 +22,7 @@ jobs:
       - name: Apply bounded ET003 integration
         run: python .github/apply_et003_changes.py
       - name: Remove one-shot bootstrap files
-        run: rm .github/apply_et003_changes.py .github/workflows/apply-evolution-target-003.yml
+        run: rm -f .github/apply_et003_changes.py .github/workflows/apply-evolution-target-003.yml .github/et003-bootstrap-trigger.txt
       - name: Install verification toolchain
         run: python -m pip install --upgrade pip build pytest ruff mypy bandit
       - name: Install WLS editable
