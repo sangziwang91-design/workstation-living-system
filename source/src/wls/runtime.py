@@ -13,6 +13,7 @@ from ._version import __version__
 from .approval import ApprovalManager
 from .autonomy import AutonomySystem
 from .attention import AttentionSystem
+from .cognition import CognitiveEngine
 from .config import RuntimeConfig, load_or_create_config
 from .db import Database
 from .drives import DriveSystem
@@ -39,6 +40,7 @@ from .sensors import build_sensor
 from .skills import SkillLibrary
 from .sleep import SleepConsolidator
 from .stores import EventStore, GoalStore, MemoryStore
+from .temporal_world import TemporalCausalWorld
 from .tools import ToolRegistry
 from .world import WorldModel
 
@@ -56,6 +58,7 @@ class LivingSystem:
         self.goals = GoalStore(self.db, self.ledger)
         self.memories = MemoryStore(self.db, self.ledger)
         self.world = WorldModel(self.db, self.ledger)
+        self.temporal_world = TemporalCausalWorld(self.db, self.ledger)
         self.drives = DriveSystem(self.db, self.ledger)
         self.policy = PolicyEngine(config)
         self.approvals = ApprovalManager(
@@ -80,7 +83,10 @@ class LivingSystem:
             self.learning,
         )
         self.attention = AttentionSystem(config.workspace_capacity)
-        self.planner = Planner(config)
+        self.cognition = CognitiveEngine(
+            self.db, self.ledger, self.temporal_world, config
+        )
+        self.planner = Planner(config, self.cognition, self.ledger)
         self.growth = GrowthCycleManager(self)
         self._load_plugins()
         self.lease = ProcessLease(config.home_path / "state" / "runtime.lock")
@@ -266,8 +272,10 @@ class LivingSystem:
                 self._persist_plan_and_ack_events(
                     cycle_id, plan, [event.event_id for event in selected_events]
                 )
+                self.cognition.attach_plan(cycle_id, plan)
                 plan_persisted = True
                 outcomes = [*recovery_outcomes, *self._execute_plan(plan)]
+                cognition_result = self.cognition.resolve_cycle(cycle_id, plan, outcomes)
                 plan_status = self._plan_status(plan.plan_id)
                 episode_id = self.learning.record_episode(
                     cycle_id=cycle_id,
@@ -288,6 +296,7 @@ class LivingSystem:
                     actions=[],
                 )
                 outcomes = []
+                cognition_result = None
                 plan_status = "IDLE"
                 episode_id = None
                 post_appraisal = {"idle": True}
@@ -312,6 +321,7 @@ class LivingSystem:
                 "outcomes": outcomes,
                 "episode_id": episode_id,
                 "plan_status": plan_status,
+                "cognition": cognition_result,
                 "appraisal": appraisal,
                 "post_appraisal": post_appraisal,
                 "sleep": sleep_result,
@@ -833,16 +843,21 @@ class LivingSystem:
             "active_goals": [goal.to_dict() for goal in self.goals.active()],
             "active_skills": self.skills.active(),
             "growth_cycles": self.growth.summary(limit=20),
+            "planner_provider": self.planner.provider_type,
+            "cognition": self.cognition.summary(limit=500),
+            "temporal_world": self.temporal_world.summary(),
             "next_focus": self.db.get_runtime("next_focus", []),
         }
 
     def verify_integrity(self, full: bool = True) -> dict[str, Any]:
         ledger_ok, ledger_details = self.ledger.verify()
         db_ok, db_details = self.db.integrity_check() if full else (True, "skipped")
+        cognition_ok, cognition_details = self.cognition.integrity()
         result = {
-            "ok": ledger_ok and db_ok,
+            "ok": ledger_ok and db_ok and cognition_ok,
             "ledger": ledger_details,
             "database": db_details,
+            "cognition": cognition_details,
         }
         if not result["ok"]:
             self.kill(f"integrity failure: {result}")

@@ -9,7 +9,9 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 import json
 import os
 
+from .cognition import CognitiveEngine
 from .config import RuntimeConfig
+from .evidence import EvidenceLedger
 from .schemas import ActionSpec, Plan, RiskLevel
 
 
@@ -25,26 +27,11 @@ class PlanningProvider(ABC):
 
 
 class DeterministicProvider(PlanningProvider):
-    """Grounded fallback planner that does not require a model."""
+    """Legacy grounded reflex planner retained as an explicit compatibility mode."""
 
     TEXT_SUFFIXES = {
-        ".txt",
-        ".md",
-        ".json",
-        ".yaml",
-        ".yml",
-        ".toml",
-        ".py",
-        ".js",
-        ".ts",
-        ".ps1",
-        ".bat",
-        ".sh",
-        ".ini",
-        ".cfg",
-        ".csv",
-        ".log",
-        ".tex",
+        ".txt", ".md", ".json", ".yaml", ".yml", ".toml", ".py", ".js",
+        ".ts", ".ps1", ".bat", ".sh", ".ini", ".cfg", ".csv", ".log", ".tex",
     }
 
     def create_plan(self, context: dict[str, Any]) -> dict[str, Any]:
@@ -140,9 +127,7 @@ class DeterministicProvider(PlanningProvider):
             actions.append(
                 {
                     "tool": "noop",
-                    "arguments": {
-                        "reason": "No safe grounded external action was justified"
-                    },
+                    "arguments": {"reason": "No safe grounded external action was justified"},
                     "purpose": "Record a deliberate no-op instead of inventing activity",
                     "expected_result": "No external change",
                     "risk": "READ",
@@ -159,32 +144,30 @@ class DeterministicProvider(PlanningProvider):
                 for item in context.get("workspace", [])
                 if item.get("item_type") == "memory"
             ],
-            "world_fact_ids": [
-                fact["fact_id"] for fact in context.get("world_facts", [])[:10]
-            ],
+            "world_fact_ids": [fact["fact_id"] for fact in context.get("world_facts", [])[:10]],
             "unknowns": context.get("unknowns", []),
         }
 
 
-class OpenAICompatibleProvider(PlanningProvider):
-    """Optional JSON planner using an OpenAI-compatible chat-completions endpoint.
+class CognitiveProvider(PlanningProvider):
+    """Standalone bounded local cognition backed by durable hypotheses and predictions."""
 
-    The provider is not required for installation. Outputs are parsed against a
-    strict local plan schema before they can reach policy or tools.
-    """
+    def __init__(self, cognition: CognitiveEngine):
+        self.cognition = cognition
+
+    def create_plan(self, context: dict[str, Any]) -> dict[str, Any]:
+        return self.cognition.create_plan(context)
+
+
+class OpenAICompatibleProvider(PlanningProvider):
+    """Optional JSON planner using an OpenAI-compatible chat-completions endpoint."""
 
     def __init__(self, settings: dict[str, Any]):
-        self.base_url = str(
-            settings.get("base_url", "https://api.openai.com/v1")
-        ).rstrip("/")
+        self.base_url = str(settings.get("base_url", "https://api.openai.com/v1")).rstrip("/")
         parsed = urlparse(self.base_url)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname:
             raise ValueError("invalid provider base_url")
-        if parsed.scheme != "https" and parsed.hostname not in {
-            "127.0.0.1",
-            "localhost",
-            "::1",
-        }:
+        if parsed.scheme != "https" and parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
             raise ValueError("non-local provider endpoints require HTTPS")
         self.model = str(settings.get("model", ""))
         self.api_key_env = str(settings.get("api_key_env", "OPENAI_API_KEY"))
@@ -195,24 +178,19 @@ class OpenAICompatibleProvider(PlanningProvider):
     def create_plan(self, context: dict[str, Any]) -> dict[str, Any]:
         api_key = os.environ.get(self.api_key_env)
         if not api_key:
-            raise RuntimeError(
-                f"missing API key environment variable: {self.api_key_env}"
-            )
+            raise RuntimeError(f"missing API key environment variable: {self.api_key_env}")
         system = (
             "You are the bounded planner of a persistent local software-life runtime. "
             "Use only facts, memories, skills, and tools in the supplied context. "
             "Do not invent observations. Prefer no action over unsupported action. "
             "Return one JSON object with keys rationale, actions, memory_ids, world_fact_ids, unknowns. "
-            "Every action must have tool, arguments, purpose, expected_result, risk, goal_id, acceptance."
+            "Every action must have tool, arguments, purpose, expected_result, risk, goal_id, skill_id, acceptance."
         )
         body = {
             "model": self.model,
             "messages": [
                 {"role": "system", "content": system},
-                {
-                    "role": "user",
-                    "content": json.dumps(context, ensure_ascii=False, sort_keys=True),
-                },
+                {"role": "user", "content": json.dumps(context, ensure_ascii=False, sort_keys=True)},
             ],
             "temperature": 0,
             "response_format": {"type": "json_object"},
@@ -221,10 +199,7 @@ class OpenAICompatibleProvider(PlanningProvider):
             f"{self.base_url}/chat/completions",
             data=json.dumps(body).encode("utf-8"),
             method="POST",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
         )
         opener = build_opener(NoRedirect)
         with opener.open(request, timeout=self.timeout) as response:
@@ -233,13 +208,75 @@ class OpenAICompatibleProvider(PlanningProvider):
         return json.loads(content)
 
 
+class FallbackProvider(PlanningProvider):
+    """Use a primary provider when available and record every bounded local fallback."""
+
+    def __init__(
+        self,
+        primary: PlanningProvider,
+        fallback: PlanningProvider,
+        ledger: EvidenceLedger,
+        primary_name: str,
+        fallback_name: str,
+    ) -> None:
+        self.primary = primary
+        self.fallback = fallback
+        self.ledger = ledger
+        self.primary_name = primary_name
+        self.fallback_name = fallback_name
+
+    def create_plan(self, context: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return self.primary.create_plan(context)
+        except Exception as exc:
+            self.ledger.append(
+                "planning_provider_fallback",
+                {
+                    "cycle_id": context.get("cycle_id"),
+                    "primary": self.primary_name,
+                    "fallback": self.fallback_name,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc)[:1000],
+                },
+            )
+            return self.fallback.create_plan(context)
+
+
 class Planner:
-    def __init__(self, config: RuntimeConfig):
-        provider_type = str(config.provider.get("type", "deterministic"))
-        if provider_type == "deterministic":
-            self.provider: PlanningProvider = DeterministicProvider()
+    def __init__(
+        self,
+        config: RuntimeConfig,
+        cognition: CognitiveEngine | None = None,
+        ledger: EvidenceLedger | None = None,
+    ):
+        provider_type = str(config.provider.get("type", "cognitive"))
+        self.provider_type = provider_type
+        if provider_type == "cognitive":
+            if cognition is None:
+                raise ValueError("cognitive provider requires CognitiveEngine")
+            self.provider: PlanningProvider = CognitiveProvider(cognition)
+        elif provider_type == "deterministic":
+            self.provider = DeterministicProvider()
         elif provider_type == "openai_compatible":
-            self.provider = OpenAICompatibleProvider(config.provider)
+            primary = OpenAICompatibleProvider(config.provider)
+            fallback_name = str(config.provider.get("fallback", "cognitive"))
+            if fallback_name == "cognitive":
+                if cognition is None:
+                    raise ValueError("cognitive fallback requires CognitiveEngine")
+                fallback: PlanningProvider = CognitiveProvider(cognition)
+            elif fallback_name == "deterministic":
+                fallback = DeterministicProvider()
+            else:
+                raise ValueError(f"unknown provider fallback: {fallback_name}")
+            if ledger is None:
+                raise ValueError("provider fallback requires EvidenceLedger")
+            self.provider = FallbackProvider(
+                primary,
+                fallback,
+                ledger,
+                primary_name="openai_compatible",
+                fallback_name=fallback_name,
+            )
         else:
             raise ValueError(f"unknown provider type: {provider_type}")
 
@@ -259,14 +296,8 @@ class Planner:
             if not isinstance(item, dict):
                 raise ValueError(f"action {index} must be an object")
             expected_keys = {
-                "tool",
-                "arguments",
-                "purpose",
-                "expected_result",
-                "risk",
-                "goal_id",
-                "skill_id",
-                "acceptance",
+                "tool", "arguments", "purpose", "expected_result", "risk",
+                "goal_id", "skill_id", "acceptance",
             }
             extra = set(item) - expected_keys
             if extra:

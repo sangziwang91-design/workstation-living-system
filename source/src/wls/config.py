@@ -34,7 +34,9 @@ class RuntimeConfig:
     max_autonomous_goals: int = 3
     sensors: list[SensorConfig] = field(default_factory=list)
     tool_policy: dict[str, Any] = field(default_factory=dict)
-    provider: dict[str, Any] = field(default_factory=lambda: {"type": "deterministic"})
+    provider: dict[str, Any] = field(
+        default_factory=lambda: {"type": "cognitive", "fallback": "deterministic"}
+    )
     plugin_modules: list[str] = field(default_factory=list)
 
     @property
@@ -79,6 +81,23 @@ class RuntimeConfig:
             names.add(sensor.name)
             if sensor.interval_seconds <= 0:
                 raise ValueError(f"sensor interval must be positive: {sensor.name}")
+        provider_type = str(self.provider.get("type", "cognitive"))
+        if provider_type not in {"cognitive", "deterministic", "openai_compatible"}:
+            raise ValueError(f"unknown provider type: {provider_type}")
+        cognitive_min_confidence = float(
+            self.provider.get("cognitive_min_confidence", 0.52)
+        )
+        if not 0.0 <= cognitive_min_confidence <= 1.0:
+            raise ValueError("cognitive_min_confidence must be within [0, 1]")
+        cognitive_max_hypotheses = int(
+            self.provider.get("cognitive_max_hypotheses", 6)
+        )
+        if not 2 <= cognitive_max_hypotheses <= 20:
+            raise ValueError("cognitive_max_hypotheses must be within 2..20")
+        if provider_type == "openai_compatible":
+            fallback = str(self.provider.get("fallback", "cognitive"))
+            if fallback not in {"cognitive", "deterministic"}:
+                raise ValueError(f"unknown provider fallback: {fallback}")
 
     def ensure_directories(self) -> None:
         for path in (
