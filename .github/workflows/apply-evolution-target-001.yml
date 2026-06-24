@@ -10,6 +10,15 @@ on:
       - "LIVING_SYSTEM_GENOME.md"
       - ".github/workflows/apply-evolution-target-001.yml"
       - ".github/scripts/prepare-windows-runner.ps1"
+  push:
+    branches: [main]
+    paths:
+      - "pyproject.toml"
+      - "source/**"
+      - "CURRENT_STATE.yaml"
+      - "LIVING_SYSTEM_GENOME.md"
+      - ".github/workflows/apply-evolution-target-001.yml"
+      - ".github/scripts/prepare-windows-runner.ps1"
 
 permissions:
   contents: read
