@@ -37,7 +37,15 @@ jobs:
       - name: Run focused provider tests
         run: python -m pytest source/tests/test_provider_hub.py -q
       - name: Run full regression suite
-        run: python -m pytest source/tests -q
+        run: python -m pytest source/tests -q --tb=short --junitxml=provider-hub-full.xml
+      - name: Upload full-regression diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: provider-hub-full-${{ matrix.os }}-${{ matrix.python-version }}
+          path: provider-hub-full.xml
+          if-no-files-found: ignore
+          retention-days: 3
       - name: Lint
         run: python -m ruff check source/src source/tests source/scripts
       - name: Type check
