@@ -21,19 +21,36 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: evolution-chain-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PIP_CACHE_DIR: D:\actions-runner\_cache\pip
+  TEMP: D:\actions-runner\_temp
+  TMP: D:\actions-runner\_temp
+
 jobs:
   verify-control-plane:
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [windows-latest]
         python-version: ["3.11"]
-    runs-on: ${{ matrix.os }}
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 45
     steps:
+      - name: Prepare D-drive runtime directories
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force $env:PIP_CACHE_DIR | Out-Null
+          New-Item -ItemType Directory -Force $env:TEMP | Out-Null
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
       - name: Install focused test dependency
         run: python -m pip install pytest
       - name: Validate evolution control plane
