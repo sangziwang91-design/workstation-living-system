@@ -1,0 +1,57 @@
+name: Fix EVOLUTION-TARGET-003 typing
+
+on:
+  push:
+    branches:
+      - evolution-target-003-causal-memory
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  repair-and-verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: evolution-target-003-causal-memory
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Apply typed task specifications
+        run: python .github/fix_et003_types.py
+      - name: Remove temporary repair files
+        run: rm -f .github/fix_et003_types.py .github/workflows/fix-evolution-target-003-types.yml .github/et003-mypy-output.txt
+      - name: Install verification toolchain
+        run: python -m pip install --upgrade pip build pytest ruff mypy bandit
+      - name: Install WLS editable
+        run: python -m pip install -e "source[dev]"
+      - name: Compile
+        run: python -m compileall -q source/src source/tests source/scripts
+      - name: Tests
+        run: python -m pytest source/tests -q
+      - name: Verify EVOLUTION-TARGET-001
+        run: python source/scripts/verify_evolution_target_001.py
+      - name: Verify EVOLUTION-TARGET-002
+        run: python source/scripts/verify_evolution_target_002.py
+      - name: Verify EVOLUTION-TARGET-003 and write evidence
+        run: python source/scripts/verify_evolution_target_003.py --output source/verification/EVOLUTION_TARGET_003_LOCAL_20260624.json
+      - name: Lint
+        run: python -m ruff check source/src source/tests source/scripts
+      - name: Types
+        run: python -m mypy source/src/wls source/tests source/scripts --ignore-missing-imports
+      - name: Security scan
+        run: python -m bandit -q -r source/src/wls source/scripts
+      - name: Build package
+        run: python -m build source
+      - name: Commit verified typed implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(et003): close causal-memory typing boundaries"
+          git push origin HEAD:evolution-target-003-causal-memory
