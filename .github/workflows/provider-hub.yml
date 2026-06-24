@@ -34,6 +34,18 @@ jobs:
       - name: Import provider modules
         working-directory: source
         run: python -c "from wls.provider_hub import ProviderHub, PRESETS; from wls.provider_ui import PROVIDER_HUB_HTML; assert len(PRESETS) >= 6; assert 'WLS Provider Hub' in PROVIDER_HUB_HTML; print('provider hub imports verified')"
-      - name: Lint
+      - name: Lint provider hub
         working-directory: source
-        run: python -m ruff check src/wls
+        run: python -m ruff check src/wls/provider_hub.py
+      - name: Lint provider vault
+        working-directory: source
+        run: python -m ruff check src/wls/provider_secrets.py
+      - name: Lint provider UI
+        working-directory: source
+        run: python -m ruff check src/wls/provider_ui.py
+      - name: Lint provider CLI
+        working-directory: source
+        run: python -m ruff check src/wls/provider_cli.py
+      - name: Lint server integration
+        working-directory: source
+        run: python -m ruff check src/wls/server.py
