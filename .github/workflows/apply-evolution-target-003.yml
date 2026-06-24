@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - evolution-target-003-causal-memory
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
