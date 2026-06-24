@@ -18,11 +18,31 @@ on:
       - ".github/workflows/evolution-chain.yml"
   workflow_dispatch:
 
+concurrency:
+  group: evolution-chain-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
-  verify-control-plane:
+  pr-control-plane:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install focused test dependency
+        run: python -m pip install pytest
+      - name: Validate evolution control plane
+        run: python source/scripts/validate_evolution_chain.py
+      - name: Run focused evolution-chain tests
+        run: python -m pytest source/tests/test_evolution_chain.py -q
+
+  main-control-plane:
+    if: github.event_name != 'pull_request'
     strategy:
       fail-fast: false
       matrix:
