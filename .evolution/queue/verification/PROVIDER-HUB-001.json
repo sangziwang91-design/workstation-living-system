@@ -1,0 +1,113 @@
+{
+  "schema_version": "1.0",
+  "task_id": "PROVIDER-HUB-001",
+  "target_id": "PROVIDER-HUB-001-LOCAL-SWITCHBOARD",
+  "title": "Build a loopback-only provider switchboard with OS-vault credential separation",
+  "status": "VERIFICATION",
+  "priority": 80,
+  "risk": "MODERATE",
+  "minimum_worker_capability": "repository_engineering",
+  "worker": {
+    "assigned_worker_id": "chatgpt_interactive",
+    "lease_mode": "OWNER_ASSIGNED",
+    "provider_status_required": "ACTIVE"
+  },
+  "context": {
+    "repository": "sangziwang91-design/workstation-living-system-private",
+    "base_ref": "main",
+    "canonical_runtime": "source/src/wls/runtime.py::LivingSystem",
+    "github_evidence": [
+      "Owner requested a CC-Switch-style provider page where registration and credential supply are the only manual steps.",
+      "Existing WLS server is loopback-only and the canonical planner already supports one optional OpenAI-compatible provider.",
+      "Repo-native evolution control plane is ACTIVE_CI_VERIFIED."
+    ],
+    "notion_page_id": "38940ff6ad6281b6bd69d700c9322d77",
+    "notion_page_url": "https://app.notion.com/p/38940ff6ad6281b6bd69d700c9322d77",
+    "context_claim_class": "VERIFIED"
+  },
+  "objective": "Create a local provider registry, secure operating-system credential-vault adapter, connectivity and model-discovery probes, CLI, and responsive provider page without attaching any external provider to canonical WLS cognition.",
+  "allowed_paths": [
+    "source/src/wls/provider_hub.py",
+    "source/src/wls/provider_secrets.py",
+    "source/src/wls/provider_ui.py",
+    "source/src/wls/provider_cli.py",
+    "source/src/wls/server.py",
+    "source/tests/test_provider_hub.py",
+    "source/requirements-provider-hub.txt",
+    "docs/PROVIDER_HUB.md",
+    ".github/workflows/provider-hub.yml",
+    ".evolution/queue/verification/PROVIDER-HUB-001.json"
+  ],
+  "forbidden_changes": [
+    "Do not attach a selected provider to RuntimeConfig.provider or the canonical Planner.",
+    "Do not store provider credentials in Git, Notion, SQLite, provider_hub.json, browser storage, URLs, or logs.",
+    "Do not accept provider credentials through the browser page.",
+    "Do not enable automatic paid fallback or assign write authority to a provider.",
+    "Do not change LivingSystem identity, ET004 implementation, policy gates, owner approval, or rollback authority.",
+    "Do not implement account rotation, quota evasion, or provider-terms bypass."
+  ],
+  "acceptance": {
+    "commands": [
+      "cd source && python -m pytest tests/test_provider_hub.py -q",
+      "cd source && python -m pytest tests -q",
+      "cd source && python -m ruff check src/wls tests/test_provider_hub.py"
+    ],
+    "conditions": [
+      "The provider page binds only through the existing loopback server and requires an ephemeral UI session for provider APIs.",
+      "Browser routes reject credential-bearing request bodies.",
+      "Provider credentials are delegated to an operating-system vault adapter or a process-scoped environment fallback.",
+      "Provider metadata contains no credential values and paid fallback remains disabled.",
+      "Model-list probes block redirects, require HTTPS outside loopback, enforce timeout and response-size limits, and sanitize errors.",
+      "Provider selection remains candidate-only and reports runtime_attached false.",
+      "Existing WLS tests and the focused Ubuntu and Windows matrix remain green."
+    ],
+    "evidence_required": [
+      "focused provider hub test results",
+      "full WLS regression result",
+      "provider hub pull request diff",
+      "Ubuntu and Windows workflow results",
+      "manual owner-host keyring and provider probe evidence before runtime admission"
+    ]
+  },
+  "stop_conditions": [
+    "Stop if safe credential storage requires writing plaintext provider keys to WLS files.",
+    "Stop if the page must expose a credential to browser storage or a URL.",
+    "Stop if implementation requires replacing the canonical planner or enabling provider use before admission.",
+    "Stop if a preset cannot be bounded to official HTTPS endpoints or an owner-approved loopback endpoint."
+  ],
+  "dependencies": [
+    "WLS-REPO-NATIVE-EVOLUTION-001 active",
+    "owner supplies each provider credential after registering"
+  ],
+  "output_contract": {
+    "changed_files": [
+      "source/src/wls/provider_hub.py",
+      "source/src/wls/provider_secrets.py",
+      "source/src/wls/provider_ui.py",
+      "source/src/wls/provider_cli.py",
+      "source/src/wls/server.py",
+      "source/tests/test_provider_hub.py",
+      "source/requirements-provider-hub.txt",
+      "docs/PROVIDER_HUB.md",
+      ".github/workflows/provider-hub.yml",
+      ".evolution/queue/verification/PROVIDER-HUB-001.json"
+    ],
+    "tests": [],
+    "evidence": [],
+    "unknowns": [
+      "Real provider credentials and free-tier availability are not present in CI.",
+      "Windows Credential Manager behavior requires owner-host verification.",
+      "No provider is admitted to canonical WLS cognition in this target."
+    ],
+    "next_action": "Open an isolated pull request, run focused and full regression gates, then request one owner-host vault and connectivity check before any provider admission target."
+  },
+  "handoff": {
+    "summary": "Provider Hub implementation is isolated on provider-hub-001-local-switchboard and remains candidate-only.",
+    "blocker": "CI and owner-host credential-vault verification are pending.",
+    "supersedes": null
+  },
+  "timestamps": {
+    "created_at": "2026-06-24T13:00:00+08:00",
+    "updated_at": "2026-06-24T13:00:00+08:00"
+  }
+}
