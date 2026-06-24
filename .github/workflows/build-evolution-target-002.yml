@@ -3,6 +3,7 @@ name: Verify EVOLUTION-TARGET-002
 on:
   pull_request:
     paths:
+      - "pyproject.toml"
       - "source/**"
       - "CURRENT_STATE.yaml"
       - "README.md"
@@ -20,10 +21,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - name: Install verification toolchain
-        run: python -m pip install --upgrade pip build pytest ruff mypy bandit
-      - name: Install WLS editable
-        run: python -m pip install -e "source[dev]"
+      - name: Install WLS and verification toolchain from root
+        run: python -m pip install -e ".[dev]"
+      - name: Verify repository layout
+        run: python source/scripts/verify_packaging_layout.py
       - name: Compile
         run: python -m compileall -q source/src source/tests source/scripts
       - name: Tests
@@ -37,4 +38,4 @@ jobs:
       - name: Security scan
         run: python -m bandit -q -r source/src/wls source/scripts
       - name: Build package
-        run: python -m build source
+        run: python -m build .
