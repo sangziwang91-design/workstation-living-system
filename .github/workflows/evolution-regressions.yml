@@ -1,0 +1,49 @@
+name: Verify Evolution Regressions
+
+on:
+  pull_request:
+    paths:
+      - "source/src/wls/**"
+      - "source/scripts/verify_evolution_target_*.py"
+      - "source/tests/**"
+      - "CURRENT_STATE.yaml"
+      - "LIVING_SYSTEM_GENOME.md"
+      - "docs/EVOLUTION_TARGET_003.md"
+      - ".github/workflows/evolution-regressions.yml"
+  push:
+    branches: [main]
+    paths:
+      - "source/src/wls/**"
+      - "source/scripts/verify_evolution_target_*.py"
+      - "source/tests/**"
+      - "CURRENT_STATE.yaml"
+      - "LIVING_SYSTEM_GENOME.md"
+      - "docs/EVOLUTION_TARGET_003.md"
+      - ".github/workflows/evolution-regressions.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: evolution-regressions-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install WLS from the sole project root
+        run: python -m pip install -e ".[dev]"
+      - name: Verify repository invariants
+        run: python source/scripts/verify_packaging_layout.py
+      - name: Verify EVOLUTION-TARGET-001
+        run: python source/scripts/verify_evolution_target_001.py
+      - name: Verify EVOLUTION-TARGET-002
+        run: python source/scripts/verify_evolution_target_002.py
+      - name: Verify EVOLUTION-TARGET-003
+        run: python source/scripts/verify_evolution_target_003.py
