@@ -1,9 +1,9 @@
 name: Recover EVOLUTION-TARGET-004 implementation
 
 on:
-  push:
-    branches:
-      - evolution-target-004-persistent-goals
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
     paths:
       - ".github/workflows/recover-et004-implementation.yml"
 
