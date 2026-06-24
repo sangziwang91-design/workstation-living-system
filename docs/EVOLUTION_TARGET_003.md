@@ -2,9 +2,9 @@
 
 ## Status
 
-`IMPLEMENTED_LOCAL_VERIFIED_CI_MATRIX_PENDING`
+`IMPLEMENTED_LOCAL_AND_CI_VERIFIED_HOST_LONGITUDINAL_PENDING`
 
-The integrated branch passed the complete local gate chain on Ubuntu/Python 3.13 in workflow run `28069443561`: compile, 14 tests, ET001, ET002, ET003 verification, ruff, mypy, bandit, and package build. The final pull-request matrix remains the acceptance gate before the state can be upgraded to CI-verified.
+The integrated branch passed the complete gate chain locally and in CI. Workflow `28069443561` passed compile, 14 tests, ET001, ET002, ET003 verification, ruff, mypy, bandit, and package build on Ubuntu/Python 3.13. Workflow `28069530018` repeated the full chain on Ubuntu and Windows with Python 3.11 and 3.13. Canonical WLS CI `28069530010` and the independent ET001/ET002 regressions `28069530007` / `28069530013` also passed.
 
 This target extends the canonical `LivingSystem`. It does not create a second runtime, planner identity, or memory authority.
 
@@ -59,9 +59,9 @@ The verifier creates two isolated runtimes with the same memory record and the s
 - A: `memory_mode=enabled`;
 - B: `memory_mode=disabled`.
 
-The sequence includes repeated instances of a known failure mechanism, a restart, and an applicability-mismatched control task. The report compares success rate, failure recurrence, wrong-tool rate, prediction confirmation, decision stability, task completion, and regressions.
+The sequence includes repeated instances of a known failure mechanism, a restart, and an applicability-mismatched control task. The verified memory-enabled arm completed 4/4 tasks with zero recurring failures and zero wrong-tool decisions; the frozen memory-disabled baseline completed 1/4, repeated two failures, and used the wrong tool in 3/4 tasks. Both arms completed the applicability-mismatched control task, so the measured advantage was not obtained by globally disabling the original action.
 
-A separate probe supplies repeated counterevidence to a misleading memory, verifies `WEAKENED -> REFUTED`, restarts the runtime, and confirms that the memory stays suppressed while the unmodified bounded action succeeds.
+A separate probe supplies repeated counterevidence to a misleading memory, verifies `ACTIVE -> WEAKENED -> REFUTED`, restarts the runtime, and confirms that the memory stays suppressed while the unmodified bounded action succeeds.
 
 ## Verification
 
@@ -77,10 +77,12 @@ python -m bandit -q -r source/src/wls source/scripts
 python -m build source
 ```
 
+The durable report is `source/verification/EVOLUTION_TARGET_003_LOCAL_20260624.json`.
+
 ## Claim boundary
 
 A passing ET003 report supports only this statement:
 
-> WLS has a locally verified causal-memory retrieval and memory-advantage evaluation mechanism. In a controlled frozen ablation, an attributable memory changes a bounded decision and improves the specified task outcome; repeated counterevidence weakens and refutes a memory, and valid or refuted state persists across restart.
+> WLS has a locally and CI-verified causal-memory retrieval and memory-advantage evaluation mechanism. In a controlled frozen ablation, an attributable memory changes a bounded decision and improves the specified task outcome; repeated counterevidence weakens and refutes a memory, and valid or refuted state persists across restart.
 
-It does not prove production-host advantage, multi-month adaptation, general intelligence, consciousness, subjective emotion, or unrestricted self-rewrite.
+It does not prove production-host advantage, multi-month adaptation, statistical real-world generalization, general intelligence, consciousness, subjective emotion, or unrestricted self-rewrite.
