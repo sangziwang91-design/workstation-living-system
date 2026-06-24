@@ -14,6 +14,7 @@ jobs:
   replay-verify-commit:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
       PATCH_SHA256: "81bcb40abeae266595dab1dc9dadf218a6c6a6a328cbd27acf6b5fb4f58f6ea5"
