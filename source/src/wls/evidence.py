@@ -23,17 +23,29 @@ class EvidenceLedger:
     def _load_or_create_secret(self) -> bytes:
         if self.secret_path.exists():
             data = self.secret_path.read_bytes()
-            if len(data) < 32:
-                raise ValueError("evidence key is too short")
+            if len(data) != 32:
+                raise ValueError(
+                    "evidence key must be exactly 32 bytes; "
+                    "the file may have legacy Windows text-mode corruption"
+                )
             return data
         data = os.urandom(32)
-        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
         descriptor = os.open(self.secret_path, flags, 0o600)
         try:
-            os.write(descriptor, data)
+            remaining = memoryview(data)
+            while remaining:
+                written = os.write(descriptor, remaining)
+                if written <= 0:
+                    raise OSError("failed to persist evidence key")
+                remaining = remaining[written:]
             os.fsync(descriptor)
         finally:
             os.close(descriptor)
+        persisted = self.secret_path.read_bytes()
+        if not hmac.compare_digest(persisted, data):
+            self.secret_path.unlink(missing_ok=True)
+            raise OSError("evidence key binary round-trip verification failed")
         try:
             os.chmod(self.secret_path, 0o600)
         except OSError:
