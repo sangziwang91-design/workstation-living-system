@@ -1,26 +1,59 @@
 [CmdletBinding()]
-param()
+param(
+    [Parameter(Mandatory = $true)]
+    [ValidateSet("3.11", "3.13")]
+    [string]$PythonVersion
+)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$sevenZip = "D:\Tools\7-Zip\7z.exe"
-
-if (-not (Test-Path -LiteralPath $sevenZip)) {
-    throw "Required 7-Zip binary is missing: $sevenZip"
+$basePython = switch ($PythonVersion) {
+    "3.11" { "D:\Tools\Python311\python.exe" }
+    "3.13" { "D:\Tools\Python313\python.exe" }
+    default { throw "Unsupported Python version: $PythonVersion" }
 }
 
-if (-not $env:GITHUB_PATH) {
-    throw "GITHUB_PATH is not available in this runner step."
+if (-not (Test-Path -LiteralPath $basePython)) {
+    throw "Required local Python is missing: $basePython"
 }
 
-$sevenZipDir = Split-Path -Path $sevenZip -Parent
-$sevenZipDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-$env:Path = "$sevenZipDir;$env:Path"
+if (-not $env:RUNNER_TEMP) {
+    throw "RUNNER_TEMP is not available."
+}
 
-& $sevenZip i | Select-Object -First 12
+if (-not $env:GITHUB_ENV) {
+    throw "GITHUB_ENV is not available."
+}
+
+$versionTag = $PythonVersion.Replace(".", "")
+$attempt = if ($env:GITHUB_RUN_ATTEMPT) { $env:GITHUB_RUN_ATTEMPT } else { "1" }
+$venvRoot = Join-Path $env:RUNNER_TEMP "wls-$($env:GITHUB_RUN_ID)-$attempt-$($env:GITHUB_JOB)-py$versionTag"
+
+if (Test-Path -LiteralPath $venvRoot) {
+    Remove-Item -LiteralPath $venvRoot -Recurse -Force
+}
+
+& $basePython -m venv $venvRoot
 if ($LASTEXITCODE -ne 0) {
-    throw "7-Zip execution failed with exit code $LASTEXITCODE"
+    throw "Failed to create virtual environment with $basePython"
 }
 
-Write-Host "Windows runner prerequisite ready: $sevenZip"
+$pythonExe = Join-Path $venvRoot "Scripts\python.exe"
+if (-not (Test-Path -LiteralPath $pythonExe)) {
+    throw "Virtual-environment Python was not created: $pythonExe"
+}
+
+$actualVersion = (& $pythonExe -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')").Trim()
+if ($actualVersion -ne $PythonVersion) {
+    throw "Python version mismatch. Expected $PythonVersion, got $actualVersion"
+}
+
+"PYTHON_VERSION=$PythonVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+"PYTHON_ROOT=$venvRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+"PYTHON_EXE=$pythonExe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+& $pythonExe --version
+& $pythonExe -m pip --version
+
+Write-Host "Local Python runtime ready: base=$basePython venv=$venvRoot"
