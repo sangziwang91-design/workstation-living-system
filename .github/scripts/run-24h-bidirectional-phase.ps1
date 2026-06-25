@@ -92,7 +92,7 @@ for ($cycle = 1; $cycle -le $Cycles; $cycle++) {
     Write-Host "BIDIRECTIONAL_WLS_HEARTBEAT $json"
 
     if ($env:GITHUB_STEP_SUMMARY) {
-        $summary = "- Phase $Phase cycle $cycle: WLS=$($wlsProbe.cycle_status) integrity=$($wlsProbe.integrity.ok) github=$github443 broker=$broker443 service=$($service.Status) at $($sample.observed_at_utc)"
+        $summary = "- Phase $Phase cycle ${cycle}: WLS=$($wlsProbe.cycle_status) integrity=$($wlsProbe.integrity.ok) github=$github443 broker=$broker443 service=$($service.Status) at $($sample.observed_at_utc)"
         Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $summary
     }
 
