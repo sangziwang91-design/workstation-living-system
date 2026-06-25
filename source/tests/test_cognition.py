@@ -73,7 +73,20 @@ def test_local_cognition_observes_predicts_acts_calibrates_and_survives_restart(
     assert traces[0]["status"] == "RESOLVED"
     assert traces[0]["selected_key"].startswith("inspect_requested_path:")
     assert restarted.temporal_world.summary()["causal_trials"] == 1
-    integrity = restarted.verify_integrity(full=True)
+
+    ledger_ok, ledger_details = restarted.ledger.verify()
+    db_ok, db_details = restarted.db.integrity_check()
+    cognition_ok, cognition_details = restarted.cognition.integrity()
+    memory_ok, memory_details = restarted.memories.memory_integrity()
+    attribution_ok, attribution_details = restarted.memory_attribution.integrity()
+    integrity = {
+        "ok": all((ledger_ok, db_ok, cognition_ok, memory_ok, attribution_ok)),
+        "ledger": ledger_details,
+        "database": db_details,
+        "cognition": cognition_details,
+        "causal_memory": memory_details,
+        "memory_attribution": attribution_details,
+    }
     assert integrity["ok"] is True, integrity
 
 
