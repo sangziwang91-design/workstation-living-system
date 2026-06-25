@@ -22,8 +22,12 @@ if (-not $env:RUNNER_TEMP) {
     throw "RUNNER_TEMP is not available."
 }
 
-if (-not $env:GITHUB_ENV) {
-    throw "GITHUB_ENV is not available."
+if (-not $env:GITHUB_ENV -or -not $env:GITHUB_PATH) {
+    throw "GitHub environment files are not available."
+}
+
+if ($env:PIP_CACHE_DIR) {
+    New-Item -ItemType Directory -Force $env:PIP_CACHE_DIR | Out-Null
 }
 
 $versionTag = $PythonVersion.Replace(".", "")
@@ -40,6 +44,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $pythonExe = Join-Path $venvRoot "Scripts\python.exe"
+$scriptsDir = Join-Path $venvRoot "Scripts"
 if (-not (Test-Path -LiteralPath $pythonExe)) {
     throw "Virtual-environment Python was not created: $pythonExe"
 }
@@ -52,6 +57,8 @@ if ($actualVersion -ne $PythonVersion) {
 "PYTHON_VERSION=$PythonVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 "PYTHON_ROOT=$venvRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 "PYTHON_EXE=$pythonExe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+"VIRTUAL_ENV=$venvRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+$scriptsDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
 & $pythonExe --version
 & $pythonExe -m pip --version
