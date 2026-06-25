@@ -1,0 +1,59 @@
+{
+  "schema_version": "1.0",
+  "phase": "P0",
+  "evidence_status": "SANDBOX_VERIFIED_WITH_LIMITS",
+  "verified_date": "2026-06-24",
+  "tested_script_path": "source/pilots/compiled_memory_p0/WLS_COMPILED_MEMORY_P0.py",
+  "tested_script_git_blob_sha1": "dcd98db97a4f4b09581b572e65f354a2a7cba8f5",
+  "tested_script_sha256": "ed765854fd8fbc398a61b0b113679063b9416dda212948888d345bcd0564b70b",
+  "execution": {
+    "compile_check": "PASS",
+    "self_test_exit": 0,
+    "scope": 30,
+    "category_count": 6,
+    "sources_per_category": 5,
+    "r_loop_counterexamples_per_claim_min": 2
+  },
+  "tests": {
+    "T1": {
+      "questions": 10,
+      "correct": 10,
+      "errors": 0,
+      "error_rate": 0.0,
+      "threshold": "<0.10",
+      "passed": true
+    },
+    "T2": {
+      "fixtures": 5,
+      "detected": 5,
+      "detection_rate": 1.0,
+      "threshold": ">=0.80",
+      "passed": true
+    },
+    "T3": {
+      "verified_claims": 10,
+      "source_bindings": 18,
+      "registered_and_parseable_bindings": 18,
+      "coverage": 1.0,
+      "passed": true
+    },
+    "T4": {
+      "unsourced_verified_count": 0,
+      "negative_mutation_unsourced_verified_rejected": true,
+      "passed": true
+    },
+    "T5": {
+      "obsolete_provider_hub_sources_checked": ["OLD-001", "OLD-002", "OLD-003"],
+      "obsolete_sources_eligible_for_current": 0,
+      "passed": true
+    }
+  },
+  "claim_ceiling": [
+    "This validates a fixed 30-source sandbox fixture and the exact script blob only.",
+    "It does not prove owner-host integration, continuous ingest, full-corpus coverage, production reliability, external value, or a completed second brain.",
+    "Source existence and content were checked during P0 construction; the runtime validator itself performs deterministic registry and URL-shape validation and does not fetch the network.",
+    "Generated CURRENT_STATE.md remains a disposable lower-authority projection and cannot override GitHub/runtime current-state anchors."
+  ],
+  "next_gate": "OWNER_HOST_P0_ACCEPTANCE_ONLY",
+  "p1_authorized": false
+}
