@@ -73,7 +73,8 @@ def test_local_cognition_observes_predicts_acts_calibrates_and_survives_restart(
     assert traces[0]["status"] == "RESOLVED"
     assert traces[0]["selected_key"].startswith("inspect_requested_path:")
     assert restarted.temporal_world.summary()["causal_trials"] == 1
-    assert restarted.verify_integrity(full=True)["ok"] is True
+    integrity = restarted.verify_integrity(full=True)
+    assert integrity["ok"] is True, integrity
 
 
 def test_promoted_procedural_memory_changes_the_selected_behavior(tmp_path: Path) -> None:
