@@ -14,10 +14,14 @@ from wls.evidence import EvidenceLedger
 NEWLINE_KEY = b"\n" * 32
 
 
+def _newline_bytes(size: int) -> bytes:
+    return NEWLINE_KEY[:size]
+
+
 def test_evidence_key_round_trips_binary_bytes_across_restart(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(evidence_module.os, "urandom", lambda size: NEWLINE_KEY)
+    monkeypatch.setattr(evidence_module.os, "urandom", _newline_bytes)
     database = Database(tmp_path / "state" / "wls.db")
     key_path = tmp_path / "secrets" / "evidence.key"
 
@@ -32,7 +36,7 @@ def test_evidence_key_round_trips_binary_bytes_across_restart(
 def test_approval_key_round_trips_binary_bytes_across_restart(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(approval_module.os, "urandom", lambda size: NEWLINE_KEY)
+    monkeypatch.setattr(approval_module.os, "urandom", _newline_bytes)
     database = Database(tmp_path / "state" / "wls.db")
     evidence_key = tmp_path / "secrets" / "evidence.key"
     approval_key = tmp_path / "secrets" / "approval.key"
