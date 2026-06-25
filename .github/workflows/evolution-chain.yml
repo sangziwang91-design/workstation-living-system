@@ -8,6 +8,7 @@ on:
       - "source/scripts/validate_evolution_chain.py"
       - "source/tests/test_evolution_chain.py"
       - ".github/workflows/evolution-chain.yml"
+      - ".github/scripts/prepare-windows-runner.ps1"
   push:
     branches: [main]
     paths:
@@ -16,27 +17,44 @@ on:
       - "source/scripts/validate_evolution_chain.py"
       - "source/tests/test_evolution_chain.py"
       - ".github/workflows/evolution-chain.yml"
+      - ".github/scripts/prepare-windows-runner.ps1"
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: evolution-chain-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PIP_CACHE_DIR: D:\actions-runner\_cache\pip
+  PIP_DEFAULT_TIMEOUT: "120"
+  PIP_RETRIES: "10"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  TEMP: D:\actions-runner\_temp
+  TMP: D:\actions-runner\_temp
+
 jobs:
   verify-control-plane:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-        python-version: ["3.11"]
-    runs-on: ${{ matrix.os }}
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
+      - name: Prepare D-drive runtime directories
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force $env:PIP_CACHE_DIR | Out-Null
+          New-Item -ItemType Directory -Force $env:TEMP | Out-Null
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - name: Prepare isolated local Python
+        shell: powershell
+        run: .\.github\scripts\prepare-windows-runner.ps1 -PythonVersion "3.11"
       - name: Install focused test dependency
-        run: python -m pip install pytest
+        shell: powershell
+        run: '& $env:PYTHON_EXE -m pip install --retries 10 --timeout 120 pytest'
       - name: Validate evolution control plane
-        run: python source/scripts/validate_evolution_chain.py
+        shell: powershell
+        run: '& $env:PYTHON_EXE source/scripts/validate_evolution_chain.py'
       - name: Run focused evolution-chain tests
-        run: python -m pytest source/tests/test_evolution_chain.py -q
+        shell: powershell
+        run: '& $env:PYTHON_EXE -m pytest source/tests/test_evolution_chain.py -q'

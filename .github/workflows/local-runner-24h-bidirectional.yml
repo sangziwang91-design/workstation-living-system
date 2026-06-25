@@ -1,0 +1,259 @@
+name: Local Runner 24h Bidirectional Soak
+
+on:
+  workflow_run:
+    workflows:
+      - WLS CI
+      - Verify Repository Invariants
+      - Verify Repo-Native Evolution Chain
+      - Verify EVOLUTION-TARGET-001
+      - Verify EVOLUTION-TARGET-002
+      - Verify EVOLUTION-TARGET-003
+    types: [completed]
+    branches: [main]
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: local-runner-24h-bidirectional
+  cancel-in-progress: false
+
+env:
+  CAMPAIGN_ID: LOCAL-RUNNER-24H-001
+  STATE_ROOT: D:\actions-runner\_state
+  PIP_CACHE_DIR: D:\actions-runner\_cache\pip
+  TEMP: D:\actions-runner\_temp
+  TMP: D:\actions-runner\_temp
+
+jobs:
+  guard:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 15
+    outputs:
+      start: ${{ steps.evaluate.outputs.start }}
+      campaign: ${{ steps.evaluate.outputs.campaign }}
+      sha: ${{ steps.evaluate.outputs.sha }}
+    steps:
+      - name: Evaluate full main-branch verification state
+        id: evaluate
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force $env:STATE_ROOT | Out-Null
+
+          $active = Join-Path $env:STATE_ROOT "$env:CAMPAIGN_ID.active.json"
+          $completed = Join-Path $env:STATE_ROOT "$env:CAMPAIGN_ID.completed.json"
+          $shortSha = $env:TARGET_SHA.Substring(0, [Math]::Min(12, $env:TARGET_SHA.Length))
+          $instance = "$env:CAMPAIGN_ID-$shortSha-${{ github.run_id }}"
+
+          "campaign=$instance" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "sha=$env:TARGET_SHA" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+          if ((Test-Path $completed) -or (Test-Path $active)) {
+            "start=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            Write-Host "24-hour campaign is already active or completed."
+            exit 0
+          }
+
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = "application/vnd.github+json"
+            "X-GitHub-Api-Version" = "2022-11-28"
+          }
+          $uri = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/runs?head_sha=$env:TARGET_SHA&event=push&per_page=100"
+          $response = Invoke-RestMethod -Uri $uri -Headers $headers -Method Get
+
+          $required = @(
+            "WLS CI",
+            "Verify Repository Invariants",
+            "Verify Repo-Native Evolution Chain",
+            "Verify EVOLUTION-TARGET-001",
+            "Verify EVOLUTION-TARGET-002",
+            "Verify EVOLUTION-TARGET-003"
+          )
+
+          $notReady = @()
+          foreach ($name in $required) {
+            $run = $response.workflow_runs |
+              Where-Object { $_.name -eq $name } |
+              Sort-Object run_number -Descending |
+              Select-Object -First 1
+
+            if (-not $run -or $run.status -ne "completed" -or $run.conclusion -ne "success") {
+              $notReady += $name
+            }
+          }
+
+          if ($notReady.Count -gt 0) {
+            "start=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            Write-Host "Main verification is not fully green: $($notReady -join ', ')"
+            exit 0
+          }
+
+          [ordered]@{
+            campaign_family = $env:CAMPAIGN_ID
+            campaign_instance = $instance
+            commit_sha = $env:TARGET_SHA
+            started_at_utc = [DateTime]::UtcNow.ToString("o")
+            trigger_run_id = "${{ github.run_id }}"
+          } | ConvertTo-Json | Set-Content -Path $active -Encoding utf8
+
+          "start=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host "All six main verification workflows are green. Starting $instance."
+
+  phase_1:
+    needs: guard
+    if: needs.guard.outputs.start == 'true'
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 270
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ needs.guard.outputs.sha }}
+      - name: Prepare isolated Python 3.13
+        shell: powershell
+        run: .\.github\scripts\prepare-windows-runner.ps1 -PythonVersion "3.13"
+      - name: Run bidirectional WLS phase 1 of 6
+        shell: powershell
+        run: |
+          $env:PYTHONPATH = Join-Path $env:GITHUB_WORKSPACE "source\src"
+          .\.github\scripts\run-24h-bidirectional-phase.ps1 -Phase 1 -Campaign "${{ needs.guard.outputs.campaign }}" -CommitSha "${{ needs.guard.outputs.sha }}" -PythonExe $env:PYTHON_EXE
+
+  phase_2:
+    needs: [guard, phase_1]
+    if: needs.guard.outputs.start == 'true' && needs.phase_1.result == 'success'
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 270
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ needs.guard.outputs.sha }}
+      - name: Prepare isolated Python 3.13
+        shell: powershell
+        run: .\.github\scripts\prepare-windows-runner.ps1 -PythonVersion "3.13"
+      - name: Run bidirectional WLS phase 2 of 6
+        shell: powershell
+        run: |
+          $env:PYTHONPATH = Join-Path $env:GITHUB_WORKSPACE "source\src"
+          .\.github\scripts\run-24h-bidirectional-phase.ps1 -Phase 2 -Campaign "${{ needs.guard.outputs.campaign }}" -CommitSha "${{ needs.guard.outputs.sha }}" -PythonExe $env:PYTHON_EXE
+
+  phase_3:
+    needs: [guard, phase_2]
+    if: needs.guard.outputs.start == 'true' && needs.phase_2.result == 'success'
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 270
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ needs.guard.outputs.sha }}
+      - name: Prepare isolated Python 3.13
+        shell: powershell
+        run: .\.github\scripts\prepare-windows-runner.ps1 -PythonVersion "3.13"
+      - name: Run bidirectional WLS phase 3 of 6
+        shell: powershell
+        run: |
+          $env:PYTHONPATH = Join-Path $env:GITHUB_WORKSPACE "source\src"
+          .\.github\scripts\run-24h-bidirectional-phase.ps1 -Phase 3 -Campaign "${{ needs.guard.outputs.campaign }}" -CommitSha "${{ needs.guard.outputs.sha }}" -PythonExe $env:PYTHON_EXE
+
+  phase_4:
+    needs: [guard, phase_3]
+    if: needs.guard.outputs.start == 'true' && needs.phase_3.result == 'success'
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 270
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ needs.guard.outputs.sha }}
+      - name: Prepare isolated Python 3.13
+        shell: powershell
+        run: .\.github\scripts\prepare-windows-runner.ps1 -PythonVersion "3.13"
+      - name: Run bidirectional WLS phase 4 of 6
+        shell: powershell
+        run: |
+          $env:PYTHONPATH = Join-Path $env:GITHUB_WORKSPACE "source\src"
+          .\.github\scripts\run-24h-bidirectional-phase.ps1 -Phase 4 -Campaign "${{ needs.guard.outputs.campaign }}" -CommitSha "${{ needs.guard.outputs.sha }}" -PythonExe $env:PYTHON_EXE
+
+  phase_5:
+    needs: [guard, phase_4]
+    if: needs.guard.outputs.start == 'true' && needs.phase_4.result == 'success'
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 270
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ needs.guard.outputs.sha }}
+      - name: Prepare isolated Python 3.13
+        shell: powershell
+        run: .\.github\scripts\prepare-windows-runner.ps1 -PythonVersion "3.13"
+      - name: Run bidirectional WLS phase 5 of 6
+        shell: powershell
+        run: |
+          $env:PYTHONPATH = Join-Path $env:GITHUB_WORKSPACE "source\src"
+          .\.github\scripts\run-24h-bidirectional-phase.ps1 -Phase 5 -Campaign "${{ needs.guard.outputs.campaign }}" -CommitSha "${{ needs.guard.outputs.sha }}" -PythonExe $env:PYTHON_EXE
+
+  phase_6:
+    needs: [guard, phase_5]
+    if: needs.guard.outputs.start == 'true' && needs.phase_5.result == 'success'
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 270
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ needs.guard.outputs.sha }}
+      - name: Prepare isolated Python 3.13
+        shell: powershell
+        run: .\.github\scripts\prepare-windows-runner.ps1 -PythonVersion "3.13"
+      - name: Run bidirectional WLS phase 6 of 6
+        shell: powershell
+        run: |
+          $env:PYTHONPATH = Join-Path $env:GITHUB_WORKSPACE "source\src"
+          .\.github\scripts\run-24h-bidirectional-phase.ps1 -Phase 6 -Campaign "${{ needs.guard.outputs.campaign }}" -CommitSha "${{ needs.guard.outputs.sha }}" -PythonExe $env:PYTHON_EXE
+
+  finalize_success:
+    needs: [guard, phase_1, phase_2, phase_3, phase_4, phase_5, phase_6]
+    if: always() && needs.guard.outputs.start == 'true' && needs.phase_1.result == 'success' && needs.phase_2.result == 'success' && needs.phase_3.result == 'success' && needs.phase_4.result == 'success' && needs.phase_5.result == 'success' && needs.phase_6.result == 'success'
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 15
+    steps:
+      - name: Finalize successful 24-hour campaign
+        shell: powershell
+        run: |
+          $active = Join-Path $env:STATE_ROOT "$env:CAMPAIGN_ID.active.json"
+          $completed = Join-Path $env:STATE_ROOT "$env:CAMPAIGN_ID.completed.json"
+          [ordered]@{
+            campaign_family = $env:CAMPAIGN_ID
+            campaign_instance = "${{ needs.guard.outputs.campaign }}"
+            commit_sha = "${{ needs.guard.outputs.sha }}"
+            completed_at_utc = [DateTime]::UtcNow.ToString("o")
+            expected_heartbeats = 30
+            result = "success"
+          } | ConvertTo-Json | Set-Content -Path $completed -Encoding utf8
+          Remove-Item $active -Force -ErrorAction SilentlyContinue
+          Write-Host "Completed ${{ needs.guard.outputs.campaign }} successfully."
+
+  finalize_failure:
+    needs: [guard, phase_1, phase_2, phase_3, phase_4, phase_5, phase_6]
+    if: always() && needs.guard.outputs.start == 'true' && (needs.phase_1.result == 'failure' || needs.phase_2.result == 'failure' || needs.phase_3.result == 'failure' || needs.phase_4.result == 'failure' || needs.phase_5.result == 'failure' || needs.phase_6.result == 'failure')
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 15
+    steps:
+      - name: Release failed campaign lock
+        shell: powershell
+        run: |
+          $active = Join-Path $env:STATE_ROOT "$env:CAMPAIGN_ID.active.json"
+          $failed = Join-Path $env:STATE_ROOT "$env:CAMPAIGN_ID.failed.json"
+          [ordered]@{
+            campaign_family = $env:CAMPAIGN_ID
+            campaign_instance = "${{ needs.guard.outputs.campaign }}"
+            commit_sha = "${{ needs.guard.outputs.sha }}"
+            failed_at_utc = [DateTime]::UtcNow.ToString("o")
+            result = "failure"
+          } | ConvertTo-Json | Set-Content -Path $failed -Encoding utf8
+          Remove-Item $active -Force -ErrorAction SilentlyContinue
+          throw "${{ needs.guard.outputs.campaign }} failed; the active lock was released for a controlled retry."

@@ -9,41 +9,73 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: repository-invariants-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PIP_CACHE_DIR: D:\actions-runner\_cache\pip
+  PIP_DEFAULT_TIMEOUT: "120"
+  PIP_RETRIES: "10"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  TEMP: D:\actions-runner\_temp
+  TMP: D:\actions-runner\_temp
+
 jobs:
   invariants:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+      - name: Prepare D-drive runtime directories
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force $env:PIP_CACHE_DIR | Out-Null
+          New-Item -ItemType Directory -Force $env:TEMP | Out-Null
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - name: Prepare isolated local Python
+        shell: powershell
+        run: .\.github\scripts\prepare-windows-runner.ps1 -PythonVersion "3.11"
       - name: Enforce one project root, one package root, and one version authority
-        run: python source/scripts/verify_packaging_layout.py
+        shell: powershell
+        run: '& $env:PYTHON_EXE source/scripts/verify_packaging_layout.py'
 
   root-install:
     needs: invariants
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
-        os: [ubuntu-latest, windows-latest]
         python-version: ["3.11", "3.13"]
-    runs-on: ${{ matrix.os }}
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
+      - name: Prepare D-drive runtime directories
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force $env:PIP_CACHE_DIR | Out-Null
+          New-Item -ItemType Directory -Force $env:TEMP | Out-Null
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - name: Prepare isolated local Python
+        shell: powershell
+        run: .\.github\scripts\prepare-windows-runner.ps1 -PythonVersion "${{ matrix.python-version }}"
       - name: Install from the sole repository project root
-        run: python -m pip install -e ".[dev]"
+        shell: powershell
+        run: '& $env:PYTHON_EXE -m pip install --retries 10 --timeout 120 -e ".[dev]"'
       - name: Verify installed and source versions are identical
-        run: python -c "from importlib.metadata import version; from wls._version import __version__; print(version('workstation-living-system'), __version__); assert version('workstation-living-system') == __version__"
+        shell: powershell
+        run: '& $env:PYTHON_EXE -c "from importlib.metadata import version; from wls._version import __version__; print(version(''workstation-living-system''), __version__); assert version(''workstation-living-system'') == __version__"'
       - name: Smoke test console entry point
-        run: wls --help
+        shell: powershell
+        run: '& "$env:PYTHON_ROOT\Scripts\wls.exe" --help'
       - name: Smoke test module entry point
-        run: python -m wls --help
+        shell: powershell
+        run: '& $env:PYTHON_EXE -m wls --help'
       - name: Verify imported package location
-        run: python -c "from pathlib import Path; import wls; path=Path(wls.__file__).resolve(); print(path); assert 'source/src/wls' in path.as_posix()"
+        shell: powershell
+        run: '& $env:PYTHON_EXE -c "from pathlib import Path; import wls; path=Path(wls.__file__).resolve(); print(path); assert ''source/src/wls'' in path.as_posix()"'
       - name: Run focused repository-invariant test
-        run: python -m pytest source/tests/test_packaging_layout.py -q
+        shell: powershell
+        run: '& $env:PYTHON_EXE -m pytest source/tests/test_packaging_layout.py -q'
       - name: Build canonical wheel
-        run: python -m build --wheel --outdir dist-root .
+        shell: powershell
+        run: '& $env:PYTHON_EXE -m build --wheel --outdir dist-root .'

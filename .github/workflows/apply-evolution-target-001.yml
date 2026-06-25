@@ -9,29 +9,70 @@ on:
       - "CURRENT_STATE.yaml"
       - "LIVING_SYSTEM_GENOME.md"
       - ".github/workflows/apply-evolution-target-001.yml"
+      - ".github/scripts/prepare-windows-runner.ps1"
+  push:
+    branches: [main]
+    paths:
+      - "pyproject.toml"
+      - "source/**"
+      - "CURRENT_STATE.yaml"
+      - "LIVING_SYSTEM_GENOME.md"
+      - ".github/workflows/apply-evolution-target-001.yml"
+      - ".github/scripts/prepare-windows-runner.ps1"
 
 permissions:
   contents: read
 
+concurrency:
+  group: evolution-target-001-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PIP_CACHE_DIR: D:\actions-runner\_cache\pip
+  PIP_DEFAULT_TIMEOUT: "120"
+  PIP_RETRIES: "10"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  TEMP: D:\actions-runner\_temp
+  TMP: D:\actions-runner\_temp
+
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-      - name: Install WLS and verification toolchain from root
-        run: python -m pip install -e ".[dev]"
-      - name: Verify canonical growth cycle
-        shell: bash
+      - name: Prepare D-drive runtime directories
+        shell: powershell
         run: |
-          set -euo pipefail
-          python source/scripts/verify_packaging_layout.py
-          python -m compileall -q source/src source/tests source/scripts
-          python -m pytest source/tests -q
-          python source/scripts/verify_evolution_target_001.py
-          python -m ruff check source/src source/tests source/scripts
-          python -m mypy source/src/wls source/tests source/scripts --ignore-missing-imports
-          python -m bandit -q -r source/src/wls source/scripts
-          python -m build .
+          New-Item -ItemType Directory -Force $env:PIP_CACHE_DIR | Out-Null
+          New-Item -ItemType Directory -Force $env:TEMP | Out-Null
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - name: Prepare isolated local Python
+        shell: powershell
+        run: .\.github\scripts\prepare-windows-runner.ps1 -PythonVersion "3.13"
+      - name: Install WLS and verification toolchain from root
+        shell: powershell
+        run: '& $env:PYTHON_EXE -m pip install --retries 10 --timeout 120 -e ".[dev]"'
+      - name: Verify repository layout
+        shell: powershell
+        run: '& $env:PYTHON_EXE source/scripts/verify_packaging_layout.py'
+      - name: Compile
+        shell: powershell
+        run: '& $env:PYTHON_EXE -m compileall -q source/src source/tests source/scripts'
+      - name: Tests
+        shell: powershell
+        run: '& $env:PYTHON_EXE -m pytest source/tests -q'
+      - name: Verify EVOLUTION-TARGET-001
+        shell: powershell
+        run: '& $env:PYTHON_EXE source/scripts/verify_evolution_target_001.py'
+      - name: Lint
+        shell: powershell
+        run: '& $env:PYTHON_EXE -m ruff check source/src source/tests source/scripts'
+      - name: Types
+        shell: powershell
+        run: '& $env:PYTHON_EXE -m mypy source/src/wls source/tests source/scripts --ignore-missing-imports'
+      - name: Security scan
+        shell: powershell
+        run: '& $env:PYTHON_EXE -m bandit -q -r source/src/wls source/scripts'
+      - name: Build package
+        shell: powershell
+        run: '& $env:PYTHON_EXE -m build .'

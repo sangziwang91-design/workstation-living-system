@@ -8,32 +8,72 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: wls-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PIP_CACHE_DIR: D:\actions-runner\_cache\pip
+  PIP_DEFAULT_TIMEOUT: "120"
+  PIP_RETRIES: "10"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  TEMP: D:\actions-runner\_temp
+  TMP: D:\actions-runner\_temp
+
 jobs:
   verify:
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
-        os: [ubuntu-latest, windows-latest]
         python-version: ["3.11", "3.13"]
-    runs-on: ${{ matrix.os }}
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
+      - name: Prepare D-drive runtime directories
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force $env:PIP_CACHE_DIR | Out-Null
+          New-Item -ItemType Directory -Force $env:TEMP | Out-Null
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - name: Prepare isolated local Python
+        shell: powershell
+        run: .\.github\scripts\prepare-windows-runner.ps1 -PythonVersion "${{ matrix.python-version }}"
       - name: Install verification tools from the sole project root
-        run: python -m pip install -e ".[dev]"
+        shell: powershell
+        run: |
+          & $env:PYTHON_EXE -m pip install --retries 10 --timeout 120 -e ".[dev]"
       - name: Verify repository layout and version authority
-        run: python source/scripts/verify_packaging_layout.py
+        shell: powershell
+        run: '& $env:PYTHON_EXE source/scripts/verify_packaging_layout.py'
       - name: Compile
-        run: python -m compileall -q source/src source/tests source/scripts
+        shell: powershell
+        run: '& $env:PYTHON_EXE -m compileall -q source/src source/tests source/scripts'
       - name: Tests
-        run: python -m pytest source/tests -q
+        shell: powershell
+        run: '& $env:PYTHON_EXE -m pytest source/tests -q'
+      - name: Validate one WLS/local-chain heartbeat without waiting
+        if: matrix.python-version == '3.13'
+        shell: powershell
+        run: |
+          .\.github\scripts\run-24h-bidirectional-phase.ps1 `
+            -Phase 1 `
+            -Campaign "LOCAL-RUNNER-24H-PR-${{ github.run_id }}-${{ github.run_attempt }}" `
+            -CommitSha "${{ github.sha }}" `
+            -PythonExe $env:PYTHON_EXE `
+            -Cycles 1 `
+            -SleepSeconds 0 `
+            -EvidenceRoot (Join-Path $env:RUNNER_TEMP "24h-probe-evidence") `
+            -WlsStateRoot (Join-Path $env:RUNNER_TEMP "24h-probe-state")
       - name: Lint
-        run: python -m ruff check source/src source/tests source/scripts
+        shell: powershell
+        run: '& $env:PYTHON_EXE -m ruff check source/src source/tests source/scripts'
       - name: Types
-        run: python -m mypy source/src/wls source/tests source/scripts --ignore-missing-imports
+        shell: powershell
+        run: '& $env:PYTHON_EXE -m mypy source/src/wls source/tests source/scripts --ignore-missing-imports'
       - name: Security scan
-        run: python -m bandit -q -r source/src/wls source/scripts
+        shell: powershell
+        run: '& $env:PYTHON_EXE -m bandit -q -r source/src/wls source/scripts'
       - name: Build package
-        run: python -m build .
+        shell: powershell
+        run: '& $env:PYTHON_EXE -m build .'

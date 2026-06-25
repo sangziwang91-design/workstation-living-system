@@ -25,16 +25,29 @@ class ApprovalManager:
     def _load_or_create(self) -> bytes:
         if self.secret_path.exists():
             data = self.secret_path.read_bytes()
-            if len(data) < 32:
-                raise ValueError("approval key too short")
+            if len(data) != 32:
+                raise ValueError(
+                    "approval key must be exactly 32 bytes; "
+                    "the file may have legacy Windows text-mode corruption"
+                )
             return data
         data = os.urandom(32)
-        fd = os.open(self.secret_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+        fd = os.open(self.secret_path, flags, 0o600)
         try:
-            os.write(fd, data)
+            remaining = memoryview(data)
+            while remaining:
+                written = os.write(fd, remaining)
+                if written <= 0:
+                    raise OSError("failed to persist approval key")
+                remaining = remaining[written:]
             os.fsync(fd)
         finally:
             os.close(fd)
+        persisted = self.secret_path.read_bytes()
+        if not hmac.compare_digest(persisted, data):
+            self.secret_path.unlink(missing_ok=True)
+            raise OSError("approval key binary round-trip verification failed")
         try:
             os.chmod(self.secret_path, 0o600)
         except OSError:
