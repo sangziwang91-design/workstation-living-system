@@ -1,25 +1,18 @@
 from __future__ import annotations
 
 from typing import Any, Callable
+import json
 
 from .shadow_causal import ShadowCausalAnalyzer
 
 
 def register_wls(runtime: Any) -> None:
-    """Attach an opt-in read-only causal shadow to one canonical WLS runtime.
-
-    Enable only through the existing plugin contract:
-
-    ``"plugin_modules": ["wls.shadow_causal_plugin"]``
-
-    No runtime, event store, planner, memory, skill, world, goal, or action
-    authority is created or replaced.
-    """
+    """Attach an opt-in read-only causal shadow to one canonical WLS runtime."""
     analyzer = ShadowCausalAnalyzer(runtime.db, runtime.ledger)
     runtime.shadow_causal = analyzer
 
     try:
-        analyzer.recover_pending()
+        _recover_evidence_bound_pending(analyzer)
     except Exception as exc:  # canonical initialization must continue
         analyzer.safe_record_error(phase="RECOVER_PENDING", error=exc)
 
@@ -83,6 +76,41 @@ def register_wls(runtime: Any) -> None:
         runtime._resume_durable_actions = resume_with_shadow
 
 
+def _recover_evidence_bound_pending(analyzer: ShadowCausalAnalyzer) -> None:
+    rows = analyzer.db.query_all(
+        "SELECT plan_id FROM shadow_causal_runs WHERE status='FROZEN' ORDER BY frozen_at"
+    )
+    terminal = {
+        "SUCCEEDED",
+        "FAILED",
+        "REJECTED",
+        "CANCELLED",
+        "UNKNOWN_SIDE_EFFECT",
+    }
+    for row in rows:
+        actions = analyzer.db.query_all(
+            "SELECT action_id,status FROM actions WHERE plan_id=?",
+            (row["plan_id"],),
+        )
+        if not actions or any(str(item["status"]) not in terminal for item in actions):
+            continue
+        outcomes = [
+            {
+                "action_id": str(item["action_id"]),
+                "success": str(item["status"]) == "SUCCEEDED",
+                "status": str(item["status"]),
+                "recovered_from_db": True,
+            }
+            for item in actions
+        ]
+        _resolve_without_affecting_canonical(
+            analyzer,
+            plan_id=str(row["plan_id"]),
+            outcomes=outcomes,
+            phase="RESOLVE_RESTART",
+        )
+
+
 def _resolve_recovered_outcomes(
     analyzer: ShadowCausalAnalyzer,
     outcomes: list[dict[str, Any]],
@@ -125,6 +153,22 @@ def _resolve_without_affecting_canonical(
     phase: str,
 ) -> None:
     try:
+        run = analyzer.db.query_one(
+            "SELECT proposal_json,frozen_evidence_seq,status FROM shadow_causal_runs WHERE plan_id=?",
+            (plan_id,),
+        )
+        if run is None or str(run["status"]) != "FROZEN":
+            return
+        proposal = json.loads(run["proposal_json"])
+        action_ids = {
+            str(item.get("action_id", ""))
+            for item in proposal.get("predictions", [])
+            if str(item.get("action_id", ""))
+        }
+        if action_ids and analyzer._first_action_outcome_seq(
+            action_ids, int(run["frozen_evidence_seq"])
+        ) is None:
+            return
         analyzer.resolve(plan_id=plan_id, outcomes=outcomes)
     except Exception as exc:
         analyzer.safe_record_error(
