@@ -1,0 +1,58 @@
+{
+  "schema_version": "1.0",
+  "experiment_id": "WLS-SPACETIME-CAUSAL-SHADOW-001",
+  "mode": "SHADOW_READ_ONLY",
+  "branch": "feature/spacetime-causal-shadow-v06",
+  "frozen_before_evaluation": true,
+  "activation": {
+    "default": "plugin disabled",
+    "explicit_plugin": "wls.shadow_causal_plugin",
+    "normal_spaces": ["PRESENT", "FUTURE"],
+    "failure_spaces": ["PAST", "PRESENT", "FUTURE"],
+    "node_budget": 24,
+    "candidate_limit": 6
+  },
+  "thresholds": {
+    "false_verified": 0,
+    "canonical_table_divergence": 0,
+    "canonical_cycle_divergence": 0,
+    "external_api_calls": 0,
+    "external_model_tokens": 0,
+    "median_overhead_percent_max": 15,
+    "p95_overhead_percent_max": 25
+  },
+  "required_gates": [
+    "feature-off equivalence",
+    "shadow-only persistence",
+    "proposal frozen before related outcome",
+    "proposal immutability",
+    "open-set claims remain below verified",
+    "failure isolation",
+    "restart continuity",
+    "idempotency",
+    "non-symmetric time-space activation",
+    "acyclic analysis graph",
+    "future shadow performs no real probe",
+    "existing WLS regression gates"
+  ],
+  "stop_conditions": [
+    "requires a second runtime or authority",
+    "proposal cannot be frozen before outcome",
+    "shadow error alters canonical cycle",
+    "feature-off equivalence fails",
+    "existing evolution gates regress",
+    "overhead exceeds frozen thresholds",
+    "canonical state differs in matched runs",
+    "scope expands beyond disposable shadow integration"
+  ],
+  "claim_ceiling": {
+    "current": "BRANCH_DEPLOYED_LOCAL_OFFLINE_FIXTURE_PASS",
+    "after_jules": "DRAFT_PR_IN_REPO_VERIFIED",
+    "not_allowed": [
+      "OWNER_HOST_VERIFIED",
+      "PRODUCTION_READY",
+      "WLS_GROWTH_ADVANTAGE_PROVEN",
+      "MERGE_APPROVED"
+    ]
+  }
+}
