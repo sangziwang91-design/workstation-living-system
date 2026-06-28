@@ -1,10 +1,13 @@
 __pycache__/
 *.py[cod]
+*$py.class
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-*.egg-info/
-dist/
-build/
-.venv/
+source/soak_home/
+source/dist/
+source/build/
+source/src/*.egg-info/
 .env
+venv/
+ENV/
