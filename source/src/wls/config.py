@@ -11,6 +11,7 @@ BUILTIN_PLUGIN_MODULES = (
     "wls.task19_stabilization",
     "wls.task19_goal_guard",
     "wls.task19_execution_guard",
+    "wls.task19_cycle_journal",
     "wls.task19_action_integrity",
     "wls.task19_priority_guard",
 )
@@ -113,7 +114,9 @@ class RuntimeConfig:
         if not 0.0 <= self.daemon_failure_backoff_seconds <= 3_600:
             raise ValueError("daemon_failure_backoff_seconds must be within 0..3600")
         if not 0.0 <= self.daemon_failure_backoff_max_seconds <= 86_400:
-            raise ValueError("daemon_failure_backoff_max_seconds must be within 0..86400")
+            raise ValueError(
+                "daemon_failure_backoff_max_seconds must be within 0..86400"
+            )
         if self.daemon_failure_backoff_max_seconds < self.daemon_failure_backoff_seconds:
             raise ValueError(
                 "daemon_failure_backoff_max_seconds cannot be below the initial backoff"
