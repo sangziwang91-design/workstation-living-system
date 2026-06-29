@@ -11,6 +11,7 @@ BUILTIN_PLUGIN_MODULES = (
     "wls.task19_stabilization",
     "wls.task19_goal_guard",
     "wls.task19_execution_guard",
+    "wls.task19_action_integrity",
     "wls.task19_priority_guard",
 )
 
