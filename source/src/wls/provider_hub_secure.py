@@ -3,8 +3,10 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import urlparse
 import ipaddress
+import json
 
-from .provider_hub import ProviderHub, _public_config_digest
+from .atomic_io import atomic_write_text
+from .provider_hub import ProviderHub, _now, _public_config_digest
 
 
 def _loopback_base_url(value: str) -> str:
@@ -35,7 +37,20 @@ def _loopback_base_url(value: str) -> str:
 
 
 class SecureProviderHub(ProviderHub):
-    """Candidate-only Provider Hub with probe-bound selection."""
+    """Candidate-only Provider Hub with durable state and probe-bound selection."""
+
+    def _save_locked(self) -> None:
+        self._state["updated_at"] = _now()
+        atomic_write_text(
+            self.state_path,
+            json.dumps(
+                self._state,
+                indent=2,
+                ensure_ascii=False,
+                sort_keys=True,
+            ) + "\n",
+            mode=0o600,
+        )
 
     def configure(
         self,
