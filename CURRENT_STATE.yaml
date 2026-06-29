@@ -1,4 +1,4 @@
-schema_version: "2.4"
+schema_version: "2.5"
 
 system:
   name: "Workstation Living System"
@@ -12,7 +12,7 @@ system:
 
 state_record:
   updated_at: "2026-06-29"
-  update_type: "task19-durable-runtime-convergence"
+  update_type: "task19-durable-runtime-and-queue-convergence"
   evidence_class: "CANDIDATE_UNVERIFIED"
 
 workflow_state: "TASK19_PR25_ARCHITECTURE_COMPLETE_VERIFICATION_DEFERRED"
@@ -46,11 +46,15 @@ completed_architecture:
   - "Execution outcome and provenance unified in the execution guard"
   - "ambiguous side-effect failures enter UNKNOWN_SIDE_EFFECT"
   - "Cycle Journal with immutable monotonic checkpoints"
+  - "checkpoint payloads store bounded references and digests, not full tool outputs"
   - "interrupted cycles classified before-plan versus after-plan"
   - "safe durable Actions resumed through the canonical executor"
   - "original cognition, memory and Goal post-processing recovered"
   - "missing attributable episodic learning restored once"
   - "historical result reuse excluded from fresh learning"
+  - "ReliableEventStore uses deterministic exponential retry backoff"
+  - "poison events move to durable DEAD_LETTER state"
+  - "event due, deferred and dead-letter counts exposed in runtime status"
   - "builtin plugin authority order executable and tested"
   - "Provider runtime selection deferred"
   - "mandatory verification-gate manifest enforced"
@@ -59,6 +63,12 @@ canonical_cycle_phases:
   - "PLAN_PERSISTED"
   - "ACTIONS_TERMINAL"
   - "RECOVERY_RESOLVED"
+
+canonical_event_states:
+  - "PENDING"
+  - "RESERVED"
+  - "PROCESSED"
+  - "DEAD_LETTER"
 
 sandbox_evidence:
   cycle_journal_state_machine:
@@ -70,6 +80,13 @@ sandbox_evidence:
       - "before-plan interruption becomes FAILED"
       - "after-plan interruption becomes RECOVERY_PENDING"
       - "resolution becomes RECOVERED and is idempotent"
+  event_queue_and_reconciliation_sql:
+    status: "PASS"
+    covered:
+      - "failed event is deferred before retry"
+      - "attempt limit becomes DEAD_LETTER"
+      - "terminal manual finding can bind NO_OBSERVABLE_OUTCOME"
+      - "retry-safe finding can return an Action to approval waiting"
   full_repository_execution:
     status: "NOT_RUN"
     reason: "private repository is unavailable inside the isolated sandbox and local Runner was deferred"
@@ -88,6 +105,8 @@ mandatory_task19_gates:
 known_unknowns:
   - item: "whether the live PR #25 head passes every mandatory gate"
     status: "UNKNOWN_VERIFICATION_DEFERRED"
+  - item: "accepted owner-evidence provenance upgrade for manual unknown-side-effect resolution"
+    status: "DEFERRED; EXISTING CONSERVATIVE RUNTIME PATH RETAINED"
   - item: "legacy RUNNING side-effect Actions created before the current provenance guard"
     status: "FAIL_CLOSED_REQUIRES_REVIEW"
   - item: "Provider runtime selection"
@@ -104,6 +123,8 @@ frozen_decisions:
   - "no automatic paid fallback"
   - "unknown side effects are never replayed automatically"
   - "historical reuse is never fresh intervention evidence"
+  - "event retries are delayed and bounded"
+  - "dead letters are durable and inspectable"
   - "owner authorization remains mandatory for merge, enablement and deployment"
   - "the local Windows runner remains verification-only"
 
@@ -112,8 +133,9 @@ unique_next_action: >-
   When verification is resumed, run the exact-head Task19 verifier and repair only observed failures.
 
 stop_conditions:
-  - "stop if a second runtime, planner, memory, goal, policy or provenance authority appears"
+  - "stop if a second runtime, queue, planner, memory, goal, policy or provenance authority appears"
   - "stop if historical reuse is counted as fresh learning"
   - "stop if unknown side effects are replayed automatically"
+  - "stop if event retry becomes immediate and unbounded"
   - "stop if generated or secret-like artifacts become tracked"
   - "stop before Task20 until owner acceptance of Task19"
