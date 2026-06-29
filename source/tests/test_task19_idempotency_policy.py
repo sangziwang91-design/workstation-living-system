@@ -84,12 +84,10 @@ def test_policy_is_checked_before_exact_result_reuse(tmp_path: Path) -> None:
 def test_exact_reuse_persists_source_and_provenance(tmp_path: Path) -> None:
     runtime = _runtime(tmp_path / "home")
     first = _noop(key="exact-reuse", reason="same")
-    first_plan = _persist(runtime, "first-cycle", first)
-    runtime._execute_plan(first_plan)
+    runtime._execute_plan(_persist(runtime, "first-cycle", first))
 
     second = _noop(key="exact-reuse", reason="same")
-    second_plan = _persist(runtime, "second-cycle", second)
-    outcome = runtime._execute_plan(second_plan)[0]
+    outcome = runtime._execute_plan(_persist(runtime, "second-cycle", second))[0]
     assert outcome["success"] is True
     assert outcome["provenance"] == "REUSED_PRIOR_RESULT"
     assert outcome["source_action_id"] == first.action_id
@@ -103,4 +101,24 @@ def test_exact_reuse_persists_source_and_provenance(tmp_path: Path) -> None:
     assert row is not None
     assert row["outcome_provenance"] == "REUSED_PRIOR_RESULT"
     assert row["source_action_id"] == first.action_id
+    assert row["provenance_evidence_id"]
+
+
+def test_fresh_provenance_survives_runtime_restart(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    runtime = _runtime(home)
+    action = _noop(key="restart-query", reason="persist")
+    runtime._execute_plan(_persist(runtime, "cycle-one", action))
+
+    restarted = _runtime(home)
+    row = restarted.db.query_one(
+        """
+        SELECT outcome_provenance,source_action_id,provenance_evidence_id
+        FROM actions WHERE action_id=?
+        """,
+        (action.action_id,),
+    )
+    assert row is not None
+    assert row["outcome_provenance"] == "EXECUTED_CURRENT_ACTION"
+    assert row["source_action_id"] is None
     assert row["provenance_evidence_id"]
