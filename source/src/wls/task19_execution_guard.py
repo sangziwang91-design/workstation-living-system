@@ -96,6 +96,7 @@ def _persist(
         "action_id": action.action_id,
         "success": status == ActionStatus.SUCCEEDED,
         "status": status.value,
+        "reason": error,
         "error": error,
         "evaluation": (result or {}).get("evaluation", {}),
         "output": (result or {}).get("result", {}).get("output", {}),
