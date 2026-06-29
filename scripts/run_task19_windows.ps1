@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$PythonExe = "",
-    [switch]$SkipSoak
+    [switch]$SkipSoak,
+    [switch]$KeepEnvironment
 )
 
 Set-StrictMode -Version Latest
@@ -32,6 +33,7 @@ $head = (& git rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($head)) {
     throw "Unable to determine the current Git head."
 }
+$branch = (& git branch --show-current).Trim()
 
 $statusBefore = (& git status --short) -join [Environment]::NewLine
 if (-not [string]::IsNullOrWhiteSpace($statusBefore)) {
@@ -49,22 +51,60 @@ if (Test-Path -LiteralPath $venv) {
     Remove-Item -LiteralPath $venv -Recurse -Force
 }
 
-& $PythonExe -m venv $venv
-if ($LASTEXITCODE -ne 0) { throw "venv creation failed" }
-$verifyPython = Join-Path $venv "Scripts\python.exe"
+$verificationExit = 1
+try {
+    & $PythonExe -m venv $venv
+    if ($LASTEXITCODE -ne 0) { throw "venv creation failed" }
+    $verifyPython = Join-Path $venv "Scripts\python.exe"
 
-& $verifyPython -m pip install --disable-pip-version-check --retries 10 --timeout 120 -e ".[dev,provider]"
-if ($LASTEXITCODE -ne 0) { throw "dependency installation failed" }
+    & $verifyPython -m pip install --disable-pip-version-check --retries 10 --timeout 120 -e ".[dev,provider]"
+    if ($LASTEXITCODE -ne 0) { throw "dependency installation failed" }
 
-$arguments = @("source/scripts/verify_task19_convergence.py")
-if ($SkipSoak) { $arguments += "--skip-soak" }
-& $verifyPython @arguments
-$verificationExit = $LASTEXITCODE
+    $arguments = @("source/scripts/verify_task19_convergence.py")
+    if ($SkipSoak) { $arguments += "--skip-soak" }
+    & $verifyPython @arguments
+    $verificationExit = $LASTEXITCODE
 
-$statusAfter = (& git status --short) -join [Environment]::NewLine
-if (-not [string]::IsNullOrWhiteSpace($statusAfter)) {
-    Write-Warning "Verification generated tracked changes unexpectedly:`n$statusAfter"
-    if ($verificationExit -eq 0) { $verificationExit = 3 }
+    $wheels = @(Get-ChildItem -LiteralPath (Join-Path $repo "dist") -Filter "*.whl" -File -ErrorAction SilentlyContinue)
+    if ($wheels.Count -ne 1) {
+        Write-Error "Expected exactly one Wheel after root build; found $($wheels.Count)."
+        if ($verificationExit -eq 0) { $verificationExit = 4 }
+    } else {
+        & $verifyPython source/scripts/verify_wheel_metadata.py --wheel $wheels[0].FullName
+        $metadataExit = $LASTEXITCODE
+        if ($metadataExit -ne 0 -and $verificationExit -eq 0) {
+            $verificationExit = 5
+        }
+    }
+
+    $currentHead = (& git rev-parse HEAD).Trim()
+    if ($currentHead -ne $head) {
+        Write-Error "Repository head changed during verification: $head -> $currentHead"
+        if ($verificationExit -eq 0) { $verificationExit = 6 }
+    }
+
+    $statusAfter = (& git status --short) -join [Environment]::NewLine
+    if (-not [string]::IsNullOrWhiteSpace($statusAfter)) {
+        Write-Error "Verification generated tracked changes unexpectedly:`n$statusAfter"
+        if ($verificationExit -eq 0) { $verificationExit = 3 }
+    }
+
+    $summary = [ordered]@{
+        task = "TASK19_MAIN_REBUILD_CONVERGENCE"
+        head = $head
+        branch = $branch
+        python = $actualVersion
+        skip_soak = [bool]$SkipSoak
+        exit_code = $verificationExit
+        environment = $venv
+        finished_at = (Get-Date).ToUniversalTime().ToString("o")
+    }
+    $summary | ConvertTo-Json -Depth 4
+}
+finally {
+    if (-not $KeepEnvironment -and (Test-Path -LiteralPath $venv)) {
+        Remove-Item -LiteralPath $venv -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
 
 Write-Host "TASK19_WINDOWS_VERIFICATION head=$head python=$actualVersion exit=$verificationExit"
