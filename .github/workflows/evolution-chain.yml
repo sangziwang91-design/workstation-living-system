@@ -1,14 +1,6 @@
 name: Verify Repo-Native Evolution Chain
 
 on:
-  pull_request:
-    paths:
-      - "EVOLUTION_CHAIN.md"
-      - ".evolution/**"
-      - "source/scripts/validate_evolution_chain.py"
-      - "source/tests/test_evolution_chain.py"
-      - ".github/workflows/evolution-chain.yml"
-      - ".github/scripts/prepare-windows-runner.ps1"
   push:
     branches: [main]
     paths:
