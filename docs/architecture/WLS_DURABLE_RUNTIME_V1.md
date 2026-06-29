@@ -8,12 +8,13 @@ Status: `CANDIDATE_UNVERIFIED`
 - `Database`: durable transaction boundary.
 - `GoalRuntime` / `GoalReviewer`: Goal truth.
 - `PolicyEngine` and execution guard: Action policy, outcome and provenance.
+- `ReliableEventStore`: the canonical `events` table with retry scheduling and dead letter.
 - `CycleJournal`: cycle phase history and restart reconciliation only.
 - `SurvivalSupervisor`: daemon budgets and run terminal state.
 - `EvidenceLedger`: evidence-chain authority.
 - Existing Learning/Growth modules: episode, Skill and promotion authority.
 
-No plugin may create a second runtime, planner, Goal store, Memory store, policy system, provenance ledger, or acceptance system.
+No plugin may create a second runtime, queue, planner, Goal store, Memory store, policy system, provenance ledger, or acceptance system.
 
 ## Cycle state machine
 
@@ -33,7 +34,20 @@ Cycle checkpoints are immutable and monotonic:
 2. `ACTIONS_TERMINAL`
 3. `RECOVERY_RESOLVED`
 
-The same phase and payload may be recorded again. A changed payload or backward phase transition is corruption.
+The same phase and payload may be recorded again. A changed payload or backward phase transition is corruption. Checkpoints retain bounded Action references and outcome digests; complete outputs remain authoritative only in `actions.result_json`.
+
+## Event state machine
+
+```text
+PENDING and due
+  └─ reserve ─> RESERVED
+       ├─ processed ─> PROCESSED
+       ├─ temporary failure ─> PENDING with exponential backoff
+       ├─ attempt limit ─> DEAD_LETTER
+       └─ stale reservation ─> PENDING and due
+```
+
+Event retry uses deterministic bounded exponential backoff. Deferred events are not reservable before `next_attempt_at`. Dead letters remain inspectable and are never silently discarded.
 
 ## Startup order
 
@@ -71,7 +85,7 @@ Policy and exact contract matching run before result reuse. A failed operation w
 
 - Provider runtime selection and automatic paid fallback.
 - Provider attachment to canonical planning.
-- Automatic resolution of unknown side effects.
+- An accepted owner-evidence provenance upgrade for manual unknown-side-effect resolution.
 - Task20 before Task19 owner acceptance.
 - Merge/deployment based on queued or missing Actions.
 
@@ -86,4 +100,4 @@ Policy and exact contract matching run before result reuse. A failed operation w
 
 ## Claim ceiling
 
-After exact-head verification, WLS may claim bounded durable Plan/Action persistence, restart classification, safe replay prevention, and original-cycle reconciliation. It may not claim production reliability, unrestricted autonomy, long-duration stability, Provider safety, or Task20 correctness.
+After exact-head verification, WLS may claim bounded durable Event/Plan/Action persistence, event retry/dead-letter behavior, restart classification, safe replay prevention, and original-cycle reconciliation. It may not claim production reliability, unrestricted autonomy, long-duration stability, Provider safety, or Task20 correctness.
