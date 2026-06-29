@@ -16,15 +16,16 @@ SCHEMA_VERSION = 1
 class Database:
     """Single-file durable state store.
 
-    Connections are short-lived, WAL-backed, and transaction-scoped. The class
-    keeps a process-local reentrant lock to serialize schema and evidence-chain
-    operations while SQLite handles cross-process locking.
+    Connections are short-lived, WAL-backed, and transaction-scoped. Nested
+    transactions in the same thread reuse the outer connection and use SQLite
+    savepoints, preventing a second connection from waiting on its own write lock.
     """
 
     def __init__(self, path: str | Path):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self._local = threading.local()
         self.initialize()
 
     def connect(self) -> sqlite3.Connection:
@@ -36,10 +37,33 @@ class Database:
         connection.execute("PRAGMA busy_timeout=30000")
         return connection
 
+    def _current_connection(self) -> sqlite3.Connection | None:
+        connection = getattr(self._local, "connection", None)
+        return connection if isinstance(connection, sqlite3.Connection) else None
+
     @contextmanager
     def transaction(self, immediate: bool = True) -> Iterator[sqlite3.Connection]:
         with self._lock:
+            current = self._current_connection()
+            if current is not None:
+                depth = int(getattr(self._local, "depth", 1))
+                savepoint = f"wls_nested_{depth}"
+                current.execute(f"SAVEPOINT {savepoint}")
+                self._local.depth = depth + 1
+                try:
+                    yield current
+                    current.execute(f"RELEASE SAVEPOINT {savepoint}")
+                except Exception:
+                    current.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+                    current.execute(f"RELEASE SAVEPOINT {savepoint}")
+                    raise
+                finally:
+                    self._local.depth = depth
+                return
+
             connection = self.connect()
+            self._local.connection = connection
+            self._local.depth = 1
             try:
                 connection.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
                 yield connection
@@ -50,6 +74,8 @@ class Database:
                     connection.execute("ROLLBACK")
                 raise
             finally:
+                self._local.connection = None
+                self._local.depth = 0
                 connection.close()
 
     def initialize(self) -> None:
@@ -330,6 +356,9 @@ class Database:
             return cursor.rowcount
 
     def query_one(self, sql: str, parameters: Sequence[Any] = ()) -> sqlite3.Row | None:
+        current = self._current_connection()
+        if current is not None:
+            return current.execute(sql, parameters).fetchone()
         connection = self.connect()
         try:
             return connection.execute(sql, parameters).fetchone()
@@ -337,6 +366,9 @@ class Database:
             connection.close()
 
     def query_all(self, sql: str, parameters: Sequence[Any] = ()) -> list[sqlite3.Row]:
+        current = self._current_connection()
+        if current is not None:
+            return list(current.execute(sql, parameters).fetchall())
         connection = self.connect()
         try:
             return list(connection.execute(sql, parameters).fetchall())
@@ -358,25 +390,6 @@ class Database:
 
     def get_runtime(self, key: str, default: Any = None) -> Any:
         row = self.query_one("SELECT value_json FROM runtime_state WHERE key=?", (key,))
-        return default if row is None else json.loads(row["value_json"])
-
-    def integrity_check(self) -> tuple[bool, str]:
-        connection = self.connect()
-        try:
-            row = connection.execute("PRAGMA integrity_check").fetchone()
-            result = str(row[0]) if row else "missing"
-            foreign_rows = connection.execute("PRAGMA foreign_key_check").fetchall()
-            if result.lower() != "ok":
-                return False, result
-            if foreign_rows:
-                return False, f"foreign_key_violations={len(foreign_rows)}"
-            return True, "ok"
-        finally:
-            connection.close()
-
-    def checkpoint(self) -> None:
-        connection = self.connect()
-        try:
-            connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        finally:
-            connection.close()
+        if row is None:
+            return default
+        return json.loads(row["value_json"])
