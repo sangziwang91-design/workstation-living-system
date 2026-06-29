@@ -10,6 +10,7 @@ import os
 BUILTIN_PLUGIN_MODULES = (
     "wls.task19_stabilization",
     "wls.task19_priority_guard",
+    "wls.task19_provenance_store",
 )
 
 
