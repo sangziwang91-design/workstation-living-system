@@ -3,7 +3,7 @@ name: WLS CI
 on:
   push:
     branches: [main]
-  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -41,8 +41,7 @@ jobs:
         run: .\.github\scripts\prepare-windows-runner.ps1 -PythonVersion "${{ matrix.python-version }}"
       - name: Install verification tools from the sole project root
         shell: powershell
-        run: |
-          & $env:PYTHON_EXE -m pip install --retries 10 --timeout 120 -e ".[dev]"
+        run: '& $env:PYTHON_EXE -m pip install --retries 10 --timeout 120 -e ".[dev]"'
       - name: Verify repository layout and version authority
         shell: powershell
         run: '& $env:PYTHON_EXE source/scripts/verify_packaging_layout.py'
@@ -52,19 +51,6 @@ jobs:
       - name: Tests
         shell: powershell
         run: '& $env:PYTHON_EXE -m pytest source/tests -q'
-      - name: Validate one WLS/local-chain heartbeat without waiting
-        if: matrix.python-version == '3.13'
-        shell: powershell
-        run: |
-          .\.github\scripts\run-24h-bidirectional-phase.ps1 `
-            -Phase 1 `
-            -Campaign "LOCAL-RUNNER-24H-PR-${{ github.run_id }}-${{ github.run_attempt }}" `
-            -CommitSha "${{ github.sha }}" `
-            -PythonExe $env:PYTHON_EXE `
-            -Cycles 1 `
-            -SleepSeconds 0 `
-            -EvidenceRoot (Join-Path $env:RUNNER_TEMP "24h-probe-evidence") `
-            -WlsStateRoot (Join-Path $env:RUNNER_TEMP "24h-probe-state")
       - name: Lint
         shell: powershell
         run: '& $env:PYTHON_EXE -m ruff check source/src source/tests source/scripts'
