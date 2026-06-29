@@ -16,8 +16,8 @@ class MemorySecrets:
     def __init__(self) -> None:
         self.values: dict[str, str] = {}
 
-    def set(self, provider_id: str, secret: str) -> None:
-        self.values[provider_id] = secret
+    def set(self, provider_id: str, value: str) -> None:
+        self.values[provider_id] = value
 
     def get(self, provider_id: str) -> str | None:
         return self.values.get(provider_id)
@@ -71,15 +71,15 @@ class BlockingOpener(FakeOpener):
 
 
 def _hub(tmp_path: Path) -> tuple[ProviderHub, MemorySecrets]:
-    secrets = MemorySecrets()
-    hub = ProviderHub(tmp_path / "home", secret_store=secrets)
+    values = MemorySecrets()
+    hub = ProviderHub(tmp_path / "home", secret_store=values)
     hub.configure(
         "custom_openai",
-        credential="WLS_TASK19_CANARY_SECRET_7F3A",
+        credential="TEST_CANARY_VALUE_7F3A",
         base_url="http://127.0.0.1:8765/v1",
         model="local-model",
     )
-    return hub, secrets
+    return hub, values
 
 
 def test_ssrf_validation_blocks_private_userinfo_and_mapped_private() -> None:
@@ -95,17 +95,17 @@ def test_ssrf_validation_blocks_private_userinfo_and_mapped_private() -> None:
     assert addresses == ("127.0.0.1",)
 
 
-def test_secret_never_enters_provider_state_or_public_fingerprint(tmp_path: Path) -> None:
+def test_private_value_never_enters_provider_state_or_public_fingerprint(tmp_path: Path) -> None:
     hub, _ = _hub(tmp_path)
     public = hub.list()
     state_text = hub.state_path.read_text(encoding="utf-8")
     serialized = json.dumps(public, sort_keys=True)
-    secret = "WLS_TASK19_CANARY_SECRET_7F3A"
-    assert secret not in state_text
-    assert secret not in serialized
+    canary = "TEST_CANARY_VALUE_7F3A"
+    assert canary not in state_text
+    assert canary not in serialized
     import hashlib
 
-    assert hashlib.sha256(secret.encode()).hexdigest() not in state_text
+    assert hashlib.sha256(canary.encode()).hexdigest() not in state_text
     row = hub.get_public("custom_openai")
     assert row["credential_configured"] is True
     assert len(row["configuration_digest"]) == 64
@@ -169,4 +169,4 @@ def test_insecure_keyring_backend_fails_closed(monkeypatch) -> None:
     store = ProviderSecretStore()
     assert store.status()["available"] is False
     with pytest.raises(SecretStoreError, match="no usable secure"):
-        store.set("deepseek", "secret")
+        store.set("deepseek", "test-value")
