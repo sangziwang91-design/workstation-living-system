@@ -7,15 +7,15 @@ import json
 from .schemas import ActionSpec, ActionStatus, digest_json, utc_now
 
 
-VERSION = "task19-execution-guard-1"
+VERSION = "task19-execution-guard-2"
 
 
 def _ensure_schema(runtime: Any) -> None:
-    columns = {
-        str(row["name"])
-        for row in runtime.db.query_all("PRAGMA table_info(actions)")
-    }
     with runtime.db.transaction() as connection:
+        columns = {
+            str(row["name"])
+            for row in connection.execute("PRAGMA table_info(actions)").fetchall()
+        }
         if "outcome_provenance" not in columns:
             connection.execute(
                 "ALTER TABLE actions ADD COLUMN outcome_provenance TEXT"
@@ -304,5 +304,6 @@ def register_wls(runtime: Any) -> None:
             "policy_before_reuse": True,
             "exact_contract_reuse": True,
             "persistent_provenance": True,
+            "schema_migration_transactional": True,
         },
     )
