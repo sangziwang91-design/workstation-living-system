@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import MethodType
 from typing import Any
 
-from .schemas import GoalStatus, utc_now
+from .schemas import GoalStatus, Plan, utc_now
 
 
 FRESH = {"EXECUTED_CURRENT_ACTION", "RECOVERED_DURABLE_ACTION"}
@@ -13,6 +13,24 @@ def register_wls(runtime: Any) -> None:
     if getattr(runtime, "_task19_goal_outcome_guard_installed", False):
         return
     runtime._task19_goal_outcome_guard_installed = True
+
+    def execute_plan(self: Any, plan: Plan) -> list[dict[str, Any]]:
+        """Execute actions without independently mutating goal progress."""
+        outcomes: list[dict[str, Any]] = []
+        skill_results: dict[str, list[bool]] = {}
+        for action in plan.actions:
+            outcome = self._execute_action(action)
+            outcomes.append(outcome)
+            if action.skill_id and outcome.get("provenance") in FRESH:
+                skill_results.setdefault(action.skill_id, []).append(
+                    bool(outcome.get("success"))
+                )
+        for skill_id, values in skill_results.items():
+            self.skills.record_use(skill_id, all(values))
+        self._refresh_plan_status(plan.plan_id)
+        return outcomes
+
+    runtime._execute_plan = MethodType(execute_plan, runtime)
     reviewer = runtime.goal_runtime.reviewer
 
     def apply_outcomes(
