@@ -67,12 +67,19 @@ class ActionStatus(StrEnum):
 
 
 class GoalStatus(StrEnum):
+    PROPOSED = "PROPOSED"
     ACTIVE = "ACTIVE"
+    DECOMPOSED = "DECOMPOSED"
+    IN_PROGRESS = "IN_PROGRESS"
+    WAITING = "WAITING"
     BLOCKED = "BLOCKED"
+    COMPLETED = "COMPLETED"
     SUCCEEDED = "SUCCEEDED"
     FAILED = "FAILED"
     PAUSED = "PAUSED"
     CANCELLED = "CANCELLED"
+    ABANDONED = "ABANDONED"
+    ARCHIVED = "ARCHIVED"
 
 
 class CandidateStatus(StrEnum):
@@ -161,6 +168,20 @@ class Goal:
     goal_id: str = field(default_factory=lambda: new_id("goal"))
     status: GoalStatus = GoalStatus.ACTIVE
     progress: float = 0.0
+    rationale: str = ""
+    origin: str = "user"
+    task_spec: dict[str, Any] = field(default_factory=dict)
+    dependencies: list[str] = field(default_factory=list)
+    progress_evidence: list[str] = field(default_factory=list)
+    remaining_work: list[str] = field(default_factory=list)
+    risk: RiskLevel = RiskLevel.READ
+    blocked_reason: str | None = None
+    contradiction_reason: str | None = None
+    interruption_count: int = 0
+    recovery_count: int = 0
+    completed_at: str | None = None
+    archived_at: str | None = None
+    last_reviewed_at: str | None = None
     created_at: str = field(default_factory=utc_now)
     updated_at: str = field(default_factory=utc_now)
 
@@ -169,12 +190,15 @@ class Goal:
             raise ValueError("priority must be within [0, 1]")
         if not 0.0 <= self.progress <= 1.0:
             raise ValueError("progress must be within [0, 1]")
+        if self.interruption_count < 0 or self.recovery_count < 0:
+            raise ValueError("goal counters cannot be negative")
         if not self.title.strip():
             raise ValueError("goal title is required")
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["status"] = self.status.value
+        data["risk"] = self.risk.value
         return data
 
 
