@@ -1,4 +1,4 @@
-schema_version: "2.2"
+schema_version: "2.3"
 
 system:
   name: "Workstation Living System"
@@ -12,7 +12,7 @@ system:
 
 state_record:
   updated_at: "2026-06-29"
-  update_type: "task19-clean-convergence"
+  update_type: "task19-ten-round-convergence"
   evidence_class: "CANDIDATE_UNVERIFIED"
 
 workflow_state: "TASK19_PR25_WINDOWS_VERIFICATION_REQUIRED"
@@ -21,50 +21,47 @@ canonical_status:
   main:
     task19_base_sha: "4c77401deb159e8ee2a2daf3c6e2702ce48876e3"
     role: "stable integration base"
-    verified_history:
-      - "EVOLUTION-TARGET-001 merged"
-      - "EVOLUTION-TARGET-002 merged"
-      - "EVOLUTION-TARGET-003 merged"
-      - "LOCAL-RUNNER-002 merged"
+    task19_modified_main: false
   task19_candidate:
     pull_request: 25
     branch: "task19-clean-squash"
-    status: "OPEN_DRAFT_SINGLE_COMMIT_UNVERIFIED"
-    public_verification_entry: "scripts/run_task19_windows.ps1"
+    status: "OPEN_DRAFT_UNVERIFIED"
+    merge_policy: "SQUASH_AFTER_OWNER_ACCEPTANCE_ONLY"
+    verification_entry: "scripts/run_task19_windows.ps1"
     verification_orchestrator: "source/scripts/verify_task19_convergence.py"
-    github_actions: "NOT_USED_AS_ACCEPTANCE_EVIDENCE"
-  superseded_pull_requests:
-    - 22
-    - 23
-    - 24
+    github_actions: "NOT_ACCEPTANCE_EVIDENCE"
+  superseded_pull_requests: [22, 23, 24]
   task20:
     pull_request: 21
     status: "BLOCKED_PENDING_TASK19_OWNER_ACCEPTANCE"
     default_enabled: false
 
-cleanup_result:
-  status: "CONTENT_AND_HISTORY_CONVERGED"
-  retained_value:
-    - "bounded survival supervision"
-    - "persistent goals and task specifications"
-    - "policy-before-reuse and durable provenance"
-    - "owner-request preemption"
-    - "Goal and Memory ET004 comparison"
-    - "candidate-only loopback Provider Hub"
-    - "root package, Wheel, clean-install and repository verification"
-  removed_pollution:
-    - "duplicate provenance module"
-    - "duplicate provenance tests"
-    - "duplicate PowerShell acceptance entry"
-    - "nested Python acceptance wrapper"
-    - "dead execution wrapper"
-    - "multiple active Task19 PRs"
-    - "development commit history from the active candidate"
+completed_rounds:
+  - "single Task19 integration authority"
+  - "reentrant SQLite transactions with nested savepoints"
+  - "startup recovery protected by the runtime lease"
+  - "transactional action-provenance schema migration"
+  - "terminal Survival run accounting"
+  - "executable builtin-plugin contract"
+  - "stable terminal Goal outcomes"
+  - "Provider runtime selection deferred"
+  - "mandatory verification-gate manifest"
+  - "Actions concurrency audited without duplicate changes"
+
+retained_value:
+  - "bounded survival supervision"
+  - "persistent goals and task specifications"
+  - "policy-before-reuse and durable provenance"
+  - "owner-request preemption"
+  - "Goal and Memory ET004 comparison"
+  - "candidate-only Provider configuration and probes"
+  - "root package, Wheel, clean-install and repository verification"
 
 mandatory_task19_gates:
   - "clean unchanged exact head"
+  - "complete mandatory gate manifest"
   - "compileall and repository hygiene"
-  - "full pytest"
+  - "full pytest with real passing tests"
   - "EVOLUTION-TARGET-001 through EVOLUTION-TARGET-004"
   - "Ruff, Mypy and Bandit"
   - "root Wheel build and metadata verification"
@@ -72,27 +69,29 @@ mandatory_task19_gates:
   - "100-cycle bounded workload with three runtime re-instantiations"
 
 known_unknowns:
-  - item: "whether PR #25 passes every mandatory gate"
+  - item: "whether the live PR #25 head passes every mandatory gate"
     status: "UNKNOWN_PENDING_WINDOWS_EXECUTION"
+  - item: "Provider runtime selection"
+    status: "DEFERRED_NOT_ACCEPTED"
   - item: "long-duration owner-host reliability"
     status: "UNKNOWN"
-  - item: "Task20 behavior on an accepted Task19 head"
+  - item: "Task20 on an accepted Task19 head"
     status: "BLOCKED"
 
 frozen_decisions:
   - "safe-default installation remains read-only"
   - "Provider Hub remains detached from canonical planning"
-  - "custom provider endpoints remain loopback-only"
+  - "Provider runtime selection remains unavailable"
   - "no automatic paid fallback"
-  - "no parallel runtime, planner, memory, goal, skill, policy, provenance or acceptance authority"
   - "owner authorization remains mandatory for merge, enablement and deployment"
+  - "the local Windows runner remains verification-only"
 
 unique_next_action: >-
-  Run scripts/run_task19_windows.ps1 from a clean checkout of the current PR #25
-  head, preserve artifacts/task19 evidence, and repair only observed failures.
+  Run scripts/run_task19_windows.ps1 from a clean checkout of the live PR #25 head,
+  preserve artifacts/task19 evidence, and repair only observed failures on the same Draft branch.
 
 stop_conditions:
   - "stop if the Git head changes during verification"
-  - "stop if a mandatory gate fails, times out or is unavailable"
+  - "stop if any mandatory gate fails, times out or is unavailable"
   - "stop if generated or secret-like artifacts become tracked"
   - "stop before Task20 until owner acceptance of Task19"
