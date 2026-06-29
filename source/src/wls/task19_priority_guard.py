@@ -4,6 +4,7 @@ from types import MethodType
 from typing import Any
 
 from .schemas import Plan
+from .task19_attribution_guard import register_wls as register_attribution_guard
 from .task19_execution_guard import register_wls as register_execution_guard
 from .task19_goal_outcome_guard import register_wls as register_goal_outcome_guard
 from .task19_recovery_guard import register_wls as register_recovery_guard
@@ -31,6 +32,7 @@ def register_wls(runtime: Any) -> None:
     register_execution_guard(runtime)
     register_goal_outcome_guard(runtime)
     register_recovery_guard(runtime)
+    register_attribution_guard(runtime)
     if getattr(runtime, "_task19_priority_guard_installed", False):
         return
     runtime._task19_priority_guard_installed = True
