@@ -3,6 +3,9 @@ from __future__ import annotations
 from types import MethodType
 from typing import Any
 
+from .lease import ProcessLease
+from .schemas import ActionSpec, utc_now
+
 
 ALLOWED_PROVENANCE = (
     "EXECUTED_CURRENT_ACTION",
@@ -100,12 +103,71 @@ def _counts(runtime: Any) -> dict[str, int]:
 
 
 def register_wls(runtime: Any) -> None:
-    """Migrate legacy actions honestly and extend canonical integrity checks."""
+    """Protect recovery ownership and make action provenance fail closed."""
 
     if getattr(runtime, "_task19_action_integrity_installed", False):
         return
     runtime._task19_action_integrity_installed = True
     migrated = _backfill_legacy(runtime)
+
+    original_initialize = runtime._initialize_runtime
+
+    def initialize_with_lease(self: Any) -> None:
+        startup_lease = ProcessLease(
+            self.config.home_path / "state" / "runtime.lock"
+        )
+        with startup_lease:
+            original_initialize()
+
+    runtime._initialize_runtime = MethodType(initialize_with_lease, runtime)
+
+    original_execute_action = runtime._execute_action
+
+    def execute_action_with_provenance(
+        self: Any,
+        action: ActionSpec,
+        approval_id: str | None = None,
+    ) -> dict[str, Any]:
+        result = original_execute_action(action, approval_id=approval_id)
+        provenance = result.get("provenance")
+        if provenance in ALLOWED_PROVENANCE:
+            return result
+        with self.db.transaction() as connection:
+            evidence_id = self.ledger.append(
+                "action_outcome_missing_provenance",
+                {
+                    "action_id": action.action_id,
+                    "observed_status": result.get("status"),
+                    "fallback": "NO_OBSERVABLE_OUTCOME",
+                },
+                connection,
+            )
+            connection.execute(
+                """
+                UPDATE actions
+                SET outcome_provenance='NO_OBSERVABLE_OUTCOME',
+                    source_action_id=NULL,provenance_evidence_id=?,
+                    error=COALESCE(error,?),finished_at=COALESCE(finished_at,?)
+                WHERE action_id=?
+                """,
+                (
+                    evidence_id,
+                    "execution returned without explicit outcome provenance",
+                    utc_now(),
+                    action.action_id,
+                ),
+            )
+        result.update(
+            {
+                "provenance": "NO_OBSERVABLE_OUTCOME",
+                "source_action_id": None,
+                "provenance_evidence_id": evidence_id,
+            }
+        )
+        return result
+
+    runtime._execute_action = MethodType(execute_action_with_provenance, runtime)
+
     original_verify = runtime.verify_integrity
 
     def verify_integrity(self: Any, full: bool = True) -> dict[str, Any]:
@@ -128,5 +190,7 @@ def register_wls(runtime: Any) -> None:
         {
             "legacy_rows_migrated": migrated,
             "allowed_provenance": list(ALLOWED_PROVENANCE),
+            "startup_recovery_requires_runtime_lease": True,
+            "missing_provenance_fails_closed": True,
         },
     )
