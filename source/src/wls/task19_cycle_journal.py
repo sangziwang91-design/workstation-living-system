@@ -6,7 +6,7 @@ import json
 
 from .cycle_journal import CycleJournal
 from .cycle_learning import recover_episode
-from .schemas import ActionSpec, ActionStatus, Plan, RiskLevel
+from .schemas import ActionSpec, ActionStatus, Plan, RiskLevel, digest_json
 
 
 TERMINAL_ACTIONS = {
@@ -84,6 +84,28 @@ def _outcomes(runtime: Any, plan_id: str) -> tuple[list[dict[str, Any]], list[st
     return outcomes, pending
 
 
+def _outcome_references(outcomes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Persist bounded references; canonical Action rows retain full results."""
+
+    references: list[dict[str, Any]] = []
+    for item in outcomes:
+        error = str(item.get("error") or "")[:500]
+        references.append(
+            {
+                "action_id": str(item.get("action_id", "")),
+                "status": str(item.get("status", "")),
+                "success": bool(item.get("success")),
+                "provenance": str(
+                    item.get("provenance") or "NO_OBSERVABLE_OUTCOME"
+                ),
+                "source_action_id": item.get("source_action_id"),
+                "error": error or None,
+                "outcome_digest": digest_json(item),
+            }
+        )
+    return references
+
+
 def _postprocess(
     runtime: Any,
     cycle_id: str,
@@ -92,7 +114,10 @@ def _postprocess(
 ) -> dict[str, Any]:
     plan = _plan(runtime, plan_id)
     trace = runtime.db.query_one(
-        "SELECT status,outcome_json FROM cognitive_traces WHERE cycle_id=?",
+        """
+        SELECT trace_id,status,outcome_json
+        FROM cognitive_traces WHERE cycle_id=?
+        """,
         (cycle_id,),
     )
     cognition = None
@@ -103,7 +128,10 @@ def _postprocess(
 
     memory = None
     memory_row = runtime.db.query_one(
-        "SELECT resolved_at FROM memory_decision_attributions WHERE cycle_id=?",
+        """
+        SELECT decision_trace_id,resolved_at
+        FROM memory_decision_attributions WHERE cycle_id=?
+        """,
         (cycle_id,),
     )
     if memory_row is not None and not memory_row["resolved_at"]:
@@ -130,11 +158,18 @@ def _postprocess(
             outcomes=outcomes,
             attribution={"goal_trace_id": str(goal_row["goal_trace_id"])},
         )
+
+    episode_id = recover_episode(runtime, cycle_id, plan_id, outcomes)
     return {
-        "cognition": cognition,
-        "memory": memory,
-        "goals": goals,
-        "episode_id": recover_episode(runtime, cycle_id, plan_id, outcomes),
+        "cognitive_trace_id": str(trace["trace_id"]) if trace else None,
+        "cognition_resolved": trace is None or cognition is not None,
+        "memory_trace_id": (
+            str(memory_row["decision_trace_id"]) if memory_row else None
+        ),
+        "memory_resolved": memory_row is None or memory is not None,
+        "goal_trace_id": str(goal_row["goal_trace_id"]) if goal_row else None,
+        "goals_resolved": goal_row is None or goals is not None,
+        "episode_id": episode_id,
     }
 
 
@@ -184,7 +219,10 @@ def register_wls(runtime: Any) -> None:
             self.cycle_journal.record(
                 str(row["cycle_id"]),
                 "ACTIONS_TERMINAL",
-                {"plan_id": plan.plan_id, "outcomes": outcomes},
+                {
+                    "plan_id": plan.plan_id,
+                    "outcomes": _outcome_references(outcomes),
+                },
             )
         return outcomes
 
@@ -200,14 +238,15 @@ def register_wls(runtime: Any) -> None:
             outcomes, pending = _outcomes(self, plan_id)
             if pending:
                 continue
+            references = _outcome_references(outcomes)
             try:
                 self.cycle_journal.record(
                     cycle_id,
                     "ACTIONS_TERMINAL",
-                    {"plan_id": plan_id, "outcomes": outcomes},
+                    {"plan_id": plan_id, "outcomes": references},
                 )
                 postprocess = _postprocess(self, cycle_id, plan_id, outcomes)
-                self.cycle_journal.resolve(cycle_id, outcomes, postprocess)
+                self.cycle_journal.resolve(cycle_id, references, postprocess)
             except Exception as exc:
                 self.ledger.append(
                     "cycle_recovery_postprocess_failed",
@@ -247,6 +286,7 @@ def register_wls(runtime: Any) -> None:
         {
             "durable_plan_checkpoint": True,
             "terminal_action_checkpoint": True,
+            "reference_only_checkpoint_payloads": True,
             "postprocess_recovery": [
                 "cognition",
                 "memory",
