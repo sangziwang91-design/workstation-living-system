@@ -10,6 +10,15 @@ from .evidence import EvidenceLedger
 from .schemas import new_id, utc_now
 
 
+TERMINAL_RUN_STATUSES = {
+    "COMPLETED",
+    "STOPPED",
+    "CRASHED",
+    "INTERRUPTED",
+    "RESTART_CHECKPOINT",
+}
+
+
 def ensure_survival_tables(db: Database) -> None:
     statements = [
         """
@@ -71,7 +80,7 @@ def ensure_survival_tables(db: Database) -> None:
 
 
 class SurvivalSupervisor:
-    """Bounded daemon supervision, operational evidence, and failure containment."""
+    """Bounded daemon supervision, evidence, and failure containment."""
 
     def __init__(
         self,
@@ -84,6 +93,29 @@ class SurvivalSupervisor:
         self.config = config
         ensure_survival_tables(db)
 
+    def _run_row(self, run_id: str, connection: Any | None = None) -> Any:
+        if connection is not None:
+            row = connection.execute(
+                "SELECT * FROM survival_runs WHERE run_id=?", (run_id,)
+            ).fetchone()
+        else:
+            row = self.db.query_one(
+                "SELECT * FROM survival_runs WHERE run_id=?", (run_id,)
+            )
+        if row is None:
+            raise KeyError(run_id)
+        return row
+
+    def _require_running(
+        self, run_id: str, connection: Any | None = None
+    ) -> Any:
+        row = self._run_row(run_id, connection)
+        if str(row["status"]) != "RUNNING":
+            raise RuntimeError(
+                f"survival run {run_id} is terminal: {row['status']}"
+            )
+        return row
+
     def recover_interrupted_cycles(self) -> list[str]:
         rows = self.db.query_all(
             "SELECT cycle_id FROM cycles WHERE status='RUNNING' ORDER BY started_at"
@@ -93,21 +125,25 @@ class SurvivalSupervisor:
         cycle_ids = [str(row["cycle_id"]) for row in rows]
         now = utc_now()
         with self.db.transaction() as connection:
+            recovered: list[str] = []
             for cycle_id in cycle_ids:
-                connection.execute(
+                updated = connection.execute(
                     """
                     UPDATE cycles
                     SET status='FAILED',finished_at=?,error=?
                     WHERE cycle_id=? AND status='RUNNING'
                     """,
                     (now, "recovered after interrupted runtime process", cycle_id),
+                ).rowcount
+                if updated == 1:
+                    recovered.append(cycle_id)
+            if recovered:
+                self.ledger.append(
+                    "interrupted_cycles_recovered",
+                    {"cycle_ids": recovered, "count": len(recovered)},
+                    connection,
                 )
-            self.ledger.append(
-                "interrupted_cycles_recovered",
-                {"cycle_ids": cycle_ids, "count": len(cycle_ids)},
-                connection,
-            )
-        return cycle_ids
+        return recovered
 
     def start_run(self, max_cycles: int | None) -> str:
         if max_cycles is not None and max_cycles < 0:
@@ -116,9 +152,8 @@ class SurvivalSupervisor:
         with self.db.transaction() as connection:
             connection.execute(
                 """
-                INSERT INTO survival_runs(
-                    run_id,status,max_cycles,started_at
-                ) VALUES (?,?,?,?)
+                INSERT INTO survival_runs(run_id,status,max_cycles,started_at)
+                VALUES (?,?,?,?)
                 """,
                 (run_id, "RUNNING", max_cycles, utc_now()),
             )
@@ -130,6 +165,7 @@ class SurvivalSupervisor:
         return run_id
 
     def preflight(self, run_id: str, cycle_index: int) -> dict[str, Any]:
+        self._require_running(run_id)
         pending_row = self.db.query_one(
             "SELECT COUNT(*) AS count FROM events WHERE status='PENDING'"
         )
@@ -185,14 +221,17 @@ class SurvivalSupervisor:
     ) -> dict[str, Any]:
         slow = duration_seconds > self.config.daemon_max_cycle_seconds
         with self.db.transaction() as connection:
-            connection.execute(
+            self._require_running(run_id, connection)
+            updated = connection.execute(
                 """
                 UPDATE survival_runs
                 SET completed_cycles=completed_cycles+1,consecutive_failures=0
-                WHERE run_id=?
+                WHERE run_id=? AND status='RUNNING'
                 """,
                 (run_id,),
-            )
+            ).rowcount
+            if updated != 1:
+                raise RuntimeError(f"survival run {run_id} changed during success record")
         if slow:
             self.record_incident(
                 run_id=run_id,
@@ -220,22 +259,20 @@ class SurvivalSupervisor:
         cycle_index: int,
         exc: Exception,
     ) -> dict[str, Any]:
-        row = self.db.query_one(
-            "SELECT consecutive_failures FROM survival_runs WHERE run_id=?", (run_id,)
-        )
-        if row is None:
-            raise KeyError(run_id)
-        consecutive = int(row["consecutive_failures"]) + 1
-        exhausted = consecutive >= self.config.daemon_max_consecutive_failures
         with self.db.transaction() as connection:
-            connection.execute(
+            row = self._require_running(run_id, connection)
+            consecutive = int(row["consecutive_failures"]) + 1
+            exhausted = consecutive >= self.config.daemon_max_consecutive_failures
+            updated = connection.execute(
                 """
                 UPDATE survival_runs
                 SET failed_cycles=failed_cycles+1,consecutive_failures=?
-                WHERE run_id=?
+                WHERE run_id=? AND status='RUNNING'
                 """,
                 (consecutive, run_id),
-            )
+            ).rowcount
+            if updated != 1:
+                raise RuntimeError(f"survival run {run_id} changed during failure record")
         error = f"{type(exc).__name__}: {exc}"[:4000]
         self.record_incident(
             run_id=run_id,
@@ -270,6 +307,8 @@ class SurvivalSupervisor:
         details: dict[str, Any],
         consecutive_failures: int = 0,
     ) -> str:
+        if run_id is not None:
+            self._run_row(run_id)
         incident_id = new_id("incident")
         payload = {
             "incident_id": incident_id,
@@ -311,6 +350,7 @@ class SurvivalSupervisor:
         status: str,
         duration_seconds: float | None,
     ) -> str | None:
+        self._require_running(run_id)
         if cycle_index % self.config.daemon_heartbeat_every_cycles != 0:
             return None
         heartbeat_id = new_id("heartbeat")
@@ -320,6 +360,7 @@ class SurvivalSupervisor:
         pending = int(pending_row["count"]) if pending_row is not None else 0
         database_bytes = self.database_bytes()
         with self.db.transaction() as connection:
+            self._require_running(run_id, connection)
             connection.execute(
                 """
                 INSERT INTO survival_heartbeats(
@@ -351,31 +392,50 @@ class SurvivalSupervisor:
         return heartbeat_id
 
     def finish_run(self, run_id: str, status: str, reason: str) -> dict[str, Any]:
-        row = self.db.query_one("SELECT * FROM survival_runs WHERE run_id=?", (run_id,))
-        if row is None:
-            raise KeyError(run_id)
-        incidents = self.db.query_all(
-            "SELECT kind,severity,error,cycle_index,created_at FROM runtime_incidents WHERE run_id=? ORDER BY created_at",
-            (run_id,),
-        )
-        report = {
-            "run_id": run_id,
-            "status": status,
-            "termination_reason": reason,
-            "completed_cycles": int(row["completed_cycles"]),
-            "failed_cycles": int(row["failed_cycles"]),
-            "consecutive_failures": int(row["consecutive_failures"]),
-            "peak_pending_events": int(row["peak_pending_events"]),
-            "peak_database_bytes": int(row["peak_database_bytes"]),
-            "incidents": [dict(item) for item in incidents],
-            "finished_at": utc_now(),
-        }
+        if status not in TERMINAL_RUN_STATUSES:
+            raise ValueError(f"invalid survival terminal status: {status}")
         with self.db.transaction() as connection:
-            connection.execute(
+            row = self._run_row(run_id, connection)
+            if str(row["status"]) != "RUNNING":
+                raw_report = row["report_json"]
+                if raw_report:
+                    return json.loads(str(raw_report))
+                return {
+                    "run_id": run_id,
+                    "status": str(row["status"]),
+                    "termination_reason": row["termination_reason"],
+                    "completed_cycles": int(row["completed_cycles"]),
+                    "failed_cycles": int(row["failed_cycles"]),
+                    "finished_at": row["finished_at"],
+                    "idempotent": True,
+                }
+            incidents = list(
+                connection.execute(
+                    """
+                    SELECT kind,severity,error,cycle_index,created_at
+                    FROM runtime_incidents
+                    WHERE run_id=? ORDER BY created_at
+                    """,
+                    (run_id,),
+                ).fetchall()
+            )
+            report = {
+                "run_id": run_id,
+                "status": status,
+                "termination_reason": reason,
+                "completed_cycles": int(row["completed_cycles"]),
+                "failed_cycles": int(row["failed_cycles"]),
+                "consecutive_failures": int(row["consecutive_failures"]),
+                "peak_pending_events": int(row["peak_pending_events"]),
+                "peak_database_bytes": int(row["peak_database_bytes"]),
+                "incidents": [dict(item) for item in incidents],
+                "finished_at": utc_now(),
+            }
+            updated = connection.execute(
                 """
                 UPDATE survival_runs
                 SET status=?,finished_at=?,termination_reason=?,report_json=?
-                WHERE run_id=?
+                WHERE run_id=? AND status='RUNNING'
                 """,
                 (
                     status,
@@ -384,7 +444,9 @@ class SurvivalSupervisor:
                     json.dumps(report, ensure_ascii=False, sort_keys=True),
                     run_id,
                 ),
-            )
+            ).rowcount
+            if updated != 1:
+                raise RuntimeError(f"survival run {run_id} changed during finish")
             self.ledger.append(
                 "survival_run_finished",
                 {
@@ -425,7 +487,11 @@ class SurvivalSupervisor:
     def database_bytes(self) -> int:
         path = Path(self.db.path)
         total = 0
-        for candidate in (path, Path(str(path) + "-wal"), Path(str(path) + "-shm")):
+        for candidate in (
+            path,
+            Path(str(path) + "-wal"),
+            Path(str(path) + "-shm"),
+        ):
             try:
                 total += candidate.stat().st_size
             except OSError:
@@ -433,25 +499,29 @@ class SurvivalSupervisor:
         return total
 
     def _update_peaks(self, run_id: str, pending: int, database_bytes: int) -> None:
-        self.db.execute(
-            """
-            UPDATE survival_runs
-            SET peak_pending_events=MAX(peak_pending_events,?),
-                peak_database_bytes=MAX(peak_database_bytes,?)
-            WHERE run_id=?
-            """,
-            (pending, database_bytes, run_id),
-        )
+        with self.db.transaction() as connection:
+            self._require_running(run_id, connection)
+            updated = connection.execute(
+                """
+                UPDATE survival_runs
+                SET peak_pending_events=MAX(peak_pending_events,?),
+                    peak_database_bytes=MAX(peak_database_bytes,?)
+                WHERE run_id=? AND status='RUNNING'
+                """,
+                (pending, database_bytes, run_id),
+            ).rowcount
+            if updated != 1:
+                raise RuntimeError(f"survival run {run_id} changed during preflight")
 
     @staticmethod
-    def _run_view(row) -> dict[str, Any]:
+    def _run_view(row: Any) -> dict[str, Any]:
         value = dict(row)
         raw_report = value.pop("report_json", None)
         value["report"] = json.loads(raw_report) if raw_report else None
         return value
 
     @staticmethod
-    def _incident_view(row) -> dict[str, Any]:
+    def _incident_view(row: Any) -> dict[str, Any]:
         value = dict(row)
         value["details"] = json.loads(value.pop("details_json"))
         return value
