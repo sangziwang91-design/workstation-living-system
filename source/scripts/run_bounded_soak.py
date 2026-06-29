@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
@@ -34,6 +35,7 @@ def _survival_integrity(runtime: LivingSystem) -> dict[str, Any]:
         """,
         "running_cycles": "SELECT COUNT(*) AS n FROM cycles WHERE status='RUNNING'",
         "running_actions": "SELECT COUNT(*) AS n FROM actions WHERE status='RUNNING'",
+        "running_survival_runs": "SELECT COUNT(*) AS n FROM survival_runs WHERE status='RUNNING'",
     }
     counts: dict[str, int] = {}
     for name, sql in checks.items():
@@ -61,6 +63,19 @@ def _event(index: int) -> Event:
     )
 
 
+def _close_segment(
+    runtime: LivingSystem,
+    run_id: str,
+    *,
+    status: str,
+    reason: str,
+) -> dict[str, Any]:
+    report = runtime.survival.finish_run(run_id, status, reason)
+    if report["status"] != status:
+        raise AssertionError(f"survival segment did not close as {status}")
+    return report
+
+
 def run_soak(cycles: int = 100, home_path: Path | None = None) -> dict[str, Any]:
     if cycles != 100:
         raise ValueError("the authoritative Task19 bounded soak requires exactly 100 cycles")
@@ -74,6 +89,8 @@ def run_soak(cycles: int = 100, home_path: Path | None = None) -> dict[str, Any]
     config.sleep_after_idle_cycles = cycles + 10
     config.full_integrity_check_every = 10
     config.cycle_seconds = 0.01
+    config.daemon_heartbeat_every_cycles = 1
+    config.daemon_heartbeat_retention = 1000
 
     result: dict[str, Any] = {
         "requested_cycles": cycles,
@@ -82,26 +99,51 @@ def run_soak(cycles: int = 100, home_path: Path | None = None) -> dict[str, Any]
         "exceptions": [],
         "restart_after": sorted(RESTART_AFTER),
         "restart_count": 0,
+        "run_segments": [],
         "integrity_checkpoints": [],
         "memory_samples": [],
+        "action_count": 0,
+        "provenance_counts": {},
         "home_is_temporary": temporary is not None,
     }
+    provenance = Counter()
     tracemalloc.start()
     started = time.monotonic()
     runtime = LivingSystem(config)
+    run_id = runtime.survival.start_run(25)
+    segment_start = 1
     try:
         for index in range(1, cycles + 1):
+            preflight = runtime.survival.preflight(run_id, index - segment_start)
+            if not preflight["allowed"]:
+                raise AssertionError(f"survival preflight blocked cycle {index}: {preflight}")
             runtime.ingest_event(_event(index))
+            cycle_started = time.monotonic()
             try:
                 cycle = runtime.run_cycle()
+                duration = time.monotonic() - cycle_started
                 if cycle.get("status") != "SUCCEEDED":
                     raise AssertionError(f"unexpected cycle status: {cycle.get('status')}")
+                runtime.survival.record_success(
+                    run_id,
+                    index - segment_start,
+                    duration,
+                    str(cycle["status"]),
+                )
                 result["completed_cycles"] += 1
+                result["action_count"] += int(cycle.get("actions", 0))
+                for outcome in cycle.get("outcomes", []):
+                    provenance[str(outcome.get("provenance", "MISSING"))] += 1
             except Exception as exc:
                 result["failed_cycles"] += 1
                 result["exceptions"].append(
-                    {"cycle": index, "type": type(exc).__name__, "error": str(exc)[:1000]}
+                    {
+                        "cycle": index,
+                        "type": type(exc).__name__,
+                        "error": str(exc)[:1000],
+                    }
                 )
+                runtime.survival.record_failure(run_id, index - segment_start, exc)
                 raise
 
             if index % MEMORY_SAMPLE_EVERY == 0:
@@ -112,24 +154,54 @@ def run_soak(cycles: int = 100, home_path: Path | None = None) -> dict[str, Any]
 
             if index % 10 == 0:
                 canonical = runtime.verify_integrity(full=True)
-                survival = _survival_integrity(runtime)
                 checkpoint = {
                     "cycle": index,
                     "canonical": canonical,
-                    "survival": survival,
+                    "open_running_rows": {
+                        "cycles": int(
+                            runtime.db.query_one(
+                                "SELECT COUNT(*) AS n FROM cycles WHERE status='RUNNING'"
+                            )["n"]
+                        ),
+                        "actions": int(
+                            runtime.db.query_one(
+                                "SELECT COUNT(*) AS n FROM actions WHERE status='RUNNING'"
+                            )["n"]
+                        ),
+                    },
                 }
                 result["integrity_checkpoints"].append(checkpoint)
-                if not canonical.get("ok") or not survival.get("ok"):
+                if not canonical.get("ok") or any(
+                    checkpoint["open_running_rows"].values()
+                ):
                     raise AssertionError(f"integrity failed at cycle {index}")
 
             if index in RESTART_AFTER:
+                result["run_segments"].append(
+                    _close_segment(
+                        runtime,
+                        run_id,
+                        status="RESTART_CHECKPOINT",
+                        reason=f"controlled runtime re-instantiation after cycle {index}",
+                    )
+                )
                 runtime = LivingSystem(config)
                 result["restart_count"] += 1
                 post_restart = runtime.verify_integrity(full=True)
-                survival = _survival_integrity(runtime)
-                if not post_restart.get("ok") or not survival.get("ok"):
+                post_survival = _survival_integrity(runtime)
+                if not post_restart.get("ok") or not post_survival.get("ok"):
                     raise AssertionError(f"restart integrity failed after cycle {index}")
+                segment_start = index + 1
+                run_id = runtime.survival.start_run(25)
 
+        result["run_segments"].append(
+            _close_segment(
+                runtime,
+                run_id,
+                status="COMPLETED",
+                reason="100-cycle bounded soak completed",
+            )
+        )
         final_integrity = runtime.verify_integrity(full=True)
         final_survival = _survival_integrity(runtime)
         result["final_integrity"] = final_integrity
@@ -137,6 +209,7 @@ def run_soak(cycles: int = 100, home_path: Path | None = None) -> dict[str, Any]
         result["database_size_bytes"] = config.db_path.stat().st_size
         ledger_ok, ledger_details = runtime.ledger.verify()
         result["evidence_chain"] = {"ok": ledger_ok, **ledger_details}
+        result["provenance_counts"] = dict(sorted(provenance.items()))
         first = result["memory_samples"][0]["current_bytes"]
         last = result["memory_samples"][-1]["current_bytes"]
         growth = max(0, last - first)
@@ -151,7 +224,9 @@ def run_soak(cycles: int = 100, home_path: Path | None = None) -> dict[str, Any]
             "second_half_median": statistics.median(second_half),
             "allowance_bytes": MEMORY_GROWTH_ALLOWANCE_BYTES,
             "within_bounded_window": growth <= MEMORY_GROWTH_ALLOWANCE_BYTES,
-            "claim_ceiling": "bounded observation only; this is not a leak-proof or longitudinal stability result",
+            "claim_ceiling": (
+                "bounded observation only; not leak-proof or longitudinal stability proof"
+            ),
         }
     finally:
         result["elapsed_seconds"] = round(time.monotonic() - started, 6)
@@ -162,16 +237,24 @@ def run_soak(cycles: int = 100, home_path: Path | None = None) -> dict[str, Any]
         if temporary is not None:
             temporary.cleanup()
 
+    segment_cycles = sum(int(item["completed_cycles"]) for item in result["run_segments"])
     result["passed"] = bool(
         result["completed_cycles"] == cycles
+        and segment_cycles == cycles
         and result["failed_cycles"] == 0
         and result["restart_count"] == len(RESTART_AFTER)
+        and len(result["run_segments"]) == 4
+        and result["action_count"] == cycles
+        and result["provenance_counts"].get("EXECUTED_CURRENT_ACTION", 0) == cycles
         and result["final_integrity"].get("ok")
         and result["final_survival_integrity"].get("ok")
         and result["evidence_chain"].get("ok")
         and result["memory_growth_assessment"]["within_bounded_window"]
     )
-    result["claim_ceiling"] = "100-cycle bounded local workload with three runtime re-instantiations"
+    result["claim_ceiling"] = (
+        "100-cycle bounded local workload, four explicit SurvivalSupervisor segments, "
+        "and three controlled runtime re-instantiations"
+    )
     return result
 
 
