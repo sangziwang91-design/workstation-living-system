@@ -8,7 +8,7 @@ from .cognition import HypothesisCandidate
 from .schemas import ActionSpec, Plan, RiskLevel, digest_json
 
 
-STABILIZATION_VERSION = "task19-convergence-2"
+STABILIZATION_VERSION = "task19-convergence-3"
 SUPPORTED_TASK_ACTIONS = {"noop", "inspect_path", "read_file", "record_progress"}
 ATTRIBUTABLE_PROVENANCE = {
     "EXECUTED_CURRENT_ACTION",
@@ -276,47 +276,6 @@ def register_wls(runtime: Any) -> None:
 
     goal_runtime.record_decision = MethodType(record_decision, goal_runtime)
 
-    original_execute_action = runtime._execute_action
-
-    def execute_action(
-        self: Any, action: Any, approval_id: str | None = None
-    ) -> dict[str, Any]:
-        prior = self.db.query_one(
-            "SELECT action_id FROM actions WHERE idempotency_key=? AND status='SUCCEEDED' AND action_id<>? ORDER BY rowid ASC LIMIT 1",
-            (action.idempotency_key, action.action_id),
-        )
-        result = original_execute_action(action, approval_id=approval_id)
-        if result.get("reused"):
-            provenance = "REUSED_PRIOR_RESULT"
-        elif self._task19_recovery_mode and result.get("status") in {"SUCCEEDED", "FAILED"}:
-            provenance = "RECOVERED_DURABLE_ACTION"
-        elif result.get("status") in {"SUCCEEDED", "FAILED"}:
-            provenance = "EXECUTED_CURRENT_ACTION"
-        else:
-            provenance = "NO_OBSERVABLE_OUTCOME"
-        source_action_id = str(prior["action_id"]) if prior is not None else None
-        evidence_id = self.ledger.append(
-            "action_outcome_provenance",
-            {
-                "action_id": action.action_id,
-                "provenance": provenance,
-                "source_action_id": source_action_id,
-                "result_digest": digest_json(result),
-            },
-        )
-        result.update(
-            {
-                "provenance": provenance,
-                "source_action_id": source_action_id,
-                "provenance_evidence_id": evidence_id,
-            }
-        )
-        return result
-
-    runtime._execute_action = MethodType(execute_action, runtime)
-
-    original_execute_plan = runtime._execute_plan
-
     def execute_plan(self: Any, plan: Plan) -> list[dict[str, Any]]:
         outcomes: list[dict[str, Any]] = []
         skill_results: dict[str, list[bool]] = {}
@@ -343,7 +302,6 @@ def register_wls(runtime: Any) -> None:
         return outcomes
 
     runtime._execute_plan = MethodType(execute_plan, runtime)
-    runtime._task19_original_execute_plan = original_execute_plan
 
     original_resume = runtime._resume_durable_actions
 
