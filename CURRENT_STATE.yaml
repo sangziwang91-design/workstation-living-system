@@ -1,4 +1,4 @@
-schema_version: "1.5"
+schema_version: "2.0"
 
 system:
   name: "Workstation Living System"
@@ -7,276 +7,139 @@ system:
   development_version: "0.9.0.dev1"
   canonical_identity_file: "LIVING_SYSTEM_GENOME.md"
   canonical_runtime: "source/src/wls/runtime.py::LivingSystem"
+  canonical_project_root: "."
+  canonical_package_root: "source/src/wls"
 
 state_record:
-  updated_at: "2026-06-24T09:53:42+08:00"
-  time_zone: "Asia/Singapore"
-  update_type: "causal-memory-local-and-ci-verified"
-  evidence_basis:
-    - type: "VERIFIED"
-      source: "source/verification/EVOLUTION_TARGET_003_LOCAL_20260624.json"
-      note: "Controlled memory-enabled versus memory-disabled ablation, attribution, refutation, and restart continuity passed."
-    - type: "VERIFIED"
-      source: "GitHub Actions run 28069530018"
-      note: "EVOLUTION-TARGET-003 passed Ubuntu and Windows on Python 3.11 and 3.13 with compile, tests, ET001/ET002/ET003 verification, ruff, mypy, bandit, and build."
-    - type: "VERIFIED"
-      source: "GitHub Actions run 28069530010"
-      note: "Canonical WLS CI passed on the reviewed ET003 head."
-    - type: "VERIFIED"
-      source: "GitHub Actions runs 28069530007 and 28069530013"
-      note: "EVOLUTION-TARGET-001 and EVOLUTION-TARGET-002 remained green after ET003 integration."
-    - type: "VERIFIED"
-      source: "GitHub pull request 7"
-      note: "ET003 is implemented on the isolated integration branch without a parallel runtime or replacement memory store."
-    - type: "UNKNOWN"
-      source: "owner production workstation"
-      note: "No owner-host longitudinal evidence yet proves durable real-world performance advantage."
+  updated_at: "2026-06-29T03:40:00Z"
+  update_type: "task19-main-based-convergence-candidate"
+  evidence_class: "CANDIDATE_UNVERIFIED"
+  authority_note: >-
+    Historical ET001-ET003 evidence remains valid for the merged mainline commits on
+    which it was produced. Task19 changes in PR #23 are candidate code until the exact-head
+    offline Windows gate passes and the owner accepts the result.
 
-workflow_state: "IMPLEMENTED_LOCAL_AND_CI_VERIFIED_HOST_LONGITUDINAL_PENDING"
-phase_chain:
-  scoped: true
-  read: true
-  verified: true
-  modified: true
-  tested: true
-  delivered: true
+workflow_state: "TASK19_DRAFT_LOCAL_WINDOWS_VERIFICATION_REQUIRED"
 
-mission_status:
-  canonical_mission_defined: true
-  claim_ceiling_defined: true
-  owner_authority_preserved: true
-  identity_continuity_contract_present: true
-  parallel_runtime_authority_removed: true
-  canonical_growth_cycle_merged: true
-  bounded_local_cognition_merged: true
-  causal_memory_advantage_ci_verified: true
+canonical_status:
+  main:
+    head_at_task19_base: "4c77401deb159e8ee2a2daf3c6e2702ce48876e3"
+    role: "stable integration base"
+    verified_history:
+      - "EVOLUTION-TARGET-001 merged with governed failure-to-skill lifecycle tests"
+      - "EVOLUTION-TARGET-002 merged with bounded local cognition tests"
+      - "EVOLUTION-TARGET-003 merged with controlled causal-memory ablation tests"
+      - "LOCAL-RUNNER-002 merged the D-drive self-hosted Windows runner repair"
+  task19_candidate:
+    pull_request: 23
+    branch: "repair/task19-main-convergence-20260628"
+    status: "DRAFT_MERGEABLE_UNVERIFIED"
+    integration_method: "main-based rebuild; PR #22 used only as source material"
+    execution_surface: "scripts/run_task19_windows.ps1"
+    github_hosted_actions: "UNAVAILABLE_OR_NOT_RELIED_UPON"
+  superseded_candidate:
+    pull_request: 22
+    status: "SUPERSEDED_BY_PR_23"
+    reason: >-
+      Diverged history, mismatched evidence heads, stale build artifacts, and insufficient
+      Task19 verifiers made it unsuitable as the integration authority.
+  task20:
+    pull_request: 21
+    status: "BLOCKED_PENDING_TASK19_OWNER_ACCEPTANCE"
+    default_enabled: false
 
-current_capabilities:
-  status: "CODE_AND_CI_VERIFIED_WITH_HOST_LONGITUDINAL_LIMIT"
-  verified:
-    - "The authoritative runtime remains source/src/wls/runtime.py::LivingSystem."
-    - "MemoryStore remains the sole memory authority; CausalMemoryIndex is an index and validity layer over the existing memories table."
-    - "Memory can be retrieved by project, context, entity, time, failure signature, causal hypothesis, prediction, skill, outcome, applicability, validity, and refutation state."
-    - "Cognitive decisions persist selected and suppressed memory identifiers, a memory-free counterfactual, memory_changed_decision, memory_delta, decision_trace_id, causal_reason, and observed outcome."
-    - "Attributed failures weaken and then refute memories; expiry and linked rollback can suppress obsolete memories."
-    - "A controlled frozen ablation produced repeatable task-outcome differences between memory-enabled and memory-disabled runtimes."
-    - "Valid-memory advantage and refuted-memory suppression persisted across restart."
-    - "The ET001 failure-to-skill lifecycle and ET002 bounded cognition remained regression-green."
-    - "All required gates passed on Ubuntu and Windows under Python 3.11 and 3.13."
-  inherited_not_comprehensively_reverified_in_this_wave:
-    - perception_connector_breadth
-    - autonomous_goal_depth
-    - relationship_behavior
-    - sleep_and_consolidation_quality
-    - loopback_api_surface
-    - installer_and_upgrade_behavior
+verified_on_merged_main:
+  - "The only canonical runtime is source/src/wls/runtime.py::LivingSystem."
+  - "The only canonical memory authority remains MemoryStore."
+  - "The only canonical goal authority remains GoalStore."
+  - "ET001, ET002, and ET003 have merged controlled verification history."
+  - "Owner approval, policy, rollback, and kill/pause controls remain mandatory."
+  - "WLS makes no consciousness, personhood, AGI, or unrestricted-autonomy claim."
 
-frozen_decisions:
-  - "Safe-default installation remains read-only."
-  - "External providers and plugins remain opt-in."
-  - "Writes remain sandboxed and governed."
-  - "No automatic publication, deletion, unrestricted shell, self-replication, or broad Workstation integration."
-  - "Provider output remains subject to deterministic schema, policy, and tool gates."
-  - "Human authorization remains mandatory for approval, promotion, and rollback."
-  - "Claims remain limited to observable software functions."
-  - "No parallel v2/final/brain runtime may replace the canonical LivingSystem without an approved migration."
+task19_candidate_capabilities:
+  evidence_status: "CANDIDATE_UNVERIFIED"
+  implemented:
+    - "Explicit bounded daemon and survival configuration with backward-compatible defaults."
+    - "Persistent goal decomposition, dependency ordering, debt, review, interruption, and restart continuity."
+    - "Allowlisted task_spec translation into the existing Planner, PolicyEngine, and ToolRegistry."
+    - "Owner/external-request preemption over background durable goals."
+    - "Write-free goal-free comparison and Goal×Memory four-cell ET004 fixture."
+    - "Explicit current, reused, recovered, and no-observable-outcome provenance."
+    - "Candidate-only Provider Hub CLI with secret-vault and SSRF controls."
+    - "Root-only Wheel build, clean installation, repository hygiene, and exact-head verification scripts."
+    - "A bounded 100-cycle workload with four SurvivalSupervisor segments and three runtime re-instantiations."
+  prohibited_claims:
+    - "production ready"
+    - "longitudinally reliable"
+    - "owner-host advantage proven"
+    - "unrestricted autonomy"
+    - "consciousness or personhood"
+    - "Task20 accepted or active"
 
-completed_evolution_targets:
-  - id: "EVOLUTION-TARGET-001"
-    title: "Verified failure-to-skill-to-reuse loop"
-    status: "MERGED_CI_VERIFIED_HOST_PROOF_PENDING"
-    pull_request: 3
-    merge_commit: "37b0fd55987e9d61a08a4934ed7807871a9d3b76"
-    verified_behaviors:
-      - "Repeated action failures create durable evidence-linked candidates."
-      - "Recovery experiments use a frozen baseline and predetermined thresholds."
-      - "Versioned skill proposals require isolated validation and reject fabricated evidence."
-      - "Approval, promotion, and rollback retain explicit human gates."
-      - "Promoted skills are reused through the canonical runtime."
-      - "Post-promotion outcomes produce RETAIN or ROLLBACK_REQUIRED decisions."
-      - "A degraded promoted skill is removed from active and matching sets by tested rollback."
-    remaining_proof:
-      - "One genuine owner-authorized failure and later-task reuse on the intended production host."
-      - "Longitudinal evidence that retained skills improve external outcomes."
-
-  - id: "EVOLUTION-TARGET-002"
-    title: "Bounded local cognition vertical slice"
-    status: "MERGED_CI_VERIFIED"
-    pull_request: 6
-    verified_head: "8fb962204e4a41a2fa764b94479168434522e856"
-    merge_commit: "3fb94c030089543c99ea532e606da7d9cd84b689"
-    verified_behaviors:
-      - "Structured observations produce competing durable hypotheses."
-      - "The selected hypothesis and alternatives retain evidence identifiers."
-      - "The cognitive trace records a memory-free counterfactual."
-      - "Actions create predictions that are resolved from governed outcomes."
-      - "Observed outcomes update the temporal causal world model."
-      - "Cognitive traces and calibration survive restart."
-      - "External provider failure falls back to local cognition with durable evidence."
-
-  - id: "EVOLUTION-TARGET-003"
-    title: "Causal Memory Retrieval and Measurable Learning Advantage"
-    status: "IMPLEMENTED_LOCAL_AND_CI_VERIFIED_HOST_LONGITUDINAL_PENDING"
-    pull_request: 7
-    verified_head: "a2a9b23cd95f70259be92146966cbfddc7fe76ba"
-    implementation_head: "f134622018a8200e9985f92b792b5493a372e43c"
-    objective: >-
-      Make existing memories enter bounded decisions through evidence-linked causal,
-      temporal, entity, failure-mechanism, applicability, validity, and refutation
-      context, then compare the result with a frozen memory-disabled baseline.
-    completed_acceptance_conditions:
-      - "Entity-linked and failure-mechanism retrieval are covered by tests."
-      - "An attributable memory changes the selected hypothesis and action."
-      - "The memory-free counterfactual is persisted and differs when memory changes the decision."
-      - "The memory-enabled arm outperforms the memory-disabled arm on the controlled task sequence."
-      - "Repeated counterevidence changes ACTIVE to WEAKENED and then REFUTED."
-      - "A refuted memory stops influencing decisions."
-      - "Valid-memory advantage persists across restart."
-      - "Refuted-memory suppression persists across restart."
-      - "ET001 and ET002 remain green."
-      - "Compile, tests, all target verifiers, ruff, mypy, bandit, and package build pass."
-      - "Ubuntu and Windows pass under Python 3.11 and 3.13."
-    claim_boundary: >-
-      WLS has a locally and CI-verified causal-memory retrieval and memory-advantage
-      evaluation mechanism. Controlled evidence shows attributable decision changes,
-      improved outcomes against a frozen baseline, contradiction handling, and restart
-      continuity. This is not production-host longitudinal proof.
-
-verification:
-  evolution_target_001:
-    workflow_run: 28069530007
-    conclusion: "success"
-  evolution_target_002:
-    workflow_run: 28069530013
-    conclusion: "success"
-  evolution_target_003:
-    report: "source/verification/EVOLUTION_TARGET_003_LOCAL_20260624.json"
-    local_full_gate_workflow: 28069443561
-    matrix_workflow_run: 28069530018
-    conclusion: "success"
-    event_stream_equivalent: true
-    regressions: 0
-    memory_enabled:
-      success_rate: 1.0
-      failure_recurrence: 0
-      wrong_tool_rate: 0.0
-      prediction_confirmation_rate: 1.0
-      decision_stability: 1.0
-      task_completion: 1.0
-    memory_disabled_baseline:
-      success_rate: 0.25
-      failure_recurrence: 2
-      wrong_tool_rate: 0.75
-      prediction_confirmation_rate: 0.25
-      decision_stability: 1.0
-      task_completion: 0.25
-    restart_continuity:
-      valid_memory_advantage_preserved: true
-      refuted_memory_suppression_preserved: true
-    matrix:
-      platforms:
-        - "ubuntu-latest / Python 3.11"
-        - "ubuntu-latest / Python 3.13"
-        - "windows-latest / Python 3.11"
-        - "windows-latest / Python 3.13"
-      gates:
-        - compileall
-        - pytest
-        - verify_evolution_target_001
-        - verify_evolution_target_002
-        - verify_evolution_target_003
-        - ruff
-        - mypy
-        - bandit
-        - build
-  canonical_ci:
-    workflow_run: 28069530010
-    conclusion: "success"
+mandatory_task19_gates:
+  - "clean exact-head checkout"
+  - "compileall"
+  - "repository layout and hygiene"
+  - "full pytest"
+  - "EVOLUTION-TARGET-001"
+  - "EVOLUTION-TARGET-002"
+  - "EVOLUTION-TARGET-003"
+  - "EVOLUTION-TARGET-004"
+  - "Ruff"
+  - "Mypy"
+  - "Bandit"
+  - "root Wheel build"
+  - "Wheel metadata and contamination verification"
+  - "outside-repository clean installation"
+  - "100-cycle bounded workload with zero failed cycles and three restarts"
+  - "clean worktree and unchanged head after execution"
 
 known_unknowns:
   - id: "KU-001"
-    item: "Long-horizon autonomous task decomposition and replanning beyond the bounded receding-horizon slice"
-    status: "UNKNOWN"
+    item: "Whether all Task19 candidate tests pass on the exact PR #23 head"
+    status: "UNKNOWN_PENDING_WINDOWS_EXECUTION"
   - id: "KU-002"
-    item: "Causal-memory retrieval quality, latency, and reconstruction behavior at realistic production scale"
+    item: "Long-duration owner-host reliability beyond the bounded soak"
     status: "UNKNOWN"
   - id: "KU-003"
-    item: "Measured longitudinal advantage on genuine owner-host tasks over weeks or months"
+    item: "Production-scale memory and goal behavior under noisy workloads"
     status: "UNKNOWN"
   - id: "KU-004"
-    item: "Real Windows installation, upgrade, backup, restore, and host integration behavior"
-    status: "UNKNOWN"
+    item: "Provider API availability, pricing, limits, and data-use terms at future execution time"
+    status: "EXTERNAL_AND_CHANGEABLE"
   - id: "KU-005"
-    item: "Long-running soak, resource exhaustion, event storm, deadlock, and fault-injection behavior"
-    status: "UNKNOWN"
-  - id: "KU-006"
-    item: "Adversarial coverage of every connector, provider, plugin, and external action surface"
-    status: "UNKNOWN"
-  - id: "KU-007"
-    item: "Subjective consciousness, genuine emotion, AGI, or personhood"
-    status: "UNKNOWN_AND_NOT_CLAIMED"
+    item: "Task20 causal-shadow overhead and non-interference on the accepted Task19 head"
+    status: "BLOCKED"
 
-completed:
-  - "Canonical identity and runtime authority remain singular."
-  - "The verified growth lifecycle remains regression-protected."
-  - "The temporal causal world model remains part of the canonical runtime path."
-  - "Bounded local hypothesis competition remains the default local planner."
-  - "Structured causal-memory retrieval and explicit decision attribution are implemented."
-  - "Memory-enabled versus memory-disabled frozen ablation is implemented and verified."
-  - "Memory weakening, refutation, expiry, supersession, and restart-safe suppression are implemented."
-  - "ET003 passed the full Linux and Windows Python 3.11/3.13 matrix."
-
-not_completed:
-  - "General-purpose independent reasoning or unrestricted local model cognition."
-  - "Long-horizon autonomous project planning with dependency-aware pause, resume, and exit."
-  - "Production-scale memory retrieval performance and statistical generalization."
-  - "Owner-authorized production-host longitudinal learning advantage."
-  - "Long-duration survival and fault-injection validation."
-
-branches:
-  - name: "main"
-    role: "canonical default branch"
-    status: "CURRENT_BEFORE_ET003_MERGE"
-    state_commit: "3f3b01fa5990e1de3ab806685644a86b2eb4bf50"
-  - name: "evolution-target-003-causal-memory"
-    role: "ET003 implementation branch"
-    status: "CI_VERIFIED_PULL_REQUEST_OPEN"
-    pull_request: 7
-    verified_head: "a2a9b23cd95f70259be92146966cbfddc7fe76ba"
-
-current_limitations:
-  - "The ablation is a controlled four-task sequence, not a statistical production benchmark."
-  - "Verification uses isolated temporary runtime homes, not the owner's production workstation."
-  - "Decision guidance remains bounded deterministic engineering logic, not unrestricted learned cognition."
-  - "Memory scale, noisy-world retrieval quality, and multi-project interference remain unverified."
-  - "Capabilities outside cognition, growth, and memory were not comprehensively re-audited in this wave."
-
-next_evolution_target:
-  id: "EVOLUTION-TARGET-003-HOST-LONGITUDINAL"
-  title: "Owner-authorized host longitudinal validation"
-  status: "PENDING_OWNER_HOST_EVIDENCE"
-  objective: >-
-    Run genuine owner-authorized task sequences on the intended host with a preserved
-    comparison policy, measure benefit and regressions over time, and verify that memory
-    validity and contradiction handling remain correct outside the controlled verifier.
-  acceptance_boundary: >-
-    Controlled CI evidence is insufficient for a real-world longitudinal claim. The host
-    sequence must use genuine tasks, preserve evidence and owner authority, and retain or
-    suppress memories according to observed outcomes.
+frozen_decisions:
+  - "Safe-default installation remains read-only."
+  - "External providers remain opt-in and candidate-only."
+  - "Custom provider endpoints remain loopback-only in Task19."
+  - "No automatic paid fallback."
+  - "Writes remain sandboxed and governed."
+  - "No automatic publication, deletion, unrestricted shell, self-replication, or broad Workstation integration."
+  - "Human authorization remains mandatory for approval, promotion, merge, enablement, and deployment."
+  - "Task20 cannot start from a historical or unaccepted Task19 head."
 
 unique_next_action: >-
-  Merge the verified ET003 pull request, then run an owner-authorized longitudinal host
-  evaluation without adding another memory system or parallel runtime.
+  Run scripts/run_task19_windows.ps1 from a clean checkout of the current PR #23 head,
+  preserve the generated artifacts/task19 evidence, then independently review every failed
+  or unavailable gate before any merge decision.
 
 stop_conditions:
-  - "Stop if any change bypasses evidence provenance, policy gates, human promotion authority, or rollback."
-  - "Stop if a claimed advantage is not measured against a preserved comparison."
-  - "Stop after ET003 is merged and handed off; do not create a new subsystem in this wave."
+  - "Stop if the exact Git head changes during verification."
+  - "Stop if any mandatory gate fails, times out, or is unavailable."
+  - "Stop if generated databases, keys, Wheels, caches, egg-info, or soak homes become tracked."
+  - "Stop if task_spec bypasses canonical policy or approval."
+  - "Stop if reused historical results are treated as new interventions."
+  - "Stop if Provider Hub attaches itself to canonical planning."
+  - "Stop if a second runtime, planner, memory, goal, skill, or policy authority is introduced."
+  - "Stop before Task20 until the owner accepts Task19."
 
 prohibited_misinterpretations:
-  - "A controlled memory advantage is not proof of real-world long-term autonomous learning."
-  - "A four-task ablation is not statistical generalization."
-  - "CI verification is not production-host validation."
+  - "Candidate implementation is not verified delivery."
+  - "A bounded soak is not longitudinal proof."
+  - "A local or self-hosted pass is not owner-host production proof."
   - "Persistent state is not subjective consciousness."
   - "Functional affect is not genuine emotion."
-  - "WLS is not AGI or a complete software life-form."
+  - "WLS is not AGI or a complete autonomous life-form."
