@@ -1,14 +1,6 @@
 name: Verify EVOLUTION-TARGET-002
 
 on:
-  pull_request:
-    paths:
-      - "pyproject.toml"
-      - "source/**"
-      - "CURRENT_STATE.yaml"
-      - "README.md"
-      - ".github/workflows/build-evolution-target-002.yml"
-      - ".github/scripts/prepare-windows-runner.ps1"
   push:
     branches: [main]
     paths:
