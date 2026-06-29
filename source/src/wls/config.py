@@ -13,7 +13,6 @@ BUILTIN_PLUGIN_MODULES = (
     "wls.task19_execution_guard",
     "wls.task19_event_queue",
     "wls.task19_cycle_journal",
-    "wls.task19_reconciliation",
     "wls.task19_action_integrity",
     "wls.task19_priority_guard",
 )
