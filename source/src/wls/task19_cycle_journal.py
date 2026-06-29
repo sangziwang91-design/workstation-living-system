@@ -183,3 +183,59 @@ def register_wls(runtime: Any) -> None:
         return outcomes
 
     runtime._execute_plan = MethodType(execute_plan, runtime)
+
+    original_resume = runtime._resume_durable_actions
+
+    def resume(self: Any) -> list[dict[str, Any]]:
+        current_outcomes = original_resume()
+        for recovery in self.cycle_journal.pending(limit=100):
+            cycle_id = str(recovery["cycle_id"])
+            plan_id = str(recovery["plan_id"])
+            outcomes, pending = _outcomes(self, plan_id)
+            if pending:
+                continue
+            try:
+                postprocess = _postprocess(self, cycle_id, plan_id, outcomes)
+                self.cycle_journal.resolve(cycle_id, outcomes, postprocess)
+            except Exception as exc:
+                self.ledger.append(
+                    "cycle_recovery_postprocess_failed",
+                    {
+                        "cycle_id": cycle_id,
+                        "plan_id": plan_id,
+                        "error": f"{type(exc).__name__}: {exc}"[:2000],
+                    },
+                )
+        return current_outcomes
+
+    runtime._resume_durable_actions = MethodType(resume, runtime)
+
+    original_status = runtime.status
+
+    def status(self: Any) -> dict[str, Any]:
+        result = original_status()
+        result["cycle_journal"] = self.cycle_journal.summary()
+        return result
+
+    runtime.status = MethodType(status, runtime)
+
+    original_verify = runtime.verify_integrity
+
+    def verify(self: Any, full: bool = True) -> dict[str, Any]:
+        result = original_verify(full=full)
+        ok, details = self.cycle_journal.integrity()
+        result["cycle_journal"] = details
+        result["ok"] = bool(result.get("ok")) and ok
+        if not ok:
+            self.kill(f"cycle journal integrity failure: {details}")
+        return result
+
+    runtime.verify_integrity = MethodType(verify, runtime)
+    runtime.ledger.append(
+        "task19_cycle_journal_installed",
+        {
+            "durable_plan_checkpoint": True,
+            "terminal_action_checkpoint": True,
+            "postprocess_recovery": ["cognition", "memory", "goals"],
+        },
+    )
