@@ -27,7 +27,9 @@ def test_plugin_is_additive_and_opt_in(tmp_path: Path):
     runtime = Runtime(tmp_path)
     try:
         register_wls(runtime)
-        assert runtime.examiner.active_version.version_id == "wls-examiner-v1-shadow"
+        assert hasattr(runtime, "examiner")
+        examiner = getattr(runtime, "examiner")
+        assert examiner.active_version.version_id == "wls-examiner-v1-shadow"
         assert any(event == "examiner_registered" for event, _ in runtime.ledger.events)
         with pytest.raises(RuntimeError, match="already registered"):
             register_wls(runtime)

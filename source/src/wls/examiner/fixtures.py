@@ -134,7 +134,7 @@ def make_defect(rule_id: str, index: int, *, epoch_id: str = "EPOCH-0001") -> An
             changed_paths=paths,
             claims=(),
             evidence=(),
-            metadata={**candidate.metadata, "contains_secret_material": True},
+            metadata={**candidate.metadata, "contains_secret_material": True},  # nosec B105
         )
     elif rule_id == "R005_AUTHORITY_UNIQUENESS":
         candidate = replace(

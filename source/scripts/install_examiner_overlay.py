@@ -5,7 +5,7 @@ import argparse
 import hashlib
 import json
 import shutil
-import subprocess
+import subprocess  # nosec B404
 
 BASE_COMMIT = "4c77401deb159e8ee2a2daf3c6e2702ce48876e3"
 
@@ -33,7 +33,7 @@ def sha256(path: Path) -> str:
 
 
 def git(target: Path, *args: str) -> str:
-    result = subprocess.run(
+    result = subprocess.run(  # nosec B603 B607
         ["git", "-C", str(target), *args],
         check=True,
         text=True,
