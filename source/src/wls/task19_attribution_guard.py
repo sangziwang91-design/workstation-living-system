@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import MethodType
 from typing import Any
+import json
 
 from .schemas import Plan, digest_json
 
@@ -27,7 +28,6 @@ def register_wls(runtime: Any) -> None:
         return
     runtime._task19_attribution_guard_installed = True
     runtime._task19_final_plan = {}
-
     planner = runtime.planner
     original_plan = planner.plan
 
@@ -45,7 +45,6 @@ def register_wls(runtime: Any) -> None:
         return result
 
     planner.plan = MethodType(plan, planner)
-
     goal_runtime = runtime.goal_runtime
     original_record = goal_runtime.record_decision
 
@@ -91,7 +90,7 @@ def register_wls(runtime: Any) -> None:
                 WHERE goal_trace_id=?
                 """,
                 (
-                    __import__("json").dumps(selected, ensure_ascii=False),
+                    json.dumps(selected, ensure_ascii=False),
                     int(influenced),
                     actual_digest,
                     counter_digest,
