@@ -321,6 +321,8 @@ def run_controlled_ablation(root: Path) -> dict[str, Any]:
     for index, task in enumerate(tasks):
         after_restart = index >= 2
         if index == 2:
+            enabled.close()
+            disabled.close()
             enabled = LivingSystem(enabled.config)
             disabled = LivingSystem(disabled.config)
         enabled_results.append(
@@ -384,6 +386,8 @@ def run_controlled_ablation(root: Path) -> dict[str, Any]:
             for memory_id in item["selected_memory_ids"]
         }
     )
+    enabled_memory_state = enabled.memories.memory_state(ADVANTAGE_MEMORY_ID)
+    disabled_memory_state = disabled.memories.memory_state(ADVANTAGE_MEMORY_ID)
     passed = bool(
         enabled_metrics["success_rate"] > disabled_metrics["success_rate"]
         and enabled_metrics["failure_recurrence"] < disabled_metrics["failure_recurrence"]
@@ -394,17 +398,17 @@ def run_controlled_ablation(root: Path) -> dict[str, Any]:
         and not restart_disabled["task_completed"]
         and regressions == 0
     )
-    return {
+    result = {
         "passed": passed,
         "memory_enabled": {
             **enabled_metrics,
             "results": enabled_results,
-            "memory_state": enabled.memories.memory_state(ADVANTAGE_MEMORY_ID),
+            "memory_state": enabled_memory_state,
         },
         "memory_disabled_baseline": {
             **disabled_metrics,
             "results": disabled_results,
-            "memory_state": disabled.memories.memory_state(ADVANTAGE_MEMORY_ID),
+            "memory_state": disabled_memory_state,
         },
         "decision_differences": differences,
         "attributed_memory_ids": attributed_ids,
@@ -420,6 +424,9 @@ def run_controlled_ablation(root: Path) -> dict[str, Any]:
             for left, right in zip(enabled_results, disabled_results, strict=True)
         ),
     }
+    enabled.close()
+    disabled.close()
+    return result
 
 
 def run_refutation_probe(root: Path) -> dict[str, Any]:
@@ -440,6 +447,7 @@ def run_refutation_probe(root: Path) -> dict[str, Any]:
     after_first = runtime.memories.memory_state(REFUTED_MEMORY_ID)
     second = _run_task(runtime, task_id="refute-002", after_restart=False, **common)
     after_second = runtime.memories.memory_state(REFUTED_MEMORY_ID)
+    runtime.close()
     restarted = LivingSystem(runtime.config)
     third = _run_task(
         restarted,
@@ -458,7 +466,7 @@ def run_refutation_probe(root: Path) -> dict[str, Any]:
         and third["task_completed"]
         and not third["memory_changed_decision"]
     )
-    return {
+    result = {
         "passed": passed,
         "memory_id": REFUTED_MEMORY_ID,
         "first_failure": first,
@@ -469,6 +477,8 @@ def run_refutation_probe(root: Path) -> dict[str, Any]:
         "state_after_restart": after_restart,
         "suppression_preserved": REFUTED_MEMORY_ID in third["suppressed_memory_ids"],
     }
+    restarted.close()
+    return result
 
 
 def run_evolution_target_003(root: Path) -> dict[str, Any]:

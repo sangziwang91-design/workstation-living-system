@@ -109,6 +109,9 @@ class LivingSystem:
             register(self)
             self.ledger.append("plugin_loaded", {"module": module_name})
 
+    def close(self) -> None:
+        self.db.close()
+
     @classmethod
     def from_config_path(
         cls, path: str | Path, home: str | Path | None = None

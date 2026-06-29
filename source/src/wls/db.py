@@ -10,7 +10,90 @@ import threading
 from .schemas import utc_now
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+
+GROWTH_SCHEMA_SQL = [
+    """
+    CREATE TABLE IF NOT EXISTS recovery_experiments (
+        experiment_id TEXT PRIMARY KEY,
+        candidate_id TEXT NOT NULL,
+        strategy TEXT NOT NULL,
+        status TEXT NOT NULL,
+        manifest_json TEXT NOT NULL,
+        baseline_json TEXT NOT NULL,
+        result_json TEXT,
+        artifact_path TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        FOREIGN KEY(candidate_id) REFERENCES evolution_candidates(candidate_id)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_recovery_experiments_candidate_time
+    ON recovery_experiments(candidate_id, started_at DESC)
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS skill_experiments (
+        experiment_id TEXT PRIMARY KEY,
+        skill_id TEXT NOT NULL,
+        skill_version INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        manifest_json TEXT NOT NULL,
+        baseline_json TEXT NOT NULL,
+        result_json TEXT,
+        artifact_path TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        FOREIGN KEY(skill_id) REFERENCES skills(skill_id)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_skill_experiments_skill_time
+    ON skill_experiments(skill_id, started_at DESC)
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS growth_cycles (
+        growth_cycle_id TEXT PRIMARY KEY,
+        failure_candidate_id TEXT NOT NULL,
+        recovery_experiment_id TEXT,
+        skill_id TEXT,
+        skill_experiment_id TEXT,
+        status TEXT NOT NULL,
+        approval_json TEXT,
+        promotion_json TEXT,
+        baseline_json TEXT NOT NULL,
+        reuse_json TEXT,
+        measurement_json TEXT,
+        rollback_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY(failure_candidate_id) REFERENCES evolution_candidates(candidate_id),
+        FOREIGN KEY(skill_id) REFERENCES skills(skill_id)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_growth_cycles_status_time
+    ON growth_cycles(status, updated_at DESC)
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS growth_measurements (
+        measurement_id TEXT PRIMARY KEY,
+        growth_cycle_id TEXT NOT NULL,
+        runtime_cycle_id TEXT,
+        plan_id TEXT,
+        skill_id TEXT NOT NULL,
+        baseline_success_rate REAL NOT NULL,
+        actual_success_rate REAL NOT NULL,
+        regressions INTEGER NOT NULL,
+        outcome_json TEXT NOT NULL,
+        decision TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY(growth_cycle_id) REFERENCES growth_cycles(growth_cycle_id),
+        FOREIGN KEY(skill_id) REFERENCES skills(skill_id)
+    )
+    """,
+]
 
 
 class Database:
@@ -25,21 +108,32 @@ class Database:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self._connection = self._open_connection(configure_journal=True)
+        self._closed = False
         self.initialize()
 
-    def connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path, timeout=30.0, isolation_level=None)
+    def _open_connection(self, *, configure_journal: bool = False) -> sqlite3.Connection:
+        connection = sqlite3.connect(
+            self.path,
+            timeout=30.0,
+            isolation_level=None,
+            check_same_thread=False,
+        )
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys=ON")
-        connection.execute("PRAGMA journal_mode=WAL")
+        if configure_journal:
+            connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("PRAGMA synchronous=FULL")
         connection.execute("PRAGMA busy_timeout=30000")
         return connection
 
+    def connect(self) -> sqlite3.Connection:
+        return self._open_connection()
+
     @contextmanager
     def transaction(self, immediate: bool = True) -> Iterator[sqlite3.Connection]:
         with self._lock:
-            connection = self.connect()
+            connection = self._connection
             try:
                 connection.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
                 yield connection
@@ -49,8 +143,6 @@ class Database:
                 if connection.in_transaction:
                     connection.execute("ROLLBACK")
                 raise
-            finally:
-                connection.close()
 
     def initialize(self) -> None:
         with self.transaction() as connection:
@@ -321,7 +413,31 @@ class Database:
             )
             connection.execute(
                 "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
-                (SCHEMA_VERSION, utc_now()),
+                (1, utc_now()),
+            )
+        self._migrate()
+
+    def _migrate(self) -> None:
+        while True:
+            current = self._schema_version()
+            if current >= SCHEMA_VERSION:
+                return
+            if current == 1:
+                self._migrate_to_version_2()
+                continue
+            raise RuntimeError(f"unsupported schema migration from version {current}")
+
+    def _schema_version(self) -> int:
+        row = self.query_one("SELECT MAX(version) AS version FROM schema_migrations")
+        return int(row["version"] or 0) if row else 0
+
+    def _migrate_to_version_2(self) -> None:
+        with self.transaction() as connection:
+            for statement in GROWTH_SCHEMA_SQL:
+                connection.execute(statement)
+            connection.execute(
+                "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                (2, utc_now()),
             )
 
     def execute(self, sql: str, parameters: Sequence[Any] = ()) -> int:
@@ -330,18 +446,12 @@ class Database:
             return cursor.rowcount
 
     def query_one(self, sql: str, parameters: Sequence[Any] = ()) -> sqlite3.Row | None:
-        connection = self.connect()
-        try:
-            return connection.execute(sql, parameters).fetchone()
-        finally:
-            connection.close()
+        with self._lock:
+            return self._connection.execute(sql, parameters).fetchone()
 
     def query_all(self, sql: str, parameters: Sequence[Any] = ()) -> list[sqlite3.Row]:
-        connection = self.connect()
-        try:
-            return list(connection.execute(sql, parameters).fetchall())
-        finally:
-            connection.close()
+        with self._lock:
+            return list(self._connection.execute(sql, parameters).fetchall())
 
     def set_runtime(
         self, key: str, value: Any, connection: sqlite3.Connection | None = None
@@ -380,3 +490,10 @@ class Database:
             connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         finally:
             connection.close()
+
+    def close(self) -> None:
+        with self._lock:
+            if self._closed:
+                return
+            self._connection.close()
+            self._closed = True

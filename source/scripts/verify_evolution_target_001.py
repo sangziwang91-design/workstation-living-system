@@ -62,85 +62,88 @@ def execute_case(
     config.max_actions_per_cycle = 4
     config.sleep_after_idle_cycles = 100
     runtime = LivingSystem(config)
-    failure_ids = [
-        record_failure(
-            runtime,
-            tool=tool,
-            arguments=arguments,
-            acceptance=acceptance,
-            purpose=purpose,
+    try:
+        failure_ids = [
+            record_failure(
+                runtime,
+                tool=tool,
+                arguments=arguments,
+                acceptance=acceptance,
+                purpose=purpose,
+            )
+            for _ in range(3)
+        ]
+        candidate_ids = runtime.learning.create_failure_candidates(minimum_repeats=3)
+        if len(candidate_ids) != 1:
+            raise RuntimeError(f"expected one failure candidate, found {candidate_ids}")
+        candidate_id = candidate_ids[0]
+        recovery = runtime.growth.run_recovery_experiment(candidate_id, strategy)
+        proposal = runtime.growth.propose_skill_from_recovery(
+            candidate_id, recovery["experiment_id"]
         )
-        for _ in range(3)
-    ]
-    candidate_ids = runtime.learning.create_failure_candidates(minimum_repeats=3)
-    if len(candidate_ids) != 1:
-        raise RuntimeError(f"expected one failure candidate, found {candidate_ids}")
-    candidate_id = candidate_ids[0]
-    recovery = runtime.growth.run_recovery_experiment(candidate_id, strategy)
-    proposal = runtime.growth.propose_skill_from_recovery(
-        candidate_id, recovery["experiment_id"]
-    )
-    validation = runtime.growth.validate_skill(proposal["growth_cycle_id"])
-    promotion = runtime.growth.approve_and_promote(
-        proposal["growth_cycle_id"],
-        actor="owner-authorized-local-verification-fixture",
-        authorization_reference="EVOLUTION-TARGET-001/local-verification",
-        human_approved=True,
-    )
-    reuse = runtime.growth.reuse_on_runtime_task(proposal["growth_cycle_id"])
-    rollback = None
-    expected_decision = "RETAIN" if expect_retain else "ROLLBACK_REQUIRED"
-    if reuse["measurement"]["decision"] != expected_decision:
-        raise RuntimeError(
-            f"expected {expected_decision}, got {reuse['measurement']['decision']}"
-        )
-    if not expect_retain:
-        rollback = runtime.growth.rollback(
+        validation = runtime.growth.validate_skill(proposal["growth_cycle_id"])
+        promotion = runtime.growth.approve_and_promote(
             proposal["growth_cycle_id"],
             actor="owner-authorized-local-verification-fixture",
-            authorization_reference="EVOLUTION-TARGET-001/local-rollback-verification",
+            authorization_reference="EVOLUTION-TARGET-001/local-verification",
             human_approved=True,
         )
-        if not rollback["rollback"]["passed"]:
-            raise RuntimeError("rollback verification failed")
-    integrity = runtime.verify_integrity(full=True)
-    if not integrity["ok"]:
-        raise RuntimeError(f"integrity failed: {integrity}")
-    return {
-        "case": name,
-        "failure_action_ids": failure_ids,
-        "candidate_id": candidate_id,
-        "recovery": {
-            key: recovery[key]
-            for key in (
-                "experiment_id",
-                "status",
-                "baseline_pass_rate",
-                "candidate_pass_rate",
-                "improved_cases",
-                "regressions",
-                "result_sha256",
+        reuse = runtime.growth.reuse_on_runtime_task(proposal["growth_cycle_id"])
+        rollback = None
+        expected_decision = "RETAIN" if expect_retain else "ROLLBACK_REQUIRED"
+        if reuse["measurement"]["decision"] != expected_decision:
+            raise RuntimeError(
+                f"expected {expected_decision}, got {reuse['measurement']['decision']}"
             )
-        },
-        "growth_cycle_id": proposal["growth_cycle_id"],
-        "skill_id": proposal["skill_id"],
-        "validation": {
-            key: validation[key]
-            for key in (
-                "experiment_id",
-                "status",
-                "passed_cases",
-                "candidate_cases",
-                "regressions",
-                "result_sha256",
+        if not expect_retain:
+            rollback = runtime.growth.rollback(
+                proposal["growth_cycle_id"],
+                actor="owner-authorized-local-verification-fixture",
+                authorization_reference="EVOLUTION-TARGET-001/local-rollback-verification",
+                human_approved=True,
             )
-        },
-        "promotion": promotion,
-        "reuse": reuse,
-        "rollback": rollback,
-        "integrity": integrity,
-        "evidence_chain": runtime.ledger.verify(),
-    }
+            if not rollback["rollback"]["passed"]:
+                raise RuntimeError("rollback verification failed")
+        integrity = runtime.verify_integrity(full=True)
+        if not integrity["ok"]:
+            raise RuntimeError(f"integrity failed: {integrity}")
+        return {
+            "case": name,
+            "failure_action_ids": failure_ids,
+            "candidate_id": candidate_id,
+            "recovery": {
+                key: recovery[key]
+                for key in (
+                    "experiment_id",
+                    "status",
+                    "baseline_pass_rate",
+                    "candidate_pass_rate",
+                    "improved_cases",
+                    "regressions",
+                    "result_sha256",
+                )
+            },
+            "growth_cycle_id": proposal["growth_cycle_id"],
+            "skill_id": proposal["skill_id"],
+            "validation": {
+                key: validation[key]
+                for key in (
+                    "experiment_id",
+                    "status",
+                    "passed_cases",
+                    "candidate_cases",
+                    "regressions",
+                    "result_sha256",
+                )
+            },
+            "promotion": promotion,
+            "reuse": reuse,
+            "rollback": rollback,
+            "integrity": integrity,
+            "evidence_chain": runtime.ledger.verify(),
+        }
+    finally:
+        runtime.close()
 
 
 def main() -> int:
