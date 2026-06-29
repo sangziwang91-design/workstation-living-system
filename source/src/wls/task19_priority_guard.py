@@ -5,6 +5,7 @@ from typing import Any
 
 from .schemas import Plan
 from .task19_execution_guard import register_wls as register_execution_guard
+from .task19_goal_outcome_guard import register_wls as register_goal_outcome_guard
 
 
 OWNER_SOURCES = {"owner", "user", "human", "cli", "api"}
@@ -28,6 +29,7 @@ def _has_external_priority(context: dict[str, Any]) -> tuple[bool, list[str]]:
 def register_wls(runtime: Any) -> None:
     """Preserve owner/external-event priority after execution guards."""
     register_execution_guard(runtime)
+    register_goal_outcome_guard(runtime)
     if getattr(runtime, "_task19_priority_guard_installed", False):
         return
     runtime._task19_priority_guard_installed = True
