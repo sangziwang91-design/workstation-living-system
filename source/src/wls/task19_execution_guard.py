@@ -7,7 +7,7 @@ import json
 from .schemas import ActionSpec, ActionStatus, digest_json, utc_now
 
 
-VERSION = "task19-execution-guard-2"
+VERSION = "task19-execution-guard-3"
 
 
 def _ensure_schema(runtime: Any) -> None:
@@ -92,6 +92,61 @@ def _blocked(
         "reason": reason,
         "error": reason,
         "provenance": "NO_OBSERVABLE_OUTCOME",
+        "source_action_id": None,
+        "provenance_evidence_id": evidence_id,
+    }
+
+
+def _tool_exception(
+    runtime: Any,
+    action: ActionSpec,
+    side_effect_class: str,
+    exc: Exception,
+) -> dict[str, Any]:
+    error = f"{type(exc).__name__}: {exc}"[:4000]
+    if side_effect_class == "none":
+        status = ActionStatus.FAILED
+        provenance = "EXECUTED_CURRENT_ACTION"
+        event_type = "action_tool_exception"
+    else:
+        status = ActionStatus.UNKNOWN_SIDE_EFFECT
+        provenance = "NO_OBSERVABLE_OUTCOME"
+        event_type = "action_side_effect_unknown"
+    with runtime.db.transaction() as connection:
+        evidence_id = runtime.ledger.append(
+            event_type,
+            {
+                "action_id": action.action_id,
+                "tool": action.tool,
+                "status": status.value,
+                "side_effect_class": side_effect_class,
+                "error": error,
+                "provenance": provenance,
+            },
+            connection,
+        )
+        connection.execute(
+            """
+            UPDATE actions
+            SET status=?,finished_at=?,error=?,outcome_provenance=?,
+                source_action_id=NULL,provenance_evidence_id=?
+            WHERE action_id=? AND status='RUNNING'
+            """,
+            (
+                status.value,
+                utc_now(),
+                error,
+                provenance,
+                evidence_id,
+                action.action_id,
+            ),
+        )
+    return {
+        "action_id": action.action_id,
+        "success": False,
+        "status": status.value,
+        "error": error,
+        "provenance": provenance,
         "source_action_id": None,
         "provenance_evidence_id": evidence_id,
     }
@@ -228,14 +283,29 @@ def register_wls(runtime: Any) -> None:
             ).rowcount
             if updated != 1:
                 row = connection.execute(
-                    "SELECT status FROM actions WHERE action_id=?",
+                    "SELECT status,outcome_provenance,source_action_id,provenance_evidence_id "
+                    "FROM actions WHERE action_id=?",
                     (action.action_id,),
                 ).fetchone()
                 return {
                     "action_id": action.action_id,
                     "success": False,
                     "status": str(row["status"]) if row else "MISSING",
-                    "provenance": "NO_OBSERVABLE_OUTCOME",
+                    "provenance": (
+                        str(row["outcome_provenance"])
+                        if row and row["outcome_provenance"]
+                        else "NO_OBSERVABLE_OUTCOME"
+                    ),
+                    "source_action_id": (
+                        str(row["source_action_id"])
+                        if row and row["source_action_id"]
+                        else None
+                    ),
+                    "provenance_evidence_id": (
+                        str(row["provenance_evidence_id"])
+                        if row and row["provenance_evidence_id"]
+                        else None
+                    ),
                 }
             self.ledger.append(
                 "action_started",
@@ -243,7 +313,13 @@ def register_wls(runtime: Any) -> None:
                 connection,
             )
 
-        tool_result = self.tools.execute(action)
+        try:
+            tool_result = self.tools.execute(action)
+        except Exception as exc:
+            return _tool_exception(
+                self, action, definition.side_effect_class, exc
+            )
+
         evaluation = self.evaluator.evaluate(action, tool_result)
         success = bool(evaluation["accepted"])
         status = ActionStatus.SUCCEEDED if success else ActionStatus.FAILED
@@ -305,5 +381,6 @@ def register_wls(runtime: Any) -> None:
             "exact_contract_reuse": True,
             "persistent_provenance": True,
             "schema_migration_transactional": True,
+            "tool_exception_classification": True,
         },
     )
