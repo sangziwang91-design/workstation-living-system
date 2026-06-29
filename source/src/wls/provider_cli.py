@@ -8,7 +8,7 @@ import getpass
 import json
 import os
 
-from .provider_hub import ProviderHub
+from .provider_hub_secure import SecureProviderHub as ProviderHub
 
 
 _LITERAL_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
@@ -43,8 +43,8 @@ def _validate_cli_custom_base(provider_id: str, base_url: str | None) -> None:
         raise ValueError("custom_openai base URL must use http or https")
     if parsed.username is not None or parsed.password is not None:
         raise ValueError("userinfo credentials in provider URLs are forbidden")
-    if parsed.fragment:
-        raise ValueError("provider URL fragments are forbidden")
+    if parsed.query or parsed.fragment:
+        raise ValueError("provider URL query and fragment are forbidden")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -60,7 +60,6 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("list", help="List provider presets and local configuration")
     status = sub.add_parser("status", help="Show one provider without secrets")
     status.add_argument("provider_id")
-
     configure = sub.add_parser("configure", help="Configure non-secret provider metadata")
     configure.add_argument("provider_id")
     configure.add_argument("--model")
@@ -71,14 +70,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Read a credential from an interactive hidden prompt and store it in the OS vault",
     )
-
     probe = sub.add_parser("probe", help="Run a bounded models-endpoint probe")
     probe.add_argument("provider_id")
     probe.add_argument("--timeout-seconds", type=float, default=15.0)
-
-    select = sub.add_parser("select", help="Select an enabled configured provider candidate")
+    select = sub.add_parser("select", help="Select a successfully probed provider candidate")
     select.add_argument("provider_id")
-
     remove = sub.add_parser(
         "remove-credential", help="Remove a provider credential from the OS vault"
     )
