@@ -100,3 +100,30 @@ def test_survival_preflight_and_failure_budget(tmp_path: Path) -> None:
     assert first["stop"] is False
     assert second["stop"] is True
     assert second["backoff_seconds"] <= config.daemon_failure_backoff_max_seconds
+
+
+def test_survival_terminal_state_is_idempotent_and_immutable(tmp_path: Path) -> None:
+    config = default_config(tmp_path / "home")
+    config.sensors = []
+    runtime = LivingSystem(config)
+    run_id = runtime.survival.start_run(1)
+    runtime.survival.record_success(run_id, 0, 0.01, "SUCCEEDED")
+    first = runtime.survival.finish_run(run_id, "COMPLETED", "first reason")
+    second = runtime.survival.finish_run(run_id, "CRASHED", "late overwrite")
+    assert first["status"] == "COMPLETED"
+    assert second["status"] == "COMPLETED"
+    assert second["termination_reason"] == "first reason"
+
+
+def test_survival_rejects_late_accounting_after_terminal_state(tmp_path: Path) -> None:
+    config = default_config(tmp_path / "home")
+    config.sensors = []
+    runtime = LivingSystem(config)
+    run_id = runtime.survival.start_run(1)
+    runtime.survival.finish_run(run_id, "STOPPED", "test stop")
+    with pytest.raises(RuntimeError, match="terminal"):
+        runtime.survival.record_success(run_id, 0, 0.01, "SUCCEEDED")
+    with pytest.raises(RuntimeError, match="terminal"):
+        runtime.survival.record_failure(run_id, 0, RuntimeError("late"))
+    with pytest.raises(RuntimeError, match="terminal"):
+        runtime.survival.heartbeat(run_id, 0, "SUCCEEDED", 0.01)
