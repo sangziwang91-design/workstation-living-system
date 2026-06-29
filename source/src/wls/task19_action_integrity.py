@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import MethodType
 from typing import Any
+import json
 
 from .lease import ProcessLease
 from .schemas import ActionSpec, utc_now
@@ -14,6 +15,13 @@ ALLOWED_PROVENANCE = (
     "NO_OBSERVABLE_OUTCOME",
     "LEGACY_UNATTRIBUTED",
 )
+TERMINAL_RUN_STATUSES = {
+    "COMPLETED",
+    "STOPPED",
+    "CRASHED",
+    "INTERRUPTED",
+    "RESTART_CHECKPOINT",
+}
 
 
 def _backfill_legacy(runtime: Any) -> int:
@@ -102,8 +110,25 @@ def _counts(runtime: Any) -> dict[str, int]:
     return result
 
 
+def _run_row(runtime: Any, run_id: str) -> Any:
+    row = runtime.db.query_one(
+        "SELECT * FROM survival_runs WHERE run_id=?", (run_id,)
+    )
+    if row is None:
+        raise KeyError(run_id)
+    return row
+
+
+def _require_running(runtime: Any, run_id: str) -> None:
+    row = _run_row(runtime, run_id)
+    if str(row["status"]) != "RUNNING":
+        raise RuntimeError(
+            f"survival run {run_id} is terminal: {row['status']}"
+        )
+
+
 def register_wls(runtime: Any) -> None:
-    """Protect recovery ownership and make action provenance fail closed."""
+    """Protect recovery ownership and make operational evidence fail closed."""
 
     if getattr(runtime, "_task19_action_integrity_installed", False):
         return
@@ -168,6 +193,79 @@ def register_wls(runtime: Any) -> None:
 
     runtime._execute_action = MethodType(execute_action_with_provenance, runtime)
 
+    survival = runtime.survival
+    original_preflight = survival.preflight
+    original_success = survival.record_success
+    original_failure = survival.record_failure
+    original_heartbeat = survival.heartbeat
+    original_finish = survival.finish_run
+
+    def preflight(self: Any, run_id: str, cycle_index: int) -> dict[str, Any]:
+        _require_running(runtime, run_id)
+        return original_preflight(run_id, cycle_index)
+
+    def record_success(
+        self: Any,
+        run_id: str,
+        cycle_index: int,
+        duration_seconds: float,
+        result_status: str,
+    ) -> dict[str, Any]:
+        _require_running(runtime, run_id)
+        return original_success(
+            run_id, cycle_index, duration_seconds, result_status
+        )
+
+    def record_failure(
+        self: Any,
+        run_id: str,
+        cycle_index: int,
+        exc: Exception,
+    ) -> dict[str, Any]:
+        _require_running(runtime, run_id)
+        return original_failure(run_id, cycle_index, exc)
+
+    def heartbeat(
+        self: Any,
+        run_id: str,
+        cycle_index: int,
+        status: str,
+        duration_seconds: float | None,
+    ) -> str | None:
+        _require_running(runtime, run_id)
+        return original_heartbeat(
+            run_id, cycle_index, status, duration_seconds
+        )
+
+    def finish_run(
+        self: Any,
+        run_id: str,
+        status: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        if status not in TERMINAL_RUN_STATUSES:
+            raise ValueError(f"invalid survival terminal status: {status}")
+        row = _run_row(runtime, run_id)
+        if str(row["status"]) != "RUNNING":
+            if row["report_json"]:
+                return json.loads(str(row["report_json"]))
+            return {
+                "run_id": run_id,
+                "status": str(row["status"]),
+                "termination_reason": row["termination_reason"],
+                "completed_cycles": int(row["completed_cycles"]),
+                "failed_cycles": int(row["failed_cycles"]),
+                "finished_at": row["finished_at"],
+                "idempotent": True,
+            }
+        return original_finish(run_id, status, reason)
+
+    survival.preflight = MethodType(preflight, survival)
+    survival.record_success = MethodType(record_success, survival)
+    survival.record_failure = MethodType(record_failure, survival)
+    survival.heartbeat = MethodType(heartbeat, survival)
+    survival.finish_run = MethodType(finish_run, survival)
+
     original_verify = runtime.verify_integrity
 
     def verify_integrity(self: Any, full: bool = True) -> dict[str, Any]:
@@ -192,5 +290,6 @@ def register_wls(runtime: Any) -> None:
             "allowed_provenance": list(ALLOWED_PROVENANCE),
             "startup_recovery_requires_runtime_lease": True,
             "missing_provenance_fails_closed": True,
+            "survival_terminal_state_enforced": True,
         },
     )
