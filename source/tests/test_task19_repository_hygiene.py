@@ -96,3 +96,13 @@ def test_version_authority_and_dynamic_package_metadata_agree() -> None:
     assert 'dynamic = ["version"]' in project
     assert 'version = {attr = "wls._version.__version__"}' in project
     assert f'__version__ = "{canonical_version}"' in version_text
+
+
+def test_persistent_self_hosted_runner_never_auto_executes_pull_requests() -> None:
+    offenders: list[str] = []
+    workflow_root = REPOSITORY / ".github" / "workflows"
+    for path in workflow_root.glob("*.yml"):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if "self-hosted" in text and re.search(r"(?m)^\s*pull_request\s*:", text):
+            offenders.append(path.relative_to(REPOSITORY).as_posix())
+    assert offenders == []
