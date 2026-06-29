@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wls.local/schemas/examiner_candidate.schema.json",
+  "title": "WLS Examiner Candidate",
+  "type": "object",
+  "required": [
+    "candidate_id",
+    "task_id",
+    "allowed_paths",
+    "changed_paths"
+  ],
+  "properties": {
+    "candidate_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "title": {
+      "type": "string"
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "allowed_paths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "changed_paths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "deleted_paths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "text",
+          "level",
+          "claim_type"
+        ],
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "level": {
+            "enum": [
+              "DIRECT_VERIFIED",
+              "EXTERNAL_VERIFIED",
+              "INFERENCE",
+              "OWNER_REPORTED",
+              "UNKNOWN"
+            ]
+          },
+          "claim_type": {
+            "type": "string"
+          },
+          "evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "uniqueItems": true
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "source_id",
+          "source_kind",
+          "verification"
+        ],
+        "properties": {
+          "source_id": {
+            "type": "string"
+          },
+          "source_kind": {
+            "type": "string"
+          },
+          "verification": {
+            "enum": [
+              "DIRECT_VERIFIED",
+              "EXTERNAL_VERIFIED",
+              "INFERENCE",
+              "OWNER_REPORTED",
+              "UNKNOWN"
+            ]
+          },
+          "digest": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9a-fA-F]{64}$"
+          },
+          "independent": {
+            "type": "boolean"
+          },
+          "family": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "number"
+      }
+    },
+    "metadata": {
+      "type": "object"
+    },
+    "requested_actions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "submitted_epoch_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "submission_nonce": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

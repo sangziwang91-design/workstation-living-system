@@ -1,0 +1,29 @@
+{
+  "claim_ceiling": "NOT_ENABLED_ON_OWNER_HOST; NO_AUTO_PROMOTION; NO_AUTO_MERGE",
+  "mode": "SHADOW_ADVISORY",
+  "public_anchor_bank_id": "WLS-EXAMINER-PUBLIC-ANCHORS-V1",
+  "public_anchor_count": 20,
+  "status": "FROZEN_SHADOW",
+  "version": {
+    "anchor_manifest_digest": "f94ef029823d8ba477489bc130af335a9654a73cd4bd2c514c2fc98030256ef0",
+    "constitution_digest": "dc8e33b5df37305eb0d2a462f945ddecc9a5a18b6b163de856b2bfd48cfb03db",
+    "created_at": "2026-06-28T15:32:06+08:00",
+    "enabled_rules": [
+      "R001_SCOPE_INTEGRITY",
+      "R002_GATE_WEAKENING",
+      "R003_CLAIM_CEILING",
+      "R004_ARTIFACT_HYGIENE",
+      "R005_AUTHORITY_UNIQUENESS",
+      "R006_EVIDENCE_LAUNDERING",
+      "R007_INCREMENTAL_VALUE",
+      "R008_EPOCH_FRESHNESS",
+      "R009_PROTECTED_SURFACE",
+      "R010_JUDGE_DIVERSITY"
+    ],
+    "epoch_id": "EXAM-EPOCH-0001",
+    "implementation_digest": "f6dfa4eecbf6f27ca74bb4229bedd3ffb32a5434007e97b39e02ea9569d147d4",
+    "parent_version_id": null,
+    "version_id": "wls-examiner-v1-shadow"
+  },
+  "version_digest": "5d852cbf086914de54cf8da440d194340c5edf9bf3d6bee3e9fa5bc226c06b3e"
+}

@@ -24,6 +24,14 @@ GROWTH_TABLES = {
     "growth_measurements",
 }
 
+EXAMINER_TABLES = {
+    "examiner_epochs",
+    "examiner_versions",
+    "examiner_verdicts",
+    "examiner_promotions",
+    "examiner_anchor_manifests",
+}
+
 
 def table_names(path: Path) -> set[str]:
     connection = sqlite3.connect(path)
@@ -122,6 +130,7 @@ def test_fresh_database_initialization_creates_growth_schema(tmp_path: Path) -> 
     try:
         assert db._schema_version() == db_module.SCHEMA_VERSION
         assert GROWTH_TABLES.issubset(table_names(db.path))
+        assert EXAMINER_TABLES.issubset(table_names(db.path))
         ok, detail = db.integrity_check()
         assert ok is True, detail
     finally:
@@ -136,6 +145,7 @@ def test_schema_v1_database_migrates_to_current_version(tmp_path: Path) -> None:
     try:
         assert db._schema_version() == db_module.SCHEMA_VERSION
         assert GROWTH_TABLES.issubset(table_names(path))
+        assert EXAMINER_TABLES.issubset(table_names(path))
         ok, detail = db.integrity_check()
         assert ok is True, detail
     finally:
@@ -169,7 +179,11 @@ def test_migration_is_idempotent(tmp_path: Path) -> None:
         rows = second.query_all(
             "SELECT version, COUNT(*) AS n FROM schema_migrations GROUP BY version"
         )
-        assert {int(row["version"]): int(row["n"]) for row in rows} == {1: 1, 2: 1}
+        assert {int(row["version"]): int(row["n"]) for row in rows} == {
+            1: 1,
+            2: 1,
+            3: 1,
+        }
     finally:
         second.close()
 

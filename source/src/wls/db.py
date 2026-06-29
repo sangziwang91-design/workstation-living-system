@@ -11,7 +11,7 @@ import time
 from .schemas import utc_now
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 GROWTH_SCHEMA_SQL = [
@@ -92,6 +92,84 @@ GROWTH_SCHEMA_SQL = [
         created_at TEXT NOT NULL,
         FOREIGN KEY(growth_cycle_id) REFERENCES growth_cycles(growth_cycle_id),
         FOREIGN KEY(skill_id) REFERENCES skills(skill_id)
+    )
+    """,
+]
+
+
+EXAMINER_SCHEMA_SQL = [
+    """
+    CREATE TABLE IF NOT EXISTS examiner_epochs (
+        epoch_id TEXT PRIMARY KEY,
+        evaluator_version_id TEXT NOT NULL,
+        evaluator_version_digest TEXT NOT NULL,
+        constitution_digest TEXT NOT NULL,
+        anchor_manifest_digest TEXT NOT NULL,
+        implementation_digest TEXT NOT NULL,
+        status TEXT NOT NULL,
+        opened_at TEXT NOT NULL,
+        closed_at TEXT,
+        owner_approval_ref TEXT
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS examiner_versions (
+        version_id TEXT PRIMARY KEY,
+        version_digest TEXT NOT NULL UNIQUE,
+        parent_version_id TEXT,
+        epoch_id TEXT NOT NULL,
+        constitution_digest TEXT NOT NULL,
+        anchor_manifest_digest TEXT NOT NULL,
+        implementation_digest TEXT NOT NULL,
+        enabled_rules_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        status TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS examiner_verdicts (
+        verdict_id TEXT PRIMARY KEY,
+        verdict_digest TEXT NOT NULL UNIQUE,
+        candidate_id TEXT NOT NULL,
+        candidate_digest TEXT NOT NULL,
+        version_id TEXT NOT NULL,
+        version_digest TEXT NOT NULL,
+        epoch_id TEXT NOT NULL,
+        verdict TEXT NOT NULL,
+        result_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        stale INTEGER NOT NULL DEFAULT 0,
+        stale_reason TEXT,
+        nonce TEXT,
+        UNIQUE(candidate_digest, version_digest, epoch_id)
+    )
+    """,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_examiner_nonce
+    ON examiner_verdicts(nonce) WHERE nonce IS NOT NULL
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS examiner_promotions (
+        promotion_id TEXT PRIMARY KEY,
+        incumbent_version_id TEXT NOT NULL,
+        challenger_version_id TEXT NOT NULL,
+        decision_digest TEXT NOT NULL,
+        decision_json TEXT NOT NULL,
+        status TEXT NOT NULL,
+        owner_actor TEXT,
+        owner_approval_ref TEXT,
+        created_at TEXT NOT NULL,
+        applied_at TEXT
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS examiner_anchor_manifests (
+        manifest_digest TEXT PRIMARY KEY,
+        bank_id TEXT NOT NULL,
+        split TEXT NOT NULL,
+        case_count INTEGER NOT NULL,
+        seal TEXT,
+        created_at TEXT NOT NULL
     )
     """,
 ]
@@ -479,6 +557,9 @@ class Database:
             if current == 1:
                 self._migrate_to_version_2()
                 continue
+            if current == 2:
+                self._migrate_to_version_3()
+                continue
             raise RuntimeError(f"unsupported schema migration from version {current}")
 
     def _schema_version(self) -> int:
@@ -492,6 +573,15 @@ class Database:
             connection.execute(
                 "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
                 (2, utc_now()),
+            )
+
+    def _migrate_to_version_3(self) -> None:
+        with self.transaction() as connection:
+            for statement in EXAMINER_SCHEMA_SQL:
+                connection.execute(statement)
+            connection.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                (3, utc_now()),
             )
 
     def execute(self, sql: str, parameters: Sequence[Any] = ()) -> int:

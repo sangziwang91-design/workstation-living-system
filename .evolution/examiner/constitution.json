@@ -1,0 +1,46 @@
+{
+  "constitution_id": "WLS-EXAMINER-CONSTITUTION",
+  "version": "1.0.0",
+  "purpose": "Bounded, evidence-first evaluation of WLS engineering and evolution candidates without creating a second runtime or autonomous merge authority.",
+  "protected_paths": [
+    ".evolution/examiner/constitution.json",
+    ".evolution/examiner/anchors/**",
+    ".evolution/examiner/holdout/**",
+    ".evolution/examiner/current_epoch.json",
+    "source/src/wls/examiner/defaults/**"
+  ],
+  "forbidden_actions": [
+    "auto_merge",
+    "direct_push_main",
+    "deploy_owner_host",
+    "activate_provider",
+    "modify_owner_secrets",
+    "delete_failure_evidence",
+    "self_approve_examiner"
+  ],
+  "owner_approval_actions": [
+    "merge",
+    "deploy",
+    "promote_examiner",
+    "enable_on_owner_host",
+    "change_constitution",
+    "change_anchor_manifest"
+  ],
+  "immutable_rules": [
+    "one_canonical_living_system",
+    "hard_failure_dominates_aggregate_score",
+    "model_output_is_not_verified_evidence",
+    "epoch_frozen_evaluator",
+    "holdout_not_visible_to_candidate_generator",
+    "owner_only_examiner_promotion",
+    "raw_evidence_never_deleted",
+    "selective_erasure_marks_scores_stale_only",
+    "no_automatic_merge_or_deployment"
+  ],
+  "limits": {
+    "max_changed_files_without_explicit_scope": 12,
+    "max_false_pass_regression": 0,
+    "max_false_reject_regression": 0,
+    "promotion_alpha": 0.05
+  }
+}

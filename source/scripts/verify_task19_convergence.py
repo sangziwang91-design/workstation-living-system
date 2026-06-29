@@ -19,6 +19,11 @@ BASE_REQUIRED_GATES = {
     "initial_clean_worktree",
     "compileall",
     "packaging_layout",
+    "sqlite_convergence",
+    "sqlite_close_and_windows_handle_release",
+    "examiner_integrated_tests",
+    "examiner_adversarial_controls",
+    "examiner_shadow_default",
     "pytest_full",
     "evolution_target_001",
     "evolution_target_002",
@@ -30,6 +35,9 @@ BASE_REQUIRED_GATES = {
     "build_root",
     "wheel_metadata",
     "clean_install",
+    "deployment_bundle_manifest",
+    "deployment_bundle_hashes",
+    "install_upgrade_rollback_roundtrip",
     "final_head_unchanged",
     "final_clean_worktree",
 }
@@ -59,12 +67,27 @@ def _gate(
     duration_seconds: float = 0.0,
 ) -> dict[str, Any]:
     now = datetime.now(UTC).isoformat()
+    try:
+        gate_head = _git("rev-parse", "HEAD")
+    except Exception:
+        gate_head = "UNKNOWN"
     return {
         "name": name,
         "command": command or [],
         "cwd": str(REPOSITORY),
         "status": status,
         "exit_code": exit_code,
+        "head_sha": gate_head,
+        "python": {
+            "executable": sys.executable,
+            "version": sys.version,
+        },
+        "env": {
+            "PYTHONPATH": os.environ.get("PYTHONPATH", ""),
+            "VIRTUAL_ENV": os.environ.get("VIRTUAL_ENV", ""),
+            "WLS_HOME": os.environ.get("WLS_HOME", ""),
+            "WLS_CONFIG": os.environ.get("WLS_CONFIG", ""),
+        },
         "stdout": stdout[-100_000:],
         "stderr": stderr[-100_000:],
         "started_at": started_at or now,
@@ -268,6 +291,66 @@ def main() -> int:
                     120,
                 ),
                 _run(
+                    "sqlite_convergence",
+                    [
+                        sys.executable,
+                        "-m",
+                        "pytest",
+                        "source/tests/test_db_migration.py",
+                        "-q",
+                    ],
+                    600,
+                ),
+                _run(
+                    "sqlite_close_and_windows_handle_release",
+                    [
+                        sys.executable,
+                        "-m",
+                        "pytest",
+                        "source/tests/test_db_migration.py::test_failed_migration_rolls_back_version_schema_and_handle",
+                        "source/tests/test_db_migration.py::test_database_restart_continuity_and_use_after_close",
+                        "source/tests/test_db_migration.py::test_same_home_competing_initialization_is_bounded",
+                        "-q",
+                    ],
+                    600,
+                ),
+                _run(
+                    "examiner_integrated_tests",
+                    [
+                        sys.executable,
+                        "-m",
+                        "pytest",
+                        "source/tests/test_examiner_core.py",
+                        "source/tests/test_examiner_promotion.py",
+                        "source/tests/test_examiner_adversarial.py",
+                        "source/tests/test_examiner_install.py",
+                        "source/tests/test_examiner_plugin.py",
+                        "-q",
+                    ],
+                    600,
+                ),
+                _run(
+                    "examiner_adversarial_controls",
+                    [
+                        sys.executable,
+                        "source/scripts/run_adversarial_trials.py",
+                        "--output",
+                        "artifacts/examiner/verifier-adversarial",
+                    ],
+                    300,
+                ),
+                _run(
+                    "examiner_shadow_default",
+                    [
+                        sys.executable,
+                        "-m",
+                        "pytest",
+                        "source/tests/test_task19_plugin_contract.py",
+                        "-q",
+                    ],
+                    600,
+                ),
+                _run(
                     "pytest_full",
                     [sys.executable, "-m", "pytest", "source/tests", "-q"],
                     1800,
@@ -362,10 +445,59 @@ def main() -> int:
                     900,
                 )
             )
+            bundle_gate = _run(
+                "deployment_bundle_manifest",
+                [
+                    sys.executable,
+                    "source/scripts/build_windows_deployment.py",
+                    "--wheel",
+                    str(wheel),
+                    "--output-dir",
+                    "artifacts/deployment",
+                ],
+                300,
+            )
+            gates.append(bundle_gate)
+            bundle = _json_from_output(bundle_gate)
+            zip_path = str(bundle.get("zip", "")) if isinstance(bundle, dict) else ""
+            if zip_path:
+                gates.append(
+                    _run(
+                        "deployment_bundle_hashes",
+                        [
+                            sys.executable,
+                            "source/scripts/verify_windows_deployment_package.py",
+                            "--zip",
+                            zip_path,
+                        ],
+                        300,
+                    )
+                )
+                gates.append(
+                    _run(
+                        "install_upgrade_rollback_roundtrip",
+                        [
+                            sys.executable,
+                            "source/scripts/verify_windows_deployment_package.py",
+                            "--zip",
+                            zip_path,
+                            "--roundtrip",
+                            "--python-exe",
+                            sys.executable,
+                        ],
+                        1200,
+                    )
+                )
+            else:
+                gates.append(_state_gate("deployment_bundle_hashes", False, "zip path missing"))
+                gates.append(_state_gate("install_upgrade_rollback_roundtrip", False, "zip path missing"))
         else:
             details = f"expected exactly one Wheel, found {len(wheels)}"
             gates.append(_state_gate("wheel_metadata", False, details))
             gates.append(_state_gate("clean_install", False, details))
+            gates.append(_state_gate("deployment_bundle_manifest", False, details))
+            gates.append(_state_gate("deployment_bundle_hashes", False, details))
+            gates.append(_state_gate("install_upgrade_rollback_roundtrip", False, details))
 
         if not args.skip_soak:
             gates.append(

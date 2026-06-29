@@ -1,0 +1,9 @@
+{
+  "bank_digest": "1bfed677844183f316cd8bcd5dfe93b0952c9dc0e4b3ac0c239bd167935ff606",
+  "bank_id": "WLS-EXAMINER-SANDBOX-HOLDOUT-V1",
+  "case_count": 80,
+  "scope": "SANDBOX_ONLY",
+  "seal": "bfba29b88a4b0f1ae63d4d82f9f5f3b276bf2884675b460a14c194ba1abbadce",
+  "split": "sandbox_holdout",
+  "warning": "The deterministic sandbox generator is package-visible. Replace with owner-controlled sealed holdout before production promotion decisions."
+}

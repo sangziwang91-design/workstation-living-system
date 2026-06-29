@@ -32,6 +32,9 @@ package-dir = {"" = "source/src"}
 [tool.setuptools.packages.find]
 where = ["source/src"]
 
+[tool.setuptools.package-data]
+"wls.examiner" = ["defaults/*.json", "defaults/*.jsonl"]
+
 [tool.setuptools.dynamic]
 version = {attr = "wls._version.__version__"}
 

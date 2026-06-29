@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wls.local/schemas/examiner_verdict.schema.json",
+  "title": "WLS Examiner Verdict",
+  "type": "object",
+  "required": [
+    "verdict_id", "candidate_id", "candidate_digest", "version_id",
+    "version_digest", "epoch_id", "verdict", "findings", "created_at", "claim_ceiling"
+  ],
+  "properties": {
+    "verdict_id": {"type": "string"},
+    "candidate_id": {"type": "string"},
+    "candidate_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "version_id": {"type": "string"},
+    "version_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "epoch_id": {"type": "string"},
+    "verdict": {"enum": ["ALLOW", "BLOCK", "ESCALATE", "UNKNOWN"]},
+    "findings": {"type": "array", "items": {"type": "object"}},
+    "dimension_verdicts": {"type": "object"},
+    "created_at": {"type": "string"},
+    "claim_ceiling": {"type": "string"},
+    "nonce": {"type": ["string", "null"]}
+  },
+  "additionalProperties": false
+}

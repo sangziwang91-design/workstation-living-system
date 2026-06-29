@@ -31,16 +31,20 @@ def test_default_runtime_installs_builtin_contract(tmp_path: Path) -> None:
     config = default_config(tmp_path / "home")
     config.sensors = []
     runtime = LivingSystem(config)
-    flags = (
-        "_task19_stabilization_installed",
-        "_task19_goal_guard_installed",
-        "_task19_execution_guard_installed",
-        "_task19_event_queue_installed",
-        "_task19_cycle_journal_installed",
-        "_task19_action_integrity_installed",
-        "_task19_priority_guard_installed",
-    )
-    assert all(getattr(runtime, flag, False) for flag in flags)
-    status = runtime.status()
-    assert status["event_queue"]["due"] >= 0
-    assert status["cycle_journal"]["checkpoints"] >= 0
+    try:
+        flags = (
+            "_task19_stabilization_installed",
+            "_task19_goal_guard_installed",
+            "_task19_execution_guard_installed",
+            "_task19_event_queue_installed",
+            "_task19_cycle_journal_installed",
+            "_task19_action_integrity_installed",
+            "_task19_priority_guard_installed",
+        )
+        assert all(getattr(runtime, flag, False) for flag in flags)
+        assert not hasattr(runtime, "examiner")
+        status = runtime.status()
+        assert status["event_queue"]["due"] >= 0
+        assert status["cycle_journal"]["checkpoints"] >= 0
+    finally:
+        runtime.close()
