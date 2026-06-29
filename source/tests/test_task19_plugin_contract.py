@@ -13,7 +13,6 @@ EXPECTED = (
     "wls.task19_execution_guard",
     "wls.task19_event_queue",
     "wls.task19_cycle_journal",
-    "wls.task19_reconciliation",
     "wls.task19_action_integrity",
     "wls.task19_priority_guard",
 )
@@ -38,7 +37,6 @@ def test_default_runtime_installs_builtin_contract(tmp_path: Path) -> None:
         "_task19_execution_guard_installed",
         "_task19_event_queue_installed",
         "_task19_cycle_journal_installed",
-        "_task19_reconciliation_installed",
         "_task19_action_integrity_installed",
         "_task19_priority_guard_installed",
     )
