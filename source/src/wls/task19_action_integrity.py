@@ -5,7 +5,7 @@ from typing import Any
 import json
 
 from .lease import ProcessLease
-from .schemas import ActionSpec, utc_now
+from .schemas import ActionSpec, GoalStatus, utc_now
 
 
 ALLOWED_PROVENANCE = (
@@ -21,6 +21,14 @@ TERMINAL_RUN_STATUSES = {
     "CRASHED",
     "INTERRUPTED",
     "RESTART_CHECKPOINT",
+}
+TERMINAL_GOAL_STATUSES = {
+    GoalStatus.COMPLETED,
+    GoalStatus.SUCCEEDED,
+    GoalStatus.FAILED,
+    GoalStatus.CANCELLED,
+    GoalStatus.ABANDONED,
+    GoalStatus.ARCHIVED,
 }
 
 
@@ -266,6 +274,29 @@ def register_wls(runtime: Any) -> None:
     survival.heartbeat = MethodType(heartbeat, survival)
     survival.finish_run = MethodType(finish_run, survival)
 
+    reviewer = runtime.goal_runtime.reviewer
+    original_review = reviewer.review
+
+    def stable_goal_review(
+        self: Any,
+        goal_id: str,
+        *,
+        cycle_id: str | None = None,
+        reason: str = "periodic",
+        source_ids: list[str] | None = None,
+    ) -> dict[str, Any] | None:
+        goal = runtime.goals.get(goal_id)
+        if goal is not None and goal.status in TERMINAL_GOAL_STATUSES:
+            return None
+        return original_review(
+            goal_id,
+            cycle_id=cycle_id,
+            reason=reason,
+            source_ids=source_ids,
+        )
+
+    reviewer.review = MethodType(stable_goal_review, reviewer)
+
     original_verify = runtime.verify_integrity
 
     def verify_integrity(self: Any, full: bool = True) -> dict[str, Any]:
@@ -291,5 +322,6 @@ def register_wls(runtime: Any) -> None:
             "startup_recovery_requires_runtime_lease": True,
             "missing_provenance_fails_closed": True,
             "survival_terminal_state_enforced": True,
+            "goal_terminal_state_enforced": True,
         },
     )
