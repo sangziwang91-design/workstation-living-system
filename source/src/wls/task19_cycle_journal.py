@@ -5,6 +5,7 @@ from typing import Any
 import json
 
 from .cycle_journal import CycleJournal
+from .cycle_learning import recover_episode
 from .schemas import ActionSpec, ActionStatus, Plan, RiskLevel
 
 
@@ -129,7 +130,12 @@ def _postprocess(
             outcomes=outcomes,
             attribution={"goal_trace_id": str(goal_row["goal_trace_id"])},
         )
-    return {"cognition": cognition, "memory": memory, "goals": goals}
+    return {
+        "cognition": cognition,
+        "memory": memory,
+        "goals": goals,
+        "episode_id": recover_episode(runtime, cycle_id, plan_id, outcomes),
+    }
 
 
 def register_wls(runtime: Any) -> None:
@@ -195,6 +201,11 @@ def register_wls(runtime: Any) -> None:
             if pending:
                 continue
             try:
+                self.cycle_journal.record(
+                    cycle_id,
+                    "ACTIONS_TERMINAL",
+                    {"plan_id": plan_id, "outcomes": outcomes},
+                )
                 postprocess = _postprocess(self, cycle_id, plan_id, outcomes)
                 self.cycle_journal.resolve(cycle_id, outcomes, postprocess)
             except Exception as exc:
@@ -236,6 +247,11 @@ def register_wls(runtime: Any) -> None:
         {
             "durable_plan_checkpoint": True,
             "terminal_action_checkpoint": True,
-            "postprocess_recovery": ["cognition", "memory", "goals"],
+            "postprocess_recovery": [
+                "cognition",
+                "memory",
+                "goals",
+                "episodic_learning",
+            ],
         },
     )
