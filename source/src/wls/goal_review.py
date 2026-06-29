@@ -11,7 +11,7 @@ from .stores import GoalStore
 
 
 class GoalReviewer:
-    """Evidence-bound reconciliation for durable goals and their child dependencies."""
+    """Evidence-bound reconciliation for durable goals and child dependencies."""
 
     TERMINAL = {
         GoalStatus.COMPLETED,
@@ -19,6 +19,11 @@ class GoalReviewer:
         GoalStatus.FAILED,
         GoalStatus.CANCELLED,
         GoalStatus.ABANDONED,
+        GoalStatus.ARCHIVED,
+    }
+    SUCCESS_TERMINAL = {
+        GoalStatus.COMPLETED,
+        GoalStatus.SUCCEEDED,
         GoalStatus.ARCHIVED,
     }
 
@@ -36,34 +41,48 @@ class GoalReviewer:
         self._ensure_table()
 
     def _ensure_table(self) -> None:
-        self.db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS goal_reviews (
-                review_id TEXT PRIMARY KEY,
-                goal_id TEXT NOT NULL,
-                cycle_id TEXT,
-                previous_status TEXT NOT NULL,
-                decided_status TEXT NOT NULL,
-                previous_progress REAL NOT NULL,
-                decided_progress REAL NOT NULL,
-                reason TEXT NOT NULL,
-                source_ids_json TEXT NOT NULL,
-                created_at TEXT NOT NULL
+        with self.db.transaction() as connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS goal_reviews (
+                    review_id TEXT PRIMARY KEY,
+                    goal_id TEXT NOT NULL,
+                    cycle_id TEXT,
+                    previous_status TEXT NOT NULL,
+                    decided_status TEXT NOT NULL,
+                    previous_progress REAL NOT NULL,
+                    decided_progress REAL NOT NULL,
+                    reason TEXT NOT NULL,
+                    source_ids_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
             )
-            """
-        )
-        self.db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_goal_reviews_goal_time ON goal_reviews(goal_id,created_at)"
-        )
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_goal_reviews_goal_time
+                ON goal_reviews(goal_id,created_at)
+                """
+            )
 
-    def review_all(self, *, cycle_id: str | None = None, reason: str = "periodic") -> list[dict[str, Any]]:
+    def review_all(
+        self,
+        *,
+        cycle_id: str | None = None,
+        reason: str = "periodic",
+    ) -> list[dict[str, Any]]:
         updates: list[dict[str, Any]] = []
-        # Children first, parents second so parent aggregation sees current child state.
         rows = self.db.query_all(
-            "SELECT goal_id FROM goals ORDER BY CASE WHEN parent_goal_id IS NULL THEN 1 ELSE 0 END, created_at ASC"
+            """
+            SELECT goal_id FROM goals
+            ORDER BY CASE WHEN parent_goal_id IS NULL THEN 1 ELSE 0 END,
+                     created_at ASC
+            """
         )
         for row in rows:
-            item = self.review(str(row["goal_id"]), cycle_id=cycle_id, reason=reason)
+            item = self.review(
+                str(row["goal_id"]), cycle_id=cycle_id, reason=reason
+            )
             if item:
                 updates.append(item)
         return updates
@@ -79,6 +98,12 @@ class GoalReviewer:
         goal = self.goals.get(goal_id)
         if goal is None:
             return None
+
+        # Terminal outcomes are append-only facts. A late child completion,
+        # periodic review, or restart must not resurrect or rewrite them.
+        if goal.status in self.TERMINAL:
+            return None
+
         source_ids = list(dict.fromkeys(source_ids or []))
         previous_status = goal.status
         previous_progress = goal.progress
@@ -87,13 +112,17 @@ class GoalReviewer:
         children = self.goals.children(goal_id, include_archived=True)
 
         if children:
-            completed = [child for child in children if child.status in {GoalStatus.COMPLETED, GoalStatus.SUCCEEDED, GoalStatus.ARCHIVED}]
+            completed = [
+                child
+                for child in children
+                if child.status in self.SUCCESS_TERMINAL
+            ]
             decided_progress = len(completed) / len(children)
             if len(completed) == len(children):
                 decided_status = GoalStatus.COMPLETED
-            elif previous_status not in self.TERMINAL:
+            else:
                 decided_status = GoalStatus.DECOMPOSED
-        elif previous_status not in self.TERMINAL:
+        else:
             unmet = self.goals.unmet_dependencies(goal)
             if unmet:
                 decided_status = GoalStatus.WAITING
@@ -109,23 +138,30 @@ class GoalReviewer:
                     "goal became actionable after interruption",
                     source_ids=source_ids,
                 )
-            elif previous_status in {GoalStatus.PROPOSED, GoalStatus.ACTIVE, GoalStatus.WAITING}:
+            elif previous_status in {
+                GoalStatus.PROPOSED,
+                GoalStatus.ACTIVE,
+                GoalStatus.WAITING,
+            }:
                 decided_status = GoalStatus.IN_PROGRESS
 
         changed = (
             decided_status != previous_status
             or abs(decided_progress - previous_progress) > 1e-12
         )
-        if not changed and reason == "cycle_prepare":
+        if not changed:
             return None
 
         now = utc_now()
+        completed_at = goal.completed_at
+        if decided_status == GoalStatus.COMPLETED and completed_at is None:
+            completed_at = now
         self.goals.set_state(
             goal_id,
             progress=decided_progress,
             status=decided_status,
             last_reviewed_at=now,
-            completed_at=(now if decided_status == GoalStatus.COMPLETED else goal.completed_at),
+            completed_at=completed_at,
         )
         review_id = new_id("goalreview")
         with self.db.transaction() as connection:
@@ -182,10 +218,16 @@ class GoalReviewer:
     ) -> list[dict[str, Any]]:
         updates: list[dict[str, Any]] = []
         outcome_by_action = {
-            str(item.get("action_id")): item for item in outcomes if item.get("action_id")
+            str(item.get("action_id")): item
+            for item in outcomes
+            if item.get("action_id")
         }
         action_rows = self.db.query_all(
-            "SELECT action_id,goal_id,status FROM actions WHERE goal_id IS NOT NULL AND plan_id IN (SELECT plan_id FROM plans WHERE cycle_id=?)",
+            """
+            SELECT action_id,goal_id,status FROM actions
+            WHERE goal_id IS NOT NULL
+              AND plan_id IN (SELECT plan_id FROM plans WHERE cycle_id=?)
+            """,
             (cycle_id,),
         )
         acted_goal_ids: set[str] = set()
@@ -194,6 +236,9 @@ class GoalReviewer:
             acted_goal_ids.add(goal_id)
             outcome = outcome_by_action.get(str(row["action_id"]))
             if outcome is None:
+                continue
+            goal = self.goals.get(goal_id)
+            if goal is None or goal.status in self.TERMINAL:
                 continue
             action_id = str(row["action_id"])
             if bool(outcome.get("success")):
@@ -211,12 +256,18 @@ class GoalReviewer:
                     source_ids=[action_id],
                 )
             else:
-                error = str(outcome.get("error") or outcome.get("status") or "action failed")
+                error = str(
+                    outcome.get("error")
+                    or outcome.get("status")
+                    or "action failed"
+                )
                 self.goals.set_state(
                     goal_id,
                     status=GoalStatus.BLOCKED,
                     blocked_reason=error,
-                    remaining_work=["resolve failed governed action before retry"],
+                    remaining_work=[
+                        "resolve failed governed action before retry"
+                    ],
                 )
                 self.debts.add(
                     goal_id,
@@ -234,8 +285,6 @@ class GoalReviewer:
             if reviewed:
                 updates.append(reviewed)
 
-        # A goal that was actionable but pre-empted by unrelated work is durable debt,
-        # not silently forgotten. It will be resumed by the next prepare/review pass.
         for goal_id in selected_goal_ids:
             if goal_id in acted_goal_ids:
                 continue
@@ -247,7 +296,9 @@ class GoalReviewer:
                 goal_id,
                 status=GoalStatus.BLOCKED,
                 blocked_reason="interrupted_by_unrelated_work",
-                remaining_work=["resume the same bounded task after interruption"],
+                remaining_work=[
+                    "resume the same bounded task after interruption"
+                ],
             )
             self.debts.add(
                 goal_id,
@@ -268,7 +319,8 @@ class GoalReviewer:
         parent_ids = {
             goal.parent_goal_id
             for goal_id in acted_goal_ids | set(selected_goal_ids)
-            if (goal := self.goals.get(goal_id)) is not None and goal.parent_goal_id
+            if (goal := self.goals.get(goal_id)) is not None
+            and goal.parent_goal_id
         }
         for parent_id in sorted(parent_ids):
             reviewed = self.review(
