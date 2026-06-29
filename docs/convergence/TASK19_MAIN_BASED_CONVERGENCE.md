@@ -1,54 +1,66 @@
 # Task19 Main-Based Convergence
 
-## Decision
+## Decision and authority
 
-Task19 is rebuilt from authoritative `main` after `LOCAL-RUNNER-002`. Historical PR #22 diverged before the packaging and Windows-runner convergence and is therefore retained as source material rather than used as the merge base.
+Task19 is rebuilt from authoritative `main` after `LOCAL-RUNNER-002`. Historical PR #22 diverged before packaging and Windows-runner convergence and is source material only. The canonical runtime remains `source/src/wls/runtime.py::LivingSystem`; this work does not create a second planner, state store, policy engine, goal authority, memory authority, or execution authority.
 
 ## Integrated candidate scope
 
-- bounded Survival Supervisor with explicit, validated daemon budgets;
-- persistent goal lifecycle, decomposition, debt, review, interruption recovery, and local ablation;
-- schema-validated `task_spec` translation into the existing cognitive planner and policy/tool path;
+- bounded Survival Supervisor with explicit, validated daemon budgets and backward-compatible defaults;
+- persistent goal lifecycle, decomposition, debt, review, interruption recovery, and controlled ablation;
+- schema-validated `task_spec` translation into the existing Planner, PolicyEngine, and ToolRegistry;
 - write-free goal-free comparison using the existing bounded cognitive ranker;
 - explicit action outcome provenance for current execution, historical reuse, durable recovery, and no observable outcome;
-- candidate-only Provider Hub with SSRF controls, no redirects, response limits, secret-vault fail-closed behavior, and network probes outside the global state lock;
+- goal progress, cognition calibration, memory attribution, and skill learning gated on attributable current/recovered outcomes;
+- candidate-only Provider Hub CLI with SSRF controls, redirect blocking, response limits, secure-vault fail-closed behavior, and network probes outside the global state lock;
 - deterministic root build, clean Wheel installation, exact-head reporting, and a 100-cycle non-idle bounded workload with runtime re-instantiation after cycles 25, 50, and 75.
 
-## Rejected or deferred material
+## Rejected or deferred
 
-- stale Wheels and build metadata;
-- committed soak homes, databases, keys, and caches;
+- stale Wheels, egg-info, build metadata, committed soak homes, databases, keys, caches, and timestamped intermediate reports;
 - browser Provider UI until a complete authenticated loopback interface has an independent threat model;
-- reports tied to historical or mismatched heads;
-- GitHub-hosted workflow dependence while capacity is unavailable;
-- automatic attachment of the Provider Hub to the canonical planner;
-- Task20 causal shadow integration.
+- automatic Provider Hub attachment to canonical planning;
+- GitHub-hosted capacity as a prerequisite for evidence;
+- Task20 causal-shadow integration;
+- owner-host deployment or live-data mutation.
 
-## Verification surfaces
+## Verification entry points
 
-Primary offline entry point on Windows:
+Primary Windows command from a clean exact-head checkout:
 
 ```powershell
 .\scripts\run_task19_windows.ps1
 ```
 
-The wrapper creates an isolated environment, installs the root project with development and provider extras, and runs:
+Diagnostic preflight without the soak:
 
-```text
-compileall
-repository-layout verifier
-full pytest suite
-ET001 / ET002 / ET003 / ET004
-Ruff
-Mypy
-Bandit
-root Wheel build
-outside-repository clean install
-100-cycle bounded workload with three runtime re-instantiations
+```powershell
+.\scripts\run_task19_windows.ps1 -SkipSoak
 ```
 
-Reports are written under `artifacts/task19/` and are intentionally ignored by Git. A failed or unavailable mandatory gate keeps the pull request Draft.
+The full gate runs compilation, repository-layout verification, the complete pytest suite, ET001–ET004, Ruff, Mypy, Bandit, root Wheel build, outside-repository clean installation, and the 100-cycle workload. Reports belong under ignored `artifacts/task19/` and must identify the exact runtime head.
+
+## Review order
+
+1. Confirm the PR is based on current `main` and contains no historical PR merge.
+2. Review `config.py`, `task19_stabilization.py`, Provider Hub boundaries, and focused tests.
+3. Run the diagnostic Windows gate and repair deterministic failures.
+4. Run the full Windows gate including the bounded workload.
+5. Independently inspect JSON/Markdown evidence and tracked-file cleanliness.
+6. Only the owner may decide whether to merge.
+
+## Hard stop rules
+
+Keep the PR Draft when any mandatory command fails, times out, or is unavailable; when generated or secret-like artifacts are tracked; when `task_spec` bypasses canonical policy; when reused results advance goals, memory, cognition, or skills as new interventions; when Provider Hub attaches itself to planning; when exact-head evidence diverges; or when a requested change would require a parallel authority.
 
 ## Claim ceiling
 
-Passing this gate can establish exact-head local behavior for the tested checkout, clean Wheel, and bounded 100-cycle workload. It cannot establish production maturity, multi-day or indefinite reliability, owner-host benefit, external utility, consciousness, unrestricted autonomy, or permission to merge, enable, or deploy.
+Even after all gates pass, the strongest supported statement is:
+
+> The exact tested WLS candidate passed its repository suite, evolution verifiers, clean Wheel installation, and a bounded 100-cycle local workload with three runtime re-instantiations.
+
+This does not establish production maturity, multi-day or indefinite reliability, owner-host benefit, unrestricted autonomy, consciousness, external utility, permission to merge, permission to enable Provider Hub routing, or permission to start Task20.
+
+## Current status
+
+Repository construction is complete on Draft PR #23, but acceptance remains closed until the offline Windows gate passes on the final exact head and independent review finds no unresolved P1/P2 defects. Missing GitHub-hosted checks are never interpreted as PASS.

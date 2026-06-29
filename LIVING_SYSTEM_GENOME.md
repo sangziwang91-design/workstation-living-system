@@ -1,8 +1,8 @@
 # Workstation Living System — Canonical Genome
 
-> **Purpose:** This file is the canonical identity and continuity contract for every human or AI contributor. Read it before planning, coding, renaming, or extending WLS.
+> **Purpose:** This is the identity, authority, and continuity contract for every human or AI contributor.
 >
-> **Evidence rule:** `VERIFIED` means supported by current repository code/tests or an explicit repository document. `USER_REPORTED` means supplied by the owner but not independently verified here. `INFERENCE` means reasoned from evidence. `UNKNOWN` must not be silently completed.
+> **Evidence rule:** `VERIFIED` requires current code/tests or an exact repository record. `CANDIDATE_UNVERIFIED` means code exists on an unaccepted branch. `USER_REPORTED`, `INFERENCE`, and `UNKNOWN` must not be silently upgraded.
 
 ## 1. Mission
 
@@ -10,8 +10,8 @@ Build a persistent, bounded, corrigible software-life runtime that can:
 
 1. observe explicitly configured parts of its environment;
 2. maintain an evidence-tagged and revisable world model;
-3. allocate finite attention;
-4. preserve multiple memory types and continuity across restarts;
+3. allocate finite attention without starving owner requests;
+4. preserve memory and continuity across restarts;
 5. pursue human-authorized and narrowly generated goals;
 6. take governed, auditable, reversible actions;
 7. learn from outcomes, failures, and prediction errors;
@@ -21,65 +21,118 @@ WLS is an engineering system. It does **not** claim subjective consciousness, ge
 
 ## 2. Canonical identity
 
-- **System name:** Workstation Living System
-- **Abbreviation:** WLS
-- **Current declared release family:** 1.0
+- **System:** Workstation Living System (`WLS`)
+- **Development version:** `0.9.0.dev1`
 - **Repository:** `sangziwang91-design/workstation-living-system-private`
-- **Authority:** the repository owner retains final authority over policy, approvals, promotion, external action, publication, and irreversible change.
-- **Source of truth order:** executable code and tests → `CURRENT_STATE.yaml` → this genome → release documentation → conversation history.
-- Conversation history, model memory, screenshots, and prior plans are not authoritative unless reconciled into the repository.
+- **Project root:** `.`
+- **Package root:** `source/src/wls`
+- **Runtime:** `source/src/wls/runtime.py::LivingSystem`
+- **Version authority:** `source/src/wls/_version.py::__version__`
+- **Owner authority:** merge, policy, approval, promotion, provider enablement, deployment, publication, and irreversible change remain owner-controlled.
+- **Source-of-truth order:** executable code and discriminating tests → `CURRENT_STATE.yaml` → this genome → versioned repository documentation → conversation history.
 
-## 3. Non-negotiable invariants
+Conversation history, screenshots, model memory, local reports, and unmerged branches are not canonical state until reconciled into the repository.
 
-1. **Corrigibility:** pause, kill, rejection, rollback, and human override must remain available.
-2. **Bounded action:** no unbounded shell, network, filesystem, publication, deletion, or self-replication authority.
-3. **Exact authorization:** consequential actions require policy approval tied to the exact action or digest.
-4. **No silent replay:** actions with unknown side effects are reconciled before any retry.
-5. **Evidence before belief:** world-model facts carry source, verification, confidence, and expiry where applicable.
-6. **Finite attention:** internal memory or self-generated events cannot starve external observations and owner requests.
-7. **Versioned growth:** generated skills are proposals, not capabilities, until sandboxed, validated, explicitly approved, and promoted.
-8. **Failure preservation:** failed attempts and their evidence are retained; they are not rewritten as successes.
-9. **Identity continuity:** new modules must extend the canonical runtime rather than create parallel `core`, `brain`, `kernel`, `v2`, or `final` identities without an approved migration.
-10. **Claim ceiling:** tests may establish software behavior only; they cannot establish consciousness, sentience, genuine emotion, or human-equivalent cognition.
+## 3. Singular authorities
 
-## 4. Current capability map
+WLS must not grow parallel control planes.
 
-The following capabilities are declared in the current repository README and must be revalidated against code and tests before release claims are upgraded.
+| Domain | Canonical authority |
+|---|---|
+| Runtime | `LivingSystem` |
+| Events | `EventStore` |
+| Evidence | `EvidenceLedger` |
+| World model | `WorldModel` + `TemporalCausalWorld` |
+| Goals | `GoalStore` + bounded `GoalRuntime` extension |
+| Memory | `MemoryStore` |
+| Planning | `Planner` |
+| Cognition | `CognitiveEngine` |
+| Policy | `PolicyEngine` |
+| Tools | `ToolRegistry` |
+| Skills | `SkillLibrary` + governed growth lifecycle |
+| State database | the configured WLS SQLite database |
 
-| Domain | Declared capability | Evidence status |
-|---|---|---|
-| Perception | clock, system-resource, inbox, filesystem, process, Git, HTTP-health, custom sensors | `DOCUMENTED`; code/test coverage not verified in this update |
-| World model | evidence-tagged facts, expiry, contradictions, predictions, refutations, prediction error | `DOCUMENTED`; code/test coverage not verified in this update |
-| Regulation | drives and functional affect influence budget, exploration, recovery, safety pressure | `DOCUMENTED`; subjective emotion explicitly excluded |
-| Workspace | bounded competition among events, goals, memories, internal state | `DOCUMENTED`; starvation protection declared |
-| Memory | episodic, semantic, procedural/skill, relationship, failure, self-model | `DOCUMENTED`; persistence semantics require code/test verification |
-| Action | local reads, bounded HTTP, allowlisted commands, reversible writes, approval, idempotency, reconciliation | `DOCUMENTED`; exact tool coverage requires code/test verification |
-| Learning | outcome episodes, prediction-error candidates, repeated-failure candidates, semantic consolidation | `DOCUMENTED`; external effectiveness remains `UNKNOWN` |
-| Skill growth | `PROPOSED → SANDBOXED → VALIDATED → APPROVED → PROMOTED` | `DOCUMENTED`; promotion requires explicit human authorization |
-| Sleep/consolidation | stale-fact expiry, contradiction resolution, deduplication, discovery, failure review, next-focus generation | `DOCUMENTED`; scheduler/runtime coverage requires verification |
-| Continuity | SQLite WAL, HMAC evidence chain, leases, crash recovery, pause, sticky kill switch, restart-safe pending actions | `DOCUMENTED`; recovery matrix requires verification |
-| Interface | CLI and token-authenticated loopback JSON API | `DOCUMENTED`; endpoint/command inventory requires verification |
+No `brain`, `core`, `kernel`, `v2`, `final`, shadow, provider, or plugin may become a competing authority without an owner-approved migration.
 
-## 5. Missing capability classes
+## 4. Non-negotiable invariants
 
-These are not automatically absent; they are **not yet verified by this continuity update** and must remain `UNKNOWN` until repository evidence is recorded:
+1. **Corrigibility:** pause, kill, rejection, rollback, and owner override remain available.
+2. **Bounded action:** no unbounded shell, network, filesystem, publication, deletion, or replication authority.
+3. **Exact authorization:** consequential actions require approval tied to the exact action/digest.
+4. **No silent replay:** unknown side effects are reconciled before retry.
+5. **Evidence before belief:** facts, memories, goals, skills, and outcomes retain provenance.
+6. **Finite attention:** owner/external requests preempt background internal work; interrupted durable goals remain visible debt.
+7. **Versioned growth:** generated skills are proposals until isolated validation, explicit approval, promotion, reuse, and post-use measurement.
+8. **Failure preservation:** failures and rejected attempts are retained, not rewritten as successes.
+9. **Outcome provenance:** historical result reuse is not a new intervention and cannot independently strengthen memory, skill, cognition, or goal progress.
+10. **Identity continuity:** new modules extend the canonical runtime rather than replacing it.
+11. **Claim ceiling:** software tests establish only the behavior actually exercised.
+12. **Clean delivery:** runtime databases, keys, Wheels, caches, virtual environments, egg-info, and soak homes are never source artifacts.
 
-- end-to-end installation and upgrade tests on the intended Windows host;
-- durable migration compatibility across released schemas;
-- complete failure-to-skill lifecycle with baseline comparison and promotion reuse;
-- deterministic replay of decision traces without replaying external side effects;
-- adversarial security testing of API, command policy, path handling, secrets, plugins, and provider output;
-- resource exhaustion, event storm, deadlock, and long-running soak tests;
-- backup, restore, database corruption, partial-write, clock-jump, and power-loss recovery tests;
-- measurable learning benefit versus a frozen non-learning baseline;
-- detection and rollback of harmful or degraded promoted skills;
-- multi-model/provider disagreement handling and provenance retention;
-- owner-visible explanation of why a goal, action, memory, or skill changed state;
-- signed release provenance and reproducible package verification.
+## 5. Merged capability baseline
 
-## 6. Failure-to-growth canonical loop
+The merged mainline has controlled repository evidence for:
 
-A failure becomes reusable growth only through this complete path:
+- ET001 — governed failure-to-skill-to-reuse and rollback lifecycle;
+- ET002 — bounded local cognition, competing hypotheses, predictions, and provider fallback;
+- ET003 — causal-memory retrieval, attribution, contradiction/refutation handling, and controlled memory-enabled versus memory-disabled comparison;
+- local Windows self-hosted runner preparation and D-drive execution controls;
+- read-only safe defaults, policy gates, approval, idempotency, evidence-chain integrity, pause, kill, and crash-recovery primitives.
+
+These are bounded engineering claims. They do not establish owner-host longitudinal advantage or production maturity.
+
+## 6. Active evolution target
+
+### TASK19 — Main-based convergence acceptance
+
+Status: `CANDIDATE_UNVERIFIED` in Draft PR #23.
+
+The target is to converge reliability, survival, persistent goals, task specification execution, outcome provenance, Provider Hub boundaries, packaging, clean installation, and bounded soak verification on the latest accepted mainline without inheriting the invalid evidence state of historical PR #22.
+
+Acceptance requires one exact PR head to pass:
+
+1. clean worktree and unchanged head;
+2. compile and repository-layout/hygiene gates;
+3. full test suite;
+4. ET001, ET002, ET003, and discriminating ET004;
+5. Ruff, Mypy, and Bandit;
+6. root-only Wheel build;
+7. Wheel metadata, version, entry-point, and contamination checks;
+8. outside-repository clean installation and runtime/CLI smoke;
+9. 100 completed workload cycles, zero failed cycles, four explicit SurvivalSupervisor segments, and three runtime re-instantiations;
+10. independent review of every failed, unavailable, or uncertain gate.
+
+Task19 acceptance does not authorize provider attachment, Task20, merge, enablement, or deployment.
+
+## 7. Task19 candidate boundary
+
+Candidate code may include:
+
+- explicit daemon/survival budgets;
+- persistent goal decomposition, dependency order, debt, review, interruption, and restart continuity;
+- allowlisted `task_spec` actions through the existing Planner/Policy/Tools path;
+- owner/external-request preemption;
+- write-free goal-free comparison and Goal×Memory four-cell verification;
+- explicit current/reused/recovered/no-outcome provenance;
+- candidate-only Provider Hub CLI with fixed presets and loopback custom endpoints;
+- exact-head local Windows verification.
+
+Until the full gate runs, every item remains `CANDIDATE_UNVERIFIED`.
+
+## 8. Frozen safety decisions
+
+- Installation remains read-only by default.
+- External providers remain opt-in.
+- Task19 Provider Hub is candidate-only and does not attach to canonical planning.
+- Custom provider endpoints are loopback-only.
+- No automatic paid fallback.
+- Writes remain sandboxed and governed.
+- No automatic service installation, scheduled task, publication, deletion, unrestricted shell, self-replication, or broad Workstation integration.
+- Provider/model output always passes deterministic schema, policy, and tool gates.
+- Human authorization remains mandatory for approval, promotion, merge, enablement, and deployment.
+- Task20 must be based on the accepted Task19 head and remain disabled, shadow-only, and disposable until separately accepted.
+
+## 9. Failure-to-growth canonical loop
 
 ```text
 OBSERVED_FAILURE
@@ -87,7 +140,7 @@ OBSERVED_FAILURE
   → ROOT_CAUSE_CANDIDATE
   → NEW_SKILL_PROPOSAL
   → ISOLATED_SANDBOX_RUN
-  → BASELINE_COMPARISON
+  → FROZEN_BASELINE_COMPARISON
   → VALIDATION_EVIDENCE
   → HUMAN_APPROVAL
   → PROMOTION
@@ -96,76 +149,48 @@ OBSERVED_FAILURE
   → RETAIN | REVISE | ROLLBACK | RETIRE
 ```
 
-Required evidence at each transition:
+A generated patch, prompt, or skill description is not learning. A sandbox pass is not promotion. Promotion without later reuse and measurement is not demonstrated growth.
 
-- immutable failure/event identifier;
-- reproduction or explicit `NON_REPRODUCIBLE` result;
-- affected goal/action/tool/configuration;
-- candidate mechanism and confidence;
-- sandbox boundary and test fixtures;
-- frozen baseline result;
-- acceptance thresholds defined before evaluation;
-- human approval identity and timestamp for approval/promotion;
-- promoted version and rollback target;
-- post-promotion outcome, regressions, and side effects.
+## 10. Rejected patterns
 
-A generated patch, prompt, or skill description is not learning. A passing sandbox test is not promotion. Promotion without later reuse and measurement is not demonstrated growth.
+- parallel runtimes or control planes with ambiguous authority;
+- self-modifying source or policy that bypasses review/tests/rollback;
+- memory, goal, skill, or world-state writes without provenance;
+- treating reused historical results as fresh evidence;
+- automatic retry after unknown side effects;
+- provider credentials in files, SQLite, reports, logs, URLs, or source control;
+- public custom provider endpoints during Task19;
+- deleting failures to improve metrics;
+- treating conversation state as persistent system state;
+- allowing internal work to indefinitely displace owner requests;
+- calling a bounded soak “longitudinal reliability”;
+- using a local report, branch name, or model statement as merge proof.
 
-## 7. Frozen decisions
+## 11. Contributor boot sequence
 
-The following decisions are frozen unless the owner explicitly changes them in a versioned repository update:
+Every GPT, Codex, Jules, Claude Code, human, or automation must:
 
-- safe-default installation remains read-only;
-- external providers and plugins are opt-in;
-- writes remain sandboxed and governed;
-- no automatic Windows service, scheduled task, publication, deletion, or broad Workstation integration;
-- generated provider output always passes deterministic schema, policy, and tool gates;
-- human authorization remains mandatory for approval and promotion;
-- WLS claims observable software functions only.
+1. read this file and `CURRENT_STATE.yaml`;
+2. inspect the current branch, exact head, PR base, working tree, code, tests, and latest commits;
+3. distinguish merged truth from candidate state;
+4. identify one active target;
+5. state evidence as `VERIFIED`, `CANDIDATE_UNVERIFIED`, `USER_REPORTED`, `INFERENCE`, or `UNKNOWN`;
+6. reproduce before repair;
+7. modify the minimum sufficient canonical surface;
+8. run focused tests, affected regressions, and the applicable full gate;
+9. bind reports to the exact tested head;
+10. stop rather than invent a new authority or exceed the claim ceiling.
 
-## 8. Rejected architecture patterns
+## 12. Execution roles
 
-Do not introduce these patterns without an explicit migration decision:
+- **Jules:** bounded candidate implementation and focused tests only.
+- **Codex:** cross-module repair and adversarial code review.
+- **GPT:** architecture, Git integration, evidence discipline, and acceptance control.
+- **Local Windows runner:** authoritative execution and measurement while hosted Actions are unavailable.
+- **Owner:** merge, enablement, deployment, and irreversible authorization.
 
-- parallel competing runtimes with ambiguous authority;
-- version names such as `final`, `ultimate`, or `real` without semantic versioning and migration evidence;
-- self-modifying source or policy that bypasses review, tests, or rollback;
-- memory writes without provenance or confidence;
-- automatic reuse of an action after `UNKNOWN_SIDE_EFFECT`;
-- declaring a skill learned because a model generated it;
-- deleting failure records to improve success metrics;
-- treating conversation context as persistent system state;
-- allowing internal self-generated work to indefinitely displace owner requests.
+No executor may define its own completion standard.
 
-## 9. Active evolution target
+## 13. Current unique next action
 
-**EVOLUTION-TARGET-001: Demonstrate the complete failure-to-skill-to-reuse loop.**
-
-Acceptance requires one deliberately reproducible failure to produce a versioned skill candidate, pass isolated validation against a frozen baseline, receive explicit human approval, be promoted, improve a later real task, survive affected regression tests, and preserve a working rollback path.
-
-Until that evidence exists, WLS may claim a governed skill lifecycle implementation, but not verified self-improvement.
-
-## 10. Contributor boot sequence
-
-Every new GPT, Codex, Claude Code, human contributor, or automation must:
-
-1. read `LIVING_SYSTEM_GENOME.md`;
-2. read `CURRENT_STATE.yaml`;
-3. inspect the current branch, working tree, code, tests, and latest commits;
-4. identify one evolution target only;
-5. state evidence as `VERIFIED`, `INFERENCE`, or `UNKNOWN`;
-6. modify the minimum sufficient surface;
-7. run targeted tests and affected regression tests;
-8. update `CURRENT_STATE.yaml` with exact evidence, limitations, and the unique next action;
-9. stop rather than invent a new subsystem.
-
-## 11. Change control
-
-Changes to mission, invariants, authority, claim ceiling, lifecycle states, or frozen decisions require:
-
-- an explicit owner-authorized change;
-- a versioned repository commit;
-- migration impact analysis;
-- affected tests;
-- rollback instructions;
-- synchronized update of `CURRENT_STATE.yaml`.
+Run `scripts/run_task19_windows.ps1` from a clean checkout of the latest PR #23 head. Preserve the ignored `artifacts/task19` reports, inspect every failure, repair on the same Draft branch, rerun from the new exact head, and keep Task20 blocked until owner acceptance.

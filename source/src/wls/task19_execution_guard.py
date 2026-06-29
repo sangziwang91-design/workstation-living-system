@@ -4,11 +4,10 @@ from types import MethodType
 from typing import Any
 import json
 
-from .goal_tasks import task_spec_action_spec
-from .schemas import ActionSpec, ActionStatus, Plan, digest_json, utc_now
+from .schemas import ActionSpec, ActionStatus, digest_json, utc_now
 
-VERSION = "task19-execution-guard-2"
-FRESH = {"EXECUTED_CURRENT_ACTION", "RECOVERED_DURABLE_ACTION"}
+
+VERSION = "task19-execution-guard-1"
 
 
 def _ensure_schema(runtime: Any) -> None:
@@ -17,21 +16,28 @@ def _ensure_schema(runtime: Any) -> None:
         for row in runtime.db.query_all("PRAGMA table_info(actions)")
     }
     with runtime.db.transaction() as connection:
-        for name in (
-            "outcome_provenance",
-            "source_action_id",
-            "provenance_evidence_id",
-        ):
-            if name not in columns:
-                connection.execute(f"ALTER TABLE actions ADD COLUMN {name} TEXT")
+        if "outcome_provenance" not in columns:
+            connection.execute(
+                "ALTER TABLE actions ADD COLUMN outcome_provenance TEXT"
+            )
+        if "source_action_id" not in columns:
+            connection.execute(
+                "ALTER TABLE actions ADD COLUMN source_action_id TEXT"
+            )
+        if "provenance_evidence_id" not in columns:
+            connection.execute(
+                "ALTER TABLE actions ADD COLUMN provenance_evidence_id TEXT"
+            )
         connection.execute(
-            "CREATE INDEX IF NOT EXISTS idx_actions_provenance "
-            "ON actions(outcome_provenance,finished_at)"
+            """
+            CREATE INDEX IF NOT EXISTS idx_actions_outcome_provenance
+            ON actions(outcome_provenance,finished_at)
+            """
         )
 
 
-def _same_contract(row: Any, action: ActionSpec, side_effect: str) -> bool:
-    return (
+def _contract_matches(row: Any, action: ActionSpec, side_effect: str) -> bool:
+    return bool(
         str(row["tool"]) == action.tool
         and str(row["arguments_json"])
         == json.dumps(action.arguments, ensure_ascii=False, sort_keys=True)
@@ -44,26 +50,40 @@ def _same_contract(row: Any, action: ActionSpec, side_effect: str) -> bool:
     )
 
 
-def _reject(runtime: Any, action: ActionSpec, status: ActionStatus, reason: str) -> dict[str, Any]:
-    finished = None if status == ActionStatus.WAITING_APPROVAL else utc_now()
+def _blocked(
+    runtime: Any,
+    action: ActionSpec,
+    status: ActionStatus,
+    reason: str,
+    event_type: str,
+) -> dict[str, Any]:
+    finished_at = None if status == ActionStatus.WAITING_APPROVAL else utc_now()
     with runtime.db.transaction() as connection:
         evidence_id = runtime.ledger.append(
-            "action_guard_blocked",
+            event_type,
             {
                 "action_id": action.action_id,
                 "status": status.value,
                 "reason": reason[:2000],
+                "provenance": "NO_OBSERVABLE_OUTCOME",
             },
             connection,
         )
         connection.execute(
             """
-            UPDATE actions SET status=?,finished_at=?,error=?,
-                outcome_provenance='NO_OBSERVABLE_OUTCOME',
+            UPDATE actions
+            SET status=?,finished_at=?,error=?,outcome_provenance=?,
                 source_action_id=NULL,provenance_evidence_id=?
             WHERE action_id=?
             """,
-            (status.value, finished, reason[:4000], evidence_id, action.action_id),
+            (
+                status.value,
+                finished_at,
+                reason[:4000],
+                "NO_OBSERVABLE_OUTCOME",
+                evidence_id,
+                action.action_id,
+            ),
         )
     return {
         "action_id": action.action_id,
@@ -78,30 +98,12 @@ def _reject(runtime: Any, action: ActionSpec, status: ActionStatus, reason: str)
 
 
 def register_wls(runtime: Any) -> None:
+    """Make policy and exact action contracts authoritative over result reuse."""
+
     if getattr(runtime, "_task19_execution_guard_installed", False):
         return
     runtime._task19_execution_guard_installed = True
-    runtime._task19_recovery_mode = False
     _ensure_schema(runtime)
-
-    planner = runtime.planner
-    original_plan = planner.plan
-
-    def plan(self: Any, context: dict[str, Any]) -> Plan:
-        result = original_plan(context)
-        maximum = max(0, int(context.get("budget", {}).get("max_actions", 0)))
-        if maximum:
-            for goal in context.get("goals", []):
-                if not goal.get("task_spec"):
-                    continue
-                goal_id = str(goal.get("goal_id", "")) or None
-                if not any(item.goal_id == goal_id for item in result.actions):
-                    result.actions = [task_spec_action_spec(goal), *result.actions][:maximum]
-                break
-        return result
-
-    planner.plan = MethodType(plan, planner)
-    original_execute = runtime._execute_action
 
     def execute_action(
         self: Any,
@@ -112,22 +114,42 @@ def register_wls(runtime: Any) -> None:
             self.policy.validate_arguments(action)
             definition = self.tools.get(action.tool)
         except Exception as exc:
-            return _reject(
+            return _blocked(
                 self,
                 action,
                 ActionStatus.REJECTED,
                 f"argument validation failed: {type(exc).__name__}: {exc}",
+                "action_rejected",
             )
 
-        if approval_id is None:
-            decision = self.policy.decide(action, approval_valid=False)
-            if not decision.allowed:
-                status = (
-                    ActionStatus.WAITING_APPROVAL
-                    if decision.requires_approval
-                    else ActionStatus.REJECTED
+        approval_valid = False
+        if approval_id:
+            try:
+                approval_valid = bool(
+                    self.approvals.validate_and_consume(action, approval_id)
                 )
-                return _reject(self, action, status, decision.reason)
+            except Exception as exc:
+                return _blocked(
+                    self,
+                    action,
+                    ActionStatus.REJECTED,
+                    f"approval validation failed: {type(exc).__name__}: {exc}",
+                    "action_approval_rejected",
+                )
+        decision = self.policy.decide(action, approval_valid=approval_valid)
+        if not decision.allowed:
+            status = (
+                ActionStatus.WAITING_APPROVAL
+                if decision.requires_approval
+                else ActionStatus.REJECTED
+            )
+            return _blocked(
+                self,
+                action,
+                status,
+                decision.reason,
+                "action_blocked",
+            )
 
         prior = self.db.query_one(
             """
@@ -137,83 +159,150 @@ def register_wls(runtime: Any) -> None:
             """,
             (action.idempotency_key, action.action_id),
         )
-        if prior is not None and not _same_contract(
-            prior, action, definition.side_effect_class
-        ):
-            return _reject(
-                self,
-                action,
-                ActionStatus.REJECTED,
-                "idempotency collision: key belongs to a different action contract",
-            )
-
-        outcome = original_execute(action, approval_id=approval_id)
-        if outcome.get("reused"):
-            provenance = "REUSED_PRIOR_RESULT"
-            source_action_id = str(prior["action_id"]) if prior else None
-        elif outcome.get("status") in {"SUCCEEDED", "FAILED"}:
-            provenance = (
-                "RECOVERED_DURABLE_ACTION"
-                if self._task19_recovery_mode
-                else "EXECUTED_CURRENT_ACTION"
-            )
-            source_action_id = None
-        else:
-            provenance = "NO_OBSERVABLE_OUTCOME"
-            source_action_id = None
-        evidence_id = self.ledger.append(
-            "action_outcome_provenance",
-            {
+        if prior is not None:
+            if not _contract_matches(
+                prior, action, definition.side_effect_class
+            ):
+                return _blocked(
+                    self,
+                    action,
+                    ActionStatus.REJECTED,
+                    "idempotency collision: key belongs to a different action contract",
+                    "action_idempotency_collision",
+                )
+            try:
+                reused = json.loads(prior["result_json"] or "{}")
+            except json.JSONDecodeError as exc:
+                return _blocked(
+                    self,
+                    action,
+                    ActionStatus.REJECTED,
+                    f"stored idempotent result is invalid JSON: {exc}",
+                    "action_reuse_rejected",
+                )
+            with self.db.transaction() as connection:
+                evidence_id = self.ledger.append(
+                    "action_result_reused",
+                    {
+                        "action_id": action.action_id,
+                        "source_action_id": str(prior["action_id"]),
+                        "result_digest": digest_json(reused),
+                    },
+                    connection,
+                )
+                connection.execute(
+                    """
+                    UPDATE actions
+                    SET status='SUCCEEDED',finished_at=?,result_json=?,error=NULL,
+                        outcome_provenance='REUSED_PRIOR_RESULT',source_action_id=?,
+                        provenance_evidence_id=?
+                    WHERE action_id=?
+                    """,
+                    (
+                        utc_now(),
+                        json.dumps(reused, ensure_ascii=False, sort_keys=True),
+                        str(prior["action_id"]),
+                        evidence_id,
+                        action.action_id,
+                    ),
+                )
+            return {
                 "action_id": action.action_id,
-                "provenance": provenance,
-                "source_action_id": source_action_id,
-                "outcome_digest": digest_json(outcome),
-            },
-        )
-        self.db.execute(
-            """
-            UPDATE actions SET outcome_provenance=?,source_action_id=?,
-                provenance_evidence_id=? WHERE action_id=?
-            """,
-            (provenance, source_action_id, evidence_id, action.action_id),
-        )
-        outcome.update(
-            {
-                "provenance": provenance,
-                "source_action_id": source_action_id,
+                "success": True,
+                "status": ActionStatus.SUCCEEDED.value,
+                "reused": True,
+                "evaluation": reused.get("evaluation", {}),
+                "provenance": "REUSED_PRIOR_RESULT",
+                "source_action_id": str(prior["action_id"]),
                 "provenance_evidence_id": evidence_id,
             }
+
+        with self.db.transaction() as connection:
+            updated = connection.execute(
+                """
+                UPDATE actions SET status='RUNNING',started_at=?,error=NULL
+                WHERE action_id=? AND status IN
+                    ('PLANNED','APPROVED','WAITING_APPROVAL')
+                """,
+                (utc_now(), action.action_id),
+            ).rowcount
+            if updated != 1:
+                row = connection.execute(
+                    "SELECT status FROM actions WHERE action_id=?",
+                    (action.action_id,),
+                ).fetchone()
+                return {
+                    "action_id": action.action_id,
+                    "success": False,
+                    "status": str(row["status"]) if row else "MISSING",
+                    "provenance": "NO_OBSERVABLE_OUTCOME",
+                }
+            self.ledger.append(
+                "action_started",
+                {"action_id": action.action_id, "tool": action.tool},
+                connection,
+            )
+
+        tool_result = self.tools.execute(action)
+        evaluation = self.evaluator.evaluate(action, tool_result)
+        success = bool(evaluation["accepted"])
+        status = ActionStatus.SUCCEEDED if success else ActionStatus.FAILED
+        provenance = (
+            "RECOVERED_DURABLE_ACTION"
+            if getattr(self, "_task19_recovery_mode", False)
+            else "EXECUTED_CURRENT_ACTION"
         )
-        return outcome
+        payload = {"result": tool_result.to_dict(), "evaluation": evaluation}
+        with self.db.transaction() as connection:
+            evidence_id = self.ledger.append(
+                "action_completed",
+                {
+                    "action_id": action.action_id,
+                    "status": status.value,
+                    "provenance": provenance,
+                    "payload": payload,
+                },
+                connection,
+            )
+            connection.execute(
+                """
+                UPDATE actions
+                SET status=?,finished_at=?,result_json=?,error=?,
+                    outcome_provenance=?,source_action_id=NULL,
+                    provenance_evidence_id=?
+                WHERE action_id=?
+                """,
+                (
+                    status.value,
+                    tool_result.finished_at,
+                    json.dumps(payload, ensure_ascii=False, sort_keys=True),
+                    tool_result.error
+                    or (None if success else "acceptance criteria failed"),
+                    provenance,
+                    evidence_id,
+                    action.action_id,
+                ),
+            )
+        self.self_model.record_action_outcome(action, tool_result, evidence_id)
+        return {
+            "action_id": action.action_id,
+            "success": success,
+            "status": status.value,
+            "evaluation": evaluation,
+            "output": tool_result.output,
+            "error": tool_result.error,
+            "provenance": provenance,
+            "source_action_id": None,
+            "provenance_evidence_id": evidence_id,
+        }
 
     runtime._execute_action = MethodType(execute_action, runtime)
-
-    def execute_plan(self: Any, plan: Plan) -> list[dict[str, Any]]:
-        outcomes: list[dict[str, Any]] = []
-        skill_results: dict[str, list[bool]] = {}
-        for action in plan.actions:
-            outcome = self._execute_action(action)
-            outcomes.append(outcome)
-            if action.skill_id and outcome.get("provenance") in FRESH:
-                skill_results.setdefault(action.skill_id, []).append(
-                    bool(outcome.get("success"))
-                )
-        for skill_id, values in skill_results.items():
-            self.skills.record_use(skill_id, all(values))
-        self._refresh_plan_status(plan.plan_id)
-        return outcomes
-
-    runtime._execute_plan = MethodType(execute_plan, runtime)
-    original_resume = runtime._resume_durable_actions
-
-    def resume(self: Any) -> list[dict[str, Any]]:
-        self._task19_recovery_mode = True
-        try:
-            return original_resume()
-        finally:
-            self._task19_recovery_mode = False
-
-    runtime._resume_durable_actions = MethodType(resume, runtime)
     runtime.ledger.append(
-        "task19_execution_guard_installed", {"version": VERSION}
+        "task19_execution_guard_installed",
+        {
+            "version": VERSION,
+            "policy_before_reuse": True,
+            "exact_contract_reuse": True,
+            "persistent_provenance": True,
+        },
     )
