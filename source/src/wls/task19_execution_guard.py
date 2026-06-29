@@ -7,7 +7,7 @@ import json
 from .schemas import ActionSpec, ActionStatus, digest_json, utc_now
 
 
-VERSION = "task19-execution-guard-3"
+VERSION = "task19-execution-guard-4"
 
 
 def _ensure_schema(runtime: Any) -> None:
@@ -50,110 +50,94 @@ def _contract_matches(row: Any, action: ActionSpec, side_effect: str) -> bool:
     )
 
 
-def _blocked(
+def _persist(
     runtime: Any,
     action: ActionSpec,
+    *,
     status: ActionStatus,
-    reason: str,
+    provenance: str,
     event_type: str,
+    error: str | None = None,
+    result: dict[str, Any] | None = None,
+    source_action_id: str | None = None,
+    finished: bool = True,
 ) -> dict[str, Any]:
-    finished_at = None if status == ActionStatus.WAITING_APPROVAL else utc_now()
+    event = {
+        "action_id": action.action_id,
+        "status": status.value,
+        "provenance": provenance,
+        "source_action_id": source_action_id,
+        "error": error,
+        "result": result,
+    }
     with runtime.db.transaction() as connection:
-        evidence_id = runtime.ledger.append(
-            event_type,
-            {
-                "action_id": action.action_id,
-                "status": status.value,
-                "reason": reason[:2000],
-                "provenance": "NO_OBSERVABLE_OUTCOME",
-            },
-            connection,
-        )
+        evidence_id = runtime.ledger.append(event_type, event, connection)
         connection.execute(
             """
             UPDATE actions
-            SET status=?,finished_at=?,error=?,outcome_provenance=?,
-                source_action_id=NULL,provenance_evidence_id=?
+            SET status=?,finished_at=?,result_json=?,error=?,
+                outcome_provenance=?,source_action_id=?,provenance_evidence_id=?
             WHERE action_id=?
             """,
             (
                 status.value,
-                finished_at,
-                reason[:4000],
-                "NO_OBSERVABLE_OUTCOME",
+                utc_now() if finished else None,
+                json.dumps(result, ensure_ascii=False, sort_keys=True)
+                if result is not None
+                else None,
+                error[:4000] if error else None,
+                provenance,
+                source_action_id,
                 evidence_id,
                 action.action_id,
             ),
         )
     return {
         "action_id": action.action_id,
-        "success": False,
+        "success": status == ActionStatus.SUCCEEDED,
         "status": status.value,
-        "reason": reason,
-        "error": reason,
-        "provenance": "NO_OBSERVABLE_OUTCOME",
-        "source_action_id": None,
+        "error": error,
+        "evaluation": (result or {}).get("evaluation", {}),
+        "output": (result or {}).get("result", {}).get("output", {}),
+        "provenance": provenance,
+        "source_action_id": source_action_id,
         "provenance_evidence_id": evidence_id,
     }
 
 
-def _tool_exception(
+def _execution_failure(
     runtime: Any,
     action: ActionSpec,
     side_effect_class: str,
-    exc: Exception,
+    error: str,
+    result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    error = f"{type(exc).__name__}: {exc}"[:4000]
-    if side_effect_class == "none":
-        status = ActionStatus.FAILED
-        provenance = "EXECUTED_CURRENT_ACTION"
-        event_type = "action_tool_exception"
-    else:
-        status = ActionStatus.UNKNOWN_SIDE_EFFECT
-        provenance = "NO_OBSERVABLE_OUTCOME"
-        event_type = "action_side_effect_unknown"
-    with runtime.db.transaction() as connection:
-        evidence_id = runtime.ledger.append(
-            event_type,
-            {
-                "action_id": action.action_id,
-                "tool": action.tool,
-                "status": status.value,
-                "side_effect_class": side_effect_class,
-                "error": error,
-                "provenance": provenance,
-            },
-            connection,
-        )
-        connection.execute(
-            """
-            UPDATE actions
-            SET status=?,finished_at=?,error=?,outcome_provenance=?,
-                source_action_id=NULL,provenance_evidence_id=?
-            WHERE action_id=? AND status='RUNNING'
-            """,
-            (
-                status.value,
-                utc_now(),
-                error,
-                provenance,
-                evidence_id,
-                action.action_id,
-            ),
-        )
-    return {
-        "action_id": action.action_id,
-        "success": False,
-        "status": status.value,
-        "error": error,
-        "provenance": provenance,
-        "source_action_id": None,
-        "provenance_evidence_id": evidence_id,
-    }
+    ambiguous = side_effect_class != "none"
+    return _persist(
+        runtime,
+        action,
+        status=(
+            ActionStatus.UNKNOWN_SIDE_EFFECT
+            if ambiguous
+            else ActionStatus.FAILED
+        ),
+        provenance=(
+            "NO_OBSERVABLE_OUTCOME"
+            if ambiguous
+            else "EXECUTED_CURRENT_ACTION"
+        ),
+        event_type=(
+            "action_side_effect_unknown"
+            if ambiguous
+            else "action_tool_failed"
+        ),
+        error=error,
+        result=result,
+    )
 
 
 def register_wls(runtime: Any) -> None:
-    """Make policy and exact action contracts authoritative over result reuse."""
+    """Make current policy and exact contracts authoritative over reuse."""
 
     if getattr(runtime, "_task19_execution_guard_installed", False):
         return
@@ -169,12 +153,13 @@ def register_wls(runtime: Any) -> None:
             self.policy.validate_arguments(action)
             definition = self.tools.get(action.tool)
         except Exception as exc:
-            return _blocked(
+            return _persist(
                 self,
                 action,
-                ActionStatus.REJECTED,
-                f"argument validation failed: {type(exc).__name__}: {exc}",
-                "action_rejected",
+                status=ActionStatus.REJECTED,
+                provenance="NO_OBSERVABLE_OUTCOME",
+                event_type="action_rejected",
+                error=f"argument validation failed: {type(exc).__name__}: {exc}",
             )
 
         approval_valid = False
@@ -184,12 +169,13 @@ def register_wls(runtime: Any) -> None:
                     self.approvals.validate_and_consume(action, approval_id)
                 )
             except Exception as exc:
-                return _blocked(
+                return _persist(
                     self,
                     action,
-                    ActionStatus.REJECTED,
-                    f"approval validation failed: {type(exc).__name__}: {exc}",
-                    "action_approval_rejected",
+                    status=ActionStatus.REJECTED,
+                    provenance="NO_OBSERVABLE_OUTCOME",
+                    event_type="action_approval_rejected",
+                    error=f"approval validation failed: {type(exc).__name__}: {exc}",
                 )
         decision = self.policy.decide(action, approval_valid=approval_valid)
         if not decision.allowed:
@@ -198,12 +184,14 @@ def register_wls(runtime: Any) -> None:
                 if decision.requires_approval
                 else ActionStatus.REJECTED
             )
-            return _blocked(
+            return _persist(
                 self,
                 action,
-                status,
-                decision.reason,
-                "action_blocked",
+                status=status,
+                provenance="NO_OBSERVABLE_OUTCOME",
+                event_type="action_blocked",
+                error=decision.reason,
+                finished=status != ActionStatus.WAITING_APPROVAL,
             )
 
         prior = self.db.query_one(
@@ -215,62 +203,37 @@ def register_wls(runtime: Any) -> None:
             (action.idempotency_key, action.action_id),
         )
         if prior is not None:
-            if not _contract_matches(
-                prior, action, definition.side_effect_class
-            ):
-                return _blocked(
+            if not _contract_matches(prior, action, definition.side_effect_class):
+                return _persist(
                     self,
                     action,
-                    ActionStatus.REJECTED,
-                    "idempotency collision: key belongs to a different action contract",
-                    "action_idempotency_collision",
+                    status=ActionStatus.REJECTED,
+                    provenance="NO_OBSERVABLE_OUTCOME",
+                    event_type="action_idempotency_collision",
+                    error="idempotency key belongs to a different action contract",
                 )
             try:
                 reused = json.loads(prior["result_json"] or "{}")
             except json.JSONDecodeError as exc:
-                return _blocked(
+                return _persist(
                     self,
                     action,
-                    ActionStatus.REJECTED,
-                    f"stored idempotent result is invalid JSON: {exc}",
-                    "action_reuse_rejected",
+                    status=ActionStatus.REJECTED,
+                    provenance="NO_OBSERVABLE_OUTCOME",
+                    event_type="action_reuse_rejected",
+                    error=f"stored idempotent result is invalid JSON: {exc}",
                 )
-            with self.db.transaction() as connection:
-                evidence_id = self.ledger.append(
-                    "action_result_reused",
-                    {
-                        "action_id": action.action_id,
-                        "source_action_id": str(prior["action_id"]),
-                        "result_digest": digest_json(reused),
-                    },
-                    connection,
-                )
-                connection.execute(
-                    """
-                    UPDATE actions
-                    SET status='SUCCEEDED',finished_at=?,result_json=?,error=NULL,
-                        outcome_provenance='REUSED_PRIOR_RESULT',source_action_id=?,
-                        provenance_evidence_id=?
-                    WHERE action_id=?
-                    """,
-                    (
-                        utc_now(),
-                        json.dumps(reused, ensure_ascii=False, sort_keys=True),
-                        str(prior["action_id"]),
-                        evidence_id,
-                        action.action_id,
-                    ),
-                )
-            return {
-                "action_id": action.action_id,
-                "success": True,
-                "status": ActionStatus.SUCCEEDED.value,
-                "reused": True,
-                "evaluation": reused.get("evaluation", {}),
-                "provenance": "REUSED_PRIOR_RESULT",
-                "source_action_id": str(prior["action_id"]),
-                "provenance_evidence_id": evidence_id,
-            }
+            result = _persist(
+                self,
+                action,
+                status=ActionStatus.SUCCEEDED,
+                provenance="REUSED_PRIOR_RESULT",
+                event_type="action_result_reused",
+                result={**reused, "reuse_digest": digest_json(reused)},
+                source_action_id=str(prior["action_id"]),
+            )
+            result["reused"] = True
+            return result
 
         with self.db.transaction() as connection:
             updated = connection.execute(
@@ -283,8 +246,7 @@ def register_wls(runtime: Any) -> None:
             ).rowcount
             if updated != 1:
                 row = connection.execute(
-                    "SELECT status,outcome_provenance,source_action_id,provenance_evidence_id "
-                    "FROM actions WHERE action_id=?",
+                    "SELECT status,outcome_provenance FROM actions WHERE action_id=?",
                     (action.action_id,),
                 ).fetchone()
                 return {
@@ -296,16 +258,6 @@ def register_wls(runtime: Any) -> None:
                         if row and row["outcome_provenance"]
                         else "NO_OBSERVABLE_OUTCOME"
                     ),
-                    "source_action_id": (
-                        str(row["source_action_id"])
-                        if row and row["source_action_id"]
-                        else None
-                    ),
-                    "provenance_evidence_id": (
-                        str(row["provenance_evidence_id"])
-                        if row and row["provenance_evidence_id"]
-                        else None
-                    ),
                 }
             self.ledger.append(
                 "action_started",
@@ -316,61 +268,52 @@ def register_wls(runtime: Any) -> None:
         try:
             tool_result = self.tools.execute(action)
         except Exception as exc:
-            return _tool_exception(
-                self, action, definition.side_effect_class, exc
+            return _execution_failure(
+                self,
+                action,
+                definition.side_effect_class,
+                f"{type(exc).__name__}: {exc}",
+            )
+        tool_payload = {"result": tool_result.to_dict()}
+        if not tool_result.success:
+            return _execution_failure(
+                self,
+                action,
+                definition.side_effect_class,
+                tool_result.error or "tool execution failed",
+                tool_payload,
+            )
+        try:
+            evaluation = self.evaluator.evaluate(action, tool_result)
+        except Exception as exc:
+            return _execution_failure(
+                self,
+                action,
+                definition.side_effect_class,
+                f"evaluation failed: {type(exc).__name__}: {exc}",
+                tool_payload,
             )
 
-        evaluation = self.evaluator.evaluate(action, tool_result)
         success = bool(evaluation["accepted"])
-        status = ActionStatus.SUCCEEDED if success else ActionStatus.FAILED
         provenance = (
             "RECOVERED_DURABLE_ACTION"
             if getattr(self, "_task19_recovery_mode", False)
             else "EXECUTED_CURRENT_ACTION"
         )
         payload = {"result": tool_result.to_dict(), "evaluation": evaluation}
-        with self.db.transaction() as connection:
-            evidence_id = self.ledger.append(
-                "action_completed",
-                {
-                    "action_id": action.action_id,
-                    "status": status.value,
-                    "provenance": provenance,
-                    "payload": payload,
-                },
-                connection,
-            )
-            connection.execute(
-                """
-                UPDATE actions
-                SET status=?,finished_at=?,result_json=?,error=?,
-                    outcome_provenance=?,source_action_id=NULL,
-                    provenance_evidence_id=?
-                WHERE action_id=?
-                """,
-                (
-                    status.value,
-                    tool_result.finished_at,
-                    json.dumps(payload, ensure_ascii=False, sort_keys=True),
-                    tool_result.error
-                    or (None if success else "acceptance criteria failed"),
-                    provenance,
-                    evidence_id,
-                    action.action_id,
-                ),
-            )
-        self.self_model.record_action_outcome(action, tool_result, evidence_id)
-        return {
-            "action_id": action.action_id,
-            "success": success,
-            "status": status.value,
-            "evaluation": evaluation,
-            "output": tool_result.output,
-            "error": tool_result.error,
-            "provenance": provenance,
-            "source_action_id": None,
-            "provenance_evidence_id": evidence_id,
-        }
+        result = _persist(
+            self,
+            action,
+            status=ActionStatus.SUCCEEDED if success else ActionStatus.FAILED,
+            provenance=provenance,
+            event_type="action_completed",
+            error=None if success else "acceptance criteria failed",
+            result=payload,
+        )
+        self.self_model.record_action_outcome(
+            action, tool_result, result["provenance_evidence_id"]
+        )
+        return result
 
     runtime._execute_action = MethodType(execute_action, runtime)
     runtime.ledger.append(
@@ -381,6 +324,6 @@ def register_wls(runtime: Any) -> None:
             "exact_contract_reuse": True,
             "persistent_provenance": True,
             "schema_migration_transactional": True,
-            "tool_exception_classification": True,
+            "ambiguous_side_effects_require_reconciliation": True,
         },
     )
