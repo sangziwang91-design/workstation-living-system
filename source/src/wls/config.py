@@ -7,7 +7,10 @@ import json
 import os
 
 
-BUILTIN_PLUGIN_MODULES = ("wls.task19_stabilization",)
+BUILTIN_PLUGIN_MODULES = (
+    "wls.task19_stabilization",
+    "wls.task19_priority_guard",
+)
 
 
 @dataclass(slots=True)
@@ -36,9 +39,6 @@ class RuntimeConfig:
     sleep_after_idle_cycles: int = 5
     max_autonomous_goals: int = 3
 
-    # Explicit bounded daemon/survival contract. These defaults are intentionally
-    # conservative and preserve compatibility with configurations created before
-    # SURVIVAL-TARGET-001 was integrated.
     daemon_max_pending_events: int = 10_000
     daemon_max_database_bytes: int = 2 * 1024 * 1024 * 1024
     daemon_max_cycle_seconds: float = 300.0
@@ -85,8 +85,6 @@ class RuntimeConfig:
         return self.home_path / "outbox"
 
     def validate(self) -> None:
-        # Built-in stabilization is part of the canonical runtime contract, not
-        # an optional user plugin. Preserve order while preventing duplicates.
         self.plugin_modules = list(
             dict.fromkeys([*BUILTIN_PLUGIN_MODULES, *self.plugin_modules])
         )
