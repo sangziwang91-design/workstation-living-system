@@ -51,8 +51,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="wls-provider",
         description=(
-            "Candidate-only local Provider Hub. Configuration does not attach a "
-            "provider to the canonical WLS planner."
+            "Candidate-only local Provider Hub. Configuration and probes do not "
+            "attach a provider to the canonical WLS planner. Runtime selection "
+            "is intentionally unavailable until the Hub receives separate acceptance."
         ),
     )
     parser.add_argument("--home", default=str(_default_home()))
@@ -61,7 +62,9 @@ def build_parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status", help="Show one provider without secrets")
     status.add_argument("provider_id")
 
-    configure = sub.add_parser("configure", help="Configure non-secret provider metadata")
+    configure = sub.add_parser(
+        "configure", help="Configure candidate-only provider metadata"
+    )
     configure.add_argument("provider_id")
     configure.add_argument("--model")
     configure.add_argument("--base-url")
@@ -75,9 +78,6 @@ def build_parser() -> argparse.ArgumentParser:
     probe = sub.add_parser("probe", help="Run a bounded models-endpoint probe")
     probe.add_argument("provider_id")
     probe.add_argument("--timeout-seconds", type=float, default=15.0)
-
-    select = sub.add_parser("select", help="Select an enabled configured provider candidate")
-    select.add_argument("provider_id")
 
     remove = sub.add_parser(
         "remove-credential", help="Remove a provider credential from the OS vault"
@@ -114,8 +114,6 @@ def main(argv: list[str] | None = None) -> int:
             )
             _print(result)
             return 0 if result["status"] == "PASS" else 2
-        elif args.command == "select":
-            _print(hub.select(args.provider_id))
         elif args.command == "remove-credential":
             _print(hub.remove_credential(args.provider_id))
         else:  # pragma: no cover
