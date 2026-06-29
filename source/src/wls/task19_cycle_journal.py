@@ -54,7 +54,11 @@ def _outcomes(runtime: Any, plan_id: str) -> tuple[list[dict[str, Any]], list[st
     rows = runtime.db.query_all(
         "SELECT * FROM actions WHERE plan_id=? ORDER BY rowid", (plan_id,)
     )
-    pending = [str(row["status"]) for row in rows if str(row["status"]) not in TERMINAL_ACTIONS]
+    pending = [
+        str(row["status"])
+        for row in rows
+        if str(row["status"]) not in TERMINAL_ACTIONS
+    ]
     outcomes: list[dict[str, Any]] = []
     for row in rows:
         payload: dict[str, Any] = {}
@@ -77,6 +81,55 @@ def _outcomes(runtime: Any, plan_id: str) -> tuple[list[dict[str, Any]], list[st
             }
         )
     return outcomes, pending
+
+
+def _postprocess(
+    runtime: Any,
+    cycle_id: str,
+    plan_id: str,
+    outcomes: list[dict[str, Any]],
+) -> dict[str, Any]:
+    plan = _plan(runtime, plan_id)
+    trace = runtime.db.query_one(
+        "SELECT status,outcome_json FROM cognitive_traces WHERE cycle_id=?",
+        (cycle_id,),
+    )
+    cognition = None
+    if trace is not None and str(trace["status"]) != "RESOLVED":
+        cognition = runtime.cognition.resolve_cycle(cycle_id, plan, outcomes)
+    elif trace is not None and trace["outcome_json"]:
+        cognition = json.loads(trace["outcome_json"])
+
+    memory = None
+    memory_row = runtime.db.query_one(
+        "SELECT resolved_at FROM memory_decision_attributions WHERE cycle_id=?",
+        (cycle_id,),
+    )
+    if memory_row is not None and not memory_row["resolved_at"]:
+        memory = runtime.memory_attribution.resolve(
+            cycle_id,
+            outcomes,
+            cognition,
+            frozen=str(runtime.config.provider.get("memory_mode", "enabled")).lower()
+            == "frozen",
+        )
+
+    goals = None
+    goal_row = runtime.db.query_one(
+        """
+        SELECT goal_trace_id,selected_goal_ids_json,resolved_at
+        FROM goal_attributions WHERE cycle_id=?
+        """,
+        (cycle_id,),
+    )
+    if goal_row is not None and not goal_row["resolved_at"]:
+        goals = runtime.goal_runtime.resolve_cycle(
+            cycle_id,
+            selected_goal_ids=json.loads(goal_row["selected_goal_ids_json"]),
+            outcomes=outcomes,
+            attribution={"goal_trace_id": str(goal_row["goal_trace_id"])},
+        )
+    return {"cognition": cognition, "memory": memory, "goals": goals}
 
 
 def register_wls(runtime: Any) -> None:
@@ -116,11 +169,12 @@ def register_wls(runtime: Any) -> None:
     original_execute_plan = runtime._execute_plan
 
     def execute_plan(self: Any, plan: Plan) -> list[dict[str, Any]]:
-        outcomes = original_execute_plan(plan)
+        original_execute_plan(plan)
+        outcomes, pending = _outcomes(self, plan.plan_id)
         row = self.db.query_one(
             "SELECT cycle_id FROM plans WHERE plan_id=?", (plan.plan_id,)
         )
-        if row is not None:
+        if row is not None and not pending:
             self.cycle_journal.record(
                 str(row["cycle_id"]),
                 "ACTIONS_TERMINAL",
