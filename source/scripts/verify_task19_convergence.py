@@ -15,6 +15,24 @@ import time
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 ARTIFACT_ROOT = REPOSITORY / "artifacts" / "task19"
+BASE_REQUIRED_GATES = {
+    "initial_clean_worktree",
+    "compileall",
+    "packaging_layout",
+    "pytest_full",
+    "evolution_target_001",
+    "evolution_target_002",
+    "evolution_target_003",
+    "evolution_target_004",
+    "ruff",
+    "mypy",
+    "bandit",
+    "build_root",
+    "wheel_metadata",
+    "clean_install",
+    "final_head_unchanged",
+    "final_clean_worktree",
+}
 
 
 def _git(*args: str) -> str:
@@ -113,11 +131,12 @@ def _json_from_output(gate: dict[str, Any] | None) -> dict[str, Any] | None:
     if gate is None:
         return None
     text = str(gate.get("stdout", "")).strip()
+    decoder = json.JSONDecoder()
     for index, character in enumerate(text):
         if character != "{":
             continue
         try:
-            value = json.loads(text[index:])
+            value, _ = decoder.raw_decode(text[index:])
         except json.JSONDecodeError:
             continue
         if isinstance(value, dict):
@@ -127,7 +146,15 @@ def _json_from_output(gate: dict[str, Any] | None) -> dict[str, Any] | None:
 
 def _pytest_counts(text: str) -> dict[str, int]:
     counts: dict[str, int] = {}
-    for key in ("passed", "failed", "skipped", "xfailed", "xpassed", "errors", "error"):
+    for key in (
+        "passed",
+        "failed",
+        "skipped",
+        "xfailed",
+        "xpassed",
+        "errors",
+        "error",
+    ):
         matches = re.findall(rf"(\d+)\s+{key}\b", text)
         if matches:
             counts["errors" if key == "error" else key] = max(
@@ -143,7 +170,6 @@ def _markdown(report: dict[str, Any]) -> str:
         f"- Head: `{report['head_sha']}`",
         f"- Branch: `{report['branch']}`",
         f"- Diagnostic only: **{report['diagnostic_only']}**",
-        f"- All executed gates passed: **{report['all_executed_gates_passed']}**",
         f"- Acceptance ready: **{report['acceptance_ready']}**",
         "",
         "## Gates",
@@ -164,6 +190,8 @@ def _markdown(report: dict[str, Any]) -> str:
             "```json",
             json.dumps(
                 {
+                    "required_gates": report["required_gates"],
+                    "missing_gates": report["missing_gates"],
                     "test_counts": report["test_counts"],
                     "wheel_metadata": report["wheel_metadata"],
                     "clean_install": report["clean_install"],
@@ -210,16 +238,28 @@ def main() -> int:
     branch = _git("branch", "--show-current") or "DETACHED"
     initial_status = _git("status", "--short")
     gates: list[dict[str, Any]] = [
-        _state_gate("initial_clean_worktree", not initial_status, initial_status or "clean")
+        _state_gate(
+            "initial_clean_worktree",
+            not initial_status,
+            initial_status or "clean",
+        )
     ]
 
     if not initial_status:
-        compile_targets = ["source/src/wls", "source/tests", "source/scripts", "scripts"]
         gates.extend(
             [
                 _run(
                     "compileall",
-                    [sys.executable, "-m", "compileall", "-q", *compile_targets],
+                    [
+                        sys.executable,
+                        "-m",
+                        "compileall",
+                        "-q",
+                        "source/src/wls",
+                        "source/tests",
+                        "source/scripts",
+                        "scripts",
+                    ],
                     300,
                 ),
                 _run(
@@ -292,7 +332,9 @@ def main() -> int:
         for path in (REPOSITORY / "dist", REPOSITORY / "build"):
             if path.exists():
                 shutil.rmtree(path)
-        gates.append(_run("build_root", [sys.executable, "-m", "build", "."], 900))
+        gates.append(
+            _run("build_root", [sys.executable, "-m", "build", "."], 900)
+        )
         wheels = sorted((REPOSITORY / "dist").glob("*.whl"))
         if len(wheels) == 1:
             wheel = wheels[0]
@@ -345,11 +387,28 @@ def main() -> int:
                 head_unchanged,
                 f"initial={head_sha}; final={final_head}",
             ),
-            _state_gate("final_clean_worktree", worktree_clean, final_status or "clean"),
+            _state_gate(
+                "final_clean_worktree", worktree_clean, final_status or "clean"
+            ),
         ]
     )
 
-    pytest_gate = next((item for item in gates if item["name"] == "pytest_full"), None)
+    required_gates = set(BASE_REQUIRED_GATES)
+    if not args.skip_soak:
+        required_gates.add("bounded_soak_100")
+    observed_gate_names = {str(item["name"]) for item in gates}
+    missing_gates = sorted(required_gates - observed_gate_names)
+    gates.append(
+        _state_gate(
+            "mandatory_gate_manifest",
+            not missing_gates,
+            "complete" if not missing_gates else ",".join(missing_gates),
+        )
+    )
+
+    pytest_gate = next(
+        (item for item in gates if item["name"] == "pytest_full"), None
+    )
     test_counts = _pytest_counts(
         f"{pytest_gate.get('stdout', '')}\n{pytest_gate.get('stderr', '')}"
         if pytest_gate
@@ -364,10 +423,12 @@ def main() -> int:
     soak = _json_from_output(
         next((item for item in gates if item["name"] == "bounded_soak_100"), None)
     )
+    real_tests_passed = test_counts.get("passed", 0) > 0
     all_passed = bool(
         gates
+        and not missing_gates
         and all(item["status"] == "PASS" for item in gates)
-        and bool(test_counts)
+        and real_tests_passed
         and test_counts.get("failed", 0) == 0
         and test_counts.get("errors", 0) == 0
         and isinstance(wheel_metadata, dict)
@@ -381,7 +442,7 @@ def main() -> int:
     )
     diagnostic_only = bool(args.skip_soak)
     report = {
-        "schema_version": "2.0",
+        "schema_version": "2.1",
         "task": "TASK19_MAIN_REBUILD_CONVERGENCE",
         "repository": "sangziwang91-design/workstation-living-system-private",
         "head_sha": head_sha,
@@ -393,6 +454,8 @@ def main() -> int:
         "python": sys.version,
         "platform": sys.platform,
         "github_hosted_actions": "NOT_USED_AS_ACCEPTANCE_EVIDENCE",
+        "required_gates": sorted(required_gates),
+        "missing_gates": missing_gates,
         "gates": gates,
         "test_counts": test_counts,
         "wheel_metadata": wheel_metadata,
@@ -400,7 +463,9 @@ def main() -> int:
         "soak": soak,
         "head_unchanged": head_unchanged,
         "worktree_clean": worktree_clean,
-        "failed_gates": [item["name"] for item in gates if item["status"] != "PASS"],
+        "failed_gates": [
+            item["name"] for item in gates if item["status"] != "PASS"
+        ],
         "unavailable_gates": [
             item["name"] for item in gates if item["status"] == "UNAVAILABLE"
         ],
