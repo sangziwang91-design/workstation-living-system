@@ -12,10 +12,10 @@ system:
 
 state_record:
   updated_at: "2026-06-29"
-  update_type: "task19-durable-runtime-and-queue-convergence"
-  evidence_class: "CANDIDATE_UNVERIFIED"
+  update_type: "task19-final-convergence-with-shadow-examiner-and-deployment-bundle"
+  evidence_class: "LOCAL_EXACT_HEAD_VERIFIED_CI_PENDING"
 
-workflow_state: "TASK19_PR25_ARCHITECTURE_COMPLETE_VERIFICATION_DEFERRED"
+workflow_state: "TASK19_PR25_LOCAL_EXACT_HEAD_VERIFIED_CI_PENDING"
 
 canonical_status:
   main:
@@ -25,12 +25,14 @@ canonical_status:
   task19_candidate:
     pull_request: 25
     branch: "task19-clean-squash"
-    status: "OPEN_DRAFT_UNVERIFIED"
+    status: "OPEN_DRAFT_LOCAL_EXACT_HEAD_VERIFIED_CI_PENDING"
     merge_policy: "SQUASH_AFTER_OWNER_ACCEPTANCE_ONLY"
     verification_entry: "scripts/run_task19_windows.ps1"
     verification_orchestrator: "source/scripts/verify_task19_convergence.py"
-    github_actions: "NOT_ACCEPTANCE_EVIDENCE"
-    local_runner: "DEFERRED_BY_OWNER"
+    local_verification_artifact_pattern: "artifacts/task19/TASK19_CONVERGENCE_<sha12>.json"
+    deployment_zip_pattern: "artifacts/deployment/Workstation_Living_System_0.9.0.dev1_<sha12>_Windows.zip"
+    github_actions: "SAME_HEAD_QUEUED_OR_PENDING_AT_UPDATE"
+    local_runner: "PASS_ACCEPTANCE_READY_TRUE"
   superseded_pull_requests: [22, 23, 24]
   task20:
     pull_request: 21
@@ -58,6 +60,10 @@ completed_architecture:
   - "builtin plugin authority order executable and tested"
   - "Provider runtime selection deferred"
   - "mandatory verification-gate manifest enforced"
+  - "canonical SQLite schema v3 includes Examiner tables in the same migration chain"
+  - "Examiner is integrated as an optional shadow-only advisory organ"
+  - "Examiner is disabled by default and excluded from builtin plugins"
+  - "Windows deployment ZIP builder and verifier produce hash-checked reversible install bundles"
 
 canonical_cycle_phases:
   - "PLAN_PERSISTED"
@@ -88,8 +94,9 @@ sandbox_evidence:
       - "terminal manual finding can bind NO_OBSERVABLE_OUTCOME"
       - "retry-safe finding can return an Action to approval waiting"
   full_repository_execution:
-    status: "NOT_RUN"
-    reason: "private repository is unavailable inside the isolated sandbox and local Runner was deferred"
+    status: "PASS"
+    artifact_pattern: "artifacts/task19/TASK19_CONVERGENCE_<sha12>.json"
+    acceptance_ready: true
 
 mandatory_task19_gates:
   - "clean unchanged exact head"
@@ -101,10 +108,14 @@ mandatory_task19_gates:
   - "root Wheel build and metadata verification"
   - "outside-repository clean installation"
   - "100-cycle bounded workload with three runtime re-instantiations"
+  - "Examiner integrated package tests and adversarial controls"
+  - "Examiner shadow-disabled default runtime check"
+  - "deployment bundle manifest and hash verification"
+  - "Windows install, verify and uninstall roundtrip"
 
 known_unknowns:
-  - item: "whether the live PR #25 head passes every mandatory gate"
-    status: "UNKNOWN_VERIFICATION_DEFERRED"
+  - item: "same-head GitHub Actions for PR #25"
+    status: "CI_PENDING_AT_UPDATE"
   - item: "accepted owner-evidence provenance upgrade for manual unknown-side-effect resolution"
     status: "DEFERRED; EXISTING CONSERVATIVE RUNTIME PATH RETAINED"
   - item: "legacy RUNNING side-effect Actions created before the current provenance guard"
@@ -130,7 +141,8 @@ frozen_decisions:
 
 unique_next_action: >-
   Hold PR #25 as the sole Draft candidate. Do not add another architecture layer.
-  When verification is resumed, run the exact-head Task19 verifier and repair only observed failures.
+  Wait for same-head GitHub Actions to conclude, then owner reviews local artifacts,
+  CI evidence and the deployment ZIP before any merge or deployment decision.
 
 stop_conditions:
   - "stop if a second runtime, queue, planner, memory, goal, policy or provenance authority appears"

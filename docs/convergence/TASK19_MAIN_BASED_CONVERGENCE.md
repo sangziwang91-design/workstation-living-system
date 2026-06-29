@@ -2,7 +2,7 @@
 
 ## Authority
 
-Task19 is represented by Draft PR #25 on branch `task19-clean-squash`. It is based directly on the accepted `main` head after `LOCAL-RUNNER-002` and contains one candidate commit. PRs #22, #23, and #24 are closed, unmerged audit records.
+Task19 is represented by Draft PR #25 on branch `task19-clean-squash`. It is based directly on the accepted `main` head after `LOCAL-RUNNER-002`. PRs #22, #23, and #24 are closed, unmerged audit records.
 
 The canonical runtime remains `source/src/wls/runtime.py::LivingSystem`. This candidate does not create a second planner, state store, policy engine, goal authority, memory authority, execution authority, provenance authority, or acceptance authority.
 
@@ -16,7 +16,8 @@ The canonical runtime remains `source/src/wls/runtime.py::LivingSystem`. This ca
 - durable current, reused, recovered, no-outcome, and legacy provenance;
 - owner or external-request preemption;
 - candidate-only Provider Hub with fixed presets and loopback custom endpoints;
-- root build, Wheel verification, clean installation, repository hygiene, and the bounded 100-cycle workload.
+- optional shadow-only Examiner organ on the canonical SQLite migration chain;
+- root build, Wheel verification, clean installation, repository hygiene, deployment ZIP roundtrip, and the bounded 100-cycle workload.
 
 ## Removed pollution
 
@@ -50,7 +51,7 @@ Diagnostic command without the soak:
 
 A diagnostic pass cannot set `acceptance_ready=true`.
 
-The full gate runs clean-head checks, compilation, repository hygiene, full pytest, ET001–ET004, Ruff, Mypy, Bandit, root Wheel build, Wheel metadata and contamination checks, outside-repository installation, and the 100-cycle workload. Reports belong under ignored `artifacts/task19/` and must identify the exact tested head.
+The full gate runs clean-head checks, compilation, repository hygiene, SQLite convergence checks, Examiner integrated and adversarial checks, full pytest, ET001–ET004, Ruff, Mypy, Bandit, root Wheel build, Wheel metadata and contamination checks, outside-repository installation, deployment bundle hash/roundtrip checks, and the 100-cycle workload. Reports belong under ignored `artifacts/task19/` and must identify the exact tested head.
 
 ## Stop rules
 
@@ -66,4 +67,4 @@ This does not establish production maturity, longitudinal reliability, owner-hos
 
 ## Current status
 
-PR #25 is open, Draft, single-commit, and `CANDIDATE_UNVERIFIED`. Content and history cleanup are complete. Acceptance remains closed until the exact current head passes the local Windows gate and independent review finds no unresolved P1 or P2 defects.
+PR #25 is open, Draft, and `LOCAL_EXACT_HEAD_VERIFIED / CI_PENDING` for the latest locally verified branch head recorded in the PR body and ignored `artifacts/task19/TASK19_CONVERGENCE_<sha12>.json` report. Local Windows verification passed with `acceptance_ready=true`, and the final deployment ZIP passed hash verification plus install/verify/uninstall roundtrip. Merge and deployment remain closed until same-head CI concludes and the owner accepts the candidate.
