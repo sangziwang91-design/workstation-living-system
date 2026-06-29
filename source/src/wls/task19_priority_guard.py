@@ -6,6 +6,7 @@ from typing import Any
 from .schemas import Plan
 from .task19_execution_guard import register_wls as register_execution_guard
 from .task19_goal_outcome_guard import register_wls as register_goal_outcome_guard
+from .task19_recovery_guard import register_wls as register_recovery_guard
 
 
 OWNER_SOURCES = {"owner", "user", "human", "cli", "api"}
@@ -27,9 +28,9 @@ def _has_external_priority(context: dict[str, Any]) -> tuple[bool, list[str]]:
 
 
 def register_wls(runtime: Any) -> None:
-    """Preserve owner/external-event priority after execution guards."""
     register_execution_guard(runtime)
     register_goal_outcome_guard(runtime)
+    register_recovery_guard(runtime)
     if getattr(runtime, "_task19_priority_guard_installed", False):
         return
     runtime._task19_priority_guard_installed = True
@@ -48,8 +49,8 @@ def register_wls(runtime: Any) -> None:
         ]
         plan = original_plan(guarded)
         plan.rationale = (
-            "Owner/external request took priority over durable background goals "
-            f"for this cycle; event_ids={','.join(event_ids)}. {plan.rationale}"
+            "Explicit owner request was ordered before background goals; "
+            f"event_ids={','.join(event_ids)}. {plan.rationale}"
         )
         return plan
 
