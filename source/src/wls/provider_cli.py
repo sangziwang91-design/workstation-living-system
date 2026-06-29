@@ -2,12 +2,16 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 import argparse
 import getpass
 import json
 import os
 
 from .provider_hub import ProviderHub
+
+
+_LITERAL_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 
 
 def _default_home() -> Path:
@@ -23,6 +27,24 @@ def _default_home() -> Path:
 
 def _print(value: Any) -> None:
     print(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True))
+
+
+def _validate_cli_custom_base(provider_id: str, base_url: str | None) -> None:
+    if provider_id != "custom_openai" or base_url is None:
+        return
+    parsed = urlparse(base_url.strip())
+    hostname = (parsed.hostname or "").lower()
+    if hostname not in _LITERAL_LOOPBACK_HOSTS:
+        raise ValueError(
+            "custom_openai is limited to literal loopback/localhost while the "
+            "Provider Hub remains candidate-only; use a fixed reviewed preset for public providers"
+        )
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError("custom_openai base URL must use http or https")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("userinfo credentials in provider URLs are forbidden")
+    if parsed.fragment:
+        raise ValueError("provider URL fragments are forbidden")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -73,6 +95,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "status":
             _print(hub.get_public(args.provider_id))
         elif args.command == "configure":
+            _validate_cli_custom_base(args.provider_id, args.base_url)
             credential = None
             if args.store_credential:
                 credential = getpass.getpass("Provider credential: ")
