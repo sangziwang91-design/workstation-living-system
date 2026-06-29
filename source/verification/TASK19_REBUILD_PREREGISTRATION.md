@@ -1,8 +1,8 @@
 # Task19 rebuild preregistration
 
 - Base SHA: `4c77401deb159e8ee2a2daf3c6e2702ce48876e3`
-- Candidate SHA: `9406600009536c36d123a9f05c32dbfdbcb7a5d5`
 - Branch: `repair/task19-main-convergence-20260628`
+- Candidate SHA: resolved dynamically by the verifier from `git rev-parse HEAD`; no tracked report may hard-code a pre-report head.
 - Integration method: main-based rebuild; historical PR #22 used only as source material.
 - GitHub-hosted Actions: unavailable; no missing check is interpreted as PASS.
 - Required execution: `scripts/run_task19_windows.ps1` from a clean exact-head checkout.
@@ -23,4 +23,4 @@
 
 ## Stop conditions
 
-Any failed, timed-out, or unavailable mandatory gate keeps the PR Draft. Generated evidence belongs under ignored `artifacts/task19/` and must identify this exact candidate SHA.
+Any failed, timed-out, or unavailable mandatory gate keeps the PR Draft. Generated evidence belongs under ignored `artifacts/task19/` and must identify the exact checkout head measured at runtime.
