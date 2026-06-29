@@ -4,6 +4,7 @@ from types import MethodType
 from typing import Any
 
 from .schemas import Plan
+from .task19_execution_guard import register_wls as register_execution_guard
 
 
 OWNER_SOURCES = {"owner", "user", "human", "cli", "api"}
@@ -25,13 +26,8 @@ def _has_external_priority(context: dict[str, Any]) -> tuple[bool, list[str]]:
 
 
 def register_wls(runtime: Any) -> None:
-    """Preserve owner/external-event preemption over durable background goals.
-
-    The guard does not create a planner. It narrows the existing planner context for
-    one cycle when an explicit external request is present, so the request is planned
-    first and the durable goal remains visible to GoalRuntime as interrupted debt.
-    """
-
+    """Preserve owner/external-event priority after execution guards."""
+    register_execution_guard(runtime)
     if getattr(runtime, "_task19_priority_guard_installed", False):
         return
     runtime._task19_priority_guard_installed = True
@@ -45,14 +41,13 @@ def register_wls(runtime: Any) -> None:
         guarded = dict(context)
         guarded["goals"] = []
         guarded["workspace"] = [
-            item
-            for item in context.get("workspace", [])
+            item for item in context.get("workspace", [])
             if item.get("item_type") != "goal"
         ]
         plan = original_plan(guarded)
         plan.rationale = (
-            f"Owner/external request preempted durable background goals for this cycle; "
-            f"event_ids={','.join(event_ids)}. {plan.rationale}"
+            "Owner/external request took priority over durable background goals "
+            f"for this cycle; event_ids={','.join(event_ids)}. {plan.rationale}"
         )
         return plan
 
