@@ -6,19 +6,104 @@ from typing import Any, Iterator, Sequence
 import json
 import sqlite3
 import threading
+import time
 
 from .schemas import utc_now
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+
+GROWTH_SCHEMA_SQL = [
+    """
+    CREATE TABLE IF NOT EXISTS recovery_experiments (
+        experiment_id TEXT PRIMARY KEY,
+        candidate_id TEXT NOT NULL,
+        strategy TEXT NOT NULL,
+        status TEXT NOT NULL,
+        manifest_json TEXT NOT NULL,
+        baseline_json TEXT NOT NULL,
+        result_json TEXT,
+        artifact_path TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        FOREIGN KEY(candidate_id) REFERENCES evolution_candidates(candidate_id)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_recovery_experiments_candidate_time
+    ON recovery_experiments(candidate_id, started_at DESC)
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS skill_experiments (
+        experiment_id TEXT PRIMARY KEY,
+        skill_id TEXT NOT NULL,
+        skill_version INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        manifest_json TEXT NOT NULL,
+        baseline_json TEXT NOT NULL,
+        result_json TEXT,
+        artifact_path TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        FOREIGN KEY(skill_id) REFERENCES skills(skill_id)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_skill_experiments_skill_time
+    ON skill_experiments(skill_id, started_at DESC)
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS growth_cycles (
+        growth_cycle_id TEXT PRIMARY KEY,
+        failure_candidate_id TEXT NOT NULL,
+        recovery_experiment_id TEXT,
+        skill_id TEXT,
+        skill_experiment_id TEXT,
+        status TEXT NOT NULL,
+        approval_json TEXT,
+        promotion_json TEXT,
+        baseline_json TEXT NOT NULL,
+        reuse_json TEXT,
+        measurement_json TEXT,
+        rollback_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY(failure_candidate_id) REFERENCES evolution_candidates(candidate_id),
+        FOREIGN KEY(skill_id) REFERENCES skills(skill_id)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_growth_cycles_status_time
+    ON growth_cycles(status, updated_at DESC)
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS growth_measurements (
+        measurement_id TEXT PRIMARY KEY,
+        growth_cycle_id TEXT NOT NULL,
+        runtime_cycle_id TEXT,
+        plan_id TEXT,
+        skill_id TEXT NOT NULL,
+        baseline_success_rate REAL NOT NULL,
+        actual_success_rate REAL NOT NULL,
+        regressions INTEGER NOT NULL,
+        outcome_json TEXT NOT NULL,
+        decision TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY(growth_cycle_id) REFERENCES growth_cycles(growth_cycle_id),
+        FOREIGN KEY(skill_id) REFERENCES skills(skill_id)
+    )
+    """,
+]
 
 
 class Database:
     """Single-file durable state store.
 
-    Connections are short-lived, WAL-backed, and transaction-scoped. Nested
-    transactions in the same thread reuse the outer connection and use SQLite
-    savepoints, preventing a second connection from waiting on its own write lock.
+    One WAL-backed connection is owned by each Database instance and serialized
+    by a process-local reentrant lock. Nested transactions in the same thread
+    use SQLite savepoints, preserving Task19 rollback semantics without opening
+    another writer connection.
     """
 
     def __init__(self, path: str | Path):
@@ -26,16 +111,51 @@ class Database:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._local = threading.local()
-        self.initialize()
+        self._connection = self._open_connection(configure_journal=True)
+        self._closed = False
+        try:
+            self.initialize()
+        except Exception:
+            self._connection.close()
+            self._closed = True
+            raise
+
+    def _ensure_open(self) -> None:
+        if self._closed:
+            raise RuntimeError("database is closed")
+
+    def _open_connection(self, *, configure_journal: bool = False) -> sqlite3.Connection:
+        attempts = 20 if configure_journal else 1
+        for attempt in range(attempts):
+            connection = sqlite3.connect(
+                self.path,
+                timeout=30.0,
+                isolation_level=None,
+                check_same_thread=False,
+            )
+            try:
+                connection.row_factory = sqlite3.Row
+                connection.execute("PRAGMA foreign_keys=ON")
+                connection.execute("PRAGMA busy_timeout=30000")
+                if configure_journal:
+                    connection.execute("PRAGMA journal_mode=WAL")
+                connection.execute("PRAGMA synchronous=FULL")
+                return connection
+            except sqlite3.OperationalError as exc:
+                connection.close()
+                if (
+                    configure_journal
+                    and "locked" in str(exc).lower()
+                    and attempt < attempts - 1
+                ):
+                    time.sleep(0.05 * (attempt + 1))
+                    continue
+                raise
+        raise RuntimeError("database connection configuration retry loop exhausted")
 
     def connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path, timeout=30.0, isolation_level=None)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys=ON")
-        connection.execute("PRAGMA journal_mode=WAL")
-        connection.execute("PRAGMA synchronous=FULL")
-        connection.execute("PRAGMA busy_timeout=30000")
-        return connection
+        self._ensure_open()
+        return self._open_connection()
 
     def _current_connection(self) -> sqlite3.Connection | None:
         connection = getattr(self._local, "connection", None)
@@ -44,6 +164,7 @@ class Database:
     @contextmanager
     def transaction(self, immediate: bool = True) -> Iterator[sqlite3.Connection]:
         with self._lock:
+            self._ensure_open()
             current = self._current_connection()
             if current is not None:
                 depth = int(getattr(self._local, "depth", 1))
@@ -61,7 +182,7 @@ class Database:
                     self._local.depth = depth
                 return
 
-            connection = self.connect()
+            connection = self._connection
             self._local.connection = connection
             self._local.depth = 1
             try:
@@ -76,7 +197,6 @@ class Database:
             finally:
                 self._local.connection = None
                 self._local.depth = 0
-                connection.close()
 
     def initialize(self) -> None:
         with self.transaction() as connection:
@@ -347,7 +467,31 @@ class Database:
             )
             connection.execute(
                 "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
-                (SCHEMA_VERSION, utc_now()),
+                (1, utc_now()),
+            )
+        self._migrate()
+
+    def _migrate(self) -> None:
+        while True:
+            current = self._schema_version()
+            if current >= SCHEMA_VERSION:
+                return
+            if current == 1:
+                self._migrate_to_version_2()
+                continue
+            raise RuntimeError(f"unsupported schema migration from version {current}")
+
+    def _schema_version(self) -> int:
+        row = self.query_one("SELECT MAX(version) AS version FROM schema_migrations")
+        return int(row["version"] or 0) if row else 0
+
+    def _migrate_to_version_2(self) -> None:
+        with self.transaction() as connection:
+            for statement in GROWTH_SCHEMA_SQL:
+                connection.execute(statement)
+            connection.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                (2, utc_now()),
             )
 
     def execute(self, sql: str, parameters: Sequence[Any] = ()) -> int:
@@ -356,24 +500,18 @@ class Database:
             return cursor.rowcount
 
     def query_one(self, sql: str, parameters: Sequence[Any] = ()) -> sqlite3.Row | None:
-        current = self._current_connection()
-        if current is not None:
-            return current.execute(sql, parameters).fetchone()
-        connection = self.connect()
-        try:
+        with self._lock:
+            self._ensure_open()
+            current = self._current_connection()
+            connection = current if current is not None else self._connection
             return connection.execute(sql, parameters).fetchone()
-        finally:
-            connection.close()
 
     def query_all(self, sql: str, parameters: Sequence[Any] = ()) -> list[sqlite3.Row]:
-        current = self._current_connection()
-        if current is not None:
-            return list(current.execute(sql, parameters).fetchall())
-        connection = self.connect()
-        try:
+        with self._lock:
+            self._ensure_open()
+            current = self._current_connection()
+            connection = current if current is not None else self._connection
             return list(connection.execute(sql, parameters).fetchall())
-        finally:
-            connection.close()
 
     def set_runtime(
         self, key: str, value: Any, connection: sqlite3.Connection | None = None
@@ -393,3 +531,39 @@ class Database:
         if row is None:
             return default
         return json.loads(row["value_json"])
+
+    def integrity_check(self) -> tuple[bool, str]:
+        with self._lock:
+            if self._current_connection() is not None or self._connection.in_transaction:
+                raise RuntimeError("cannot run integrity check while transaction is active")
+            connection = self.connect()
+            try:
+                row = connection.execute("PRAGMA integrity_check").fetchone()
+                result = str(row[0]) if row else "missing"
+                foreign_rows = connection.execute("PRAGMA foreign_key_check").fetchall()
+                if result.lower() != "ok":
+                    return False, result
+                if foreign_rows:
+                    return False, f"foreign_key_violations={len(foreign_rows)}"
+                return True, "ok"
+            finally:
+                connection.close()
+
+    def checkpoint(self) -> None:
+        with self._lock:
+            if self._current_connection() is not None or self._connection.in_transaction:
+                raise RuntimeError("cannot checkpoint while transaction is active")
+            connection = self.connect()
+            try:
+                connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            finally:
+                connection.close()
+
+    def close(self) -> None:
+        with self._lock:
+            if self._closed:
+                return
+            if self._current_connection() is not None or self._connection.in_transaction:
+                raise RuntimeError("cannot close database while transaction is active")
+            self._connection.close()
+            self._closed = True

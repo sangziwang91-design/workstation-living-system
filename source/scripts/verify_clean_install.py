@@ -6,13 +6,13 @@ import argparse
 import hashlib
 import json
 import os
-import subprocess
+import subprocess  # nosec B404 - verifier runs fixed local Python commands.
 import sys
 import venv
 
 
 def _run(command: list[str], *, cwd: Path) -> dict:
-    completed = subprocess.run(
+    completed = subprocess.run(  # nosec B603 - command is constructed by this verifier.
         command,
         cwd=cwd,
         text=True,
@@ -80,26 +80,30 @@ with tempfile.TemporaryDirectory(prefix="wls-installed-smoke-") as tmp:
     config.sensors = []
     config.max_actions_per_cycle = 1
     runtime = LivingSystem(config)
-    runtime.ingest_event(Event(
-        event_type="installed-smoke",
-        source="clean-install",
-        payload={"observation": {
-            "source": "clean-install",
-            "kind": "state",
-            "subject": "installed-package",
-            "predicate": "smoke",
-            "value": "run",
-            "confidence": 1.0,
-        }},
-        dedupe_key="installed-smoke",
-    ))
-    cycle = runtime.run_cycle()
-    integrity = runtime.verify_integrity(full=True)
+    try:
+        runtime.ingest_event(Event(
+            event_type="installed-smoke",
+            source="clean-install",
+            payload={"observation": {
+                "source": "clean-install",
+                "kind": "state",
+                "subject": "installed-package",
+                "predicate": "smoke",
+                "value": "run",
+                "confidence": 1.0,
+            }},
+            dedupe_key="installed-smoke",
+        ))
+        cycle = runtime.run_cycle()
+        integrity = runtime.verify_integrity(full=True)
+        survival = runtime.status()["survival"]
+    finally:
+        runtime.close()
     print(json.dumps({
         "module_path": wls.__file__,
         "cycle_status": cycle["status"],
         "integrity": integrity,
-        "survival": runtime.status()["survival"],
+        "survival": survival,
     }, sort_keys=True, default=str))
 '''
         smoke_result = _run([str(python), "-c", smoke], cwd=outside)

@@ -72,37 +72,44 @@ def _focused_task_spec_probe(root: Path) -> dict:
 
     invalid_rejected = False
     invalid_runtime = _runtime(root / "invalid-spec")
-    invalid_parent = invalid_runtime.add_goal(
-        Goal(title="Invalid specification parent", description="negative control")
-    )
     try:
-        invalid_runtime.goal_runtime.decomposer.decompose(
-            invalid_parent,
-            [{"title": "invalid child", "task_spec": {"action": "shell"}}],
+        invalid_parent = invalid_runtime.add_goal(
+            Goal(title="Invalid specification parent", description="negative control")
         )
-    except ValueError:
-        invalid_rejected = True
+        try:
+            invalid_runtime.goal_runtime.decomposer.decompose(
+                invalid_parent,
+                [{"title": "invalid child", "task_spec": {"action": "shell"}}],
+            )
+        except ValueError:
+            invalid_rejected = True
+    finally:
+        invalid_runtime.close()
     if not invalid_rejected:
         raise AssertionError("unknown task_spec action was accepted")
 
     traversal_runtime = _runtime(root / "path-policy")
-    traversal_parent = traversal_runtime.add_goal(
-        Goal(title="Traversal specification parent", description="negative control")
-    )
-    forbidden_root = Path(traversal_runtime.config.home_path.anchor or os.sep)
-    traversal_runtime.goal_runtime.decomposer.decompose(
-        traversal_parent,
-        [
-            {
-                "title": "escape child",
-                "task_spec": {"action": "inspect_path", "path": str(forbidden_root)},
-            }
-        ],
-    )
-    traversal_cycle = traversal_runtime.run_cycle()
-    traversal_rejected = any(
-        item.get("status") == "REJECTED" for item in traversal_cycle.get("outcomes", [])
-    )
+    try:
+        traversal_parent = traversal_runtime.add_goal(
+            Goal(title="Traversal specification parent", description="negative control")
+        )
+        forbidden_root = Path(traversal_runtime.config.home_path.anchor or os.sep)
+        traversal_runtime.goal_runtime.decomposer.decompose(
+            traversal_parent,
+            [
+                {
+                    "title": "escape child",
+                    "task_spec": {"action": "inspect_path", "path": str(forbidden_root)},
+                }
+            ],
+        )
+        traversal_cycle = traversal_runtime.run_cycle()
+        traversal_rejected = any(
+            item.get("status") == "REJECTED"
+            for item in traversal_cycle.get("outcomes", [])
+        )
+    finally:
+        traversal_runtime.close()
     if not traversal_rejected:
         raise AssertionError("path outside configured roots was not rejected by canonical policy")
 
@@ -120,7 +127,7 @@ def _focused_task_spec_probe(root: Path) -> dict:
     negative_ok, negative_integrity = runtime.goal_runtime.integrity()
     if negative_ok or negative_integrity.get("orphan_goal_debts") != 1:
         raise AssertionError("goal integrity verifier failed to reject orphan debt")
-    return {
+    result = {
         "parent_id": parent_id,
         "child_id": child_id,
         "action": dict(action),
@@ -133,6 +140,8 @@ def _focused_task_spec_probe(root: Path) -> dict:
         "path_escape_rejected": traversal_rejected,
         "negative_integrity": negative_integrity,
     }
+    runtime.close()
+    return result
 
 
 def main() -> int:

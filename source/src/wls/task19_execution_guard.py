@@ -211,7 +211,7 @@ def register_wls(runtime: Any) -> None:
                     status=ActionStatus.REJECTED,
                     provenance="NO_OBSERVABLE_OUTCOME",
                     event_type="action_idempotency_collision",
-                    error="idempotency key belongs to a different action contract",
+                    error="idempotency collision: key belongs to a different action contract",
                 )
             try:
                 reused = json.loads(prior["result_json"] or "{}")

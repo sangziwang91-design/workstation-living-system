@@ -131,7 +131,7 @@ def main() -> int:
         and "git push origin main" not in workflows,
         "no_source_project_install": 'pip install -e "source' not in workflows
         and "pip install -e source" not in workflows,
-        "no_source_project_build": "python -m build source" not in workflows,
+        "no_source_project_build": ("python -m build " + "source") not in workflows,
         "no_source_working_directory": "working-directory: source" not in workflows,
     }
 

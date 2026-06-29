@@ -121,7 +121,10 @@ class CycleJournal:
     def classify_interrupted(self) -> dict[str, list[str]]:
         """Classify interrupted cycles before generic startup cleanup."""
 
-        result = {"failed_before_plan": [], "pending_recovery": []}
+        result: dict[str, list[str]] = {
+            "failed_before_plan": [],
+            "pending_recovery": [],
+        }
         rows = self.db.query_all(
             "SELECT cycle_id FROM cycles WHERE status='RUNNING' ORDER BY started_at"
         )

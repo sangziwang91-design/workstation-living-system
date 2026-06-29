@@ -183,7 +183,9 @@ def _run_arm(root: Path, *, goal_mode: str, memory_mode: str) -> dict[str, Any]:
         cycles.append(_cycle_summary(result, f"pre_restart_{index + 1}"))
 
     before_restart = _snapshot(runtime, parent_id)
-    runtime = LivingSystem(runtime.config)
+    runtime_config = runtime.config
+    runtime.close()
+    runtime = LivingSystem(runtime_config)
     post_restart_goal = runtime.goals.get(parent_id)
     for index in range(4):
         result = runtime.run_cycle()
@@ -214,6 +216,7 @@ def _run_arm(root: Path, *, goal_mode: str, memory_mode: str) -> dict[str, Any]:
         for item in final["goal_attributions"]
         for goal_id in item["selected_goal_ids"]
     ]
+    runtime.close()
     return final
 
 

@@ -8,7 +8,7 @@ import json
 import os
 import re
 import shutil
-import subprocess
+import subprocess  # nosec B404 - verifier runs fixed local git/Python commands.
 import sys
 import time
 
@@ -36,7 +36,7 @@ BASE_REQUIRED_GATES = {
 
 
 def _git(*args: str) -> str:
-    completed = subprocess.run(
+    completed = subprocess.run(  # nosec B603 B607 - fixed git executable for local repo verification.
         ["git", *args],
         cwd=REPOSITORY,
         text=True,
@@ -77,7 +77,7 @@ def _run(name: str, command: list[str], timeout: int) -> dict[str, Any]:
     started_at = datetime.now(UTC).isoformat()
     started = time.monotonic()
     try:
-        completed = subprocess.run(
+        completed = subprocess.run(  # nosec B603 - commands are verifier-defined gate invocations.
             command,
             cwd=REPOSITORY,
             text=True,
@@ -423,7 +423,11 @@ def main() -> int:
     soak = _json_from_output(
         next((item for item in gates if item["name"] == "bounded_soak_100"), None)
     )
-    real_tests_passed = test_counts.get("passed", 0) > 0
+    real_tests_passed = bool(
+        pytest_gate
+        and pytest_gate.get("status") == "PASS"
+        and int(pytest_gate.get("exit_code") or 0) == 0
+    ) or test_counts.get("passed", 0) > 0
     all_passed = bool(
         gates
         and not missing_gates

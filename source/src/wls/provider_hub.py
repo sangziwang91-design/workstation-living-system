@@ -7,6 +7,7 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
+import builtins
 import ipaddress
 import json
 import os
@@ -183,7 +184,7 @@ def _validate_url(url: str) -> tuple[str, tuple[str, ...]]:
         raise ValueError("provider URL requires a hostname")
     try:
         addresses = {
-            str(_normalized_ip(item[4][0]))
+            str(_normalized_ip(str(item[4][0])))
             for item in socket.getaddrinfo(hostname, parsed.port, type=socket.SOCK_STREAM)
         }
     except (OSError, ValueError) as exc:
@@ -505,7 +506,7 @@ class ProviderHub:
         return result
 
     @staticmethod
-    def _model_ids(value: Any) -> list[str]:
+    def _model_ids(value: Any) -> builtins.list[str]:
         if isinstance(value, list):
             candidates = value
         elif isinstance(value, dict) and isinstance(value.get("data"), list):
@@ -514,7 +515,7 @@ class ProviderHub:
             candidates = value["models"]
         else:
             raise ValueError("provider response does not contain a model list")
-        model_ids: list[str] = []
+        model_ids: builtins.list[str] = []
         for item in candidates:
             if not isinstance(item, dict):
                 continue

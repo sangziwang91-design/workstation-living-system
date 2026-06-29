@@ -321,8 +321,12 @@ def run_controlled_ablation(root: Path) -> dict[str, Any]:
     for index, task in enumerate(tasks):
         after_restart = index >= 2
         if index == 2:
-            enabled = LivingSystem(enabled.config)
-            disabled = LivingSystem(disabled.config)
+            enabled_config = enabled.config
+            disabled_config = disabled.config
+            enabled.close()
+            disabled.close()
+            enabled = LivingSystem(enabled_config)
+            disabled = LivingSystem(disabled_config)
         enabled_results.append(
             _run_task(
                 enabled,
@@ -394,17 +398,21 @@ def run_controlled_ablation(root: Path) -> dict[str, Any]:
         and not restart_disabled["task_completed"]
         and regressions == 0
     )
+    enabled_memory_state = enabled.memories.memory_state(ADVANTAGE_MEMORY_ID)
+    disabled_memory_state = disabled.memories.memory_state(ADVANTAGE_MEMORY_ID)
+    enabled.close()
+    disabled.close()
     return {
         "passed": passed,
         "memory_enabled": {
             **enabled_metrics,
             "results": enabled_results,
-            "memory_state": enabled.memories.memory_state(ADVANTAGE_MEMORY_ID),
+            "memory_state": enabled_memory_state,
         },
         "memory_disabled_baseline": {
             **disabled_metrics,
             "results": disabled_results,
-            "memory_state": disabled.memories.memory_state(ADVANTAGE_MEMORY_ID),
+            "memory_state": disabled_memory_state,
         },
         "decision_differences": differences,
         "attributed_memory_ids": attributed_ids,
@@ -440,7 +448,9 @@ def run_refutation_probe(root: Path) -> dict[str, Any]:
     after_first = runtime.memories.memory_state(REFUTED_MEMORY_ID)
     second = _run_task(runtime, task_id="refute-002", after_restart=False, **common)
     after_second = runtime.memories.memory_state(REFUTED_MEMORY_ID)
-    restarted = LivingSystem(runtime.config)
+    runtime_config = runtime.config
+    runtime.close()
+    restarted = LivingSystem(runtime_config)
     third = _run_task(
         restarted,
         task_id="refute-003-after-restart",
@@ -458,6 +468,7 @@ def run_refutation_probe(root: Path) -> dict[str, Any]:
         and third["task_completed"]
         and not third["memory_changed_decision"]
     )
+    restarted.close()
     return {
         "passed": passed,
         "memory_id": REFUTED_MEMORY_ID,

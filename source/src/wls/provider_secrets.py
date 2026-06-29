@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from typing import Any
+import importlib
 import os
 import re
 
+_keyring: Any | None
 try:
-    import keyring as _keyring  # type: ignore[import-not-found]
+    _keyring = importlib.import_module("keyring")
 except ImportError:  # pragma: no cover
     _keyring = None
 
@@ -72,7 +74,8 @@ class ProviderSecretStore:
         if len(value) > 16_384:
             raise ValueError("credential is unexpectedly large")
         backend = self._usable_backend(required=True)
-        assert backend is not None
+        if backend is None:
+            raise SecretStoreError("OS credential vault is unavailable")
         try:
             backend.set_password(self.service_name, provider_id, value)
         except Exception as exc:
@@ -101,7 +104,8 @@ class ProviderSecretStore:
     def delete(self, provider_id: str) -> bool:
         provider_id = _provider_id(provider_id)
         backend = self._usable_backend(required=True)
-        assert backend is not None
+        if backend is None:
+            raise SecretStoreError("OS credential vault is unavailable")
         try:
             existing = backend.get_password(self.service_name, provider_id)
             if existing is None:
