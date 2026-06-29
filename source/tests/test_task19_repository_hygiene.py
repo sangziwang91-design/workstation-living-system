@@ -65,6 +65,7 @@ def test_repository_has_one_project_root_and_one_package_root() -> None:
 
 def test_verification_code_never_builds_source_as_a_second_project() -> None:
     offenders: list[str] = []
+    forbidden_literal = "python -m build " + "source"
     roots = (
         REPOSITORY / "source" / "scripts",
         REPOSITORY / "source" / "tests",
@@ -74,10 +75,12 @@ def test_verification_code_never_builds_source_as_a_second_project() -> None:
         if not root.exists():
             continue
         for path in root.rglob("*"):
+            if path == Path(__file__).resolve():
+                continue
             if path.suffix.lower() not in {".py", ".ps1", ".sh", ".bat"}:
                 continue
             text = path.read_text(encoding="utf-8", errors="replace")
-            if BUILD_SOURCE_PATTERN.search(text) or "python -m build source" in text.lower():
+            if BUILD_SOURCE_PATTERN.search(text) or forbidden_literal in text.lower():
                 offenders.append(path.relative_to(REPOSITORY).as_posix())
     assert offenders == []
 
