@@ -9,6 +9,7 @@ from .task19_execution_guard import register_wls as register_execution_guard
 from .task19_goal_outcome_guard import register_wls as register_goal_outcome_guard
 from .task19_recovery_guard import register_wls as register_recovery_guard
 from .task19_storage_guard import register_wls as register_storage_guard
+from .task19_task_spec_guard import register_wls as register_task_spec_guard
 
 
 OWNER_SOURCES = {"owner", "user", "human", "cli", "api"}
@@ -31,6 +32,7 @@ def _has_external_priority(context: dict[str, Any]) -> tuple[bool, list[str]]:
 
 def register_wls(runtime: Any) -> None:
     register_execution_guard(runtime)
+    register_task_spec_guard(runtime)
     register_goal_outcome_guard(runtime)
     register_recovery_guard(runtime)
     register_attribution_guard(runtime)
