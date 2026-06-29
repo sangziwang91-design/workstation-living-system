@@ -8,6 +8,7 @@ from .task19_attribution_guard import register_wls as register_attribution_guard
 from .task19_execution_guard import register_wls as register_execution_guard
 from .task19_goal_outcome_guard import register_wls as register_goal_outcome_guard
 from .task19_recovery_guard import register_wls as register_recovery_guard
+from .task19_storage_guard import register_wls as register_storage_guard
 
 
 OWNER_SOURCES = {"owner", "user", "human", "cli", "api"}
@@ -33,6 +34,7 @@ def register_wls(runtime: Any) -> None:
     register_goal_outcome_guard(runtime)
     register_recovery_guard(runtime)
     register_attribution_guard(runtime)
+    register_storage_guard(runtime)
     if getattr(runtime, "_task19_priority_guard_installed", False):
         return
     runtime._task19_priority_guard_installed = True
