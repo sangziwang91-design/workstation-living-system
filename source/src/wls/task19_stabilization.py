@@ -5,10 +5,10 @@ from typing import Any
 import json
 
 from .cognition import HypothesisCandidate
-from .schemas import Plan, RiskLevel, digest_json
+from .schemas import ActionSpec, Plan, RiskLevel, digest_json
 
 
-STABILIZATION_VERSION = "task19-convergence-1"
+STABILIZATION_VERSION = "task19-convergence-2"
 SUPPORTED_TASK_ACTIONS = {"noop", "inspect_path", "read_file", "record_progress"}
 ATTRIBUTABLE_PROVENANCE = {
     "EXECUTED_CURRENT_ACTION",
@@ -89,32 +89,36 @@ def _task_action(goal: dict[str, Any], spec: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _action_spec(value: dict[str, Any]) -> ActionSpec:
+    return ActionSpec(
+        tool=str(value["tool"]),
+        arguments=dict(value.get("arguments", {})),
+        purpose=str(value["purpose"]),
+        expected_result=str(value["expected_result"]),
+        risk=RiskLevel(str(value.get("risk", RiskLevel.READ.value))),
+        goal_id=value.get("goal_id"),
+        skill_id=value.get("skill_id"),
+        acceptance=[str(item) for item in value.get("acceptance", [])],
+    )
+
+
+def _is_attributable(item: dict[str, Any]) -> bool:
+    provenance = item.get("provenance")
+    return provenance in ATTRIBUTABLE_PROVENANCE or provenance is None
+
+
 def _filter_attributable(outcomes: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [
-        item
-        for item in outcomes
-        if item.get("provenance") in ATTRIBUTABLE_PROVENANCE
-        or "provenance" not in item
-    ]
+    return [item for item in outcomes if _is_attributable(item)]
 
 
 def register_wls(runtime: Any) -> None:
-    """Install bounded convergence repairs through the existing plugin contract.
-
-    The plugin does not create a second runtime or authority. It validates and
-    translates persistent goal task specifications into the existing planner,
-    computes a write-free goal-free counterfactual with the existing cognitive
-    ranker, and makes action-outcome provenance explicit for downstream
-    attribution.
-    """
-
+    """Install bounded repairs through existing WLS authorities only."""
     if getattr(runtime, "_task19_stabilization_installed", False):
         return
     runtime._task19_stabilization_installed = True
     runtime._task19_goal_counterfactuals = {}
     runtime._task19_recovery_mode = False
 
-    # Fail closed before invalid task specifications are persisted.
     decomposer = runtime.goal_runtime.decomposer
     original_decompose = decomposer.decompose
 
@@ -128,7 +132,6 @@ def register_wls(runtime: Any) -> None:
 
     decomposer.decompose = MethodType(decompose, decomposer)
 
-    # Add task-spec candidates to the existing bounded cognitive competition.
     cognition = runtime.cognition
     original_candidates = cognition._candidates
 
@@ -148,11 +151,11 @@ def register_wls(runtime: Any) -> None:
                     key=f"goal_task_spec:{goal_id}:{spec['action']}",
                     subject=str(goal.get("title", goal_id or "goal")),
                     claim="The accepted persistent goal supplies a bounded executable task specification.",
-                    rationale="The task specification is schema-validated and remains subject to the canonical policy and tool gates.",
-                    base_score=min(
-                        0.99,
-                        0.90 + 0.05 * float(goal.get("priority", 0.5)),
+                    rationale=(
+                        "The task specification is schema-validated and remains subject "
+                        "to canonical policy and tool gates."
                     ),
+                    base_score=min(0.99, 0.90 + 0.05 * float(goal.get("priority", 0.5))),
                     actions=[action],
                     support_ids=[goal_id] if goal_id else [],
                     goal_id=goal_id,
@@ -163,7 +166,6 @@ def register_wls(runtime: Any) -> None:
 
     cognition._candidates = MethodType(candidates, cognition)
 
-    # Freeze a real, write-free goal-free comparison before canonical planning.
     planner = runtime.planner
     original_plan = planner.plan
 
@@ -196,7 +198,20 @@ def register_wls(runtime: Any) -> None:
                 ),
                 "method": "WRITE_FREE_BOUNDED_COGNITIVE_RANK",
             }
-        return original_plan(context)
+        result = original_plan(context)
+        max_actions = max(0, int(context.get("budget", {}).get("max_actions", 0)))
+        if max_actions:
+            for goal in context.get("goals", []):
+                raw_spec = goal.get("task_spec")
+                if not raw_spec:
+                    continue
+                goal_id = str(goal.get("goal_id", "")) or None
+                if any(action.goal_id == goal_id for action in result.actions):
+                    break
+                desired = _action_spec(_task_action(goal, _validated_task_spec(raw_spec)))
+                result.actions = [desired, *result.actions][:max_actions]
+                break
+        return result
 
     planner.plan = MethodType(plan, planner)
 
@@ -212,28 +227,62 @@ def register_wls(runtime: Any) -> None:
     ) -> dict[str, Any]:
         frozen = runtime._task19_goal_counterfactuals.pop(cycle_id, None)
         trace = runtime.db.query_one(
-            "SELECT trace_id FROM cognitive_traces WHERE cycle_id=?", (cycle_id,)
+            "SELECT trace_id,selected_key,selected_hypothesis_id FROM cognitive_traces WHERE cycle_id=?",
+            (cycle_id,),
         )
         if frozen is None:
             frozen = dict(counterfactual)
             frozen["method"] = "CALLER_FALLBACK_UNVERIFIED"
         effective_goal_ids = selected_goal_ids if trace is not None else []
-        return original_record_decision(
+        result = original_record_decision(
             cycle_id,
             selected_goal_ids=effective_goal_ids,
             counterfactual=frozen,
         )
+        actual_actions: list[dict[str, Any]] = []
+        if trace is not None and trace["selected_hypothesis_id"]:
+            row = runtime.db.query_one(
+                "SELECT actions_json FROM cognitive_hypotheses WHERE hypothesis_id=?",
+                (trace["selected_hypothesis_id"],),
+            )
+            if row is not None:
+                actual_actions = json.loads(row["actions_json"])
+        actual_digest = digest_json(actual_actions)
+        counter_digest = str(frozen.get("action_digest", ""))
+        influenced = bool(
+            effective_goal_ids
+            and (
+                str(trace["selected_key"]) != str(frozen.get("key", ""))
+                or (counter_digest and actual_digest != counter_digest)
+            )
+        )
+        runtime.db.execute(
+            "UPDATE goal_attributions SET goal_influenced_decision=? WHERE goal_trace_id=?",
+            (int(influenced), result["goal_trace_id"]),
+        )
+        result["goal_influenced_decision"] = influenced
+        result["actual_action_digest"] = actual_digest
+        result["counterfactual_action_digest"] = counter_digest
+        runtime.ledger.append(
+            "goal_attribution_refined",
+            {
+                "goal_trace_id": result["goal_trace_id"],
+                "goal_influenced_decision": influenced,
+                "actual_action_digest": actual_digest,
+                "counterfactual_action_digest": counter_digest,
+            },
+        )
+        return result
 
     goal_runtime.record_decision = MethodType(record_decision, goal_runtime)
 
-    # Add explicit provenance to every current-cycle outcome.
     original_execute_action = runtime._execute_action
 
     def execute_action(
         self: Any, action: Any, approval_id: str | None = None
     ) -> dict[str, Any]:
         prior = self.db.query_one(
-            "SELECT action_id,result_json FROM actions WHERE idempotency_key=? AND status='SUCCEEDED' AND action_id<>? ORDER BY rowid ASC LIMIT 1",
+            "SELECT action_id FROM actions WHERE idempotency_key=? AND status='SUCCEEDED' AND action_id<>? ORDER BY rowid ASC LIMIT 1",
             (action.idempotency_key, action.action_id),
         )
         result = original_execute_action(action, approval_id=approval_id)
@@ -255,12 +304,46 @@ def register_wls(runtime: Any) -> None:
                 "result_digest": digest_json(result),
             },
         )
-        result["provenance"] = provenance
-        result["source_action_id"] = source_action_id
-        result["provenance_evidence_id"] = evidence_id
+        result.update(
+            {
+                "provenance": provenance,
+                "source_action_id": source_action_id,
+                "provenance_evidence_id": evidence_id,
+            }
+        )
         return result
 
     runtime._execute_action = MethodType(execute_action, runtime)
+
+    original_execute_plan = runtime._execute_plan
+
+    def execute_plan(self: Any, plan: Plan) -> list[dict[str, Any]]:
+        outcomes: list[dict[str, Any]] = []
+        skill_results: dict[str, list[bool]] = {}
+        for action in plan.actions:
+            outcome = self._execute_action(action)
+            outcomes.append(outcome)
+            if not _is_attributable(outcome):
+                continue
+            if action.skill_id:
+                skill_results.setdefault(action.skill_id, []).append(
+                    bool(outcome.get("success"))
+                )
+            if action.goal_id and outcome.get("success"):
+                row = self.db.query_one(
+                    "SELECT progress FROM goals WHERE goal_id=?", (action.goal_id,)
+                )
+                if row is not None:
+                    self.goals.update_progress(
+                        action.goal_id, min(1.0, float(row["progress"]) + 0.25)
+                    )
+        for skill_id, values in skill_results.items():
+            self.skills.record_use(skill_id, all(values))
+        self._refresh_plan_status(plan.plan_id)
+        return outcomes
+
+    runtime._execute_plan = MethodType(execute_plan, runtime)
+    runtime._task19_original_execute_plan = original_execute_plan
 
     original_resume = runtime._resume_durable_actions
 
@@ -273,9 +356,6 @@ def register_wls(runtime: Any) -> None:
 
     runtime._resume_durable_actions = MethodType(resume_durable_actions, runtime)
 
-    # Reused historical results and blocked/no-outcome rows must not calibrate
-    # cognition, strengthen memory, or complete a current goal as if a fresh
-    # intervention occurred.
     original_cognition_resolve = cognition.resolve_cycle
 
     def cognition_resolve(
