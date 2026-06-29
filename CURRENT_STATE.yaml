@@ -1,4 +1,4 @@
-schema_version: "2.0"
+schema_version: "2.1"
 
 system:
   name: "Workstation Living System"
@@ -11,135 +11,113 @@ system:
   canonical_package_root: "source/src/wls"
 
 state_record:
-  updated_at: "2026-06-29T03:40:00Z"
-  update_type: "task19-main-based-convergence-candidate"
+  updated_at: "2026-06-29"
+  update_type: "task19-cleanup-convergence"
   evidence_class: "CANDIDATE_UNVERIFIED"
   authority_note: >-
-    Historical ET001-ET003 evidence remains valid for the merged mainline commits on
-    which it was produced. Task19 changes in PR #23 are candidate code until the exact-head
-    offline Windows gate passes and the owner accepts the result.
+    ET001-ET003 remain verified only for their merged mainline heads. Task19 is an
+    open Draft candidate and remains unverified until the exact current PR head
+    passes the complete local Windows gate and receives owner acceptance.
 
-workflow_state: "TASK19_DRAFT_LOCAL_WINDOWS_VERIFICATION_REQUIRED"
+workflow_state: "TASK19_CLEAN_DRAFT_LOCAL_VERIFICATION_REQUIRED"
 
 canonical_status:
   main:
-    head_at_task19_base: "4c77401deb159e8ee2a2daf3c6e2702ce48876e3"
+    task19_base_sha: "4c77401deb159e8ee2a2daf3c6e2702ce48876e3"
     role: "stable integration base"
     verified_history:
-      - "EVOLUTION-TARGET-001 merged with governed failure-to-skill lifecycle tests"
-      - "EVOLUTION-TARGET-002 merged with bounded local cognition tests"
-      - "EVOLUTION-TARGET-003 merged with controlled causal-memory ablation tests"
-      - "LOCAL-RUNNER-002 merged the D-drive self-hosted Windows runner repair"
+      - "EVOLUTION-TARGET-001 merged"
+      - "EVOLUTION-TARGET-002 merged"
+      - "EVOLUTION-TARGET-003 merged"
+      - "LOCAL-RUNNER-002 merged"
   task19_candidate:
     pull_request: 23
     branch: "repair/task19-main-convergence-20260628"
-    status: "DRAFT_MERGEABLE_UNVERIFIED"
-    integration_method: "main-based rebuild; PR #22 used only as source material"
-    execution_surface: "scripts/run_task19_windows.ps1"
-    github_hosted_actions: "UNAVAILABLE_OR_NOT_RELIED_UPON"
-  superseded_candidate:
-    pull_request: 22
-    status: "SUPERSEDED_BY_PR_23"
-    reason: >-
-      Diverged history, mismatched evidence heads, stale build artifacts, and insufficient
-      Task19 verifiers made it unsuitable as the integration authority.
+    status: "OPEN_DRAFT_UNVERIFIED"
+    integration_method: "main-based rebuild; historical PR #22 is source material only"
+    public_verification_entry: "scripts/run_task19_windows.ps1"
+    verification_orchestrator: "source/scripts/verify_task19_convergence.py"
+    github_actions: "NOT_USED_AS_ACCEPTANCE_EVIDENCE"
+  superseded_candidates:
+    - pull_request: 22
+      status: "CLOSED_UNMERGED"
+    - module: "source/src/wls/task19_provenance_store.py"
+      status: "REMOVED_AS_DUPLICATE"
+    - test: "source/tests/test_task19_provenance_persistence.py"
+      status: "REMOVED_AND_UNIQUE_COVERAGE_MERGED"
+    - script: "scripts/run_task19_acceptance_windows.ps1"
+      status: "REMOVED_AS_DUPLICATE_ENTRY"
+    - script: "source/scripts/verify_task19_acceptance.py"
+      status: "REMOVED_AS_NESTED_ORCHESTRATOR"
   task20:
     pull_request: 21
     status: "BLOCKED_PENDING_TASK19_OWNER_ACCEPTANCE"
     default_enabled: false
 
-verified_on_merged_main:
-  - "The only canonical runtime is source/src/wls/runtime.py::LivingSystem."
-  - "The only canonical memory authority remains MemoryStore."
-  - "The only canonical goal authority remains GoalStore."
-  - "ET001, ET002, and ET003 have merged controlled verification history."
-  - "Owner approval, policy, rollback, and kill/pause controls remain mandatory."
-  - "WLS makes no consciousness, personhood, AGI, or unrestricted-autonomy claim."
-
-task19_candidate_capabilities:
-  evidence_status: "CANDIDATE_UNVERIFIED"
-  implemented:
-    - "Explicit bounded daemon and survival configuration with backward-compatible defaults."
-    - "Persistent goal decomposition, dependency ordering, debt, review, interruption, and restart continuity."
-    - "Allowlisted task_spec translation into the existing Planner, PolicyEngine, and ToolRegistry."
-    - "Owner/external-request preemption over background durable goals."
-    - "Write-free goal-free comparison and Goal×Memory four-cell ET004 fixture."
-    - "Explicit current, reused, recovered, and no-observable-outcome provenance."
-    - "Candidate-only Provider Hub CLI with secret-vault and SSRF controls."
-    - "Root-only Wheel build, clean installation, repository hygiene, and exact-head verification scripts."
-    - "A bounded 100-cycle workload with four SurvivalSupervisor segments and three runtime re-instantiations."
-  prohibited_claims:
-    - "production ready"
-    - "longitudinally reliable"
-    - "owner-host advantage proven"
-    - "unrestricted autonomy"
-    - "consciousness or personhood"
-    - "Task20 accepted or active"
+cleanup_result:
+  status: "CONTENT_CONVERGED"
+  retained_value:
+    - "Survival Supervisor and bounded daemon budgets"
+    - "Persistent goals, task_spec, debt, review, interruption and restart continuity"
+    - "Policy-before-reuse and exact idempotency-contract checks"
+    - "Persistent action provenance and legacy provenance migration"
+    - "Owner/external-request preemption"
+    - "Goal×Memory ET004 controlled comparison"
+    - "Candidate-only loopback-bounded Provider Hub"
+    - "Root-only package, clean-install, Wheel and repository-hygiene verification"
+  removed_pollution:
+    - "parallel provenance implementation"
+    - "duplicate provenance test module"
+    - "duplicate PowerShell acceptance layer"
+    - "nested Python acceptance layer"
+  remaining_history_note: >-
+    The candidate branch retains its development commits for audit. A future accepted
+    merge must use squash merge so the mainline receives one coherent Task19 commit.
 
 mandatory_task19_gates:
   - "clean exact-head checkout"
   - "compileall"
   - "repository layout and hygiene"
   - "full pytest"
-  - "EVOLUTION-TARGET-001"
-  - "EVOLUTION-TARGET-002"
-  - "EVOLUTION-TARGET-003"
-  - "EVOLUTION-TARGET-004"
+  - "EVOLUTION-TARGET-001 through EVOLUTION-TARGET-004"
   - "Ruff"
   - "Mypy"
   - "Bandit"
   - "root Wheel build"
-  - "Wheel metadata and contamination verification"
+  - "Wheel metadata, entry-point and contamination verification"
   - "outside-repository clean installation"
-  - "100-cycle bounded workload with zero failed cycles and three restarts"
-  - "clean worktree and unchanged head after execution"
+  - "100-cycle bounded workload with zero failures and three runtime re-instantiations"
+  - "unchanged head and clean worktree after execution"
 
 known_unknowns:
   - id: "KU-001"
-    item: "Whether all Task19 candidate tests pass on the exact PR #23 head"
+    item: "Whether the current Task19 PR head passes every mandatory gate"
     status: "UNKNOWN_PENDING_WINDOWS_EXECUTION"
   - id: "KU-002"
     item: "Long-duration owner-host reliability beyond the bounded soak"
     status: "UNKNOWN"
   - id: "KU-003"
-    item: "Production-scale memory and goal behavior under noisy workloads"
-    status: "UNKNOWN"
-  - id: "KU-004"
-    item: "Provider API availability, pricing, limits, and data-use terms at future execution time"
-    status: "EXTERNAL_AND_CHANGEABLE"
-  - id: "KU-005"
-    item: "Task20 causal-shadow overhead and non-interference on the accepted Task19 head"
+    item: "Task20 causal-shadow behavior on an accepted Task19 head"
     status: "BLOCKED"
 
 frozen_decisions:
   - "Safe-default installation remains read-only."
-  - "External providers remain opt-in and candidate-only."
-  - "Custom provider endpoints remain loopback-only in Task19."
+  - "Provider Hub remains candidate-only and detached from canonical planning."
+  - "Custom provider endpoints remain loopback-only."
   - "No automatic paid fallback."
-  - "Writes remain sandboxed and governed."
-  - "No automatic publication, deletion, unrestricted shell, self-replication, or broad Workstation integration."
-  - "Human authorization remains mandatory for approval, promotion, merge, enablement, and deployment."
-  - "Task20 cannot start from a historical or unaccepted Task19 head."
+  - "No second runtime, planner, memory, goal, skill or policy authority."
+  - "Owner authorization remains mandatory for merge, enablement and deployment."
+  - "Task20 cannot start from an unaccepted Task19 head."
 
 unique_next_action: >-
-  Run scripts/run_task19_windows.ps1 from a clean checkout of the current PR #23 head,
-  preserve the generated artifacts/task19 evidence, then independently review every failed
-  or unavailable gate before any merge decision.
+  Run scripts/run_task19_windows.ps1 from a clean checkout of the current PR #23
+  head. Preserve artifacts/task19 evidence, repair only observed failures on the
+  same Draft branch, and rerun from the new exact head.
 
 stop_conditions:
-  - "Stop if the exact Git head changes during verification."
-  - "Stop if any mandatory gate fails, times out, or is unavailable."
-  - "Stop if generated databases, keys, Wheels, caches, egg-info, or soak homes become tracked."
-  - "Stop if task_spec bypasses canonical policy or approval."
-  - "Stop if reused historical results are treated as new interventions."
+  - "Stop if the Git head changes during verification."
+  - "Stop if any mandatory gate fails, times out or is unavailable."
+  - "Stop if generated databases, keys, Wheels, caches, egg-info or soak homes become tracked."
+  - "Stop if historical result reuse is treated as a fresh intervention."
   - "Stop if Provider Hub attaches itself to canonical planning."
-  - "Stop if a second runtime, planner, memory, goal, skill, or policy authority is introduced."
-  - "Stop before Task20 until the owner accepts Task19."
-
-prohibited_misinterpretations:
-  - "Candidate implementation is not verified delivery."
-  - "A bounded soak is not longitudinal proof."
-  - "A local or self-hosted pass is not owner-host production proof."
-  - "Persistent state is not subjective consciousness."
-  - "Functional affect is not genuine emotion."
-  - "WLS is not AGI or a complete autonomous life-form."
+  - "Stop before Task20 until owner acceptance of Task19."
