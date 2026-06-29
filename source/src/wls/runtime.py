@@ -44,6 +44,8 @@ from .stores import EventStore, GoalStore, MemoryStore
 from .temporal_world import TemporalCausalWorld
 from .tools import ToolRegistry
 from .world import WorldModel
+from .survival import SurvivalSupervisor
+from .goal_runtime import GoalRuntime
 
 
 class LivingSystem:
@@ -92,6 +94,8 @@ class LivingSystem:
         )
         self.planner = Planner(config, self.cognition, self.ledger)
         self.growth = GrowthCycleManager(self)
+        self.survival = SurvivalSupervisor(self.db, self.ledger, self.config)
+        self.goal_runtime = GoalRuntime(self.db, self.ledger, self.goals, self.config)
         self._load_plugins()
         self.lease = ProcessLease(config.home_path / "state" / "runtime.lock")
         self.worker_id = f"wls-{os.getpid()}-{new_id('worker')[-8:]}"
@@ -116,6 +120,13 @@ class LivingSystem:
         return cls(load_or_create_config(path, home))
 
     def _initialize_runtime(self) -> None:
+        self._recover_actions()
+        self.survival.recover_interrupted_cycles()
+        self._recover_survival_runs()
+        self.events.recover_stale_reservations(
+            (datetime.now(UTC) - timedelta(minutes=10)).isoformat()
+        )
+
         evidence_id = self.ledger.append(
             "runtime_initialized",
             {
@@ -127,10 +138,17 @@ class LivingSystem:
         self.self_model.initialize_identity(self.config.identity_name, evidence_id)
         self.db.set_runtime("version", __version__)
         self.db.set_runtime("read_only", self.config.read_only)
-        self._recover_actions()
-        self.events.recover_stale_reservations(
-            (datetime.now(UTC) - timedelta(minutes=10)).isoformat()
+
+    def _recover_survival_runs(self) -> list[str]:
+        rows = self.db.query_all(
+            "SELECT run_id FROM survival_runs WHERE status='RUNNING'"
         )
+        if not rows:
+            return []
+        run_ids = [str(row["run_id"]) for row in rows]
+        for run_id in run_ids:
+            self.survival.finish_run(run_id, "INTERRUPTED", "process ended during run")
+        return run_ids
 
     def _recover_actions(self) -> dict[str, int]:
         rows = self.db.query_all(
@@ -206,7 +224,10 @@ class LivingSystem:
                 self.worker_id, self.config.max_events_per_cycle
             )
             autonomous_goal_ids = self.autonomy.consider()
-            active_goals = self.goals.active(limit=20)
+
+            goal_prep = self.goal_runtime.prepare_cycle(cycle_id)
+            active_goals = goal_prep["goals"]
+
             query_text = self._query_text(reserved, active_goals)
             memory_mode = str(
                 self.config.provider.get("memory_mode", "enabled")
@@ -285,6 +306,12 @@ class LivingSystem:
                 self.memory_attribution.record(
                     cycle_id, plan.memory_ids, memory_retrieval
                 )
+                goal_attribution = self.goal_runtime.record_decision(
+                    cycle_id,
+                    selected_goal_ids=goal_prep["selected_goal_ids"],
+                    counterfactual={"key": "goal-free", "score": 0.5}
+                )
+
                 plan.actions = plan.actions[: int(budget["max_actions"])]
                 self._persist_plan_and_ack_events(
                     cycle_id, plan, [event.event_id for event in selected_events]
@@ -301,6 +328,14 @@ class LivingSystem:
                 )
                 if cognition_result is not None and memory_resolution is not None:
                     cognition_result["memory_attribution"] = memory_resolution
+
+                goal_resolution = self.goal_runtime.resolve_cycle(
+                    cycle_id,
+                    selected_goal_ids=goal_prep["selected_goal_ids"],
+                    outcomes=outcomes,
+                    attribution=goal_attribution
+                )
+
                 plan_status = self._plan_status(plan.plan_id)
                 episode_id = self.learning.record_episode(
                     cycle_id=cycle_id,
@@ -325,6 +360,8 @@ class LivingSystem:
                 plan_status = "IDLE"
                 episode_id = None
                 post_appraisal = {"idle": True}
+                goal_resolution = None
+
             idle_cycles = int(self.db.get_runtime("idle_cycles", 0))
             if selected_events or plan.actions:
                 idle_cycles = 0
@@ -356,6 +393,7 @@ class LivingSystem:
                 "episode_id": episode_id,
                 "plan_status": plan_status,
                 "cognition": cognition_result,
+                "goals": goal_resolution,
                 "appraisal": appraisal,
                 "post_appraisal": post_appraisal,
                 "sleep": sleep_result,
@@ -400,13 +438,6 @@ class LivingSystem:
             raise
 
     def _resume_durable_actions(self) -> list[dict[str, Any]]:
-        """Resume actions that were durably planned before an interrupted cycle.
-
-        RUNNING actions are reconciled during startup. This method handles the
-        remaining safe states: PLANNED actions are re-evaluated by policy and
-        APPROVED actions consume their exact persisted approval. Waiting and
-        unknown-side-effect actions always remain human-gated.
-        """
         if self.config.max_actions_per_cycle <= 0:
             return []
         rows = self.db.query_all(
@@ -830,22 +861,46 @@ class LivingSystem:
             except (ValueError, OSError):
                 pass
         cycles = 0
+        run_id = self.survival.start_run(max_cycles)
         daemon_lease = ProcessLease(self.config.home_path / "state" / "daemon.lock")
         try:
             with daemon_lease:
                 while not self._stop and (max_cycles is None or cycles < max_cycles):
                     started = time.monotonic()
+                    preflight = self.survival.preflight(run_id, cycles)
+                    if not preflight["allowed"]:
+                        self.survival.finish_run(run_id, "STOPPED", "preflight budget exceeded")
+                        break
+
                     try:
-                        self.run_cycle()
-                    except RuntimeError as exc:
-                        if "lease" not in str(exc).lower():
+                        res = self.run_cycle()
+                        duration = time.monotonic() - started
+                        self.survival.record_success(run_id, cycles, duration, res["status"])
+                    except Exception as exc:
+                        if "lease" in str(exc).lower():
+                            self.survival.finish_run(run_id, "CRASHED", "lease lost")
                             raise
+                        fail_res = self.survival.record_failure(run_id, cycles, exc)
+                        if fail_res["stop"]:
+                            self.survival.finish_run(run_id, "CRASHED", "max failures exhausted")
+                            break
+                        time.sleep(fail_res["backoff_seconds"])
+
                     cycles += 1
                     remaining = self.config.cycle_seconds - (time.monotonic() - started)
                     if remaining > 0:
                         end = time.monotonic() + remaining
                         while not self._stop and time.monotonic() < end:
                             time.sleep(min(0.5, end - time.monotonic()))
+
+                if not self._stop and (max_cycles is not None and cycles >= max_cycles):
+                     self.survival.finish_run(run_id, "COMPLETED", "max cycles reached")
+                elif self._stop:
+                     self.survival.finish_run(run_id, "STOPPED", "requested stop")
+        except RuntimeError as exc:
+             if "lease" in str(exc).lower():
+                  self.survival.finish_run(run_id, "CRASHED", "lease acquisition failed")
+             raise
         finally:
             for name, handler in previous_handlers.items():
                 try:
@@ -883,6 +938,8 @@ class LivingSystem:
             "causal_memory": self.memories.memory_summary(),
             "memory_attribution": self.memory_attribution.summary(),
             "next_focus": self.db.get_runtime("next_focus", []),
+            "survival": self.survival.status(),
+            "goals": self.goal_runtime.summary(),
         }
 
     def verify_integrity(self, full: bool = True) -> dict[str, Any]:
@@ -891,6 +948,7 @@ class LivingSystem:
         cognition_ok, cognition_details = self.cognition.integrity()
         memory_ok, memory_details = self.memories.memory_integrity()
         attribution_ok, attribution_details = self.memory_attribution.integrity()
+        goal_ok, goal_details = self.goal_runtime.integrity()
         result = {
             "ok": (
                 ledger_ok
@@ -898,12 +956,14 @@ class LivingSystem:
                 and cognition_ok
                 and memory_ok
                 and attribution_ok
+                and goal_ok
             ),
             "ledger": ledger_details,
             "database": db_details,
             "cognition": cognition_details,
             "causal_memory": memory_details,
             "memory_attribution": attribution_details,
+            "goals": goal_details,
         }
         if not result["ok"]:
             self.kill(f"integrity failure: {result}")

@@ -7,6 +7,9 @@ import json
 import os
 
 
+BUILTIN_PLUGIN_MODULES = ("wls.task19_stabilization",)
+
+
 @dataclass(slots=True)
 class SensorConfig:
     sensor_type: str
@@ -32,10 +35,28 @@ class RuntimeConfig:
     memory_decay_days: int = 30
     sleep_after_idle_cycles: int = 5
     max_autonomous_goals: int = 3
+
+    # Explicit bounded daemon/survival contract. These defaults are intentionally
+    # conservative and preserve compatibility with configurations created before
+    # SURVIVAL-TARGET-001 was integrated.
+    daemon_max_pending_events: int = 10_000
+    daemon_max_database_bytes: int = 2 * 1024 * 1024 * 1024
+    daemon_max_cycle_seconds: float = 300.0
+    daemon_max_consecutive_failures: int = 3
+    daemon_failure_backoff_seconds: float = 1.0
+    daemon_failure_backoff_max_seconds: float = 60.0
+    daemon_heartbeat_every_cycles: int = 1
+    daemon_heartbeat_retention: int = 1_000
+
     sensors: list[SensorConfig] = field(default_factory=list)
     tool_policy: dict[str, Any] = field(default_factory=dict)
     provider: dict[str, Any] = field(
-        default_factory=lambda: {"type": "cognitive", "fallback": "deterministic"}
+        default_factory=lambda: {
+            "type": "cognitive",
+            "fallback": "deterministic",
+            "goal_mode": "enabled",
+            "memory_mode": "enabled",
+        }
     )
     plugin_modules: list[str] = field(default_factory=list)
 
@@ -64,6 +85,12 @@ class RuntimeConfig:
         return self.home_path / "outbox"
 
     def validate(self) -> None:
+        # Built-in stabilization is part of the canonical runtime contract, not
+        # an optional user plugin. Preserve order while preventing duplicates.
+        self.plugin_modules = list(
+            dict.fromkeys([*BUILTIN_PLUGIN_MODULES, *self.plugin_modules])
+        )
+
         if self.cycle_seconds <= 0:
             raise ValueError("cycle_seconds must be positive")
         if not 1 <= self.workspace_capacity <= 64:
@@ -74,6 +101,27 @@ class RuntimeConfig:
             raise ValueError("max_actions_per_cycle must be within 0..32")
         if not 1 <= self.full_integrity_check_every <= 100000:
             raise ValueError("full_integrity_check_every must be within 1..100000")
+        if not 1 <= self.daemon_max_pending_events <= 10_000_000:
+            raise ValueError("daemon_max_pending_events must be within 1..10000000")
+        if not 1_048_576 <= self.daemon_max_database_bytes <= 1_099_511_627_776:
+            raise ValueError("daemon_max_database_bytes must be within 1 MiB..1 TiB")
+        if not 0.01 <= self.daemon_max_cycle_seconds <= 86_400:
+            raise ValueError("daemon_max_cycle_seconds must be within 0.01..86400")
+        if not 1 <= self.daemon_max_consecutive_failures <= 100:
+            raise ValueError("daemon_max_consecutive_failures must be within 1..100")
+        if not 0.0 <= self.daemon_failure_backoff_seconds <= 3_600:
+            raise ValueError("daemon_failure_backoff_seconds must be within 0..3600")
+        if not 0.0 <= self.daemon_failure_backoff_max_seconds <= 86_400:
+            raise ValueError("daemon_failure_backoff_max_seconds must be within 0..86400")
+        if self.daemon_failure_backoff_max_seconds < self.daemon_failure_backoff_seconds:
+            raise ValueError(
+                "daemon_failure_backoff_max_seconds cannot be below the initial backoff"
+            )
+        if not 1 <= self.daemon_heartbeat_every_cycles <= 100_000:
+            raise ValueError("daemon_heartbeat_every_cycles must be within 1..100000")
+        if not 1 <= self.daemon_heartbeat_retention <= 1_000_000:
+            raise ValueError("daemon_heartbeat_retention must be within 1..1000000")
+
         names: set[str] = set()
         for sensor in self.sensors:
             if sensor.name in names:
@@ -81,6 +129,7 @@ class RuntimeConfig:
             names.add(sensor.name)
             if sensor.interval_seconds <= 0:
                 raise ValueError(f"sensor interval must be positive: {sensor.name}")
+
         provider_type = str(self.provider.get("type", "cognitive"))
         if provider_type not in {"cognitive", "deterministic", "openai_compatible"}:
             raise ValueError(f"unknown provider type: {provider_type}")
@@ -94,6 +143,12 @@ class RuntimeConfig:
         )
         if not 2 <= cognitive_max_hypotheses <= 20:
             raise ValueError("cognitive_max_hypotheses must be within 2..20")
+        goal_mode = str(self.provider.get("goal_mode", "enabled")).lower()
+        if goal_mode not in {"enabled", "disabled", "frozen"}:
+            raise ValueError("goal_mode must be enabled, disabled, or frozen")
+        memory_mode = str(self.provider.get("memory_mode", "enabled")).lower()
+        if memory_mode not in {"enabled", "disabled", "frozen"}:
+            raise ValueError("memory_mode must be enabled, disabled, or frozen")
         if provider_type == "openai_compatible":
             fallback = str(self.provider.get("fallback", "cognitive"))
             if fallback not in {"cognitive", "deterministic"}:
@@ -150,7 +205,7 @@ def default_config(home: str | Path | None = None) -> RuntimeConfig:
         else:
             home = Path.home() / ".wls"
     home_path = Path(home).expanduser().resolve()
-    return RuntimeConfig(
+    config = RuntimeConfig(
         home=str(home_path),
         sensors=list(DEFAULT_SENSORS),
         tool_policy={
@@ -163,6 +218,8 @@ def default_config(home: str | Path | None = None) -> RuntimeConfig:
             "allowed_commands": ["git", "python", "python.exe", "pytest", "pytest.exe"],
         },
     )
+    config.validate()
+    return config
 
 
 def save_config(config: RuntimeConfig, path: str | Path) -> Path:

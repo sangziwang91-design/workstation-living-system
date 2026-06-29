@@ -20,9 +20,11 @@ classifiers = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11", "bandit>=1.7", "build>=1.2"]
+provider = ["keyring>=25,<27"]
 
 [project.scripts]
 wls = "wls.cli:main"
+wls-provider = "wls.provider_cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "source/src"}

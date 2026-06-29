@@ -1,10 +1,30 @@
 __pycache__/
 *.py[cod]
+*$py.class
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
+htmlcov/
 *.egg-info/
 dist/
 build/
 .venv/
+venv/
+ENV/
 .env
+
+# Runtime and verification outputs are never source artifacts.
+artifacts/
+soak_home/
+source/soak_home/
+*.db
+*.db-wal
+*.db-shm
+*.key
+
+# Local runner scratch paths.
+_temp/
+_cache/
+_evidence/
+_state/
