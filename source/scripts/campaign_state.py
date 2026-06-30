@@ -259,6 +259,33 @@ class CampaignState:
                 value["status"] = "BLOCKED"
                 value["verdict"] = {"reason": reason, "blocked_at": utc_now()}
 
+    def reset_from_round(self, round_id: str, note: str) -> None:
+        keys = list(self.data["rounds"])
+        start = keys.index(round_id)
+        for target in keys[start:]:
+            value = self.data["rounds"][target]
+            if target != round_id and value["status"] not in {"BLOCKED", "PENDING"}:
+                raise ValueError(
+                    f"cannot reset {round_id}: later round {target} is {value['status']}"
+                )
+        for target in keys[start:]:
+            value = self.data["rounds"][target]
+            history = value.setdefault("repair_history", [])
+            if value["status"] != "PENDING" or value.get("verdict") is not None:
+                history.append(
+                    {
+                        "reset_at": utc_now(),
+                        "note": note,
+                        "previous_status": value["status"],
+                        "previous_verdict": value.get("verdict"),
+                    }
+                )
+            value["status"] = "PENDING"
+            value["started_at"] = None
+            value["finished_at"] = None
+            value["verdict"] = None
+        self.save()
+
     def append_evidence(self, round_id: str, evidence_id: str) -> None:
         self.data["rounds"][round_id]["evidence"].append(evidence_id)
         self.save()

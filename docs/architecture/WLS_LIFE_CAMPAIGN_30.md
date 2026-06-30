@@ -96,11 +96,35 @@ replace raw evidence.
 
 ## Execution Levels
 
-This implementation supports executable handlers for R01-R05 only. R06-R30 are
-fully specified in the campaign spec but remain owner-gated for later execution.
+This implementation supports executable handlers for R01-R13. R14 is the first
+LEVEL_2 boundary and remains owner-gated because it admits an endogenous
+read-only Goal. R15 also requires real elapsed time for 24-hour validation.
+R16-R30 are fully specified in the campaign spec but remain blocked behind the
+earlier gates.
 
 R05 passing updates campaign state to `LEVEL_1`; this is only a campaign-clone
 permission signal and does not modify the live instance or authorize R06.
+
+R13 passing does not update the campaign to `LEVEL_2`; explicit Owner
+authorization is still required before R14.
+
+## Repair And Resume
+
+Failed round evidence is never deleted. When a candidate-branch repair is made,
+the runner can reset a failed round and later blocked rounds while preserving the
+previous verdict in `repair_history`:
+
+```powershell
+python source\scripts\run_life_campaign_30.py `
+  --install-root "D:\WLS\wls-0.9.0.dev1-py313" `
+  --campaign-home "D:\WLS\campaigns\life-campaign-30" `
+  --repair-round R09 `
+  --repair-note "explain the code repair"
+```
+
+After focused and regression tests pass, rerun from the repaired round. This is
+the campaign's automatic repair loop boundary: code changes still happen in the
+candidate branch, while runtime evidence remains append-only.
 
 ## Owner Command
 
@@ -111,7 +135,7 @@ From the repository root:
   -InstallRoot "D:\WLS\wls-0.9.0.dev1-py313" `
   -CampaignHome "D:\WLS\campaigns\life-campaign-30" `
   -StartRound R01 `
-  -EndRound R05 `
+  -EndRound R13 `
   -Execute
 ```
 
@@ -139,15 +163,16 @@ D:\WLS\wls-0.9.0.dev1-py313
 
 ## Claim Ceiling
 
-Passing R01-R05 supports only:
+Passing R01-R13 supports only:
 
 ```text
 Disposable campaign clone is prepared, bounded read-only cycles can run,
 process-real restart continuity is checked, bounded survival is checked,
-and pause/resume/kill/reset/lease behavior is evidenced in the clone.
+pause/resume/kill/reset/lease behavior is evidenced in the clone, LEVEL_1
+bounded cycles are measured, campaign backup/restore is checked, and memory,
+planner, and goal profiles are compared without promoting LEVEL_2.
 ```
 
 It does not prove 24-hour survival, endogenous goals, skill evolution,
 longitudinal self-evolution, production deployment, or any live-instance
 configuration change.
-

@@ -40,6 +40,10 @@ def main() -> int:
     sub.add_parser("self-check")
     sub.add_parser("verify")
     sub.add_parser("once")
+    goal = sub.add_parser("add-goal")
+    goal.add_argument("title")
+    goal.add_argument("--description", default="")
+    goal.add_argument("--criterion", action="append", default=[])
     daemon = sub.add_parser("daemon")
     daemon.add_argument("--max-cycles", type=int, default=1)
     pause = sub.add_parser("pause")
@@ -59,6 +63,42 @@ def main() -> int:
     else:
         state = {"cycle_count": 0, "paused": False, "killed": False}
     if args.command == "once":
+        sensors = {item.get("name"): item for item in config.get("sensors", [])}
+        db_path = home / "state" / "wls.db"
+        if "campaign_fault_http" in sensors:
+            import sqlite3
+            sensor = sensors["campaign_fault_http"]
+            connection = sqlite3.connect(db_path)
+            if sensor.get("sensor_type") == "http":
+                connection.execute(
+                    "INSERT OR REPLACE INTO sensor_state(sensor_name,state_json,last_polled_at,last_success_at,last_error) VALUES (?,?,?,?,?)",
+                    ("campaign_fault_http", "{}", "now", "now", None),
+                )
+                connection.execute(
+                    "INSERT INTO events(event_id,event_type,payload_json) VALUES (?,?,?)",
+                    (
+                        "evt-fault-http",
+                        "observation.service_health",
+                        json.dumps(
+                            {
+                                "observation": {
+                                    "source": "campaign_fault_http",
+                                    "value": {
+                                        "healthy": False,
+                                        "error": "connection refused",
+                                    },
+                                }
+                            }
+                        ),
+                    ),
+                )
+            else:
+                connection.execute(
+                    "INSERT OR REPLACE INTO sensor_state(sensor_name,state_json,last_polled_at,last_success_at,last_error) VALUES (?,?,?,?,?)",
+                    ("campaign_fault_http", "{}", "now", "now", None),
+                )
+            connection.commit()
+            connection.close()
         if not state["paused"] and not state["killed"]:
             state["cycle_count"] += 1
         payload = {"status": "PAUSED" if state["paused"] else ("KILLED" if state["killed"] else "SUCCEEDED")}
@@ -78,6 +118,17 @@ def main() -> int:
     elif args.command == "reset-kill":
         state["killed"] = False
         payload = {"evidence_id": "reset"}
+    elif args.command == "add-goal":
+        import sqlite3
+        connection = sqlite3.connect(home / "state" / "wls.db")
+        connection.execute(
+            "INSERT INTO goals(goal_id,title,status,progress,source,autonomous) VALUES (?,?,?,?,?,?)",
+            (f"goal-{state.get('goal_count', 0) + 1}", args.title, "ACTIVE", 0.0, "cli", 0),
+        )
+        connection.commit()
+        connection.close()
+        state["goal_count"] = state.get("goal_count", 0) + 1
+        payload = {"goal_id": f"goal-{state['goal_count']}"}
     elif args.command == "self-check":
         payload = {"ok": True, "checks": {"read_only": True}}
     elif args.command == "verify":
@@ -131,8 +182,17 @@ def _make_fake_install(tmp_path: Path) -> tuple[CampaignPaths, Path]:
     )
     connection = sqlite3.connect(live_home / "state" / "wls.db")
     connection.execute(
-        "CREATE TABLE actions(action_id TEXT, idempotency_key TEXT, status TEXT)"
+        "CREATE TABLE actions(action_id TEXT, idempotency_key TEXT, status TEXT, started_at TEXT, finished_at TEXT)"
     )
+    connection.execute(
+        "CREATE TABLE sensor_state(sensor_name TEXT PRIMARY KEY,state_json TEXT,last_polled_at TEXT,last_success_at TEXT,last_error TEXT)"
+    )
+    connection.execute(
+        "CREATE TABLE goals(goal_id TEXT,title TEXT,status TEXT,progress REAL,source TEXT,autonomous INTEGER)"
+    )
+    connection.execute("CREATE TABLE events(event_id TEXT,event_type TEXT,payload_json TEXT)")
+    connection.execute("CREATE TABLE evidence(evidence_id TEXT)")
+    connection.execute("CREATE TABLE cycles(cycle_id TEXT)")
     connection.commit()
     connection.close()
     _write_fake_wls(live_home)
@@ -180,7 +240,7 @@ def test_campaign_lock_is_exclusive(tmp_path: Path) -> None:
                 pass
 
 
-def test_runner_executes_r01_to_r05_against_disposable_campaign_home(
+def test_runner_executes_r01_to_r13_against_disposable_campaign_home(
     tmp_path: Path,
 ) -> None:
     paths, live_config = _make_fake_install(tmp_path)
@@ -189,8 +249,8 @@ def test_runner_executes_r01_to_r05_against_disposable_campaign_home(
         paths,
         execute=True,
     )
-    result = runner.run(["R01", "R02", "R03", "R04", "R05"])
-    assert [item["status"] for item in result["results"]] == ["PASS"] * 5
+    result = runner.run([f"R{index:02d}" for index in range(1, 14)])
+    assert [item["status"] for item in result["results"]] == ["PASS"] * 13
     assert result["automation_level"] == "LEVEL_1"
     campaign_config = load_json(paths.campaign_home / "config.json")
     assert campaign_config["home"] == str(paths.campaign_home.resolve())
@@ -199,6 +259,7 @@ def test_runner_executes_r01_to_r05_against_disposable_campaign_home(
     manifest = load_json(paths.campaign_home / "campaign_evidence" / "manifest.json")
     assert any(record["kind"] == "command" for record in manifest["records"])
     assert (paths.campaign_home / "state" / "wls.db").exists()
+    assert any(record["round_id"] == "R13" for record in manifest["records"])
 
 
 def test_runner_blocks_after_failed_round(tmp_path: Path) -> None:
@@ -216,6 +277,54 @@ def test_runner_blocks_after_failed_round(tmp_path: Path) -> None:
     assert result["results"][0]["status"] == "FAIL"
     state = load_json(paths.campaign_home / "campaign_state.json")
     assert state["rounds"]["R02"]["status"] == "BLOCKED"
+
+
+def test_repair_reset_preserves_failure_history_and_allows_rerun(tmp_path: Path) -> None:
+    paths, _ = _make_fake_install(tmp_path)
+    broken = paths.live_home / "wls.py"
+    original = broken.read_text(encoding="utf-8")
+    broken.write_text("raise SystemExit(3)\n", encoding="utf-8")
+    runner = CampaignRunner(
+        REPO_ROOT / "source" / "verification" / "life_campaign_30.json",
+        paths,
+        execute=True,
+    )
+    first = runner.run(["R01", "R02"])
+    assert first["results"][0]["status"] == "FAIL"
+    broken.write_text(original, encoding="utf-8")
+    campaign_copy = paths.campaign_home / "wls.py"
+    if campaign_copy.exists():
+        campaign_copy.write_text(original, encoding="utf-8")
+    reset = runner.reset_from_round("R01", "test repair")
+    assert reset["reset_from"] == "R01"
+    second = runner.run(["R01"])
+    assert second["results"][0]["status"] == "PASS"
+    state = load_json(paths.campaign_home / "campaign_state.json")
+    assert state["rounds"]["R01"]["repair_history"]
+
+
+def test_duplicate_action_check_allows_idempotent_reuse(tmp_path: Path) -> None:
+    paths, _ = _make_fake_install(tmp_path)
+    runner = CampaignRunner(
+        REPO_ROOT / "source" / "verification" / "life_campaign_30.json",
+        paths,
+        execute=True,
+    )
+    runner._prepare_campaign_home()
+    connection = sqlite3.connect(paths.campaign_home / "state" / "wls.db")
+    connection.execute(
+        "INSERT INTO actions(action_id,idempotency_key,status) VALUES (?,?,?)",
+        ("act-real", "same-key", "SUCCEEDED"),
+    )
+    connection.execute("UPDATE actions SET started_at='started' WHERE action_id='act-real'")
+    connection.execute(
+        "INSERT INTO actions(action_id,idempotency_key,status,started_at,finished_at) VALUES (?,?,?,?,?)",
+        ("act-reused", "same-key", "SUCCEEDED", None, "finished"),
+    )
+    connection.commit()
+    connection.close()
+    evidence_id = runner._record_duplicate_action_check("R03")
+    assert evidence_id
 
 
 def test_dry_run_prepares_owner_command_without_runtime_claim(tmp_path: Path) -> None:
