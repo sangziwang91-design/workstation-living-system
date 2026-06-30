@@ -5,7 +5,11 @@ from pathlib import Path
 import pytest
 
 from wls.a2a_adapter import A2AAdapter, ArtifactEnvelope, TaskContract
-from wls.architecture_validation import validate_p01_registry, validate_runtime_event_ingress
+from wls.architecture_validation import (
+    validate_p01_registry,
+    validate_runtime_event_ingress,
+    validate_runtime_provider_route,
+)
 from wls.browser_adapter import BrowserReadOnlyAdapter, BrowserReadOnlyRequest
 from wls.capabilities import (
     CapabilityManifest,
@@ -137,6 +141,7 @@ def test_living_system_status_exposes_capability_projection(tmp_path: Path) -> N
     assert status["capabilities"]["authority_model"] == "canonical WLS owners only"
     assert status["capabilities"]["count"] >= 10
     assert status["capabilities"]["by_owner"]["events"] >= 1
+    assert status["planner_route"]["provider_id"] == status["planner_provider"]
 
 
 def test_living_system_exposes_channel_and_scheduler_ingress(tmp_path: Path) -> None:
@@ -180,6 +185,23 @@ def test_provider_router_enforces_local_first_and_cost() -> None:
     assert route.provider_id == "local_free"
     with pytest.raises(PermissionError):
         router.choose(RouteRequest(required_capability="vision"))
+
+
+def test_planner_provider_route_matches_config_and_blocks_silent_remote(tmp_path: Path) -> None:
+    config = default_config(tmp_path / "home")
+    runtime = LivingSystem(config)
+    assert runtime.planner.route_summary()["provider_id"] == "cognitive"
+
+    remote_config = default_config(tmp_path / "remote-home")
+    remote_config.provider = {
+        "type": "openai_compatible",
+        "model": "example",
+        "fallback": "deterministic",
+        "cost_class": "metered",
+        "paid": True,
+    }
+    with pytest.raises(PermissionError, match="provider route"):
+        LivingSystem(remote_config)
 
 
 def test_browser_readonly_receipt_and_allowlist() -> None:
@@ -309,3 +331,10 @@ def test_architecture_validation_checks_runtime_event_ingress(tmp_path: Path) ->
     assert by_pass["P09"].verdict == "ADMIT_SHADOW_ONLY"
     assert by_pass["P02"].evidence
     assert by_pass["P09"].evidence
+
+
+def test_architecture_validation_checks_runtime_provider_route(tmp_path: Path) -> None:
+    result = validate_runtime_provider_route(tmp_path / "home")
+    assert result.pass_id == "P08"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert result.evidence == ["cognitive"]

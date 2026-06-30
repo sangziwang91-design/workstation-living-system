@@ -891,6 +891,7 @@ class LivingSystem:
             "active_skills": self.skills.active(),
             "growth_cycles": self.growth.summary(limit=20),
             "planner_provider": self.planner.provider_type,
+            "planner_route": self.planner.route_summary(),
             "cognition": self.cognition.summary(limit=500),
             "temporal_world": self.temporal_world.summary(),
             "causal_memory": self.memories.memory_summary(),

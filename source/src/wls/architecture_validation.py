@@ -98,3 +98,30 @@ def validate_runtime_event_ingress(home: Path) -> list[ArchitecturePassResult]:
             ["channel ingress reaches canonical EventStore through LivingSystem"],
         ),
     ]
+
+
+def validate_runtime_provider_route(home: Path) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home))
+    route = runtime.planner.route_summary()
+    if route.get("provider_id") != runtime.planner.provider_type:
+        return ArchitecturePassResult(
+            "P08",
+            "BLOCKED",
+            [],
+            ["Planner provider route does not match configured planner provider"],
+        )
+    evidence = route.get("evidence", {})
+    provider = evidence.get("provider", {}) if isinstance(evidence, dict) else {}
+    if provider.get("remote") or provider.get("paid"):
+        return ArchitecturePassResult(
+            "P08",
+            "BLOCKED",
+            [],
+            ["Default planner route is not local/free"],
+        )
+    return ArchitecturePassResult(
+        "P08",
+        "ADMIT_SHADOW_ONLY",
+        [str(route.get("provider_id", "UNKNOWN"))],
+        ["Planner owns provider routing evidence; route is local-first and free by default"],
+    )

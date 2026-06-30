@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from typing import Any
+from urllib.parse import urlparse
+
+from .config import RuntimeConfig
 
 
 @dataclass(slots=True)
@@ -42,6 +45,48 @@ class ProviderRouter:
 
     def __init__(self, providers: list[ProviderDescriptor]):
         self.providers = {provider.provider_id: provider for provider in providers}
+
+    @classmethod
+    def from_config(cls, config: RuntimeConfig) -> "ProviderRouter":
+        provider_type = str(config.provider.get("type", "cognitive"))
+        cost_class = str(config.provider.get("cost_class", "free"))
+        base_url = str(config.provider.get("base_url", ""))
+        parsed = urlparse(base_url)
+        local_host = (parsed.hostname or "").lower() in {
+            "127.0.0.1",
+            "localhost",
+            "::1",
+        }
+        remote = provider_type == "openai_compatible" and not local_host
+        base = {
+            "deterministic": ProviderDescriptor(
+                provider_id="deterministic",
+                locality="local",
+                capabilities={"planning"},
+                cost_class="free",
+            ),
+            "cognitive": ProviderDescriptor(
+                provider_id="cognitive",
+                locality="local",
+                capabilities={"planning"},
+                cost_class="free",
+            ),
+        }
+        if provider_type == "openai_compatible":
+            base["openai_compatible"] = ProviderDescriptor(
+                    provider_id="openai_compatible",
+                    locality="remote" if remote else "local",
+                    capabilities={"planning"},
+                cost_class=cost_class,
+                latency_class=str(config.provider.get("latency_class", "normal")),
+                paid=bool(config.provider.get("paid", cost_class != "free")),
+                remote=remote,
+            )
+        providers = []
+        if provider_type in base:
+            providers.append(base[provider_type])
+        providers.extend(item for key, item in base.items() if key != provider_type)
+        return cls(providers)
 
     def choose(self, request: RouteRequest) -> ProviderRoute:
         for provider in self.providers.values():

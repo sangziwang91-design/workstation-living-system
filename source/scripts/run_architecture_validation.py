@@ -16,6 +16,7 @@ from wls.architecture_validation import (  # noqa: E402
     ArchitecturePassResult,
     validate_p01_registry,
     validate_runtime_event_ingress,
+    validate_runtime_provider_route,
 )
 
 
@@ -25,7 +26,6 @@ PASS_CONTRACTS = {
     "P05": "coding worktree contract returns candidate artifacts only",
     "P06": "external memory remains shadow-only by registry rule",
     "P07": "MCP/A2A outputs are validated candidates, not canonical truth",
-    "P08": "provider routing enforces local-first and cost constraints",
     "P10": "workbench templates bind to existing planning/evolution/skills authorities",
 }
 
@@ -33,7 +33,9 @@ PASS_CONTRACTS = {
 def run_validation() -> dict[str, object]:
     results: list[ArchitecturePassResult] = [validate_p01_registry()]
     with tempfile.TemporaryDirectory(prefix="wls-architecture-validation-") as temp:
-        results.extend(validate_runtime_event_ingress(Path(temp) / "home"))
+        temp_path = Path(temp)
+        results.extend(validate_runtime_event_ingress(temp_path / "event-home"))
+        results.append(validate_runtime_provider_route(temp_path / "provider-home"))
     for pass_id, note in PASS_CONTRACTS.items():
         results.append(
             ArchitecturePassResult(

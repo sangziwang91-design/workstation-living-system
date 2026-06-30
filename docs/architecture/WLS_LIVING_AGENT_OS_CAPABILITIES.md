@@ -39,10 +39,17 @@ scheduler helpers submit only canonical Events through `EventStore`.
 channel and scheduler organs. They return EventStore insertion results and do
 not create Actions, Goals, Memories, Skills, or tool executions directly.
 
+Provider routing is fitted inside `Planner`. `Planner.route_summary()` records
+the selected provider, fallback chain, privacy/cost evidence, and rationale while
+keeping `Planner` as the only planning authority. `LivingSystem.status()` exposes
+that route summary for audit. Remote or paid provider routes are blocked unless
+configuration explicitly satisfies the route policy.
+
 ## Current Admissions
 
 - P01 is admitted as a registry and authority guard.
 - P02/P09 are shadow-level runtime admissions for EventStore ingress.
+- P08 is a shadow-level runtime admission for Planner-owned provider routing.
 - P03-P10 remain design-level admissions where no real external operation is
   safe or authorized yet.
 - Computer use remains blocked without a verified disposable sandbox.
