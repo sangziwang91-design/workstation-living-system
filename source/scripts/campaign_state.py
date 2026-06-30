@@ -252,6 +252,14 @@ class CampaignState:
         self.block_after(round_id, f"blocked pending owner review after {round_id}")
         self.save()
 
+    def mark_owner_stopped(self, round_id: str, verdict: dict[str, Any]) -> None:
+        round_state = self.data["rounds"][round_id]
+        round_state["status"] = "OWNER_REVIEW"
+        round_state["finished_at"] = utc_now()
+        round_state["verdict"] = verdict
+        self.block_after(round_id, f"blocked after owner-stopped {round_id}")
+        self.save()
+
     def block_after(self, round_id: str, reason: str) -> None:
         keys = list(self.data["rounds"])
         start = keys.index(round_id) + 1

@@ -446,6 +446,42 @@ def test_runner_executes_short_r15_minimum_life(tmp_path: Path) -> None:
     assert run_state["heartbeats"]
 
 
+def test_owner_stop_preserves_partial_r15_without_pass(tmp_path: Path) -> None:
+    paths, _ = _make_fake_install(tmp_path)
+    runner = CampaignRunner(
+        REPO_ROOT / "source" / "verification" / "life_campaign_30.json",
+        paths,
+        execute=True,
+        authorize_level2=True,
+    )
+    runner.run([f"R{index:02d}" for index in range(1, 15)])
+    runner.state.mark_running("R15")
+    run_path = paths.campaign_home / "campaign_evidence" / "R15" / "r15_run.json"
+    run_path.parent.mkdir(parents=True, exist_ok=True)
+    run_path.write_text(
+        json.dumps(
+            {
+                "started_at": "2026-06-30T00:53:00+00:00",
+                "duration_seconds": 86400,
+                "heartbeat_seconds": 300,
+                "heartbeats": [{"index": 1, "status": "PASS"}],
+                "restarts": [],
+                "recoveries": [],
+                "failures": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    result = runner.owner_stop_round("R15", "Owner stopped 24-hour round")
+    state = load_json(paths.campaign_home / "campaign_state.json")
+    assert result["status"] == "OWNER_REVIEW"
+    assert state["rounds"]["R15"]["status"] == "OWNER_REVIEW"
+    assert state["rounds"]["R16"]["status"] == "BLOCKED"
+    assert state["automation_level"] == "LEVEL_2"
+    assert state["rounds"]["R15"]["evidence"]
+    assert "not PASS" in state["rounds"]["R15"]["verdict"]["claim_ceiling"]
+
+
 def test_repository_integration_cli_dry_run(tmp_path: Path) -> None:
     paths, _ = _make_fake_install(tmp_path)
     result = subprocess.run(

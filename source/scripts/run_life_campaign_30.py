@@ -70,6 +70,39 @@ class CampaignRunner:
             "note": note,
         }
 
+    def owner_stop_round(self, round_id: str, reason: str) -> dict[str, Any]:
+        with CampaignLock(self.lock_path):
+            if round_id not in self.state.data["rounds"]:
+                raise ValueError(f"unknown round: {round_id}")
+            evidence_ids: list[str] = []
+            if round_id == "R15":
+                run_path = self.paths.campaign_home / "campaign_evidence" / "R15" / "r15_run.json"
+                if run_path.exists():
+                    evidence_ids.append(
+                        self.manifest.record_file(
+                            "R15",
+                            "owner_stopped_partial_r15_run",
+                            run_path,
+                            {"reason": reason},
+                        )
+                    )
+            verdict = {
+                "status": "OWNER_REVIEW",
+                "reason": reason,
+                "evidence_ids": evidence_ids,
+                "claim_ceiling": f"{round_id} stopped by Owner; partial evidence preserved; not PASS",
+            }
+            for evidence_id in evidence_ids:
+                self.state.append_evidence(round_id, evidence_id)
+            self.state.mark_owner_stopped(round_id, verdict)
+        return {
+            "campaign_id": self.spec.get("campaign_id"),
+            "state_path": str(self.state_path),
+            "manifest_path": str(self.manifest.manifest_path),
+            "round_id": round_id,
+            **verdict,
+        }
+
     def run(self, round_ids: list[str]) -> dict[str, Any]:
         results: list[dict[str, Any]] = []
         with CampaignLock(self.lock_path):
@@ -1216,6 +1249,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--fresh-snapshot", action="store_true")
     parser.add_argument("--repair-round")
     parser.add_argument("--repair-note", default="candidate branch repair")
+    parser.add_argument("--owner-stop-round")
+    parser.add_argument("--owner-stop-reason", default="Owner stopped round")
     parser.add_argument("--authorize-level2", action="store_true")
     parser.add_argument("--r15-duration-seconds", type=int, default=24 * 60 * 60)
     parser.add_argument("--r15-heartbeat-seconds", type=int, default=5 * 60)
@@ -1245,6 +1280,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         if args.repair_round:
             result = runner.reset_from_round(args.repair_round, args.repair_note)
+        elif args.owner_stop_round:
+            result = runner.owner_stop_round(args.owner_stop_round, args.owner_stop_reason)
         else:
             result = runner.run(round_ids)
         print(json.dumps(result, indent=2, ensure_ascii=False, sort_keys=True))

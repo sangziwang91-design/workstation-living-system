@@ -24,6 +24,12 @@ param(
     [switch]$AuthorizeLevel2,
 
     [Parameter(Mandatory = $false)]
+    [string]$OwnerStopRound = "",
+
+    [Parameter(Mandatory = $false)]
+    [string]$OwnerStopReason = "Owner stopped round",
+
+    [Parameter(Mandatory = $false)]
     [int]$R15DurationSeconds = 86400,
 
     [Parameter(Mandatory = $false)]
@@ -105,6 +111,10 @@ if ($FreshSnapshot) {
 }
 if ($AuthorizeLevel2) {
     $Arguments += "--authorize-level2"
+}
+if ($OwnerStopRound -ne "") {
+    $Arguments += @("--owner-stop-round", $OwnerStopRound)
+    $Arguments += @("--owner-stop-reason", $OwnerStopReason)
 }
 $Arguments += @("--r15-duration-seconds", "$R15DurationSeconds")
 $Arguments += @("--r15-heartbeat-seconds", "$R15HeartbeatSeconds")
