@@ -18,7 +18,16 @@ param(
     [switch]$Execute,
 
     [Parameter(Mandatory = $false)]
-    [switch]$FreshSnapshot
+    [switch]$FreshSnapshot,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$AuthorizeLevel2,
+
+    [Parameter(Mandatory = $false)]
+    [int]$R15DurationSeconds = 86400,
+
+    [Parameter(Mandatory = $false)]
+    [int]$R15HeartbeatSeconds = 300
 )
 
 Set-StrictMode -Version Latest
@@ -94,7 +103,11 @@ if ($Execute) {
 if ($FreshSnapshot) {
     $Arguments += "--fresh-snapshot"
 }
+if ($AuthorizeLevel2) {
+    $Arguments += "--authorize-level2"
+}
+$Arguments += @("--r15-duration-seconds", "$R15DurationSeconds")
+$Arguments += @("--r15-heartbeat-seconds", "$R15HeartbeatSeconds")
 
 & $DevPythonResolved @Arguments
 exit $LASTEXITCODE
-

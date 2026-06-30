@@ -230,6 +230,8 @@ class CampaignState:
         round_state["verdict"] = verdict
         if round_id == "R05":
             self.data["automation_level"] = "LEVEL_1"
+        elif round_id == "R14":
+            self.data["automation_level"] = "LEVEL_2"
         elif round_id == "R15":
             self.data["automation_level"] = "LEVEL_3"
         self.save()

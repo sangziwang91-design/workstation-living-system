@@ -99,6 +99,69 @@ def main() -> int:
                 )
             connection.commit()
             connection.close()
+        if "campaign_r14_recoverable_sensor" in sensors:
+            import sqlite3
+            sensor = sensors["campaign_r14_recoverable_sensor"]
+            connection = sqlite3.connect(db_path)
+            if str(sensor.get("sensor_type", "")).startswith("campaign_r14_fault_sensor"):
+                connection.execute(
+                    "INSERT OR REPLACE INTO sensor_state(sensor_name,state_json,last_polled_at,last_success_at,last_error) VALUES (?,?,?,?,?)",
+                    (
+                        "campaign_r14_recoverable_sensor",
+                        "{}",
+                        "now",
+                        None,
+                        "campaign R14 recoverable sensor fault",
+                    ),
+                )
+            else:
+                connection.execute(
+                    "INSERT OR REPLACE INTO sensor_state(sensor_name,state_json,last_polled_at,last_success_at,last_error) VALUES (?,?,?,?,?)",
+                    ("campaign_r14_recoverable_sensor", "{}", "now", "now", None),
+                )
+            row = connection.execute(
+                "SELECT COUNT(*) FROM goals WHERE autonomous=1 AND status IN ('ACTIVE','BLOCKED')"
+            ).fetchone()
+            if (
+                config.get("max_autonomous_goals", 0) == 1
+                and row
+                and int(row[0]) == 0
+            ):
+                connection.execute(
+                    "INSERT INTO goals(goal_id,title,description,priority,source,autonomous,status,progress,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        "goal-r14",
+                        "Recover sensor: campaign_r14_recoverable_sensor",
+                        "Diagnose campaign sensor failure using read-only evidence.",
+                        0.75,
+                        "autonomy.continuity",
+                        1,
+                        "ACTIVE",
+                        0.0,
+                        "now",
+                        "now",
+                    ),
+                )
+                connection.execute(
+                    "INSERT INTO actions(action_id,plan_id,goal_id,tool,purpose,risk,status,side_effect_class,started_at,finished_at,result_json,error,idempotency_key) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        "act-r14",
+                        "plan-r14",
+                        None,
+                        "noop",
+                        "Record a deliberate no-op instead of inventing activity",
+                        "READ",
+                        "SUCCEEDED",
+                        "none",
+                        "now",
+                        "now",
+                        "{}",
+                        None,
+                        "r14-key",
+                    ),
+                )
+            connection.commit()
+            connection.close()
         if not state["paused"] and not state["killed"]:
             state["cycle_count"] += 1
         payload = {"status": "PAUSED" if state["paused"] else ("KILLED" if state["killed"] else "SUCCEEDED")}
@@ -182,13 +245,13 @@ def _make_fake_install(tmp_path: Path) -> tuple[CampaignPaths, Path]:
     )
     connection = sqlite3.connect(live_home / "state" / "wls.db")
     connection.execute(
-        "CREATE TABLE actions(action_id TEXT, idempotency_key TEXT, status TEXT, started_at TEXT, finished_at TEXT)"
+        "CREATE TABLE actions(action_id TEXT, idempotency_key TEXT, status TEXT, started_at TEXT, finished_at TEXT, plan_id TEXT, goal_id TEXT, tool TEXT, purpose TEXT, risk TEXT, side_effect_class TEXT, result_json TEXT, error TEXT)"
     )
     connection.execute(
         "CREATE TABLE sensor_state(sensor_name TEXT PRIMARY KEY,state_json TEXT,last_polled_at TEXT,last_success_at TEXT,last_error TEXT)"
     )
     connection.execute(
-        "CREATE TABLE goals(goal_id TEXT,title TEXT,status TEXT,progress REAL,source TEXT,autonomous INTEGER)"
+        "CREATE TABLE goals(goal_id TEXT,title TEXT,description TEXT,priority REAL,status TEXT,progress REAL,source TEXT,autonomous INTEGER,created_at TEXT,updated_at TEXT)"
     )
     connection.execute("CREATE TABLE events(event_id TEXT,event_type TEXT,payload_json TEXT)")
     connection.execute("CREATE TABLE evidence(evidence_id TEXT)")
@@ -346,6 +409,41 @@ def test_powershell_wrapper_uses_file_runner_not_source_module() -> None:
     assert "source\\scripts\\run_life_campaign_30.py" in script
     assert "python -m source.scripts.run_life_campaign_30" not in script
     assert "venv\\Scripts\\python.exe" in script
+    assert "--authorize-level2" in script
+
+
+def test_runner_executes_r14_with_level2_authorization(tmp_path: Path) -> None:
+    paths, _ = _make_fake_install(tmp_path)
+    runner = CampaignRunner(
+        REPO_ROOT / "source" / "verification" / "life_campaign_30.json",
+        paths,
+        execute=True,
+        authorize_level2=True,
+    )
+    result = runner.run([f"R{index:02d}" for index in range(1, 15)])
+    assert result["results"][-1]["round_id"] == "R14"
+    assert result["results"][-1]["status"] == "PASS"
+    assert result["automation_level"] == "LEVEL_2"
+    state = load_json(paths.campaign_home / "campaign_state.json")
+    assert state["rounds"]["R14"]["status"] == "PASS"
+
+
+def test_runner_executes_short_r15_minimum_life(tmp_path: Path) -> None:
+    paths, _ = _make_fake_install(tmp_path)
+    runner = CampaignRunner(
+        REPO_ROOT / "source" / "verification" / "life_campaign_30.json",
+        paths,
+        execute=True,
+        authorize_level2=True,
+        r15_duration_seconds=1,
+        r15_heartbeat_seconds=1,
+    )
+    result = runner.run([f"R{index:02d}" for index in range(1, 16)])
+    assert result["results"][-1]["round_id"] == "R15"
+    assert result["results"][-1]["status"] == "PASS"
+    assert result["automation_level"] == "LEVEL_3"
+    run_state = load_json(paths.campaign_home / "campaign_evidence" / "R15" / "r15_run.json")
+    assert run_state["heartbeats"]
 
 
 def test_repository_integration_cli_dry_run(tmp_path: Path) -> None:

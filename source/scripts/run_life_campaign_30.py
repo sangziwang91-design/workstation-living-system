@@ -7,6 +7,7 @@ import argparse
 import json
 import shutil
 import sqlite3
+import time
 # The runner executes the installed WLS CLI with explicit argv and shell=False.
 import subprocess  # nosec B404
 import sys
@@ -27,7 +28,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SPEC = REPO_ROOT / "source" / "verification" / "life_campaign_30.json"
 DEFAULT_INSTALL_ROOT = Path(r"D:\WLS\wls-0.9.0.dev1-py313")
 DEFAULT_CAMPAIGN_HOME = Path(r"D:\WLS\campaigns\life-campaign-30")
-SUPPORTED_AUTOMATED_ROUNDS = {f"R{index:02d}" for index in range(1, 14)}
+SUPPORTED_AUTOMATED_ROUNDS = {f"R{index:02d}" for index in range(1, 16)}
+LEVEL2_GOAL_PREFIXES = ("Clarify", "Inspect", "Learn", "Recover", "Preserve")
 
 
 class CampaignRunner:
@@ -37,6 +39,9 @@ class CampaignRunner:
         paths: CampaignPaths,
         execute: bool,
         fresh_snapshot: bool = False,
+        authorize_level2: bool = False,
+        r15_duration_seconds: int = 24 * 60 * 60,
+        r15_heartbeat_seconds: int = 5 * 60,
     ):
         self.spec_path = spec_path.resolve()
         self.spec = load_json(self.spec_path)
@@ -45,6 +50,9 @@ class CampaignRunner:
         self.paths.validate()
         self.execute = execute
         self.fresh_snapshot = fresh_snapshot
+        self.authorize_level2 = authorize_level2
+        self.r15_duration_seconds = r15_duration_seconds
+        self.r15_heartbeat_seconds = r15_heartbeat_seconds
         self.state_path = self.paths.campaign_home / "campaign_state.json"
         self.lock_path = self.paths.campaign_home / ".campaign.lock"
         self.manifest = EvidenceManifest(self.paths.campaign_home)
@@ -129,6 +137,8 @@ class CampaignRunner:
             "R11": self._round_11,
             "R12": self._round_12,
             "R13": self._round_13,
+            "R14": self._round_14,
+            "R15": self._round_15,
         }
         return handlers[round_id]()
 
@@ -515,6 +525,183 @@ class CampaignRunner:
             "claim_ceiling": "goal profile comparison only; LEVEL_2 still requires explicit Owner authorization",
         }
 
+    def _round_14(self) -> dict[str, Any]:
+        if not self.authorize_level2:
+            return {
+                "status": "OWNER_REVIEW",
+                "reason": "R14 requires explicit LEVEL_2 Owner authorization",
+                "claim_ceiling": "no endogenous goal admitted",
+            }
+        original = self._clean_campaign_config(self._load_campaign_config())
+        active_before = self._autonomous_goal_count()
+        if active_before > 1:
+            raise RuntimeError(f"autonomous goal limit already occupied: {active_before}")
+        evidence_ids: list[str] = []
+        try:
+            if active_before == 0:
+                fault_module = self._write_r14_fault_sensor()
+                fault_config = self._with_extra_sensor(
+                    self._r14_profile_config(original),
+                    {
+                        "sensor_type": "campaign_r14_fault_sensor:CampaignR14FaultSensor",
+                        "name": "campaign_r14_recoverable_sensor",
+                        "enabled": True,
+                        "interval_seconds": 0.01,
+                        "settings": {},
+                    },
+                )
+                self._save_campaign_config(fault_config)
+                evidence_ids.extend(
+                    [
+                        self.manifest.record_file("R14", "fault_sensor_module", fault_module),
+                        self.manifest.record_file("R14", "level2_fault_config", self.paths.campaign_home / "config.json"),
+                    ]
+                )
+                trigger_run = self._wls("R14", "trigger_recoverable_sensor_failure", ["once"])
+                trigger = self._sensor_state_report(
+                    "R14", "endogenous_goal_trigger", "campaign_r14_recoverable_sensor"
+                )
+                goal_run = self._wls("R14", "autonomy_creates_endogenous_goal", ["once"])
+                evidence_ids.extend([trigger_run, trigger, goal_run])
+            else:
+                evidence_ids.append(
+                    self._write_measurement_report(
+                        "R14",
+                        "existing_single_autonomous_goal_reused",
+                        {"active_autonomous_goal_count": active_before},
+                    )
+                )
+            action_config = self._r14_profile_config(original)
+            self._save_campaign_config(action_config)
+            evidence_ids.append(
+                self.manifest.record_file("R14", "level2_action_config", self.paths.campaign_home / "config.json")
+            )
+            action_run = self._wls("R14", "run_read_only_goal_action", ["once"])
+            goal_report = self._r14_goal_report()
+            action_report = self._latest_action_report("R14", "r14_resulting_action")
+            evidence_ids.extend([action_run, goal_report, action_report])
+            recovery_config = self._with_extra_sensor(
+                self._r14_profile_config(original),
+                {
+                    "sensor_type": "clock",
+                    "name": "campaign_r14_recoverable_sensor",
+                    "enabled": True,
+                    "interval_seconds": 0.01,
+                    "settings": {"emit_hourly": False},
+                },
+            )
+            self._save_campaign_config(recovery_config)
+            recovery_run = self._wls("R14", "recover_sensor_state", ["once"])
+            recovered_state = self._sensor_state_report(
+                "R14", "recovered_goal_trigger_state", "campaign_r14_recoverable_sensor", expect_error=False
+            )
+            evidence_ids.extend([recovery_run, recovered_state])
+        finally:
+            self._save_campaign_config(original)
+        restored_config = self.manifest.record_file("R14", "restored_config", self.paths.campaign_home / "config.json")
+        verify = self._wls("R14", "verify", ["verify"])
+        evidence_ids.extend([restored_config, verify])
+        for evidence_id in evidence_ids:
+            self.state.append_evidence("R14", evidence_id)
+        return {
+            "status": "PASS",
+            "evidence_ids": evidence_ids,
+            "claim_ceiling": "one campaign-clone endogenous read-only Goal admitted",
+        }
+
+    def _round_15(self) -> dict[str, Any]:
+        if not self.authorize_level2:
+            return {
+                "status": "OWNER_REVIEW",
+                "reason": "R15 requires LEVEL_2 authorization inherited from R14",
+                "claim_ceiling": "24-hour validation not started",
+            }
+        run_path = self.paths.campaign_home / "campaign_evidence" / "R15" / "r15_run.json"
+        run_path.parent.mkdir(parents=True, exist_ok=True)
+        if run_path.exists():
+            run_state = load_json(run_path)
+        else:
+            run_state = {
+                "started_at": datetime.now(UTC).isoformat(timespec="seconds"),
+                "duration_seconds": self.r15_duration_seconds,
+                "heartbeat_seconds": self.r15_heartbeat_seconds,
+                "heartbeats": [],
+                "restarts": [],
+                "recoveries": [],
+                "failures": [],
+            }
+            atomic_write_json(run_path, run_state)
+        evidence_ids = [self.manifest.record_file("R15", "r15_run_state_initial", run_path)]
+        started = datetime.fromisoformat(run_state["started_at"])
+        deadline = started.timestamp() + int(run_state["duration_seconds"])
+        heartbeat_index = len(run_state["heartbeats"])
+        while time.time() < deadline:
+            heartbeat_index += 1
+            heartbeat_started = datetime.now(UTC).isoformat(timespec="seconds")
+            try:
+                before = self._status_json("R15", f"heartbeat_{heartbeat_index:04d}_status_before")
+                once = self._wls("R15", f"heartbeat_{heartbeat_index:04d}_once", ["once"])
+                after = self._status_json("R15", f"heartbeat_{heartbeat_index:04d}_status_after")
+                verify = self._wls("R15", f"heartbeat_{heartbeat_index:04d}_verify", ["verify"])
+                self._assert_autonomous_goal_limit(1)
+                heartbeat = {
+                    "index": heartbeat_index,
+                    "started_at": heartbeat_started,
+                    "finished_at": datetime.now(UTC).isoformat(timespec="seconds"),
+                    "before_cycle_count": before["payload"].get("cycle_count"),
+                    "after_cycle_count": after["payload"].get("cycle_count"),
+                    "evidence_ids": [before["evidence_id"], once, after["evidence_id"], verify],
+                    "status": "PASS",
+                }
+                run_state["heartbeats"].append(heartbeat)
+                run_state["restarts"].append(
+                    {
+                        "index": heartbeat_index,
+                        "mode": "process-real CLI relaunch",
+                        "evidence_ids": [once],
+                    }
+                )
+                evidence_ids.extend(heartbeat["evidence_ids"])
+            except Exception as exc:
+                failure = {
+                    "index": heartbeat_index,
+                    "failed_at": datetime.now(UTC).isoformat(timespec="seconds"),
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+                run_state["failures"].append(failure)
+                atomic_write_json(run_path, run_state)
+                self.manifest.record_file("R15", f"heartbeat_{heartbeat_index:04d}_failure_state", run_path)
+                raise
+            atomic_write_json(run_path, run_state)
+            evidence_ids.append(
+                self.manifest.record_file("R15", f"heartbeat_{heartbeat_index:04d}_run_state", run_path)
+            )
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                break
+            time.sleep(min(max(1, self.r15_heartbeat_seconds), remaining))
+        final_verify = self._wls("R15", "final_verify", ["verify"])
+        summary = self._write_measurement_report(
+            "R15",
+            "minimum_life_24h_summary",
+            {
+                "started_at": run_state["started_at"],
+                "ended_at": datetime.now(UTC).isoformat(timespec="seconds"),
+                "duration_seconds_required": run_state["duration_seconds"],
+                "heartbeat_count": len(run_state["heartbeats"]),
+                "restart_count": len(run_state["restarts"]),
+                "failure_count": len(run_state["failures"]),
+            },
+        )
+        evidence_ids.extend([final_verify, summary])
+        for evidence_id in evidence_ids:
+            self.state.append_evidence("R15", evidence_id)
+        return {
+            "status": "PASS",
+            "evidence_ids": evidence_ids,
+            "claim_ceiling": "real elapsed minimum-life validation in campaign clone",
+        }
+
     def _prepare_campaign_home(self) -> None:
         config_path = self.paths.campaign_home / "config.json"
         if self.fresh_snapshot and self.paths.campaign_home.exists():
@@ -726,6 +913,30 @@ class CampaignRunner:
         config["provider"] = merged_provider
         return config
 
+    def _r14_profile_config(self, base: dict[str, Any]) -> dict[str, Any]:
+        config = self._profile_config(base)
+        config["max_autonomous_goals"] = 1
+        config["max_actions_per_cycle"] = 4
+        provider = dict(config.get("provider", {}))
+        provider["type"] = "deterministic"
+        provider["fallback"] = "deterministic"
+        provider["memory_mode"] = "frozen"
+        config["provider"] = provider
+        return config
+
+    def _clean_campaign_config(self, config: dict[str, Any]) -> dict[str, Any]:
+        cleaned = json.loads(json.dumps(config))
+        cleaned["home"] = str(self.paths.campaign_home)
+        cleaned["read_only"] = True
+        cleaned["allow_autonomous_reversible_writes"] = False
+        cleaned["max_autonomous_goals"] = min(int(cleaned.get("max_autonomous_goals", 0)), 1)
+        cleaned["sensors"] = [
+            sensor
+            for sensor in cleaned.get("sensors", [])
+            if not str(sensor.get("name", "")).startswith("campaign_")
+        ]
+        return cleaned
+
     def _with_extra_sensor(self, config: dict[str, Any], sensor: dict[str, Any]) -> dict[str, Any]:
         result = json.loads(json.dumps(config))
         sensors = [item for item in result.get("sensors", []) if item.get("name") != sensor["name"]]
@@ -783,6 +994,94 @@ class CampaignRunner:
         report_path = self.paths.campaign_home / "campaign_evidence" / round_id / f"{label}.json"
         atomic_write_json(report_path, {"label": label, "recorded_at": utc_now(), **payload})
         return self.manifest.record_file(round_id, label, report_path)
+
+    def _write_r14_fault_sensor(self) -> Path:
+        module_path = self.paths.campaign_home / "campaign_r14_fault_sensor.py"
+        module_path.write_text(
+            "\n".join(
+                [
+                    "from __future__ import annotations",
+                    "from wls.sensors.base import Sensor",
+                    "",
+                    "class CampaignR14FaultSensor(Sensor):",
+                    "    def poll(self, previous_state):",
+                    "        raise RuntimeError('campaign R14 recoverable sensor fault')",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        return module_path
+
+    def _autonomous_goal_count(self) -> int:
+        db_path = self.paths.campaign_home / "state" / "wls.db"
+        connection = sqlite3.connect(db_path)
+        try:
+            row = connection.execute(
+                "SELECT COUNT(*) FROM goals WHERE autonomous=1 AND status IN ('ACTIVE','BLOCKED')"
+            ).fetchone()
+            return int(row[0]) if row else 0
+        finally:
+            connection.close()
+
+    def _assert_autonomous_goal_limit(self, limit: int) -> None:
+        count = self._autonomous_goal_count()
+        if count > limit:
+            raise RuntimeError(f"autonomous goal limit exceeded: {count} > {limit}")
+
+    def _r14_goal_report(self) -> str:
+        db_path = self.paths.campaign_home / "state" / "wls.db"
+        connection = sqlite3.connect(db_path)
+        connection.row_factory = sqlite3.Row
+        try:
+            rows = [
+                dict(row)
+                for row in connection.execute(
+                    """
+                    SELECT goal_id,title,description,priority,source,autonomous,status,progress,created_at,updated_at
+                    FROM goals WHERE autonomous=1
+                    ORDER BY rowid DESC
+                    """
+                )
+            ]
+        finally:
+            connection.close()
+        if len(rows) != 1:
+            raise RuntimeError(f"expected exactly one autonomous goal, found {len(rows)}")
+        title = str(rows[0]["title"])
+        if not title.startswith(LEVEL2_GOAL_PREFIXES):
+            raise RuntimeError(f"autonomous goal has invalid prefix: {title}")
+        return self._write_measurement_report(
+            "R14",
+            "endogenous_goal",
+            {
+                "goal": rows[0],
+                "trigger": "real WLS internal state selected by AutonomySystem",
+                "allowed_goal_prefixes": list(LEVEL2_GOAL_PREFIXES),
+                "max_autonomous_goals": 1,
+            },
+        )
+
+    def _latest_action_report(self, round_id: str, label: str) -> str:
+        db_path = self.paths.campaign_home / "state" / "wls.db"
+        connection = sqlite3.connect(db_path)
+        connection.row_factory = sqlite3.Row
+        try:
+            row = connection.execute(
+                """
+                SELECT action_id,plan_id,goal_id,tool,purpose,risk,status,side_effect_class,
+                       started_at,finished_at,result_json,error
+                FROM actions ORDER BY rowid DESC LIMIT 1
+                """
+            ).fetchone()
+            action = dict(row) if row else None
+        finally:
+            connection.close()
+        if not action:
+            raise RuntimeError("expected resulting R14 action")
+        if action["side_effect_class"] != "none" and str(action["risk"]).upper() != "READ":
+            raise RuntimeError(f"R14 action is not read-only: {action}")
+        return self._write_measurement_report(round_id, label, {"action": action})
 
     def _sensor_state_report(
         self, round_id: str, label: str, sensor_name: str, expect_error: bool = True
@@ -917,6 +1216,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--fresh-snapshot", action="store_true")
     parser.add_argument("--repair-round")
     parser.add_argument("--repair-note", default="candidate branch repair")
+    parser.add_argument("--authorize-level2", action="store_true")
+    parser.add_argument("--r15-duration-seconds", type=int, default=24 * 60 * 60)
+    parser.add_argument("--r15-heartbeat-seconds", type=int, default=5 * 60)
     return parser
 
 
@@ -937,6 +1239,9 @@ def main(argv: list[str] | None = None) -> int:
             paths=paths,
             execute=args.execute,
             fresh_snapshot=args.fresh_snapshot,
+            authorize_level2=args.authorize_level2,
+            r15_duration_seconds=args.r15_duration_seconds,
+            r15_heartbeat_seconds=args.r15_heartbeat_seconds,
         )
         if args.repair_round:
             result = runner.reset_from_round(args.repair_round, args.repair_note)
