@@ -53,8 +53,10 @@ ROLLED_BACK
 ```
 
 Rounds are strictly contiguous. A round can start only after every previous
-round is `PASS`. Any failed or owner-review round blocks all later pending
-rounds. The runner never skips a failed round.
+round is `PASS`, except for the explicit R15 partial-continuation gate described
+below. Any failed or owner-review round blocks all later pending rounds unless a
+specific Owner authorization opens a documented continuation path. The runner
+never skips a failed round.
 
 ## R01 Baseline Lock
 
@@ -99,8 +101,14 @@ replace raw evidence.
 This implementation supports executable handlers for R01-R13. R14 is the first
 LEVEL_2 boundary and remains owner-gated because it admits an endogenous
 read-only Goal. R15 also requires real elapsed time for 24-hour validation.
-R16-R30 are fully specified in the campaign spec but remain blocked behind the
-earlier gates.
+R16-R30 are fully specified in the campaign spec and normally remain blocked
+behind the earlier gates.
+
+If the Owner explicitly stops R15 before 24 hours, the runner preserves the
+partial heartbeat evidence and marks R15 `OWNER_REVIEW`, not `PASS`. A separate
+Owner authorization can then open an `R15_PARTIAL_OWNER_AUTHORIZED` continuation
+gate. That gate allows R16+ to be evaluated on a new continuation path without
+claiming R15 `PASS` or promoting the campaign to `LEVEL_3`.
 
 R05 passing updates campaign state to `LEVEL_1`; this is only a campaign-clone
 permission signal and does not modify the live instance or authorize R06.

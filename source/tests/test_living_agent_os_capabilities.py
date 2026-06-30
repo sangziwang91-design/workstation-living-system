@@ -14,11 +14,13 @@ from wls.capabilities import (
     baseline_registry,
 )
 from wls.channel_gateway import ChannelGateway, ChannelMessage
+from wls.config import default_config
 from wls.coding_adapter import CodingTaskContract
 from wls.computer_adapter import ComputerUseAdapter, ComputerUseContract
 from wls.mcp_adapter import McpCandidate, McpTrustGate
 from wls.multimodal import MultimodalArtifactEnvelope
 from wls.provider_router import ProviderDescriptor, ProviderRouter, RouteRequest
+from wls.runtime import LivingSystem
 from wls.scheduler import EventScheduler, ScheduledEvent
 from wls.ui_projection import OwnerConsoleProjection
 from wls.wechat_adapter import WeChatW0W1Adapter
@@ -102,6 +104,39 @@ def test_channel_and_scheduler_emit_events_only() -> None:
                 side_effect_class="external",
             )
         )
+
+
+def test_channel_and_scheduler_submit_through_event_store(tmp_path: Path) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    channel_event_id, channel_inserted = ChannelGateway().submit(
+        ChannelMessage("owner_console", "owner", "status?", "m2"),
+        runtime.events,
+    )
+    scheduled_event_id, scheduled_inserted = EventScheduler().submit_due(
+        ScheduledEvent(
+            schedule_id="s3",
+            event_type="scheduled.read_only_check",
+            payload={"target": "status"},
+            due_at="2026-06-30T00:00:00+00:00",
+        ),
+        runtime.events,
+    )
+    assert channel_inserted is True
+    assert scheduled_inserted is True
+    rows = runtime.db.query_all(
+        "SELECT event_id,event_type,source FROM events ORDER BY rowid"
+    )
+    assert [row["event_id"] for row in rows] == [channel_event_id, scheduled_event_id]
+    assert rows[0]["event_type"] == "channel.message"
+    assert rows[1]["source"] == "scheduler"
+
+
+def test_living_system_status_exposes_capability_projection(tmp_path: Path) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    status = runtime.status()
+    assert status["capabilities"]["authority_model"] == "canonical WLS owners only"
+    assert status["capabilities"]["count"] >= 10
+    assert status["capabilities"]["by_owner"]["events"] >= 1
 
 
 def test_provider_router_enforces_local_first_and_cost() -> None:

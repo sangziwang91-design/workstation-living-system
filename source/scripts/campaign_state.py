@@ -202,7 +202,11 @@ class CampaignState:
         previous = self.previous_rounds(round_id)
         for prior in previous:
             status = self.round_status(prior)
-            if status != "PASS":
+            if status == "PASS":
+                continue
+            if self._allows_partial_continuation(prior):
+                continue
+            else:
                 return False, f"{round_id} is blocked by {prior} status {status}"
         status = self.round_status(round_id)
         if status in {"PASS", "OWNER_REVIEW"}:
@@ -210,6 +214,18 @@ class CampaignState:
         if status in {"FAIL", "BLOCKED"}:
             return False, f"{round_id} is terminal {status}; use rollback/manual review"
         return True, "ready"
+
+    def _allows_partial_continuation(self, round_id: str) -> bool:
+        if round_id != "R15":
+            return False
+        round_state = self.data["rounds"][round_id]
+        verdict = round_state.get("verdict")
+        return (
+            round_state.get("status") == "OWNER_REVIEW"
+            and isinstance(verdict, dict)
+            and verdict.get("continuation_authorized") is True
+            and verdict.get("partial_continuation_from") == "R15"
+        )
 
     def previous_rounds(self, round_id: str) -> list[str]:
         keys = list(self.data["rounds"])
@@ -258,6 +274,51 @@ class CampaignState:
         round_state["finished_at"] = utc_now()
         round_state["verdict"] = verdict
         self.block_after(round_id, f"blocked after owner-stopped {round_id}")
+        self.save()
+
+    def authorize_partial_continuation(
+        self, round_id: str, verdict_patch: dict[str, Any]
+    ) -> None:
+        if round_id != "R15":
+            raise ValueError("partial continuation is currently only defined for R15")
+        round_state = self.data["rounds"][round_id]
+        if round_state["status"] != "OWNER_REVIEW":
+            raise ValueError(f"{round_id} must be OWNER_REVIEW, got {round_state['status']}")
+        verdict = round_state.get("verdict")
+        if not isinstance(verdict, dict):
+            verdict = {}
+        history = round_state.setdefault("continuation_history", [])
+        history.append(
+            {
+                "authorized_at": utc_now(),
+                "previous_verdict": dict(verdict),
+                "patch": verdict_patch,
+            }
+        )
+        verdict.update(verdict_patch)
+        verdict["continuation_authorized"] = True
+        verdict["partial_continuation_from"] = round_id
+        verdict["status"] = "OWNER_REVIEW"
+        round_state["verdict"] = verdict
+        for later, value in self.data["rounds"].items():
+            if later <= round_id:
+                continue
+            later_verdict = value.get("verdict")
+            if (
+                value["status"] == "BLOCKED"
+                and isinstance(later_verdict, dict)
+                and later_verdict.get("reason") == f"blocked after owner-stopped {round_id}"
+            ):
+                value.setdefault("continuation_history", []).append(
+                    {
+                        "authorized_at": utc_now(),
+                        "previous_status": "BLOCKED",
+                        "previous_verdict": later_verdict,
+                        "reason": f"{round_id} partial continuation authorized",
+                    }
+                )
+                value["status"] = "PENDING"
+                value["verdict"] = None
         self.save()
 
     def block_after(self, round_id: str, reason: str) -> None:

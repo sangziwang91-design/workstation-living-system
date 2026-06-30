@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .schemas import Event, digest_json, utc_now
+from .stores import EventStore
 
 
 @dataclass(slots=True)
@@ -41,3 +42,6 @@ class EventScheduler:
                 }
             ),
         )
+
+    def submit_due(self, item: ScheduledEvent, events: EventStore) -> tuple[str, bool]:
+        return events.add_event(self.emit_due(item))

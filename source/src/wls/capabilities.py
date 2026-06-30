@@ -118,6 +118,19 @@ class CapabilityRegistry:
     def list(self) -> list[dict[str, Any]]:
         return [item.to_dict() for item in self._items.values()]
 
+    def summary(self) -> dict[str, Any]:
+        by_owner: dict[str, int] = {}
+        by_mode: dict[str, int] = {}
+        for item in self._items.values():
+            by_owner[item.canonical_owner] = by_owner.get(item.canonical_owner, 0) + 1
+            by_mode[item.mode.value] = by_mode.get(item.mode.value, 0) + 1
+        return {
+            "count": len(self._items),
+            "by_owner": by_owner,
+            "by_mode": by_mode,
+            "authority_model": "canonical WLS owners only",
+        }
+
     def assert_no_duplicate_authority(self) -> None:
         for manifest in self._items.values():
             if manifest.declares_authority:

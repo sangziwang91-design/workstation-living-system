@@ -13,6 +13,7 @@ from ._version import __version__
 from .approval import ApprovalManager
 from .autonomy import AutonomySystem
 from .attention import AttentionSystem
+from .capabilities import baseline_registry
 from .cognition import CognitiveEngine
 from .config import RuntimeConfig, load_or_create_config
 from .db import Database
@@ -92,6 +93,8 @@ class LivingSystem:
         )
         self.planner = Planner(config, self.cognition, self.ledger)
         self.growth = GrowthCycleManager(self)
+        self.capabilities = baseline_registry()
+        self.capabilities.assert_no_duplicate_authority()
         self._load_plugins()
         self.lease = ProcessLease(config.home_path / "state" / "runtime.lock")
         self.worker_id = f"wls-{os.getpid()}-{new_id('worker')[-8:]}"
@@ -882,6 +885,7 @@ class LivingSystem:
             "temporal_world": self.temporal_world.summary(),
             "causal_memory": self.memories.memory_summary(),
             "memory_attribution": self.memory_attribution.summary(),
+            "capabilities": self.capabilities.summary(),
             "next_focus": self.db.get_runtime("next_focus", []),
         }
 

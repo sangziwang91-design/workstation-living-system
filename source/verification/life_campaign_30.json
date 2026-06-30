@@ -211,7 +211,7 @@
       "round_id": "R16",
       "title": "Capture real repeated failure",
       "phase": "IV.first-real-evolution",
-      "entry_conditions": ["R15 PASS"],
+      "entry_conditions": ["R15 PASS or R15 owner-authorized partial continuation"],
       "operations": ["observe at least three real failures", "normalize signature", "bind evidence"],
       "pass_conditions": ["same normalized signature", "not synthetic masquerading as real failure"],
       "fail_conditions": ["failure invented", "evidence not bound"],
@@ -404,4 +404,3 @@
     }
   ]
 }
-

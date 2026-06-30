@@ -103,9 +103,115 @@ class CampaignRunner:
             **verdict,
         }
 
+    def authorize_partial_continuation(self, round_id: str, reason: str) -> dict[str, Any]:
+        with CampaignLock(self.lock_path):
+            if round_id != "R15":
+                raise ValueError("partial continuation is currently only defined for R15")
+            sync_report = self._write_progress_sync_report(round_id, reason)
+            evidence_id = self.manifest.record_file(
+                round_id,
+                "partial_continuation_progress_sync",
+                sync_report,
+                {"reason": reason},
+            )
+            self.state.append_evidence(round_id, evidence_id)
+            verdict_patch = {
+                "reason": reason,
+                "evidence_ids": [evidence_id],
+                "continuation_gate": "R15_PARTIAL_OWNER_AUTHORIZED",
+                "claim_ceiling": (
+                    "R15 remains OWNER_REVIEW and not PASS; R16+ may enter the new "
+                    "continuation path when their own gates are satisfied"
+                ),
+            }
+            self.state.authorize_partial_continuation(round_id, verdict_patch)
+        return {
+            "campaign_id": self.spec.get("campaign_id"),
+            "state_path": str(self.state_path),
+            "manifest_path": str(self.manifest.manifest_path),
+            "round_id": round_id,
+            "status": "OWNER_REVIEW",
+            "continuation_authorized": True,
+            "evidence_ids": [evidence_id],
+            "sync_report": str(sync_report),
+            "claim_ceiling": verdict_patch["claim_ceiling"],
+        }
+
+    def _write_progress_sync_report(self, round_id: str, reason: str) -> Path:
+        report_path = (
+            self.paths.campaign_home
+            / "campaign_evidence"
+            / round_id
+            / "partial_continuation_progress_sync.json"
+        )
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        run_path = self.paths.campaign_home / "campaign_evidence" / "R15" / "r15_run.json"
+        r15_run = load_json(run_path) if run_path.exists() else {}
+        branch = self._git_value(["rev-parse", "--abbrev-ref", "HEAD"])
+        head = self._git_value(["rev-parse", "HEAD"])
+        payload = {
+            "authorized_at": utc_now(),
+            "reason": reason,
+            "mainline_campaign": {
+                "campaign_id": self.spec.get("campaign_id"),
+                "round": round_id,
+                "status": self.state.round_status(round_id),
+                "r15_started_at": r15_run.get("started_at"),
+                "r15_heartbeat_count": len(r15_run.get("heartbeats", [])),
+                "r15_failure_count": len(r15_run.get("failures", [])),
+                "r15_restart_count": len(r15_run.get("restarts", [])),
+                "r15_not_passed": True,
+                "continuation_gate": "R15_PARTIAL_OWNER_AUTHORIZED",
+            },
+            "branch_integration": {
+                "branch": branch,
+                "head": head,
+                "capability_task": "WLS-LIVING-AGENT-OS-CAPABILITIES-001",
+                "sync_state": (
+                    "capability organs are repository-level adapters/projections; "
+                    "campaign mainline may continue without claiming R15 PASS"
+                ),
+            },
+            "claim_ceiling": (
+                "Owner-authorized continuation sync only; no LEVEL_3 promotion, "
+                "live deployment, Skill promotion, or R15 PASS claim"
+            ),
+        }
+        atomic_write_json(report_path, payload)
+        return report_path
+
+    @staticmethod
+    def _git_value(args: list[str]) -> str:
+        git_path = shutil.which("git")
+        if not git_path:
+            return "UNKNOWN"
+        completed = subprocess.run(  # nosec B603
+            [git_path, *args],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+            shell=False,
+        )
+        if completed.returncode != 0:
+            return "UNKNOWN"
+        return completed.stdout.strip()
+
     def run(self, round_ids: list[str]) -> dict[str, Any]:
         results: list[dict[str, Any]] = []
         with CampaignLock(self.lock_path):
+            if not self.execute:
+                results = [
+                    {"round_id": round_id, **self._planned_verdict(round_id)}
+                    for round_id in round_ids
+                ]
+                return {
+                    "campaign_id": self.spec.get("campaign_id"),
+                    "state_path": str(self.state_path),
+                    "manifest_path": str(self.manifest.manifest_path),
+                    "automation_level": self.state.data["automation_level"],
+                    "results": results,
+                }
             for round_id in round_ids:
                 if round_id not in self.state.data["rounds"]:
                     raise ValueError(f"unknown round: {round_id}")
@@ -1251,6 +1357,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--repair-note", default="candidate branch repair")
     parser.add_argument("--owner-stop-round")
     parser.add_argument("--owner-stop-reason", default="Owner stopped round")
+    parser.add_argument("--authorize-partial-continuation-round")
+    parser.add_argument(
+        "--partial-continuation-reason",
+        default="Owner authorized partial continuation",
+    )
     parser.add_argument("--authorize-level2", action="store_true")
     parser.add_argument("--r15-duration-seconds", type=int, default=24 * 60 * 60)
     parser.add_argument("--r15-heartbeat-seconds", type=int, default=5 * 60)
@@ -1282,6 +1393,11 @@ def main(argv: list[str] | None = None) -> int:
             result = runner.reset_from_round(args.repair_round, args.repair_note)
         elif args.owner_stop_round:
             result = runner.owner_stop_round(args.owner_stop_round, args.owner_stop_reason)
+        elif args.authorize_partial_continuation_round:
+            result = runner.authorize_partial_continuation(
+                args.authorize_partial_continuation_round,
+                args.partial_continuation_reason,
+            )
         else:
             result = runner.run(round_ids)
         print(json.dumps(result, indent=2, ensure_ascii=False, sort_keys=True))

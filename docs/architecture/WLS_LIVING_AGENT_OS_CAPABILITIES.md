@@ -29,6 +29,11 @@ New capability modules are adapters, projections, event sources, workbenches, or
 candidate-artifact contracts. They do not create a second runtime, planner,
 memory, goal store, policy engine, evidence ledger, or skill system.
 
+`LivingSystem` owns a rebuildable capability registry projection via
+`self.capabilities`. The registry appears in `status()` as a summary only; it
+does not create canonical tables or replace existing stores. Channel and
+scheduler helpers submit only canonical Events through `EventStore`.
+
 ## Current Admissions
 
 - P01 is admitted as a registry and authority guard.

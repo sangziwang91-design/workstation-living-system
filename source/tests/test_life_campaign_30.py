@@ -400,6 +400,8 @@ def test_dry_run_prepares_owner_command_without_runtime_claim(tmp_path: Path) ->
     result = runner.run(["R01"])
     assert result["results"][0]["status"] == "OWNER_REVIEW"
     assert "-StartRound R01 -EndRound R01 -Execute" in result["results"][0]["owner_command"]
+    state = load_json(paths.campaign_home / "campaign_state.json")
+    assert state["rounds"]["R01"]["status"] == "PENDING"
 
 
 def test_powershell_wrapper_uses_file_runner_not_source_module() -> None:
@@ -480,6 +482,48 @@ def test_owner_stop_preserves_partial_r15_without_pass(tmp_path: Path) -> None:
     assert state["automation_level"] == "LEVEL_2"
     assert state["rounds"]["R15"]["evidence"]
     assert "not PASS" in state["rounds"]["R15"]["verdict"]["claim_ceiling"]
+
+
+def test_owner_authorizes_r15_partial_continuation_path(tmp_path: Path) -> None:
+    paths, _ = _make_fake_install(tmp_path)
+    runner = CampaignRunner(
+        REPO_ROOT / "source" / "verification" / "life_campaign_30.json",
+        paths,
+        execute=True,
+        authorize_level2=True,
+    )
+    runner.run([f"R{index:02d}" for index in range(1, 15)])
+    runner.state.mark_running("R15")
+    run_path = paths.campaign_home / "campaign_evidence" / "R15" / "r15_run.json"
+    run_path.parent.mkdir(parents=True, exist_ok=True)
+    run_path.write_text(
+        json.dumps(
+            {
+                "started_at": "2026-06-30T00:53:00+00:00",
+                "duration_seconds": 86400,
+                "heartbeat_seconds": 300,
+                "heartbeats": [{"index": 1, "status": "PASS"}],
+                "restarts": [{"index": 1}],
+                "recoveries": [],
+                "failures": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    runner.owner_stop_round("R15", "Owner stopped 24-hour round")
+    result = runner.authorize_partial_continuation(
+        "R15",
+        "Owner authorized new continuation path after partial R15",
+    )
+    state = load_json(paths.campaign_home / "campaign_state.json")
+    assert result["continuation_authorized"] is True
+    assert state["rounds"]["R15"]["status"] == "OWNER_REVIEW"
+    assert state["rounds"]["R15"]["verdict"]["continuation_authorized"] is True
+    assert state["rounds"]["R15"]["verdict"]["partial_continuation_from"] == "R15"
+    assert state["rounds"]["R16"]["status"] == "PENDING"
+    assert state["automation_level"] == "LEVEL_2"
+    ready, reason = runner.state.can_start("R16")
+    assert ready is True, reason
 
 
 def test_repository_integration_cli_dry_run(tmp_path: Path) -> None:

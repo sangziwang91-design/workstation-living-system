@@ -30,6 +30,12 @@ param(
     [string]$OwnerStopReason = "Owner stopped round",
 
     [Parameter(Mandatory = $false)]
+    [string]$AuthorizePartialContinuationRound = "",
+
+    [Parameter(Mandatory = $false)]
+    [string]$PartialContinuationReason = "Owner authorized partial continuation",
+
+    [Parameter(Mandatory = $false)]
     [int]$R15DurationSeconds = 86400,
 
     [Parameter(Mandatory = $false)]
@@ -115,6 +121,10 @@ if ($AuthorizeLevel2) {
 if ($OwnerStopRound -ne "") {
     $Arguments += @("--owner-stop-round", $OwnerStopRound)
     $Arguments += @("--owner-stop-reason", $OwnerStopReason)
+}
+if ($AuthorizePartialContinuationRound -ne "") {
+    $Arguments += @("--authorize-partial-continuation-round", $AuthorizePartialContinuationRound)
+    $Arguments += @("--partial-continuation-reason", $PartialContinuationReason)
 }
 $Arguments += @("--r15-duration-seconds", "$R15DurationSeconds")
 $Arguments += @("--r15-heartbeat-seconds", "$R15HeartbeatSeconds")
