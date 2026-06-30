@@ -4,6 +4,7 @@ from pathlib import Path
 import argparse
 import json
 import sys
+import tempfile
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -11,24 +12,28 @@ SRC_ROOT = REPO_ROOT / "source" / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from wls.architecture_validation import ArchitecturePassResult, validate_p01_registry  # noqa: E402
+from wls.architecture_validation import (  # noqa: E402
+    ArchitecturePassResult,
+    validate_p01_registry,
+    validate_runtime_event_ingress,
+)
 
 
 PASS_CONTRACTS = {
-    "P02": "scheduler emits Events only; restart semantics remain campaign/runtime responsibility",
     "P03": "existing ApprovalManager covers digest, expiry, nonce, replay consumption",
     "P04": "browser read-only contract admitted; computer use remains sandbox-blocked",
     "P05": "coding worktree contract returns candidate artifacts only",
     "P06": "external memory remains shadow-only by registry rule",
     "P07": "MCP/A2A outputs are validated candidates, not canonical truth",
     "P08": "provider routing enforces local-first and cost constraints",
-    "P09": "Owner Console and WeChat W0/W1 are read-only Event/projection paths",
     "P10": "workbench templates bind to existing planning/evolution/skills authorities",
 }
 
 
 def run_validation() -> dict[str, object]:
     results: list[ArchitecturePassResult] = [validate_p01_registry()]
+    with tempfile.TemporaryDirectory(prefix="wls-architecture-validation-") as temp:
+        results.extend(validate_runtime_event_ingress(Path(temp) / "home"))
     for pass_id, note in PASS_CONTRACTS.items():
         results.append(
             ArchitecturePassResult(

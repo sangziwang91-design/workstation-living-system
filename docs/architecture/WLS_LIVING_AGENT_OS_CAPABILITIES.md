@@ -34,10 +34,17 @@ memory, goal store, policy engine, evidence ledger, or skill system.
 does not create canonical tables or replace existing stores. Channel and
 scheduler helpers submit only canonical Events through `EventStore`.
 
+`LivingSystem.ingest_channel_message(...)` and
+`LivingSystem.emit_scheduled_event(...)` are the current fitted runtime seams for
+channel and scheduler organs. They return EventStore insertion results and do
+not create Actions, Goals, Memories, Skills, or tool executions directly.
+
 ## Current Admissions
 
 - P01 is admitted as a registry and authority guard.
-- P02-P10 are design-level admissions backed by contract tests.
+- P02/P09 are shadow-level runtime admissions for EventStore ingress.
+- P03-P10 remain design-level admissions where no real external operation is
+  safe or authorized yet.
 - Computer use remains blocked without a verified disposable sandbox.
 - MCP discovery is rejected unless identity is pinned and reviewed.
 - A2A and coding outputs remain candidate-only.

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from wls.a2a_adapter import A2AAdapter, ArtifactEnvelope, TaskContract
-from wls.architecture_validation import validate_p01_registry
+from wls.architecture_validation import validate_p01_registry, validate_runtime_event_ingress
 from wls.browser_adapter import BrowserReadOnlyAdapter, BrowserReadOnlyRequest
 from wls.capabilities import (
     CapabilityManifest,
@@ -137,6 +137,25 @@ def test_living_system_status_exposes_capability_projection(tmp_path: Path) -> N
     assert status["capabilities"]["authority_model"] == "canonical WLS owners only"
     assert status["capabilities"]["count"] >= 10
     assert status["capabilities"]["by_owner"]["events"] >= 1
+
+
+def test_living_system_exposes_channel_and_scheduler_ingress(tmp_path: Path) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    channel_id, channel_inserted = runtime.ingest_channel_message(
+        ChannelMessage("owner_console", "owner", "status?", "m-runtime")
+    )
+    scheduled_id, scheduled_inserted = runtime.emit_scheduled_event(
+        ScheduledEvent(
+            schedule_id="s-runtime",
+            event_type="scheduled.read_only_check",
+            payload={"target": "status"},
+            due_at="2026-06-30T00:00:00+00:00",
+        )
+    )
+    assert channel_inserted is True
+    assert scheduled_inserted is True
+    assert runtime.events.counts()["PENDING"] == 2
+    assert channel_id != scheduled_id
 
 
 def test_provider_router_enforces_local_first_and_cost() -> None:
@@ -281,3 +300,12 @@ def test_architecture_validation_p01_admits_registry() -> None:
     assert result.pass_id == "P01"
     assert result.verdict == "ADMIT"
     assert "channel_ingress" in result.evidence
+
+
+def test_architecture_validation_checks_runtime_event_ingress(tmp_path: Path) -> None:
+    results = validate_runtime_event_ingress(tmp_path / "home")
+    by_pass = {result.pass_id: result for result in results}
+    assert by_pass["P02"].verdict == "ADMIT_SHADOW_ONLY"
+    assert by_pass["P09"].verdict == "ADMIT_SHADOW_ONLY"
+    assert by_pass["P02"].evidence
+    assert by_pass["P09"].evidence

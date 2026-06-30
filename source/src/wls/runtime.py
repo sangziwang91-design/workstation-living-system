@@ -14,6 +14,7 @@ from .approval import ApprovalManager
 from .autonomy import AutonomySystem
 from .attention import AttentionSystem
 from .capabilities import baseline_registry
+from .channel_gateway import ChannelGateway, ChannelMessage
 from .cognition import CognitiveEngine
 from .config import RuntimeConfig, load_or_create_config
 from .db import Database
@@ -39,6 +40,7 @@ from .schemas import (
 )
 from .self_model import SelfModel
 from .sensors import build_sensor
+from .scheduler import EventScheduler, ScheduledEvent
 from .skills import SkillLibrary
 from .sleep import SleepConsolidator
 from .stores import EventStore, GoalStore, MemoryStore
@@ -95,6 +97,8 @@ class LivingSystem:
         self.growth = GrowthCycleManager(self)
         self.capabilities = baseline_registry()
         self.capabilities.assert_no_duplicate_authority()
+        self.channel_gateway = ChannelGateway()
+        self.event_scheduler = EventScheduler()
         self._load_plugins()
         self.lease = ProcessLease(config.home_path / "state" / "runtime.lock")
         self.worker_id = f"wls-{os.getpid()}-{new_id('worker')[-8:]}"
@@ -175,6 +179,12 @@ class LivingSystem:
 
     def add_goal(self, goal: Goal) -> str:
         return self.goals.add(goal)
+
+    def ingest_channel_message(self, message: ChannelMessage) -> tuple[str, bool]:
+        return self.channel_gateway.submit(message, self.events)
+
+    def emit_scheduled_event(self, item: ScheduledEvent) -> tuple[str, bool]:
+        return self.event_scheduler.submit_due(item, self.events)
 
     def run_cycle(self) -> dict[str, Any]:
         if self.db.get_runtime("kill_switch", False):

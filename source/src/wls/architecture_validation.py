@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any
 
 from .capabilities import baseline_registry
+from .channel_gateway import ChannelMessage
+from .config import default_config
+from .runtime import LivingSystem
+from .scheduler import ScheduledEvent
 
 
 ALLOWED_VERDICTS = {
@@ -45,3 +50,51 @@ def validate_p01_registry() -> ArchitecturePassResult:
         [item["capability_id"] for item in registry.list()],
         ["registry is an adapter/projection map; canonical owners remain existing WLS classes"],
     )
+
+
+def validate_runtime_event_ingress(home: Path) -> list[ArchitecturePassResult]:
+    runtime = LivingSystem(default_config(home))
+    channel_id, channel_inserted = runtime.ingest_channel_message(
+        ChannelMessage("owner_console", "owner", "status?", "validation-channel-1")
+    )
+    scheduled_id, scheduled_inserted = runtime.emit_scheduled_event(
+        ScheduledEvent(
+            schedule_id="validation-schedule-1",
+            event_type="scheduled.read_only_check",
+            payload={"target": "status"},
+            due_at="2026-06-30T00:00:00+00:00",
+        )
+    )
+    rows = runtime.db.query_all(
+        "SELECT event_id,event_type,source FROM events WHERE event_id IN (?,?)",
+        (channel_id, scheduled_id),
+    )
+    if not channel_inserted or not scheduled_inserted or len(rows) != 2:
+        return [
+            ArchitecturePassResult(
+                "P02",
+                "BLOCKED",
+                [],
+                ["runtime EventStore integration did not persist both events"],
+            ),
+            ArchitecturePassResult(
+                "P09",
+                "BLOCKED",
+                [],
+                ["runtime channel ingress did not persist through EventStore"],
+            ),
+        ]
+    return [
+        ArchitecturePassResult(
+            "P02",
+            "ADMIT_SHADOW_ONLY",
+            [scheduled_id],
+            ["scheduler is admitted as runtime Event source; durable restart experiment remains future gate"],
+        ),
+        ArchitecturePassResult(
+            "P09",
+            "ADMIT_SHADOW_ONLY",
+            [channel_id],
+            ["channel ingress reaches canonical EventStore through LivingSystem"],
+        ),
+    ]
