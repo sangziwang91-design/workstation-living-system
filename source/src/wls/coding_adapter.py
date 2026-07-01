@@ -1,8 +1,29 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+import hashlib
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
+
+
+class ChangedFileReceipt(TypedDict):
+    path: str
+    sha256: str
+    bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class CodingCandidateReceipt:
+    task_id: str
+    base_sha: str
+    worktree: str
+    changed_files: list[ChangedFileReceipt]
+    tests: list[str]
+    rollback: list[str]
+    status: str = "CANDIDATE_ONLY"
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass(slots=True)
@@ -19,9 +40,49 @@ class CodingTaskContract:
             raise ValueError("task_id and base_sha are required")
         if not self.worktree.is_absolute():
             raise ValueError("worktree must be absolute")
+        if not self.worktree.exists() or not self.worktree.is_dir():
+            raise ValueError("worktree must exist")
+        if not self.changed_files:
+            raise ValueError("coding task requires changed files")
+        if not self.tests:
+            raise ValueError("coding task requires tests")
         if not self.rollback:
             raise ValueError("coding task requires rollback")
+        for relative_file in self.changed_files:
+            self._resolve_changed_file(relative_file)
 
     def candidate_artifact(self) -> dict[str, Any]:
+        return self.candidate_receipt().to_dict()
+
+    def candidate_receipt(self) -> CodingCandidateReceipt:
         self.validate()
-        return {"status": "CANDIDATE_ONLY", "contract": asdict(self)}
+        files: list[ChangedFileReceipt] = []
+        for relative_file in sorted(self.changed_files):
+            path = self._resolve_changed_file(relative_file)
+            if not path.is_file():
+                raise ValueError("changed file must exist")
+            content = path.read_bytes()
+            files.append(
+                {
+                    "path": relative_file.replace("\\", "/"),
+                    "sha256": hashlib.sha256(content).hexdigest(),
+                    "bytes": len(content),
+                }
+            )
+        return CodingCandidateReceipt(
+            task_id=self.task_id,
+            base_sha=self.base_sha,
+            worktree=str(self.worktree),
+            changed_files=files,
+            tests=list(self.tests),
+            rollback=list(self.rollback),
+        )
+
+    def _resolve_changed_file(self, relative_file: str) -> Path:
+        if not relative_file or Path(relative_file).is_absolute():
+            raise ValueError("changed files must be relative paths")
+        root = self.worktree.resolve()
+        candidate = (root / relative_file).resolve()
+        if candidate != root and root not in candidate.parents:
+            raise ValueError("changed file escapes worktree")
+        return candidate

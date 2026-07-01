@@ -9,6 +9,7 @@ import pytest
 from wls.a2a_adapter import A2AAdapter, ArtifactEnvelope, TaskContract
 from wls.architecture_validation import (
     validate_browser_computer_organs,
+    validate_coding_worktree_candidate,
     validate_p01_registry,
     validate_runtime_approval_receipts,
     validate_runtime_event_ingress,
@@ -269,6 +270,7 @@ def test_computer_use_blocks_without_sandbox() -> None:
 
 
 def test_coding_worktree_contract_is_candidate_only(tmp_path: Path) -> None:
+    (tmp_path / "x.py").write_text("print('candidate')\n", encoding="utf-8")
     contract = CodingTaskContract(
         task_id="task-1",
         base_sha="abc123",
@@ -279,6 +281,17 @@ def test_coding_worktree_contract_is_candidate_only(tmp_path: Path) -> None:
     )
     artifact = contract.candidate_artifact()
     assert artifact["status"] == "CANDIDATE_ONLY"
+    assert artifact["changed_files"][0]["path"] == "x.py"
+    assert artifact["changed_files"][0]["sha256"]
+    with pytest.raises(ValueError, match="escapes worktree"):
+        CodingTaskContract(
+            task_id="task-escape",
+            base_sha="abc123",
+            worktree=tmp_path.resolve(),
+            changed_files=["..\\escape.py"],
+            tests=["pytest"],
+            rollback=["remove worktree"],
+        ).candidate_artifact()
 
 
 def test_unpinned_mcp_rejected_and_reviewed_candidate_admitted() -> None:
@@ -386,6 +399,13 @@ def test_architecture_validation_checks_runtime_approval_receipts(tmp_path: Path
 def test_architecture_validation_checks_browser_computer_organs() -> None:
     result = validate_browser_computer_organs()
     assert result.pass_id == "P04"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert result.evidence
+
+
+def test_architecture_validation_checks_coding_worktree_candidate(tmp_path: Path) -> None:
+    result = validate_coding_worktree_candidate(tmp_path / "worktree")
+    assert result.pass_id == "P05"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert result.evidence
 

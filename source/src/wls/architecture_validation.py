@@ -12,6 +12,7 @@ from .capabilities import baseline_registry
 from .channel_gateway import ChannelMessage
 from .computer_adapter import ComputerUseAdapter, ComputerUseContract
 from .config import default_config
+from .coding_adapter import CodingTaskContract
 from .runtime import LivingSystem
 from .scheduler import ScheduledEvent
 from .schemas import ActionSpec, ActionStatus, Plan, RiskLevel, utc_now
@@ -278,6 +279,56 @@ def validate_browser_computer_organs() -> ArchitecturePassResult:
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+def validate_coding_worktree_candidate(worktree: Path) -> ArchitecturePassResult:
+    worktree.mkdir(parents=True, exist_ok=True)
+    candidate = worktree / "candidate_patch.py"
+    candidate.write_text(
+        "def candidate_value() -> str:\n    return 'candidate-only'\n",
+        encoding="utf-8",
+    )
+    contract = CodingTaskContract(
+        task_id="architecture-validation-coding",
+        base_sha="fixture-base-sha",
+        worktree=worktree.resolve(),
+        changed_files=["candidate_patch.py"],
+        tests=["pytest source/tests/test_living_agent_os_capabilities.py"],
+        rollback=[f"remove disposable worktree {worktree}"],
+    )
+    receipt = contract.candidate_receipt()
+    escaped_blocked = False
+    try:
+        CodingTaskContract(
+            task_id="architecture-validation-escape",
+            base_sha="fixture-base-sha",
+            worktree=worktree.resolve(),
+            changed_files=["..\\escaped.py"],
+            tests=["pytest"],
+            rollback=["remove disposable worktree"],
+        ).candidate_receipt()
+    except ValueError:
+        escaped_blocked = True
+    if (
+        receipt.status != "CANDIDATE_ONLY"
+        or not receipt.changed_files
+        or not receipt.changed_files[0].get("sha256")
+        or not escaped_blocked
+    ):
+        return ArchitecturePassResult(
+            "P05",
+            "BLOCKED",
+            [worktree.as_posix()],
+            ["coding worktree candidate validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P05",
+        "ADMIT_SHADOW_ONLY",
+        [receipt.changed_files[0]["sha256"]],
+        [
+            "Disposable coding worktree produced a candidate-only receipt with file hash, tests, rollback, and path-escape rejection",
+        ],
+    )
 
 
 def _insert_waiting_write_action(

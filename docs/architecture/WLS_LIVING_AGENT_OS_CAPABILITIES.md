@@ -56,6 +56,12 @@ an allowlisted local page, records a text hash receipt, blocks redirects, and
 rejects non-allowlisted external hosts. Computer-use remains blocked unless a
 verified disposable sandbox, focus hash, and rollback contract are present.
 
+Coding capability is fitted as a disposable worktree candidate path. Validation
+creates a temporary changed file, records a SHA-256 candidate receipt, requires
+focused tests and rollback instructions, and rejects changed paths that escape
+the worktree. The output remains `CANDIDATE_ONLY` and cannot mark goals,
+memories, skills, deployments, or campaign rounds complete.
+
 ## Current Admissions
 
 - P01 is admitted as a registry and authority guard.
@@ -64,8 +70,10 @@ verified disposable sandbox, focus hash, and rollback contract are present.
   and tool receipt evidence.
 - P04 is a shadow-level fixture admission for read-only browser receipts, while
   computer-use remains sandbox-blocked.
+- P05 is a shadow-level fixture admission for coding worktree candidate
+  receipts.
 - P08 is a shadow-level runtime admission for Planner-owned provider routing.
-- P05-P10 remain design-level admissions where no real external operation is
+- P06/P07/P10 remain design-level admissions where no real external operation is
   safe or authorized yet.
 - Computer use remains blocked without a verified disposable sandbox.
 - MCP discovery is rejected unless identity is pinned and reviewed.
