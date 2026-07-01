@@ -15,6 +15,7 @@ from wls.architecture_validation import (
     validate_runtime_approval_receipts,
     validate_runtime_event_ingress,
     validate_runtime_provider_route,
+    validate_workbench_templates,
 )
 from wls.browser_adapter import BrowserReadOnlyAdapter, BrowserReadOnlyRequest
 from wls.capabilities import (
@@ -375,11 +376,20 @@ def test_multimodal_and_workbench_contracts() -> None:
         evidence_required=["receipt"],
     )
     assert template.to_dict()["template_id"] == "research_readonly"
+    assert template.to_dict()["status"] == "TEMPLATE_ONLY"
     with pytest.raises(PermissionError):
         WorkbenchTemplate(
             template_id="bad",
             canonical_owner="planning",
             steps=[{"direct_db_write": True}],
+            evidence_required=["receipt"],
+        ).to_dict()
+    with pytest.raises(PermissionError):
+        WorkbenchTemplate(
+            template_id="bad-skill",
+            canonical_owner="skills",
+            steps=[{"promote_skill": True}],
+            evidence_required=["receipt"],
         ).to_dict()
 
 
@@ -432,6 +442,13 @@ def test_architecture_validation_checks_mcp_a2a_candidates() -> None:
     assert result.pass_id == "P07"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) == 2
+
+
+def test_architecture_validation_checks_workbench_templates() -> None:
+    result = validate_workbench_templates()
+    assert result.pass_id == "P10"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert result.evidence == ["architecture-validation-workbench"]
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

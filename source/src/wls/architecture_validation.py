@@ -18,6 +18,7 @@ from .mcp_adapter import McpCandidate, McpTrustGate
 from .runtime import LivingSystem
 from .scheduler import ScheduledEvent
 from .schemas import ActionSpec, ActionStatus, Plan, RiskLevel, utc_now
+from .workbench import WorkbenchTemplate
 
 
 ALLOWED_VERDICTS = {
@@ -413,6 +414,77 @@ def validate_mcp_a2a_candidates() -> ArchitecturePassResult:
         [str(mcp_result["candidate"]["identity_digest"]), digest],
         [
             "Pinned reviewed MCP identity and hashed A2A artifact are admitted only as candidates; unpinned, canonical-claim, and hash-mismatch paths are rejected",
+        ],
+    )
+
+
+def validate_workbench_templates() -> ArchitecturePassResult:
+    template = WorkbenchTemplate(
+        template_id="architecture-validation-workbench",
+        canonical_owner="planning",
+        steps=[
+            {
+                "action": "prepare_candidate_plan",
+                "uses_authority": "planning",
+                "output": "candidate_plan",
+            },
+            {
+                "action": "record_evidence_requirement",
+                "uses_authority": "evidence",
+                "output": "receipt_request",
+            },
+        ],
+        evidence_required=["candidate_plan_hash", "owner_review_receipt"],
+    )
+    admitted = template.to_dict()
+    db_blocked = False
+    try:
+        WorkbenchTemplate(
+            template_id="bad-db",
+            canonical_owner="planning",
+            steps=[{"direct_db_write": True}],
+            evidence_required=["receipt"],
+        ).to_dict()
+    except PermissionError:
+        db_blocked = True
+    promotion_blocked = False
+    try:
+        WorkbenchTemplate(
+            template_id="bad-skill",
+            canonical_owner="skills",
+            steps=[{"promote_skill": True}],
+            evidence_required=["receipt"],
+        ).to_dict()
+    except PermissionError:
+        promotion_blocked = True
+    unknown_owner_blocked = False
+    try:
+        WorkbenchTemplate(
+            template_id="bad-owner",
+            canonical_owner="new_runtime",
+            steps=[{"action": "plan"}],
+            evidence_required=["receipt"],
+        ).to_dict()
+    except ValueError:
+        unknown_owner_blocked = True
+    if (
+        admitted.get("status") != "TEMPLATE_ONLY"
+        or not db_blocked
+        or not promotion_blocked
+        or not unknown_owner_blocked
+    ):
+        return ArchitecturePassResult(
+            "P10",
+            "BLOCKED",
+            [],
+            ["workbench template authority validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P10",
+        "ADMIT_SHADOW_ONLY",
+        [str(admitted["template_id"])],
+        [
+            "Workbench templates bind to existing planning/evolution/skills authorities, require evidence, and reject direct DB writes, Skill promotion, and unknown owners",
         ],
     )
 

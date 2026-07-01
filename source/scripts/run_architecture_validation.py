@@ -21,12 +21,12 @@ from wls.architecture_validation import (  # noqa: E402
     validate_runtime_approval_receipts,
     validate_runtime_event_ingress,
     validate_runtime_provider_route,
+    validate_workbench_templates,
 )
 
 
 PASS_CONTRACTS = {
     "P06": "external memory remains shadow-only by registry rule",
-    "P10": "workbench templates bind to existing planning/evolution/skills authorities",
 }
 
 
@@ -40,6 +40,7 @@ def run_validation() -> dict[str, object]:
         results.append(validate_browser_computer_organs())
         results.append(validate_coding_worktree_candidate(temp_path / "coding-worktree"))
         results.append(validate_mcp_a2a_candidates())
+        results.append(validate_workbench_templates())
     for pass_id, note in PASS_CONTRACTS.items():
         results.append(
             ArchitecturePassResult(

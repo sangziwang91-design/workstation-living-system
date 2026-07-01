@@ -67,6 +67,11 @@ rejects unpinned MCP identities, admits only reviewed/pinned MCP candidates,
 accepts A2A artifacts only with matching payload hashes, and rejects any
 artifact that claims canonical truth.
 
+Workbench capability is fitted as an authority-bound template path. Validation
+admits templates only when they bind to existing planning/evolution/skills
+owners, require evidence, and avoid direct database writes, Skill promotion,
+deployment, merge, or goal-completion claims.
+
 ## Current Admissions
 
 - P01 is admitted as a registry and authority guard.
@@ -80,7 +85,9 @@ artifact that claims canonical truth.
 - P07 is a shadow-level fixture admission for pinned MCP candidates and hashed
   A2A candidate artifacts.
 - P08 is a shadow-level runtime admission for Planner-owned provider routing.
-- P06/P10 remain design-level admissions where no real external operation is
+- P10 is a shadow-level fixture admission for authority-bound workbench
+  templates.
+- P06 remains a design-level admission where no real external operation is
   safe or authorized yet.
 - Computer use remains blocked without a verified disposable sandbox.
 - MCP discovery is rejected unless identity is pinned and reviewed.
