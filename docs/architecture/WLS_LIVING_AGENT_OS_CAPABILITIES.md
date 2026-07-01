@@ -51,14 +51,21 @@ a reversible sandbox write, issues a signed approval envelope with nonce and
 expiry, consumes it once, rejects replay and expired approval, and verifies the
 action receipt in evidence.
 
+Browser capability is fitted as a loopback read-only fixture. Validation fetches
+an allowlisted local page, records a text hash receipt, blocks redirects, and
+rejects non-allowlisted external hosts. Computer-use remains blocked unless a
+verified disposable sandbox, focus hash, and rollback contract are present.
+
 ## Current Admissions
 
 - P01 is admitted as a registry and authority guard.
 - P02/P09 are shadow-level runtime admissions for EventStore ingress.
 - P03 is a shadow-level runtime admission for approval, replay/expiry rejection,
   and tool receipt evidence.
+- P04 is a shadow-level fixture admission for read-only browser receipts, while
+  computer-use remains sandbox-blocked.
 - P08 is a shadow-level runtime admission for Planner-owned provider routing.
-- P04-P10 remain design-level admissions where no real external operation is
+- P05-P10 remain design-level admissions where no real external operation is
   safe or authorized yet.
 - Computer use remains blocked without a verified disposable sandbox.
 - MCP discovery is rejected unless identity is pinned and reviewed.

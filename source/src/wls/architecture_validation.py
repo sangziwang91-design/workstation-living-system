@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 import json
+import threading
 
+from .browser_adapter import BrowserReadOnlyAdapter, BrowserReadOnlyRequest
 from .capabilities import baseline_registry
 from .channel_gateway import ChannelMessage
+from .computer_adapter import ComputerUseAdapter, ComputerUseContract
 from .config import default_config
 from .runtime import LivingSystem
 from .scheduler import ScheduledEvent
@@ -206,6 +210,76 @@ def validate_runtime_approval_receipts(home: Path) -> ArchitecturePassResult:
     )
 
 
+def validate_browser_computer_organs() -> ArchitecturePassResult:
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _BrowserFixtureHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        port = server.server_address[1]
+        adapter = BrowserReadOnlyAdapter()
+        receipt = adapter.fetch_text(
+            BrowserReadOnlyRequest(
+                url=f"http://127.0.0.1:{port}/page",
+                allowed_hosts={"127.0.0.1"},
+                session_digest="architecture-validation-session",
+                max_bytes=4096,
+            )
+        )
+        redirect_blocked = False
+        try:
+            adapter.fetch_text(
+                BrowserReadOnlyRequest(
+                    url=f"http://127.0.0.1:{port}/redirect",
+                    allowed_hosts={"127.0.0.1"},
+                    session_digest="architecture-validation-session",
+                )
+            )
+        except Exception:
+            redirect_blocked = True
+        external_blocked = False
+        try:
+            adapter.fetch_text(
+                BrowserReadOnlyRequest(
+                    url="https://example.com/",
+                    allowed_hosts={"127.0.0.1"},
+                    session_digest="architecture-validation-session",
+                )
+            )
+        except PermissionError:
+            external_blocked = True
+        computer_blocked = False
+        try:
+            ComputerUseAdapter().admit(ComputerUseContract(target="desktop"))
+        except PermissionError:
+            computer_blocked = True
+        if (
+            receipt.status_code != 200
+            or not receipt.text_sha256
+            or receipt.downloads
+            or not redirect_blocked
+            or not external_blocked
+            or not computer_blocked
+        ):
+            return ArchitecturePassResult(
+                "P04",
+                "BLOCKED",
+                [receipt.to_dict().get("text_sha256", "")],
+                ["browser/computer organ validation failed"],
+            )
+        return ArchitecturePassResult(
+            "P04",
+            "ADMIT_SHADOW_ONLY",
+            [receipt.text_sha256],
+            [
+                "Loopback browser read-only receipt captured; redirect and external host blocked; computer use remains sandbox-blocked",
+            ],
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:
@@ -256,3 +330,21 @@ def _insert_waiting_write_action(
             connection,
         )
     return action
+
+
+class _BrowserFixtureHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:
+        if self.path == "/redirect":
+            self.send_response(302)
+            self.send_header("Location", "/page")
+            self.end_headers()
+            return
+        body = b"<html><body>WLS browser fixture</body></html>"
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format: str, *args: object) -> None:
+        return

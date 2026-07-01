@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import threading
 
 import pytest
 
 from wls.a2a_adapter import A2AAdapter, ArtifactEnvelope, TaskContract
 from wls.architecture_validation import (
+    validate_browser_computer_organs,
     validate_p01_registry,
     validate_runtime_approval_receipts,
     validate_runtime_event_ingress,
@@ -229,6 +232,37 @@ def test_browser_readonly_receipt_and_allowlist() -> None:
         )
 
 
+def test_browser_readonly_fetch_loopback_receipt_and_redirect_block() -> None:
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _BrowserTestHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        port = server.server_address[1]
+        adapter = BrowserReadOnlyAdapter()
+        receipt = adapter.fetch_text(
+            BrowserReadOnlyRequest(
+                url=f"http://127.0.0.1:{port}/page",
+                allowed_hosts={"127.0.0.1"},
+                session_digest="test-session",
+            )
+        )
+        assert receipt.status_code == 200
+        assert receipt.bytes_read > 0
+        assert receipt.downloads == []
+        with pytest.raises(Exception):
+            adapter.fetch_text(
+                BrowserReadOnlyRequest(
+                    url=f"http://127.0.0.1:{port}/redirect",
+                    allowed_hosts={"127.0.0.1"},
+                    session_digest="test-session",
+                )
+            )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def test_computer_use_blocks_without_sandbox() -> None:
     with pytest.raises(PermissionError, match="sandbox"):
         ComputerUseAdapter().admit(ComputerUseContract(target="desktop"))
@@ -349,6 +383,13 @@ def test_architecture_validation_checks_runtime_approval_receipts(tmp_path: Path
     assert len(result.evidence) == 3
 
 
+def test_architecture_validation_checks_browser_computer_organs() -> None:
+    result = validate_browser_computer_organs()
+    assert result.pass_id == "P04"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert result.evidence
+
+
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:
     runtime = LivingSystem(default_config(tmp_path / "home"))
     target = runtime.config.sandbox_path / "receipt.txt"
@@ -365,3 +406,21 @@ def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:
     assert result.output["path"] == str(target)
     assert result.output["bytes"] == len("receipt")
     assert target.read_text(encoding="utf-8") == "receipt"
+
+
+class _BrowserTestHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:
+        if self.path == "/redirect":
+            self.send_response(302)
+            self.send_header("Location", "/page")
+            self.end_headers()
+            return
+        body = b"browser test fixture"
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format: str, *args: object) -> None:
+        return

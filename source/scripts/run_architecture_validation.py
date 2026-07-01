@@ -14,6 +14,7 @@ if str(SRC_ROOT) not in sys.path:
 
 from wls.architecture_validation import (  # noqa: E402
     ArchitecturePassResult,
+    validate_browser_computer_organs,
     validate_p01_registry,
     validate_runtime_approval_receipts,
     validate_runtime_event_ingress,
@@ -22,7 +23,6 @@ from wls.architecture_validation import (  # noqa: E402
 
 
 PASS_CONTRACTS = {
-    "P04": "browser read-only contract admitted; computer use remains sandbox-blocked",
     "P05": "coding worktree contract returns candidate artifacts only",
     "P06": "external memory remains shadow-only by registry rule",
     "P07": "MCP/A2A outputs are validated candidates, not canonical truth",
@@ -37,6 +37,7 @@ def run_validation() -> dict[str, object]:
         results.extend(validate_runtime_event_ingress(temp_path / "event-home"))
         results.append(validate_runtime_provider_route(temp_path / "provider-home"))
         results.append(validate_runtime_approval_receipts(temp_path / "approval-home"))
+        results.append(validate_browser_computer_organs())
     for pass_id, note in PASS_CONTRACTS.items():
         results.append(
             ArchitecturePassResult(
