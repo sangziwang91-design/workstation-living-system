@@ -72,6 +72,11 @@ admits templates only when they bind to existing planning/evolution/skills
 owners, require evidence, and avoid direct database writes, Skill promotion,
 deployment, merge, or goal-completion claims.
 
+External memory capability is fitted as a shadow projection under the existing
+`MemoryStore` authority. Validation requires a pinned source digest and evidence
+hashes, records only a candidate receipt, and rejects canonical-memory claims or
+fields such as `memory_id`/`active`.
+
 ## Current Admissions
 
 - P01 is admitted as a registry and authority guard.
@@ -82,13 +87,13 @@ deployment, merge, or goal-completion claims.
   computer-use remains sandbox-blocked.
 - P05 is a shadow-level fixture admission for coding worktree candidate
   receipts.
+- P06 is a shadow-level fixture admission for pinned, evidence-hashed external
+  memory candidate projections under `MemoryStore`.
 - P07 is a shadow-level fixture admission for pinned MCP candidates and hashed
   A2A candidate artifacts.
 - P08 is a shadow-level runtime admission for Planner-owned provider routing.
 - P10 is a shadow-level fixture admission for authority-bound workbench
   templates.
-- P06 remains a design-level admission where no real external operation is
-  safe or authorized yet.
 - Computer use remains blocked without a verified disposable sandbox.
 - MCP discovery is rejected unless identity is pinned and reviewed.
 - A2A, MCP, and coding outputs remain candidate-only.

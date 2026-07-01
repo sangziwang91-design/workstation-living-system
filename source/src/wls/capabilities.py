@@ -146,6 +146,7 @@ def baseline_registry() -> CapabilityRegistry:
         ("browser_readonly", "tools", CapabilityMode.ADAPTER),
         ("computer_sandbox", "tools", CapabilityMode.ADAPTER),
         ("coding_worktree", "evolution", CapabilityMode.ADAPTER),
+        ("external_memory_projection", "memory", CapabilityMode.PROJECTION),
         ("mcp_trust", "tools", CapabilityMode.ADAPTER),
         ("a2a_worker", "events", CapabilityMode.ADAPTER),
         ("owner_console", "evidence", CapabilityMode.PROJECTION),

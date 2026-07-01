@@ -10,6 +10,7 @@ from wls.a2a_adapter import A2AAdapter, ArtifactEnvelope, TaskContract, payload_
 from wls.architecture_validation import (
     validate_browser_computer_organs,
     validate_coding_worktree_candidate,
+    validate_external_memory_projection,
     validate_mcp_a2a_candidates,
     validate_p01_registry,
     validate_runtime_approval_receipts,
@@ -28,6 +29,7 @@ from wls.channel_gateway import ChannelGateway, ChannelMessage
 from wls.config import default_config
 from wls.coding_adapter import CodingTaskContract
 from wls.computer_adapter import ComputerUseAdapter, ComputerUseContract
+from wls.external_memory import ExternalMemoryCandidate, ExternalMemoryProjection
 from wls.mcp_adapter import McpCandidate, McpTrustGate
 from wls.multimodal import MultimodalArtifactEnvelope
 from wls.provider_router import ProviderDescriptor, ProviderRouter, RouteRequest
@@ -84,7 +86,7 @@ def test_baseline_registry_has_no_duplicate_authority() -> None:
     registry = baseline_registry()
     registry.assert_no_duplicate_authority()
     owners = {item["canonical_owner"] for item in registry.list()}
-    assert {"events", "tools", "planning", "evidence", "evolution"} <= owners
+    assert {"events", "tools", "planning", "evidence", "evolution", "memory"} <= owners
 
 
 def test_channel_and_scheduler_emit_events_only() -> None:
@@ -352,6 +354,41 @@ def test_a2a_artifact_remains_candidate_only() -> None:
         )
 
 
+def test_external_memory_projection_is_candidate_only() -> None:
+    projection = ExternalMemoryProjection()
+    receipt = projection.admit(
+        ExternalMemoryCandidate(
+            source_id="source-1",
+            source_digest="sha256:abc",
+            content={"summary": "external candidate"},
+            evidence_hashes=["sha256:evidence"],
+            tags=["shadow"],
+        )
+    )
+    assert receipt.status == "CANDIDATE_ONLY"
+    assert receipt.canonical_owner == "MemoryStore"
+    assert receipt.content_sha256
+    with pytest.raises(PermissionError, match="digest"):
+        projection.admit(
+            ExternalMemoryCandidate(
+                source_id="source-2",
+                source_digest="abc",
+                content={"summary": "external candidate"},
+                evidence_hashes=["sha256:evidence"],
+            )
+        )
+    with pytest.raises(PermissionError, match="canonical memory"):
+        projection.admit(
+            ExternalMemoryCandidate(
+                source_id="source-3",
+                source_digest="sha256:abc",
+                content={"summary": "external candidate"},
+                evidence_hashes=["sha256:evidence"],
+                candidate_only=False,
+            )
+        )
+
+
 def test_owner_projection_and_wechat_w0_w1_are_read_only() -> None:
     projection = OwnerConsoleProjection().project(
         {"version": "x", "cycle_count": 1, "db": "hidden", "active_goals": []}
@@ -449,6 +486,13 @@ def test_architecture_validation_checks_workbench_templates() -> None:
     assert result.pass_id == "P10"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert result.evidence == ["architecture-validation-workbench"]
+
+
+def test_architecture_validation_checks_external_memory_projection() -> None:
+    result = validate_external_memory_projection()
+    assert result.pass_id == "P06"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert result.evidence
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

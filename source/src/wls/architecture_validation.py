@@ -14,6 +14,7 @@ from .channel_gateway import ChannelMessage
 from .computer_adapter import ComputerUseAdapter, ComputerUseContract
 from .config import default_config
 from .coding_adapter import CodingTaskContract
+from .external_memory import ExternalMemoryCandidate, ExternalMemoryProjection
 from .mcp_adapter import McpCandidate, McpTrustGate
 from .runtime import LivingSystem
 from .scheduler import ScheduledEvent
@@ -485,6 +486,80 @@ def validate_workbench_templates() -> ArchitecturePassResult:
         [str(admitted["template_id"])],
         [
             "Workbench templates bind to existing planning/evolution/skills authorities, require evidence, and reject direct DB writes, Skill promotion, and unknown owners",
+        ],
+    )
+
+
+def validate_external_memory_projection() -> ArchitecturePassResult:
+    projection = ExternalMemoryProjection()
+    receipt = projection.admit(
+        ExternalMemoryCandidate(
+            source_id="architecture-validation-external-memory",
+            source_digest="sha256:external-source",
+            content={
+                "summary": "candidate observation from external memory source",
+                "claim_ceiling": "candidate-only",
+            },
+            evidence_hashes=["sha256:evidence"],
+            tags=["shadow"],
+        )
+    )
+    unpinned_blocked = False
+    try:
+        projection.admit(
+            ExternalMemoryCandidate(
+                source_id="bad-unpinned",
+                source_digest="external-source",
+                content={"summary": "bad"},
+                evidence_hashes=["sha256:evidence"],
+            )
+        )
+    except PermissionError:
+        unpinned_blocked = True
+    canonical_blocked = False
+    try:
+        projection.admit(
+            ExternalMemoryCandidate(
+                source_id="bad-canonical",
+                source_digest="sha256:external-source",
+                content={"summary": "bad"},
+                evidence_hashes=["sha256:evidence"],
+                candidate_only=False,
+            )
+        )
+    except PermissionError:
+        canonical_blocked = True
+    store_field_blocked = False
+    try:
+        projection.admit(
+            ExternalMemoryCandidate(
+                source_id="bad-store-field",
+                source_digest="sha256:external-source",
+                content={"memory_id": "mem_external", "summary": "bad"},
+                evidence_hashes=["sha256:evidence"],
+            )
+        )
+    except PermissionError:
+        store_field_blocked = True
+    if (
+        receipt.status != "CANDIDATE_ONLY"
+        or not receipt.content_sha256
+        or not unpinned_blocked
+        or not canonical_blocked
+        or not store_field_blocked
+    ):
+        return ArchitecturePassResult(
+            "P06",
+            "BLOCKED",
+            [],
+            ["external memory projection validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P06",
+        "ADMIT_SHADOW_ONLY",
+        [receipt.content_sha256],
+        [
+            "External memory is admitted only as a pinned, evidence-hashed candidate projection; canonical MemoryStore fields and canonical claims are rejected",
         ],
     )
 
