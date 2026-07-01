@@ -7,12 +7,14 @@ from typing import Any
 import json
 import threading
 
+from .a2a_adapter import A2AAdapter, ArtifactEnvelope, TaskContract, payload_digest
 from .browser_adapter import BrowserReadOnlyAdapter, BrowserReadOnlyRequest
 from .capabilities import baseline_registry
 from .channel_gateway import ChannelMessage
 from .computer_adapter import ComputerUseAdapter, ComputerUseContract
 from .config import default_config
 from .coding_adapter import CodingTaskContract
+from .mcp_adapter import McpCandidate, McpTrustGate
 from .runtime import LivingSystem
 from .scheduler import ScheduledEvent
 from .schemas import ActionSpec, ActionStatus, Plan, RiskLevel, utc_now
@@ -327,6 +329,90 @@ def validate_coding_worktree_candidate(worktree: Path) -> ArchitecturePassResult
         [receipt.changed_files[0]["sha256"]],
         [
             "Disposable coding worktree produced a candidate-only receipt with file hash, tests, rollback, and path-escape rejection",
+        ],
+    )
+
+
+def validate_mcp_a2a_candidates() -> ArchitecturePassResult:
+    gate = McpTrustGate()
+    unpinned_blocked = False
+    try:
+        gate.admit(McpCandidate("validation-mcp", None, "stdio"))
+    except PermissionError:
+        unpinned_blocked = True
+    mcp_result = gate.admit(
+        McpCandidate(
+            server_id="validation-mcp",
+            identity_digest="sha256:architecture-validation",
+            transport="stdio",
+            side_effect_class="none",
+            review_status="REVIEWED",
+        )
+    )
+    contract = TaskContract(
+        task_id="architecture-validation-a2a",
+        objective="inspect candidate artifact",
+        scope={"paths": []},
+        allowed_outputs=["report"],
+        expires_at="2026-07-01T00:00:00+00:00",
+    )
+    payload = {"finding": "candidate-only", "confidence": "local-fixture"}
+    digest = payload_digest(payload)
+    a2a_result = A2AAdapter().receive(
+        contract,
+        ArtifactEnvelope(
+            task_id=contract.task_id,
+            artifact_type="report",
+            payload=payload,
+            hashes={"payload_sha256": digest},
+        ),
+    )
+    canonical_blocked = False
+    try:
+        A2AAdapter().receive(
+            contract,
+            ArtifactEnvelope(
+                task_id=contract.task_id,
+                artifact_type="report",
+                payload=payload,
+                candidate_only=False,
+                hashes={"payload_sha256": digest},
+            ),
+        )
+    except PermissionError:
+        canonical_blocked = True
+    hash_blocked = False
+    try:
+        A2AAdapter().receive(
+            contract,
+            ArtifactEnvelope(
+                task_id=contract.task_id,
+                artifact_type="report",
+                payload=payload,
+                hashes={"payload_sha256": "sha256:wrong"},
+            ),
+        )
+    except PermissionError:
+        hash_blocked = True
+    if (
+        not unpinned_blocked
+        or mcp_result.get("status") != "VALIDATED_CANDIDATE"
+        or a2a_result.get("status") != "CANDIDATE_ONLY"
+        or not canonical_blocked
+        or not hash_blocked
+    ):
+        return ArchitecturePassResult(
+            "P07",
+            "BLOCKED",
+            [],
+            ["MCP/A2A candidate validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P07",
+        "ADMIT_SHADOW_ONLY",
+        [str(mcp_result["candidate"]["identity_digest"]), digest],
+        [
+            "Pinned reviewed MCP identity and hashed A2A artifact are admitted only as candidates; unpinned, canonical-claim, and hash-mismatch paths are rejected",
         ],
     )
 

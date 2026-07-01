@@ -6,10 +6,11 @@ import threading
 
 import pytest
 
-from wls.a2a_adapter import A2AAdapter, ArtifactEnvelope, TaskContract
+from wls.a2a_adapter import A2AAdapter, ArtifactEnvelope, TaskContract, payload_digest
 from wls.architecture_validation import (
     validate_browser_computer_organs,
     validate_coding_worktree_candidate,
+    validate_mcp_a2a_candidates,
     validate_p01_registry,
     validate_runtime_approval_receipts,
     validate_runtime_event_ingress,
@@ -317,9 +318,15 @@ def test_a2a_artifact_remains_candidate_only() -> None:
         allowed_outputs=["report"],
         expires_at="2026-06-30T00:00:00+00:00",
     )
+    payload = {"ok": True}
     result = A2AAdapter().receive(
         contract,
-        ArtifactEnvelope(task_id="t1", artifact_type="report", payload={"ok": True}),
+        ArtifactEnvelope(
+            task_id="t1",
+            artifact_type="report",
+            payload=payload,
+            hashes={"payload_sha256": payload_digest(payload)},
+        ),
     )
     assert result["status"] == "CANDIDATE_ONLY"
     with pytest.raises(PermissionError):
@@ -330,6 +337,16 @@ def test_a2a_artifact_remains_candidate_only() -> None:
                 artifact_type="report",
                 payload={"goal_complete": True},
                 candidate_only=False,
+            ),
+        )
+    with pytest.raises(PermissionError, match="hash mismatch"):
+        A2AAdapter().receive(
+            contract,
+            ArtifactEnvelope(
+                task_id="t1",
+                artifact_type="report",
+                payload=payload,
+                hashes={"payload_sha256": "wrong"},
             ),
         )
 
@@ -408,6 +425,13 @@ def test_architecture_validation_checks_coding_worktree_candidate(tmp_path: Path
     assert result.pass_id == "P05"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert result.evidence
+
+
+def test_architecture_validation_checks_mcp_a2a_candidates() -> None:
+    result = validate_mcp_a2a_candidates()
+    assert result.pass_id == "P07"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) == 2
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

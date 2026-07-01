@@ -62,6 +62,11 @@ focused tests and rollback instructions, and rejects changed paths that escape
 the worktree. The output remains `CANDIDATE_ONLY` and cannot mark goals,
 memories, skills, deployments, or campaign rounds complete.
 
+MCP/A2A capability is fitted as a local candidate validation path. Validation
+rejects unpinned MCP identities, admits only reviewed/pinned MCP candidates,
+accepts A2A artifacts only with matching payload hashes, and rejects any
+artifact that claims canonical truth.
+
 ## Current Admissions
 
 - P01 is admitted as a registry and authority guard.
@@ -72,12 +77,14 @@ memories, skills, deployments, or campaign rounds complete.
   computer-use remains sandbox-blocked.
 - P05 is a shadow-level fixture admission for coding worktree candidate
   receipts.
+- P07 is a shadow-level fixture admission for pinned MCP candidates and hashed
+  A2A candidate artifacts.
 - P08 is a shadow-level runtime admission for Planner-owned provider routing.
-- P06/P07/P10 remain design-level admissions where no real external operation is
+- P06/P10 remain design-level admissions where no real external operation is
   safe or authorized yet.
 - Computer use remains blocked without a verified disposable sandbox.
 - MCP discovery is rejected unless identity is pinned and reviewed.
-- A2A and coding outputs remain candidate-only.
+- A2A, MCP, and coding outputs remain candidate-only.
 - Owner Console and WeChat W0/W1 are read-only projection/Event paths.
 
 Run:
