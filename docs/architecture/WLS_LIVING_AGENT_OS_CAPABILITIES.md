@@ -45,12 +45,20 @@ keeping `Planner` as the only planning authority. `LivingSystem.status()` expose
 that route summary for audit. Remote or paid provider routes are blocked unless
 configuration explicitly satisfies the route policy.
 
+Approval and tool receipts are fitted through the existing `ApprovalManager`,
+`PolicyEngine`, `ToolRegistry`, and `EvidenceLedger`. Runtime validation prepares
+a reversible sandbox write, issues a signed approval envelope with nonce and
+expiry, consumes it once, rejects replay and expired approval, and verifies the
+action receipt in evidence.
+
 ## Current Admissions
 
 - P01 is admitted as a registry and authority guard.
 - P02/P09 are shadow-level runtime admissions for EventStore ingress.
+- P03 is a shadow-level runtime admission for approval, replay/expiry rejection,
+  and tool receipt evidence.
 - P08 is a shadow-level runtime admission for Planner-owned provider routing.
-- P03-P10 remain design-level admissions where no real external operation is
+- P04-P10 remain design-level admissions where no real external operation is
   safe or authorized yet.
 - Computer use remains blocked without a verified disposable sandbox.
 - MCP discovery is rejected unless identity is pinned and reviewed.

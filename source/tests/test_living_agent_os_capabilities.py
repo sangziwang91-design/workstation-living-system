@@ -7,6 +7,7 @@ import pytest
 from wls.a2a_adapter import A2AAdapter, ArtifactEnvelope, TaskContract
 from wls.architecture_validation import (
     validate_p01_registry,
+    validate_runtime_approval_receipts,
     validate_runtime_event_ingress,
     validate_runtime_provider_route,
 )
@@ -26,6 +27,7 @@ from wls.multimodal import MultimodalArtifactEnvelope
 from wls.provider_router import ProviderDescriptor, ProviderRouter, RouteRequest
 from wls.runtime import LivingSystem
 from wls.scheduler import EventScheduler, ScheduledEvent
+from wls.schemas import ActionSpec, RiskLevel
 from wls.ui_projection import OwnerConsoleProjection
 from wls.wechat_adapter import WeChatW0W1Adapter
 from wls.workbench import WorkbenchTemplate
@@ -338,3 +340,28 @@ def test_architecture_validation_checks_runtime_provider_route(tmp_path: Path) -
     assert result.pass_id == "P08"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert result.evidence == ["cognitive"]
+
+
+def test_architecture_validation_checks_runtime_approval_receipts(tmp_path: Path) -> None:
+    result = validate_runtime_approval_receipts(tmp_path / "home")
+    assert result.pass_id == "P03"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) == 3
+
+
+def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    target = runtime.config.sandbox_path / "receipt.txt"
+    result = runtime.tools.execute(
+        ActionSpec(
+            tool="write_file",
+            arguments={"path": str(target), "content": "receipt"},
+            purpose="Validate write receipt",
+            expected_result="Sandbox file written",
+            risk=RiskLevel.REVERSIBLE_WRITE,
+        )
+    )
+    assert result.success is True
+    assert result.output["path"] == str(target)
+    assert result.output["bytes"] == len("receipt")
+    assert target.read_text(encoding="utf-8") == "receipt"

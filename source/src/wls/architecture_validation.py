@@ -3,12 +3,14 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
+import json
 
 from .capabilities import baseline_registry
 from .channel_gateway import ChannelMessage
 from .config import default_config
 from .runtime import LivingSystem
 from .scheduler import ScheduledEvent
+from .schemas import ActionSpec, ActionStatus, Plan, RiskLevel, utc_now
 
 
 ALLOWED_VERDICTS = {
@@ -125,3 +127,132 @@ def validate_runtime_provider_route(home: Path) -> ArchitecturePassResult:
         [str(route.get("provider_id", "UNKNOWN"))],
         ["Planner owns provider routing evidence; route is local-first and free by default"],
     )
+
+
+def validate_runtime_approval_receipts(home: Path) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home))
+    approved_action = _insert_waiting_write_action(
+        runtime,
+        runtime.config.sandbox_path / "approved-note.json",
+        "approved action",
+    )
+    approval_id = runtime.approvals.issue(
+        approved_action.action_id,
+        approve=True,
+        ttl_minutes=5,
+        reason="architecture validation approval",
+    )
+    envelope = runtime.approvals.envelope(approval_id)
+    outcome = runtime.resume_action(approved_action.action_id)
+    replay_allowed = runtime.approvals.validate_and_consume(approved_action, approval_id)
+
+    expired_action = _insert_waiting_write_action(
+        runtime,
+        runtime.config.sandbox_path / "expired-note.json",
+        "expired action",
+    )
+    expired_approval = runtime.approvals.issue(
+        expired_action.action_id,
+        approve=True,
+        ttl_minutes=5,
+        reason="architecture validation expiry",
+    )
+    runtime.db.execute(
+        "UPDATE approvals SET expires_at=? WHERE approval_id=?",
+        ("2000-01-01T00:00:00+00:00", expired_approval),
+    )
+    expired_allowed = runtime.approvals.validate_and_consume(
+        expired_action, expired_approval
+    )
+
+    completed = runtime.db.query_one(
+        "SELECT result_json,status FROM actions WHERE action_id=?",
+        (approved_action.action_id,),
+    )
+    evidence = runtime.db.query_all(
+        """
+        SELECT event_type FROM evidence
+        WHERE event_type IN ('approval_issued','approval_consumed','action_completed')
+        ORDER BY seq
+        """
+    )
+    event_types = [str(row["event_type"]) for row in evidence]
+    if (
+        not outcome.get("success")
+        or replay_allowed
+        or expired_allowed
+        or envelope.get("consumed_at") is not None
+        or not envelope.get("nonce")
+        or not envelope.get("signature")
+        or completed is None
+        or completed["status"] != "SUCCEEDED"
+        or "approval_issued" not in event_types
+        or "approval_consumed" not in event_types
+        or "action_completed" not in event_types
+    ):
+        return ArchitecturePassResult(
+            "P03",
+            "BLOCKED",
+            [approved_action.action_id, approval_id],
+            ["approval/tool receipt runtime validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P03",
+        "ADMIT_SHADOW_ONLY",
+        [approved_action.action_id, approval_id, expired_approval],
+        [
+            "Approval envelope has nonce/expiry/signature; exact approval executes once; replay and expired approval are rejected; action receipt is evidence-bound",
+        ],
+    )
+
+
+def _insert_waiting_write_action(
+    runtime: LivingSystem, path: Path, body: str
+) -> ActionSpec:
+    plan = Plan(rationale="architecture validation approval gate", actions=[])
+    action = ActionSpec(
+        tool="write_file",
+        arguments={"path": str(path), "content": body},
+        purpose="Validate exact approval and receipt for a reversible sandbox write",
+        expected_result="Sandbox file written only after approval",
+        risk=RiskLevel.REVERSIBLE_WRITE,
+        status=ActionStatus.WAITING_APPROVAL,
+    )
+    with runtime.db.transaction() as connection:
+        connection.execute(
+            "INSERT INTO plans(plan_id,cycle_id,plan_json,status,created_at) VALUES (?,?,?,?,?)",
+            (
+                plan.plan_id,
+                "architecture-validation",
+                json.dumps(plan.to_dict(), ensure_ascii=False, sort_keys=True),
+                "WAITING_APPROVAL",
+                plan.created_at,
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO actions(
+                action_id,plan_id,tool,arguments_json,purpose,expected_result,risk,
+                acceptance_json,idempotency_key,status,side_effect_class
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                action.action_id,
+                plan.plan_id,
+                action.tool,
+                json.dumps(action.arguments, ensure_ascii=False, sort_keys=True),
+                action.purpose,
+                action.expected_result,
+                action.risk.value,
+                json.dumps(action.acceptance, ensure_ascii=False),
+                action.idempotency_key,
+                action.status.value,
+                "reversible",
+            ),
+        )
+        runtime.ledger.append(
+            "architecture_validation_action_prepared",
+            {"action_id": action.action_id, "tool": action.tool, "created_at": utc_now()},
+            connection,
+        )
+    return action

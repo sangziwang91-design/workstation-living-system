@@ -149,6 +149,19 @@ class ApprovalManager:
             )
         return approval_id
 
+    def envelope(self, approval_id: str) -> dict[str, Any]:
+        row = self.db.query_one(
+            """
+            SELECT approval_id,action_id,action_digest,decision,issued_at,expires_at,
+                   consumed_at,nonce,signature,reason
+            FROM approvals WHERE approval_id=?
+            """,
+            (approval_id,),
+        )
+        if row is None:
+            raise KeyError(approval_id)
+        return dict(row)
+
     def validate_and_consume(self, action: ActionSpec, approval_id: str) -> bool:
         with self.db.transaction() as connection:
             row = connection.execute(

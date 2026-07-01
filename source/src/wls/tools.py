@@ -130,8 +130,9 @@ class ToolRegistry:
             raise ValueError("content exceeds max_bytes")
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_name(path.name + f".wls-{os.getpid()}.tmp")
-        temporary.write_bytes(encoded)
-        with temporary.open("rb") as stream:
+        with temporary.open("wb") as stream:
+            stream.write(encoded)
+            stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)
         return {"path": str(path), "bytes": len(encoded)}
