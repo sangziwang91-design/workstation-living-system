@@ -28,7 +28,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SPEC = REPO_ROOT / "source" / "verification" / "life_campaign_30.json"
 DEFAULT_INSTALL_ROOT = Path(r"D:\WLS\wls-0.9.0.dev1-py313")
 DEFAULT_CAMPAIGN_HOME = Path(r"D:\WLS\campaigns\life-campaign-30")
-SUPPORTED_AUTOMATED_ROUNDS = {f"R{index:02d}" for index in range(1, 16)}
+SUPPORTED_AUTOMATED_ROUNDS = {f"R{index:02d}" for index in range(1, 17)}
 LEVEL2_GOAL_PREFIXES = ("Clarify", "Inspect", "Learn", "Recover", "Preserve")
 
 
@@ -278,6 +278,7 @@ class CampaignRunner:
             "R13": self._round_13,
             "R14": self._round_14,
             "R15": self._round_15,
+            "R16": self._round_16,
         }
         return handlers[round_id]()
 
@@ -841,6 +842,22 @@ class CampaignRunner:
             "claim_ceiling": "real elapsed minimum-life validation in campaign clone",
         }
 
+    def _round_16(self) -> dict[str, Any]:
+        validation = self._run_architecture_validation("R16", "capability_admission_validation")
+        preflight_report = self._write_r16_preflight_report(validation["payload"])
+        evidence_ids = [validation["evidence_id"], preflight_report]
+        for evidence_id in evidence_ids:
+            self.state.append_evidence("R16", evidence_id)
+        return {
+            "status": "OWNER_REVIEW",
+            "evidence_ids": evidence_ids,
+            "reason": "R16 requires LEVEL_3 Owner authorization for real repeated failure capture",
+            "claim_ceiling": (
+                "capability admission preflight only; negative-control rejections are not "
+                "owner-host repeated failures and R16 is not PASS"
+            ),
+        }
+
     def _prepare_campaign_home(self) -> None:
         config_path = self.paths.campaign_home / "config.json"
         if self.fresh_snapshot and self.paths.campaign_home.exists():
@@ -908,6 +925,137 @@ class CampaignRunner:
             "allowed_commands": ["git", "python", "python.exe", "pytest", "pytest.exe"],
         }
         atomic_write_json(self.paths.campaign_home / "config.json", config)
+
+    def _run_architecture_validation(self, round_id: str, label: str) -> dict[str, Any]:
+        args = [
+            str(sys.executable),
+            str(REPO_ROOT / "source" / "scripts" / "run_architecture_validation.py"),
+        ]
+        started_at = datetime.now(UTC).isoformat(timespec="seconds")
+        # argv is built from fixed repo paths; shell stays false.
+        result = subprocess.run(  # nosec B603
+            args,
+            cwd=REPO_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        finished_at = datetime.now(UTC).isoformat(timespec="seconds")
+        evidence_id = self.manifest.record_command(
+            round_id,
+            label,
+            args,
+            REPO_ROOT,
+            result.returncode,
+            result.stdout,
+            result.stderr,
+            started_at,
+            finished_at,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"{label} failed with exit {result.returncode}")
+        payload = json.loads(result.stdout)
+        if not isinstance(payload, dict):
+            raise ValueError("architecture validation output must be JSON object")
+        return {"payload": payload, "evidence_id": evidence_id}
+
+    def _write_r16_preflight_report(self, validation: dict[str, Any]) -> str:
+        results = validation.get("results", [])
+        if not isinstance(results, list):
+            raise ValueError("architecture validation results must be a list")
+        by_pass = {
+            str(item.get("pass_id")): item
+            for item in results
+            if isinstance(item, dict) and item.get("pass_id")
+        }
+        required = [f"P{index:02d}" for index in range(1, 11)]
+        missing = [pass_id for pass_id in required if pass_id not in by_pass]
+        blocked = [
+            pass_id
+            for pass_id in required
+            if str(by_pass.get(pass_id, {}).get("verdict")) == "BLOCKED"
+        ]
+        if missing or blocked:
+            raise RuntimeError(f"capability admission validation incomplete: missing={missing}, blocked={blocked}")
+        negative_control_signatures = [
+            {
+                "signature": "coding_worktree.path_escape_rejected",
+                "validation_id": "P05",
+                "synthetic_or_fixture": True,
+            },
+            {
+                "signature": "external_memory.canonical_claim_rejected",
+                "validation_id": "P06",
+                "synthetic_or_fixture": True,
+            },
+            {
+                "signature": "mcp.unpinned_identity_rejected",
+                "validation_id": "P07",
+                "synthetic_or_fixture": True,
+            },
+            {
+                "signature": "a2a.payload_hash_mismatch_rejected",
+                "validation_id": "P07",
+                "synthetic_or_fixture": True,
+            },
+            {
+                "signature": "workbench.canonical_authority_claim_rejected",
+                "validation_id": "P10",
+                "synthetic_or_fixture": True,
+            },
+        ]
+        report = {
+            "round_id": "R16",
+            "generated_at": utc_now(),
+            "branch_head": self._git_head(),
+            "r15_continuation_gate": self.state.data["rounds"]["R15"]["verdict"].get(
+                "continuation_gate"
+            ),
+            "architecture_validation_task": validation.get("task_id"),
+            "architecture_claim_ceiling": validation.get("claim_ceiling"),
+            "admissions": {
+                pass_id: {
+                    "verdict": by_pass[pass_id].get("verdict"),
+                    "evidence": by_pass[pass_id].get("evidence", []),
+                    "notes": by_pass[pass_id].get("notes", []),
+                }
+                for pass_id in required
+            },
+            "negative_control_signatures": negative_control_signatures,
+            "r16_owner_gate": {
+                "required": True,
+                "reason": "R16 requires LEVEL_3 real repeated failure capture",
+                "not_satisfied_by": [
+                    "repository architecture validation",
+                    "shadow-only fixture rejection signatures",
+                    "candidate-only auxiliary package receipts",
+                ],
+            },
+            "claim_ceiling": (
+                "R16 preflight only; no real repeated owner-host failure captured; "
+                "R16 must remain OWNER_REVIEW until LEVEL_3 Owner authorization"
+            ),
+        }
+        return self._write_measurement_report("R16", "r16_capability_preflight", report)
+
+    def _git_head(self) -> str:
+        git_executable = shutil.which("git")
+        if git_executable is None:
+            return "UNKNOWN"
+        result = subprocess.run(  # nosec B603
+            [git_executable, "rev-parse", "HEAD"],
+            cwd=REPO_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        if result.returncode != 0:
+            return "UNKNOWN"
+        return result.stdout.strip()
 
     def _wls(self, round_id: str, label: str, command: list[str]) -> str:
         config_path = self.paths.campaign_home / "config.json"
