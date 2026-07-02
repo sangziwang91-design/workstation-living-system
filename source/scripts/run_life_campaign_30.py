@@ -40,6 +40,7 @@ class CampaignRunner:
         execute: bool,
         fresh_snapshot: bool = False,
         authorize_level2: bool = False,
+        authorize_level3: bool = False,
         r15_duration_seconds: int = 24 * 60 * 60,
         r15_heartbeat_seconds: int = 5 * 60,
     ):
@@ -51,6 +52,7 @@ class CampaignRunner:
         self.execute = execute
         self.fresh_snapshot = fresh_snapshot
         self.authorize_level2 = authorize_level2
+        self.authorize_level3 = authorize_level3
         self.r15_duration_seconds = r15_duration_seconds
         self.r15_heartbeat_seconds = r15_heartbeat_seconds
         self.state_path = self.paths.campaign_home / "campaign_state.json"
@@ -846,15 +848,29 @@ class CampaignRunner:
         validation = self._run_architecture_validation("R16", "capability_admission_validation")
         preflight_report = self._write_r16_preflight_report(validation["payload"])
         evidence_ids = [validation["evidence_id"], preflight_report]
+        if self.authorize_level3:
+            evidence_ids.append(self._record_level3_authorization("R16"))
+        failure_report = self._write_r16_repeated_failure_report()
+        evidence_ids.append(failure_report["evidence_id"])
         for evidence_id in evidence_ids:
             self.state.append_evidence("R16", evidence_id)
+        if failure_report["pass_ready"]:
+            return {
+                "status": "PASS",
+                "evidence_ids": evidence_ids,
+                "normalized_signature": failure_report["normalized_signature"],
+                "claim_ceiling": "three real repeated owner-host failures captured and evidence-bound in disposable campaign clone",
+            }
+        reason = "R16 requires LEVEL_3 Owner authorization for real repeated failure capture"
+        if self.state.data.get("automation_level") == "LEVEL_3":
+            reason = "LEVEL_3 authorized, but three real repeated owner-host failures are not yet evidence-bound"
         return {
             "status": "OWNER_REVIEW",
             "evidence_ids": evidence_ids,
-            "reason": "R16 requires LEVEL_3 Owner authorization for real repeated failure capture",
+            "reason": reason,
             "claim_ceiling": (
-                "capability admission preflight only; negative-control rejections are not "
-                "owner-host repeated failures and R16 is not PASS"
+                "capability admission and authorization preflight only; negative-control "
+                "rejections are not owner-host repeated failures and R16 is not PASS"
             ),
         }
 
@@ -961,6 +977,70 @@ class CampaignRunner:
             raise ValueError("architecture validation output must be JSON object")
         return {"payload": payload, "evidence_id": evidence_id}
 
+    def _record_level3_authorization(self, round_id: str) -> str:
+        auth_path = self.paths.campaign_home / "campaign_evidence" / round_id / "level3_authorization.json"
+        payload = {
+            "round_id": round_id,
+            "authorized_at": utc_now(),
+            "authorization_level": "LEVEL_3",
+            "scope": str(self.paths.campaign_home),
+            "source": "Owner granted full task authorization in current task dialogue",
+            "constraints": [
+                "disposable campaign clone only",
+                "do not modify live install, live config, or live database",
+                "do not merge, deploy, or promote Skills",
+                "R16 PASS still requires three real repeated owner-host failures",
+            ],
+            "claim_ceiling": "authorization recorded; not evidence of real repeated failure by itself",
+        }
+        atomic_write_json(auth_path, payload)
+        self.state.data["automation_level"] = "LEVEL_3"
+        self.state.save()
+        return self.manifest.record_file(round_id, "level3_authorization", auth_path)
+
+    def _write_r16_repeated_failure_report(self) -> dict[str, Any]:
+        records = self.manifest.data.get("records", [])
+        candidates: dict[str, list[dict[str, Any]]] = {}
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            metadata = record.get("metadata", {})
+            if not isinstance(metadata, dict):
+                continue
+            if metadata.get("r16_real_failure") is not True:
+                continue
+            if metadata.get("synthetic_or_fixture") is True:
+                continue
+            signature = str(metadata.get("normalized_signature", "")).strip()
+            if not signature:
+                continue
+            candidates.setdefault(signature, []).append(record)
+        selected_signature = None
+        selected_records: list[dict[str, Any]] = []
+        for signature, items in sorted(candidates.items()):
+            if len(items) >= 3:
+                selected_signature = signature
+                selected_records = items[:3]
+                break
+        report = {
+            "round_id": "R16",
+            "generated_at": utc_now(),
+            "automation_level": self.state.data.get("automation_level"),
+            "pass_ready": selected_signature is not None,
+            "normalized_signature": selected_signature,
+            "real_failure_count": len(selected_records),
+            "candidate_signature_counts": {key: len(value) for key, value in sorted(candidates.items())},
+            "selected_evidence_ids": [str(item.get("id")) for item in selected_records],
+            "required": {
+                "same_normalized_signature": 3,
+                "synthetic_or_fixture": False,
+                "metadata_flag": "r16_real_failure=true",
+            },
+            "claim_ceiling": "real repeated failure scan only; PASS requires three matching non-fixture records",
+        }
+        evidence_id = self._write_measurement_report("R16", "r16_repeated_failure_scan", report)
+        report["evidence_id"] = evidence_id
+        return report
     def _write_r16_preflight_report(self, validation: dict[str, Any]) -> str:
         results = validation.get("results", [])
         if not isinstance(results, list):
@@ -1532,6 +1612,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="Owner authorized partial continuation",
     )
     parser.add_argument("--authorize-level2", action="store_true")
+    parser.add_argument("--authorize-level3", action="store_true")
     parser.add_argument("--r15-duration-seconds", type=int, default=24 * 60 * 60)
     parser.add_argument("--r15-heartbeat-seconds", type=int, default=5 * 60)
     return parser
@@ -1555,6 +1636,7 @@ def main(argv: list[str] | None = None) -> int:
             execute=args.execute,
             fresh_snapshot=args.fresh_snapshot,
             authorize_level2=args.authorize_level2,
+            authorize_level3=args.authorize_level3,
             r15_duration_seconds=args.r15_duration_seconds,
             r15_heartbeat_seconds=args.r15_heartbeat_seconds,
         )

@@ -605,6 +605,112 @@ def test_r16_preflight_preserves_owner_gate_after_partial_continuation(
     assert "not PASS" in state["rounds"]["R16"]["verdict"]["claim_ceiling"]
 
 
+def test_r16_level3_authorization_still_requires_real_repeated_failures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner, paths = _prepared_r16_runner(tmp_path, monkeypatch, authorize_level3=True)
+    result = runner.run(["R16"])
+    assert result["automation_level"] == "LEVEL_3"
+    assert result["results"][0]["status"] == "OWNER_REVIEW"
+    state = load_json(paths.campaign_home / "campaign_state.json")
+    assert state["automation_level"] == "LEVEL_3"
+    report = load_json(
+        paths.campaign_home / "campaign_evidence" / "R16" / "r16_repeated_failure_scan.json"
+    )
+    assert report["pass_ready"] is False
+    assert report["real_failure_count"] == 0
+
+
+def test_r16_passes_with_three_real_repeated_failure_records(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner, paths = _prepared_r16_runner(tmp_path, monkeypatch, authorize_level3=True)
+    failure_file = paths.campaign_home / "campaign_evidence" / "R16" / "real_failure.txt"
+    failure_file.parent.mkdir(parents=True, exist_ok=True)
+    failure_file.write_text("real repeated failure evidence", encoding="utf-8")
+    for index in range(3):
+        runner.manifest.record_file(
+            "R16",
+            f"real_failure_{index}",
+            failure_file,
+            {
+                "r16_real_failure": True,
+                "normalized_signature": "sqlite.database_locked",
+                "synthetic_or_fixture": False,
+            },
+        )
+    result = runner.run(["R16"])
+    assert result["results"][0]["status"] == "PASS"
+    assert result["results"][0]["normalized_signature"] == "sqlite.database_locked"
+    state = load_json(paths.campaign_home / "campaign_state.json")
+    assert state["rounds"]["R16"]["status"] == "PASS"
+    assert state["rounds"]["R17"]["status"] == "PENDING"
+
+
+def _prepared_r16_runner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, authorize_level3: bool
+) -> tuple[CampaignRunner, CampaignPaths]:
+    paths, _ = _make_fake_install(tmp_path)
+    runner = CampaignRunner(
+        DEFAULT_SPEC,
+        paths,
+        execute=True,
+        fresh_snapshot=True,
+        authorize_level2=True,
+        authorize_level3=authorize_level3,
+    )
+    runner._prepare_campaign_home()
+    for index in range(1, 15):
+        runner.state.mark_pass(
+            f"R{index:02d}",
+            {"status": "PASS", "claim_ceiling": "test prior round"},
+        )
+    runner.state.mark_running("R15")
+    run_path = paths.campaign_home / "campaign_evidence" / "R15" / "r15_run.json"
+    run_path.parent.mkdir(parents=True, exist_ok=True)
+    run_path.write_text(
+        json.dumps(
+            {
+                "started_at": "2026-06-30T00:00:00+00:00",
+                "duration_seconds": 86400,
+                "heartbeat_seconds": 300,
+                "heartbeats": [{"index": 1}],
+                "restarts": [{"index": 1}],
+                "recoveries": [],
+                "failures": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    runner.owner_stop_round("R15", "Owner stopped 24-hour round")
+    runner.authorize_partial_continuation(
+        "R15", "Owner authorized new continuation path after partial R15"
+    )
+
+    def fake_architecture_validation(round_id: str, label: str) -> dict[str, object]:
+        assert round_id == "R16"
+        assert label == "capability_admission_validation"
+        return {
+            "evidence_id": "ev-architecture-validation",
+            "payload": {
+                "task_id": "WLS-LIVING-AGENT-OS-CAPABILITIES-001",
+                "claim_ceiling": "test validation only",
+                "results": [
+                    {
+                        "pass_id": f"P{index:02d}",
+                        "verdict": "ADMIT" if index == 1 else "ADMIT_SHADOW_ONLY",
+                        "evidence": [f"p{index:02d}-evidence"],
+                        "notes": [f"p{index:02d}-note"],
+                    }
+                    for index in range(1, 11)
+                ],
+            },
+        }
+
+    monkeypatch.setattr(
+        runner, "_run_architecture_validation", fake_architecture_validation
+    )
+    return runner, paths
 def test_repository_integration_cli_dry_run(tmp_path: Path) -> None:
     paths, _ = _make_fake_install(tmp_path)
     result = subprocess.run(
