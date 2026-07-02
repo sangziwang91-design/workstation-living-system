@@ -28,6 +28,7 @@ from .lease import ProcessLease
 from .planner import Planner
 from .policy import PolicyEngine
 from .relationships import RelationshipMemory
+from .read_only_organs import ReadOnlyTaskReceipt, ReadOnlyTaskRequest
 from .schemas import (
     ActionSpec,
     ActionStatus,
@@ -185,6 +186,52 @@ class LivingSystem:
 
     def emit_scheduled_event(self, item: ScheduledEvent) -> tuple[str, bool]:
         return self.event_scheduler.submit_due(item, self.events)
+
+    def intake_read_only_task(
+        self, request: ReadOnlyTaskRequest
+    ) -> dict[str, Any]:
+        receipt = request.submit(self.events)
+        preview = self._record_read_only_plan_preview(request, receipt)
+        return {"receipt": receipt.to_dict(), "preview": preview}
+
+    def read_only_plan_previews(self, limit: int = 20) -> list[dict[str, Any]]:
+        previews = self.db.get_runtime("read_only_plan_previews", [])
+        if not isinstance(previews, list):
+            return []
+        return previews[: max(0, int(limit))]
+
+    def _record_read_only_plan_preview(
+        self, request: ReadOnlyTaskRequest, receipt: ReadOnlyTaskReceipt
+    ) -> dict[str, Any]:
+        candidate = request.to_plan_candidate()
+        preview = {
+            "request_id": request.request_id,
+            "organ_id": request.organ_id,
+            "event_id": receipt.event_id,
+            "status": "PREVIEW_ONLY",
+            "created_at": utc_now(),
+            "candidate": candidate,
+            "writes_canonical_state": False,
+            "direct_tool_execution": False,
+            "creates_plan_row": False,
+            "creates_action_row": False,
+            "claim_ceiling": "Owner Console preview only; Planner has not admitted a plan",
+        }
+        current = self.read_only_plan_previews(limit=100)
+        updated = [preview, *[item for item in current if item.get("request_id") != request.request_id]][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("read_only_plan_previews", updated, connection)
+            self.ledger.append(
+                "read_only_plan_preview_recorded",
+                {
+                    "request_id": request.request_id,
+                    "organ_id": request.organ_id,
+                    "event_id": receipt.event_id,
+                    "status": preview["status"],
+                },
+                connection,
+            )
+        return preview
 
     def run_cycle(self) -> dict[str, Any]:
         if self.db.get_runtime("kill_switch", False):
@@ -897,6 +944,7 @@ class LivingSystem:
             "causal_memory": self.memories.memory_summary(),
             "memory_attribution": self.memory_attribution.summary(),
             "capabilities": self.capabilities.summary(),
+            "read_only_plan_previews": self.read_only_plan_previews(),
             "next_focus": self.db.get_runtime("next_focus", []),
         }
 

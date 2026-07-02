@@ -160,6 +160,11 @@ fields such as `memory_id`/`active`.
   multimodal work. Each profile produces a Planner-owned plan candidate with
   read-only tool hints and evidence requirements, while forbidden write,
   deployment, payment, and Skill-promotion paths remain rejected.
+- P14 is a shadow-level runtime admission for Owner-visible read-only task
+  previews. `LivingSystem.intake_read_only_task(...)` records the canonical
+  Event and evidence-bound preview in runtime state, exposes it through the
+  Owner Console `task_previews` panel, and deliberately creates no `plans` or
+  `actions` rows until a later Planner admission gate exists.
 
 ## Projection Rule
 

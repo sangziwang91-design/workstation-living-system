@@ -583,6 +583,7 @@ def validate_phase2_owner_surface_and_readonly_organs(
         "attention",
         "goals",
         "actions_approval",
+        "task_previews",
         "memory_world",
         "evolution_lab",
         "organs",
@@ -716,6 +717,67 @@ def validate_phase2_typed_readonly_organ_profiles() -> ArchitecturePassResult:
         evidence,
         [
             "Typed read-only organ profiles produce Planner-owned plan candidates for common Agent abilities and reject forbidden write tool hints",
+        ],
+    )
+
+
+def validate_phase2_runtime_readonly_task_preview(home: Path) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home))
+    before_plans = runtime.db.query_one("SELECT COUNT(*) AS count FROM plans")
+    before_actions = runtime.db.query_one("SELECT COUNT(*) AS count FROM actions")
+    result = runtime.intake_read_only_task(
+        ReadOnlyTaskRequest(
+            request_id="phase2-preview-file-1",
+            organ_id="file",
+            owner_intent="Inspect a disposable folder",
+            inputs={"path": str(home)},
+        )
+    )
+    after_plans = runtime.db.query_one("SELECT COUNT(*) AS count FROM plans")
+    after_actions = runtime.db.query_one("SELECT COUNT(*) AS count FROM actions")
+    evidence = runtime.db.query_all(
+        """
+        SELECT evidence_id FROM evidence
+        WHERE event_type='read_only_plan_preview_recorded'
+        ORDER BY seq DESC LIMIT 1
+        """
+    )
+    projection = OwnerConsoleProductProjection().project(runtime.status())
+    preview_panel = next(
+        (
+            panel
+            for panel in projection["panels"]
+            if panel.get("panel_id") == "task_previews"
+        ),
+        None,
+    )
+    preview = result.get("preview", {})
+    if (
+        before_plans is None
+        or after_plans is None
+        or before_actions is None
+        or after_actions is None
+        or before_plans["count"] != after_plans["count"]
+        or before_actions["count"] != after_actions["count"]
+        or preview.get("status") != "PREVIEW_ONLY"
+        or preview.get("creates_plan_row")
+        or preview.get("creates_action_row")
+        or not evidence
+        or preview_panel is None
+        or preview_panel["status"]["preview_count"] < 1
+    ):
+        return ArchitecturePassResult(
+            "P14",
+            "BLOCKED",
+            [str(result)],
+            ["runtime read-only task preview validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P14",
+        "ADMIT_SHADOW_ONLY",
+        [str(result["receipt"]["event_id"]), str(evidence[0]["evidence_id"])],
+        [
+            "Runtime read-only task intake records an Event, evidence-bound preview, and Owner Console task preview without creating Plan or Action rows",
         ],
     )
 

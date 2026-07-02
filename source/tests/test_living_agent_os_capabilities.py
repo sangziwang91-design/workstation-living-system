@@ -13,6 +13,7 @@ from wls.architecture_validation import (
     validate_external_memory_projection,
     validate_mcp_a2a_candidates,
     validate_phase2_owner_surface_and_readonly_organs,
+    validate_phase2_runtime_readonly_task_preview,
     validate_phase2_typed_readonly_organ_profiles,
     validate_p01_registry,
     validate_runtime_approval_receipts,
@@ -423,6 +424,7 @@ def test_owner_console_product_projection_and_wechat_digest_are_read_only(
         "attention",
         "goals",
         "actions_approval",
+        "task_previews",
         "memory_world",
         "evolution_lab",
         "organs",
@@ -510,6 +512,43 @@ def test_typed_read_only_organs_produce_planner_candidates() -> None:
             evidence_required=("receipt",),
             planner_contract="bad",
         ).to_dict()
+
+
+def test_runtime_intakes_read_only_task_as_preview_without_execution(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    before_plans = runtime.db.query_one("SELECT COUNT(*) AS count FROM plans")
+    before_actions = runtime.db.query_one("SELECT COUNT(*) AS count FROM actions")
+    result = runtime.intake_read_only_task(
+        ReadOnlyTaskRequest(
+            request_id="preview-file-1",
+            organ_id="file",
+            owner_intent="inspect files before planning",
+            inputs={"path": str(tmp_path)},
+        )
+    )
+    after_plans = runtime.db.query_one("SELECT COUNT(*) AS count FROM plans")
+    after_actions = runtime.db.query_one("SELECT COUNT(*) AS count FROM actions")
+    assert result["receipt"]["status"] == "QUEUED_EVENT_ONLY"
+    assert result["preview"]["status"] == "PREVIEW_ONLY"
+    assert result["preview"]["creates_plan_row"] is False
+    assert result["preview"]["creates_action_row"] is False
+    assert before_plans is not None and after_plans is not None
+    assert before_actions is not None and after_actions is not None
+    assert before_plans["count"] == after_plans["count"]
+    assert before_actions["count"] == after_actions["count"]
+    previews = runtime.status()["read_only_plan_previews"]
+    assert previews[0]["request_id"] == "preview-file-1"
+    projection = OwnerConsoleProductProjection().project(runtime.status())
+    preview_panel = next(
+        panel for panel in projection["panels"] if panel["panel_id"] == "task_previews"
+    )
+    assert preview_panel["status"]["preview_count"] == 1
+    evidence = runtime.db.query_all(
+        "SELECT event_type FROM evidence WHERE event_type='read_only_plan_preview_recorded'"
+    )
+    assert evidence
 
 
 def test_multimodal_and_workbench_contracts() -> None:
@@ -629,6 +668,15 @@ def test_architecture_validation_checks_typed_readonly_organs() -> None:
         "social_research",
         "multimodal",
     } <= set(result.evidence)
+
+
+def test_architecture_validation_checks_runtime_readonly_task_preview(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_runtime_readonly_task_preview(tmp_path / "preview-home")
+    assert result.pass_id == "P14"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) == 2
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

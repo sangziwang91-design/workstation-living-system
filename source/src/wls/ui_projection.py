@@ -35,6 +35,7 @@ class OwnerConsoleProductProjection:
         "attention",
         "goals",
         "actions_approval",
+        "task_previews",
         "memory_world",
         "evolution_lab",
         "organs",
@@ -46,6 +47,7 @@ class OwnerConsoleProductProjection:
             self._attention_panel(status),
             self._goals_panel(status),
             self._actions_panel(status),
+            self._task_previews_panel(status),
             self._memory_world_panel(status),
             self._evolution_panel(status),
             self._organs_panel(status),
@@ -128,6 +130,20 @@ class OwnerConsoleProductProjection:
                 "pending_count": len(actions) if isinstance(actions, list) else 0,
                 "items": actions if isinstance(actions, list) else [],
                 "approval_required_for_execution": True,
+            },
+        }
+
+    @staticmethod
+    def _task_previews_panel(status: dict[str, Any]) -> dict[str, Any]:
+        previews = status.get("read_only_plan_previews", [])
+        return {
+            "panel_id": "task_previews",
+            "title": "Task Previews",
+            "status": {
+                "preview_count": len(previews) if isinstance(previews, list) else 0,
+                "items": previews if isinstance(previews, list) else [],
+                "planner_admission_required": True,
+                "direct_execution_allowed": False,
             },
         }
 
