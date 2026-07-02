@@ -1226,6 +1226,108 @@ def validate_phase2_browser_readonly_runtime_execution(home: Path) -> Architectu
         thread.join(timeout=2)
 
 
+def validate_phase2_research_composite_readonly_execution(
+    home: Path,
+) -> ArchitecturePassResult:
+    home.mkdir(parents=True, exist_ok=True)
+    fixture = home / "research-source.txt"
+    fixture.write_text("traceable research fixture", encoding="utf-8")
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _BrowserFixtureHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        port = int(server.server_port)
+        runtime = LivingSystem(default_config(home / "runtime"))
+        runtime.intake_read_only_task(
+            ReadOnlyTaskRequest(
+                request_id="phase2-research-composite-1",
+                organ_id="research",
+                owner_intent="Inspect local and loopback research sources",
+                inputs={
+                    "file_path": str(fixture),
+                    "dir_path": str(home),
+                    "url": f"http://127.0.0.1:{port}/page",
+                    "max_bytes": 4096,
+                    "limit": 10,
+                },
+            )
+        )
+        admission = runtime.admit_read_only_plan_preview(
+            "phase2-research-composite-1",
+            reason="architecture validation composite research execution",
+        )
+        runtime.preflight_read_only_plan(str(admission["plan_id"]))
+        receipt = runtime.execute_preflighted_read_only_plan(str(admission["plan_id"]))
+        projection = runtime.project_read_only_execution_receipt(
+            str(admission["plan_id"])
+        )
+        review = runtime.review_read_only_result_projection(
+            str(admission["plan_id"]),
+            "ACCEPT_CANDIDATE",
+            reason="architecture validation research candidate review",
+        )
+        actions = runtime.db.query_all(
+            "SELECT tool,status,risk,side_effect_class FROM actions WHERE plan_id=? ORDER BY rowid",
+            (admission["plan_id"],),
+        )
+        evidence = runtime.db.query_all(
+            """
+            SELECT event_type,evidence_id FROM evidence
+            WHERE event_type IN (
+                'action_completed',
+                'read_only_plan_executed',
+                'read_only_execution_result_projected',
+                'read_only_result_projection_reviewed'
+            )
+            ORDER BY seq
+            """
+        )
+        tools = [str(row["tool"]) for row in actions]
+        event_types = {row["event_type"] for row in evidence}
+        if (
+            admission.get("rejected_tool_hints")
+            or tools != ["read_file", "list_directory", "http_get"]
+            or not receipt.get("all_succeeded")
+            or len(receipt.get("outcomes", [])) != 3
+            or any(row["status"] != "SUCCEEDED" for row in actions)
+            or any(row["risk"] != "READ" for row in actions)
+            or any(row["side_effect_class"] != "none" for row in actions)
+            or projection.get("status") != "PROJECTED_CANDIDATE"
+            or review.get("decision") != "ACCEPT_CANDIDATE"
+            or review.get("rolled_back")
+            or not {
+                "action_completed",
+                "read_only_plan_executed",
+                "read_only_execution_result_projected",
+                "read_only_result_projection_reviewed",
+            }
+            <= event_types
+        ):
+            return ArchitecturePassResult(
+                "P21",
+                "BLOCKED",
+                [str(admission), str(receipt), str(projection), str(review)],
+                ["composite research read-only execution validation failed"],
+            )
+        return ArchitecturePassResult(
+            "P21",
+            "ADMIT_SHADOW_ONLY",
+            [
+                str(admission["plan_id"]),
+                str(projection["memory_id"]),
+                str(projection["fact_id"]),
+                *[str(row["evidence_id"]) for row in evidence[-4:]],
+            ],
+            [
+                "Research organs can combine local file, directory, and allowlisted loopback HTTP evidence in one Planner-owned read-only execution receipt, then project and review it only as a candidate",
+            ],
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

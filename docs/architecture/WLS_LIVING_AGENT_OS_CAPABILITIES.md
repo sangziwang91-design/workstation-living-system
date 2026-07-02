@@ -194,6 +194,11 @@ fields such as `memory_id`/`active`.
   allowlisted loopback fixture through Planner admission, Policy preflight,
   ToolRegistry receipts, evidence, and Owner Console projection; it does not
   prove live web browsing or desktop control.
+- P21 is a shadow-level runtime admission for composite research execution.
+  A research organ can now combine local file, local directory, and allowlisted
+  loopback HTTP sources in one Planner-owned Plan and read-only receipt, then
+  project/review that result as candidate Memory/World state without completing
+  a Goal or promoting a Skill.
 
 ## Projection Rule
 

@@ -703,7 +703,8 @@ class LivingSystem:
         if not isinstance(inputs, dict):
             inputs = {}
         if tool in {"read_file", "list_directory"}:
-            path = inputs.get("path")
+            input_key = "file_path" if tool == "read_file" else "dir_path"
+            path = inputs.get(input_key, inputs.get("path"))
             if not isinstance(path, str) or not path.strip():
                 raise ValueError("read-only file tools require path input")
             path_obj = Path(path).expanduser().resolve(strict=False)

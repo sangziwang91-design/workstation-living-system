@@ -21,6 +21,7 @@ from wls.architecture_validation import (
     validate_phase2_runtime_readonly_task_preview,
     validate_phase2_readonly_planner_admission,
     validate_phase2_readonly_execution_preflight,
+    validate_phase2_research_composite_readonly_execution,
     validate_phase2_typed_readonly_organ_profiles,
     validate_p01_registry,
     validate_runtime_approval_receipts,
@@ -1014,6 +1015,17 @@ def test_architecture_validation_checks_browser_runtime_execution(
     assert result.pass_id == "P20"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) >= 3
+
+
+def test_architecture_validation_checks_research_composite_execution(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_research_composite_readonly_execution(
+        tmp_path / "research-composite-home"
+    )
+    assert result.pass_id == "P21"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) >= 5
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:
