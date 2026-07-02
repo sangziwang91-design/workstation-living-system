@@ -587,6 +587,7 @@ def validate_phase2_owner_surface_and_readonly_organs(
         "execution_preflight",
         "execution_receipts",
         "result_projections",
+        "projection_reviews",
         "memory_world",
         "evolution_lab",
         "organs",
@@ -1059,6 +1060,79 @@ def validate_phase2_readonly_result_projection(home: Path) -> ArchitecturePassRe
         ],
         [
             "Read-only execution receipts project into candidate MemoryStore and inferred WorldModel entries with evidence, without claiming goal completion or Skill promotion",
+        ],
+    )
+
+
+def validate_phase2_projection_review_and_rollback(home: Path) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home))
+    runtime.intake_read_only_task(
+        ReadOnlyTaskRequest(
+            request_id="phase2-review-file-1",
+            organ_id="file",
+            owner_intent="Inspect and review a disposable folder result",
+            inputs={"path": str(home), "limit": 5},
+        )
+    )
+    admission = runtime.admit_read_only_plan_preview(
+        "phase2-review-file-1", reason="architecture validation review"
+    )
+    runtime.preflight_read_only_plan(str(admission["plan_id"]))
+    runtime.execute_preflighted_read_only_plan(str(admission["plan_id"]))
+    projection = runtime.project_read_only_execution_receipt(str(admission["plan_id"]))
+    review = runtime.review_read_only_result_projection(
+        str(admission["plan_id"]),
+        "ROLLBACK_CANDIDATE",
+        reason="architecture validation rollback",
+    )
+    memory = runtime.db.query_one(
+        "SELECT active FROM memories WHERE memory_id=?", (projection["memory_id"],)
+    )
+    fact = runtime.db.query_one(
+        "SELECT active FROM world_facts WHERE fact_id=?", (projection["fact_id"],)
+    )
+    evidence = runtime.db.query_all(
+        """
+        SELECT event_type,evidence_id FROM evidence
+        WHERE event_type='read_only_result_projection_reviewed'
+        ORDER BY seq DESC LIMIT 1
+        """
+    )
+    review_panel = next(
+        (
+            panel
+            for panel in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+            if panel.get("panel_id") == "projection_reviews"
+        ),
+        None,
+    )
+    if (
+        review.get("decision") != "ROLLBACK_CANDIDATE"
+        or not review.get("rolled_back")
+        or memory is None
+        or int(memory["active"]) != 0
+        or fact is None
+        or int(fact["active"]) != 0
+        or not evidence
+        or review_panel is None
+        or review_panel["status"]["review_count"] < 1
+    ):
+        return ArchitecturePassResult(
+            "P19",
+            "BLOCKED",
+            [str(review)],
+            ["projection review/rollback validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P19",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(projection["memory_id"]),
+            str(projection["fact_id"]),
+            str(evidence[0]["evidence_id"]),
+        ],
+        [
+            "Candidate read-only projections can be reviewed and rolled back, deactivating candidate memory/world entries without Skill promotion or goal completion",
         ],
     )
 

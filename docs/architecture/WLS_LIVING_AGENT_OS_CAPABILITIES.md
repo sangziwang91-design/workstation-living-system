@@ -184,6 +184,10 @@ fields such as `memory_id`/`active`.
   read-only execution receipts can be projected into candidate MemoryStore and
   inferred WorldModel entries, with explicit candidate-only claim ceilings and
   no goal completion or Skill promotion.
+- P19 is a shadow-level runtime admission for projection review and rollback.
+  Candidate read-only projections can be reviewed or rolled back; rollback
+  deactivates the candidate memory/world entries and records evidence without
+  promoting Skills or completing Goals.
 
 ## Projection Rule
 

@@ -39,6 +39,7 @@ class OwnerConsoleProductProjection:
         "execution_preflight",
         "execution_receipts",
         "result_projections",
+        "projection_reviews",
         "memory_world",
         "evolution_lab",
         "organs",
@@ -54,6 +55,7 @@ class OwnerConsoleProductProjection:
             self._execution_preflight_panel(status),
             self._execution_receipts_panel(status),
             self._result_projections_panel(status),
+            self._projection_reviews_panel(status),
             self._memory_world_panel(status),
             self._evolution_panel(status),
             self._organs_panel(status),
@@ -196,6 +198,20 @@ class OwnerConsoleProductProjection:
                 "items": projections if isinstance(projections, list) else [],
                 "candidate_only": True,
                 "promotion_authority": "MemoryStore and WorldModel with evidence",
+            },
+        }
+
+    @staticmethod
+    def _projection_reviews_panel(status: dict[str, Any]) -> dict[str, Any]:
+        reviews = status.get("read_only_projection_reviews", [])
+        return {
+            "panel_id": "projection_reviews",
+            "title": "Projection Reviews",
+            "status": {
+                "review_count": len(reviews) if isinstance(reviews, list) else 0,
+                "items": reviews if isinstance(reviews, list) else [],
+                "candidate_only": True,
+                "rollback_supported": True,
             },
         }
 

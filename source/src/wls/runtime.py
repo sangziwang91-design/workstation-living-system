@@ -222,6 +222,12 @@ class LivingSystem:
             return []
         return projections[: max(0, int(limit))]
 
+    def read_only_projection_reviews(self, limit: int = 20) -> list[dict[str, Any]]:
+        reviews = self.db.get_runtime("read_only_projection_reviews", [])
+        if not isinstance(reviews, list):
+            return []
+        return reviews[: max(0, int(limit))]
+
     def _record_read_only_plan_preview(
         self, request: ReadOnlyTaskRequest, receipt: ReadOnlyTaskReceipt
     ) -> dict[str, Any]:
@@ -588,6 +594,69 @@ class LivingSystem:
                 connection,
             )
         return projection
+
+    def review_read_only_result_projection(
+        self, plan_id: str, decision: str, *, reason: str
+    ) -> dict[str, Any]:
+        if decision not in {"ACCEPT_CANDIDATE", "ROLLBACK_CANDIDATE"}:
+            raise ValueError("invalid projection review decision")
+        projection = next(
+            (
+                item
+                for item in self.read_only_result_projections(limit=100)
+                if item.get("plan_id") == plan_id
+            ),
+            None,
+        )
+        if projection is None:
+            raise KeyError(f"unknown read-only result projection: {plan_id}")
+        memory_id = str(projection["memory_id"])
+        fact_id = str(projection["fact_id"])
+        rolled_back = False
+        if decision == "ROLLBACK_CANDIDATE":
+            self.memories.deactivate(memory_id)
+            self.db.execute("UPDATE world_facts SET active=0 WHERE fact_id=?", (fact_id,))
+            rolled_back = True
+        reviewed = {
+            **projection,
+            "review_status": decision,
+            "reviewed_at": utc_now(),
+            "review_reason": reason,
+            "rolled_back": rolled_back,
+            "candidate_only": True,
+            "skill_promotion_executed": False,
+            "goal_completion_executed": False,
+        }
+        projections = self.read_only_result_projections(limit=100)
+        updated_projections = [
+            reviewed,
+            *[item for item in projections if item.get("plan_id") != plan_id],
+        ][:100]
+        reviews = self.read_only_projection_reviews(limit=100)
+        review_record = {
+            "plan_id": plan_id,
+            "decision": decision,
+            "reason": reason,
+            "memory_id": memory_id,
+            "fact_id": fact_id,
+            "rolled_back": rolled_back,
+            "created_at": utc_now(),
+        }
+        with self.db.transaction() as connection:
+            self.db.set_runtime(
+                "read_only_result_projections", updated_projections, connection
+            )
+            self.db.set_runtime(
+                "read_only_projection_reviews",
+                [review_record, *reviews][:100],
+                connection,
+            )
+            self.ledger.append(
+                "read_only_result_projection_reviewed",
+                review_record,
+                connection,
+            )
+        return review_record
 
     def _read_only_candidate_actions(
         self, candidate: dict[str, Any]
@@ -1383,6 +1452,7 @@ class LivingSystem:
             "read_only_execution_preflights": self.read_only_execution_preflights(),
             "read_only_execution_receipts": self.read_only_execution_receipts(),
             "read_only_result_projections": self.read_only_result_projections(),
+            "read_only_projection_reviews": self.read_only_projection_reviews(),
             "next_focus": self.db.get_runtime("next_focus", []),
         }
 

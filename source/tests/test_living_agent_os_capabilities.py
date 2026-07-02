@@ -15,6 +15,7 @@ from wls.architecture_validation import (
     validate_mcp_a2a_candidates,
     validate_phase2_owner_surface_and_readonly_organs,
     validate_phase2_preflighted_readonly_execution,
+    validate_phase2_projection_review_and_rollback,
     validate_phase2_readonly_result_projection,
     validate_phase2_runtime_readonly_task_preview,
     validate_phase2_readonly_planner_admission,
@@ -433,6 +434,7 @@ def test_owner_console_product_projection_and_wechat_digest_are_read_only(
         "execution_preflight",
         "execution_receipts",
         "result_projections",
+        "projection_reviews",
         "memory_world",
         "evolution_lab",
         "organs",
@@ -740,6 +742,50 @@ def test_runtime_projects_read_only_execution_receipt_as_candidate_memory_world(
     } <= event_types
 
 
+def test_runtime_reviews_and_rolls_back_candidate_projection(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime.intake_read_only_task(
+        ReadOnlyTaskRequest(
+            request_id="review-file-1",
+            organ_id="file",
+            owner_intent="review projected files",
+            inputs={"path": str(tmp_path), "limit": 10},
+        )
+    )
+    admission = runtime.admit_read_only_plan_preview("review-file-1")
+    runtime.preflight_read_only_plan(admission["plan_id"])
+    runtime.execute_preflighted_read_only_plan(admission["plan_id"])
+    projection = runtime.project_read_only_execution_receipt(admission["plan_id"])
+    review = runtime.review_read_only_result_projection(
+        admission["plan_id"], "ROLLBACK_CANDIDATE", reason="test rollback"
+    )
+    assert review["decision"] == "ROLLBACK_CANDIDATE"
+    assert review["rolled_back"] is True
+    memory = runtime.db.query_one(
+        "SELECT active FROM memories WHERE memory_id=?", (projection["memory_id"],)
+    )
+    fact = runtime.db.query_one(
+        "SELECT active FROM world_facts WHERE fact_id=?", (projection["fact_id"],)
+    )
+    assert memory is not None and memory["active"] == 0
+    assert fact is not None and fact["active"] == 0
+    projection_panel = next(
+        panel
+        for panel in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if panel["panel_id"] == "projection_reviews"
+    )
+    assert projection_panel["status"]["review_count"] == 1
+    event_types = {
+        row["event_type"]
+        for row in runtime.db.query_all(
+            "SELECT event_type FROM evidence WHERE event_type='read_only_result_projection_reviewed'"
+        )
+    }
+    assert event_types == {"read_only_result_projection_reviewed"}
+
+
 def test_multimodal_and_workbench_contracts() -> None:
     envelope = MultimodalArtifactEnvelope("art1", "text/plain", b"hello")
     assert envelope.to_dict()["sha256"]
@@ -902,6 +948,15 @@ def test_architecture_validation_checks_readonly_result_projection(
     assert result.pass_id == "P18"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) >= 3
+
+
+def test_architecture_validation_checks_projection_review_and_rollback(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_projection_review_and_rollback(tmp_path / "review-home")
+    assert result.pass_id == "P19"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) == 3
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:
