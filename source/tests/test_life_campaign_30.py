@@ -644,6 +644,35 @@ def test_r16_passes_with_three_real_repeated_failure_records(
     assert state["rounds"]["R17"]["status"] == "PENDING"
 
 
+def test_r17_generates_failure_candidate_from_r16_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner, paths = _prepared_r16_runner(tmp_path, monkeypatch, authorize_level3=True)
+    for index in range(3):
+        runner.record_real_failure(
+            source_type="owner_host_disposable_activity",
+            normalized_signature="http.loopback_outage_timeout",
+            raw_evidence_ids=[f"raw-ev-{index}"],
+            reproduction_status="REPRODUCED",
+            environment="pytest-disposable-campaign",
+            input_hash=f"sha256:input-{index}",
+            output_hash=f"sha256:output-{index}",
+            repair_status="UNREPAIRED",
+            note="pytest real repeated failure fixture",
+        )
+    result = runner.run(["R17"])
+    assert result["results"][0]["status"] == "PASS"
+    assert result["results"][0]["candidate_id"] == "r17_http_loopback_outage_timeout_candidate"
+    candidate = load_json(
+        paths.campaign_home / "campaign_evidence" / "R17" / "failure_candidate.json"
+    )
+    assert candidate["normalized_signature"] == "http.loopback_outage_timeout"
+    assert candidate["baseline_frozen"]["campaign_config_sha256"]
+    assert candidate["proposed_intervention"]["live_state_modified"] is False
+    assert "candidate changes live install, live config, live database, main branch, or production data" in candidate["rejection_criteria"]
+    state = load_json(paths.campaign_home / "campaign_state.json")
+    assert state["rounds"]["R17"]["status"] == "PASS"
+    assert state["rounds"]["R18"]["status"] == "PENDING"
 def _prepared_r16_runner(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, authorize_level3: bool
 ) -> tuple[CampaignRunner, CampaignPaths]:

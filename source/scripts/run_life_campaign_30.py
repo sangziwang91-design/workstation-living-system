@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable
 import argparse
+import hashlib
 import json
 import shutil
 import sqlite3
@@ -28,7 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SPEC = REPO_ROOT / "source" / "verification" / "life_campaign_30.json"
 DEFAULT_INSTALL_ROOT = Path(r"D:\WLS\wls-0.9.0.dev1-py313")
 DEFAULT_CAMPAIGN_HOME = Path(r"D:\WLS\campaigns\life-campaign-30")
-SUPPORTED_AUTOMATED_ROUNDS = {f"R{index:02d}" for index in range(1, 17)}
+SUPPORTED_AUTOMATED_ROUNDS = {f"R{index:02d}" for index in range(1, 18)}
 LEVEL2_GOAL_PREFIXES = ("Clarify", "Inspect", "Learn", "Recover", "Preserve")
 
 
@@ -383,6 +384,7 @@ class CampaignRunner:
             "R14": self._round_14,
             "R15": self._round_15,
             "R16": self._round_16,
+            "R17": self._round_17,
         }
         return handlers[round_id]()
 
@@ -976,6 +978,97 @@ class CampaignRunner:
             ),
         }
 
+    def _round_17(self) -> dict[str, Any]:
+        scan_path = self.paths.campaign_home / "campaign_evidence" / "R16" / "r16_repeated_failure_scan.json"
+        if not scan_path.exists():
+            return {
+                "status": "OWNER_REVIEW",
+                "reason": "R17 requires R16 repeated failure scan evidence",
+                "claim_ceiling": "candidate not created",
+            }
+        scan = load_json(scan_path)
+        if scan.get("pass_ready") is not True:
+            return {
+                "status": "OWNER_REVIEW",
+                "reason": "R17 requires R16 PASS with three real repeated failures",
+                "claim_ceiling": "candidate not created",
+            }
+        selected = [str(item) for item in scan.get("selected_evidence_ids", [])]
+        if len(selected) < 3:
+            return {
+                "status": "FAIL",
+                "reason": "R16 scan pass_ready without three selected evidence ids",
+                "claim_ceiling": "candidate invalid",
+            }
+        candidate_path = self.paths.campaign_home / "campaign_evidence" / "R17" / "failure_candidate.json"
+        candidate = {
+            "round_id": "R17",
+            "candidate_id": "r17_http_loopback_outage_timeout_candidate",
+            "created_at": utc_now(),
+            "source_round": "R16",
+            "normalized_signature": scan.get("normalized_signature"),
+            "source_evidence_ids": selected,
+            "baseline_frozen": {
+                "git_head": self._git_head(),
+                "campaign_config_sha256": self._sha256_optional(self.paths.campaign_home / "config.json"),
+                "campaign_db_sha256": self._sha256_optional(self.paths.campaign_home / "state" / "wls.db"),
+                "r16_scan_sha256": self._sha256_optional(scan_path),
+            },
+            "candidate_type": "failure_candidate",
+            "proposed_intervention": {
+                "summary": "Classify repeated loopback HTTP sensor timeout as a recoverable service-health outage and require bounded retry/recovery experiment before any Skill proposal.",
+                "scope": "disposable campaign clone only",
+                "live_state_modified": False,
+            },
+            "predicted_benefit": "Turns repeated service-health outage evidence into an isolated recovery experiment input.",
+            "risk": "READ + REVERSIBLE_WRITE in campaign evidence only",
+            "rejection_criteria": [
+                "selected evidence is synthetic or fixture",
+                "signature is not repeated at least three times",
+                "candidate changes live install, live config, live database, main branch, or production data",
+                "recovery experiment cannot reproduce the baseline failure",
+            ],
+            "test_plan": [
+                "freeze baseline before mutation",
+                "run isolated recovery experiment in disposable clone",
+                "compare learning off/on or baseline/candidate under same input",
+                "record null result if no improvement",
+            ],
+            "rollback": [
+                "retire candidate json",
+                "repair from R17 or R18",
+                "keep R16 evidence and manifest records for audit",
+            ],
+            "claim_ceiling": "candidate exists, not a fix and not a Skill",
+        }
+        atomic_write_json(candidate_path, candidate)
+        evidence_id = self.manifest.record_file(
+            "R17",
+            "failure_candidate",
+            candidate_path,
+            {
+                "normalized_signature": str(scan.get("normalized_signature")),
+                "source_round": "R16",
+                "candidate_only": True,
+            },
+        )
+        self.state.append_evidence("R17", evidence_id)
+        return {
+            "status": "PASS",
+            "evidence_ids": [evidence_id],
+            "candidate_id": candidate["candidate_id"],
+            "normalized_signature": candidate["normalized_signature"],
+            "claim_ceiling": "failure candidate exists, not a fix",
+        }
+
+    def _sha256_optional(self, path: Path) -> str | None:
+        if not path.exists() or not path.is_file():
+            return None
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
     def _prepare_campaign_home(self) -> None:
         config_path = self.paths.campaign_home / "config.json"
         if self.fresh_snapshot and self.paths.campaign_home.exists():
