@@ -15,6 +15,7 @@ from wls.architecture_validation import (
     validate_mcp_a2a_candidates,
     validate_phase2_coding_candidate_readonly_execution,
     validate_phase2_browser_readonly_runtime_execution,
+    validate_phase2_external_handoff_runtime_receipts,
     validate_phase2_multimodal_asset_readonly_execution,
     validate_phase2_owner_surface_and_readonly_organs,
     validate_phase2_preflighted_readonly_execution,
@@ -409,6 +410,61 @@ def test_a2a_artifact_remains_candidate_only() -> None:
         )
 
 
+def test_runtime_records_external_handoffs_as_candidate_receipts(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    before = {
+        name: runtime.db.query_one(f"SELECT COUNT(*) AS count FROM {name}")["count"]
+        for name in ("goals", "actions", "memories")
+    }
+    mcp_receipt = runtime.admit_mcp_candidate(
+        McpCandidate(
+            server_id="unit-mcp",
+            identity_digest="sha256:unit-mcp",
+            transport="stdio",
+            review_status="REVIEWED",
+        ),
+        reason="unit test mcp handoff",
+    )
+    contract = TaskContract(
+        task_id="unit-a2a",
+        objective="candidate report",
+        scope={"paths": []},
+        allowed_outputs=["report"],
+        expires_at="2026-07-02T00:00:00+00:00",
+    )
+    payload = {"ok": True}
+    a2a_receipt = runtime.receive_a2a_artifact(
+        contract,
+        ArtifactEnvelope(
+            task_id="unit-a2a",
+            artifact_type="report",
+            payload=payload,
+            hashes={"payload_sha256": payload_digest(payload)},
+        ),
+        reason="unit test a2a handoff",
+    )
+    after = {
+        name: runtime.db.query_one(f"SELECT COUNT(*) AS count FROM {name}")["count"]
+        for name in ("goals", "actions", "memories")
+    }
+    assert mcp_receipt["status"] == "VALIDATED_CANDIDATE"
+    assert a2a_receipt["status"] == "CANDIDATE_ONLY"
+    assert before == after
+    assert {item["receipt_type"] for item in runtime.external_handoff_receipts()} == {
+        "MCP_CANDIDATE",
+        "A2A_ARTIFACT",
+    }
+    panel = next(
+        panel
+        for panel in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if panel["panel_id"] == "external_handoffs"
+    )
+    assert panel["status"]["receipt_count"] == 2
+    assert panel["status"]["authority_transfer_allowed"] is False
+
+
 def test_external_memory_projection_is_candidate_only() -> None:
     projection = ExternalMemoryProjection()
     receipt = projection.admit(
@@ -472,6 +528,7 @@ def test_owner_console_product_projection_and_wechat_digest_are_read_only(
         "goals",
         "actions_approval",
         "scheduled_events",
+        "external_handoffs",
         "task_previews",
         "execution_preflight",
         "execution_receipts",
@@ -1167,6 +1224,17 @@ def test_architecture_validation_checks_scheduler_due_event_intake(
     assert result.pass_id == "P24"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) == 2
+
+
+def test_architecture_validation_checks_external_handoff_receipts(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_external_handoff_runtime_receipts(
+        tmp_path / "external-handoff-validation-home"
+    )
+    assert result.pass_id == "P25"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) == 4
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

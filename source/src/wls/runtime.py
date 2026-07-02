@@ -29,6 +29,8 @@ from .lease import ProcessLease
 from .planner import Planner
 from .policy import PolicyEngine
 from .relationships import RelationshipMemory
+from .a2a_adapter import A2AAdapter, ArtifactEnvelope, TaskContract
+from .mcp_adapter import McpCandidate, McpTrustGate
 from .read_only_organs import ReadOnlyTaskReceipt, ReadOnlyTaskRequest
 from .schemas import (
     ActionSpec,
@@ -105,6 +107,8 @@ class LivingSystem:
         self.capabilities.assert_no_duplicate_authority()
         self.channel_gateway = ChannelGateway()
         self.event_scheduler = EventScheduler()
+        self.mcp_trust = McpTrustGate()
+        self.a2a_adapter = A2AAdapter()
         self._load_plugins()
         self.lease = ProcessLease(config.home_path / "state" / "runtime.lock")
         self.worker_id = f"wls-{os.getpid()}-{new_id('worker')[-8:]}"
@@ -254,6 +258,71 @@ class LivingSystem:
         if not isinstance(receipts, list):
             return []
         return receipts[: max(0, int(limit))]
+
+    def external_handoff_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("external_handoff_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
+    def admit_mcp_candidate(self, candidate: McpCandidate, *, reason: str) -> dict[str, Any]:
+        result = self.mcp_trust.admit(candidate)
+        receipt = {
+            "receipt_type": "MCP_CANDIDATE",
+            "status": result["status"],
+            "server_id": candidate.server_id,
+            "identity_digest": candidate.identity_digest,
+            "transport": candidate.transport,
+            "side_effect_class": candidate.side_effect_class,
+            "review_status": candidate.review_status,
+            "reason": reason,
+            "creates_goal": False,
+            "creates_action": False,
+            "writes_canonical_memory": False,
+            "direct_tool_execution": False,
+            "candidate_only": True,
+            "claim_ceiling": "reviewed MCP candidate only; no tool execution or authority transfer",
+            "created_at": utc_now(),
+        }
+        self._record_external_handoff_receipt("mcp_candidate_admitted", receipt)
+        return receipt
+
+    def receive_a2a_artifact(
+        self,
+        contract: TaskContract,
+        envelope: ArtifactEnvelope,
+        *,
+        reason: str,
+    ) -> dict[str, Any]:
+        result = self.a2a_adapter.receive(contract, envelope)
+        receipt = {
+            "receipt_type": "A2A_ARTIFACT",
+            "status": result["status"],
+            "task_id": contract.task_id,
+            "artifact_type": envelope.artifact_type,
+            "payload_hash": envelope.hashes.get("payload_sha256"),
+            "allowed_outputs": list(contract.allowed_outputs),
+            "expires_at": contract.expires_at,
+            "reason": reason,
+            "creates_goal": False,
+            "creates_action": False,
+            "writes_canonical_memory": False,
+            "direct_tool_execution": False,
+            "candidate_only": True,
+            "claim_ceiling": "external worker artifact candidate only; no canonical truth claim",
+            "created_at": utc_now(),
+        }
+        self._record_external_handoff_receipt("a2a_artifact_received", receipt)
+        return receipt
+
+    def _record_external_handoff_receipt(
+        self, event_type: str, receipt: dict[str, Any]
+    ) -> None:
+        current = self.external_handoff_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("external_handoff_receipts", updated, connection)
+            self.ledger.append(event_type, receipt, connection)
 
     def read_only_execution_preflights(self, limit: int = 20) -> list[dict[str, Any]]:
         preflights = self.db.get_runtime("read_only_execution_preflights", [])
@@ -1555,6 +1624,7 @@ class LivingSystem:
             "capabilities": self.capabilities.summary(),
             "read_only_plan_previews": self.read_only_plan_previews(),
             "scheduled_event_receipts": self.scheduled_event_receipts(),
+            "external_handoff_receipts": self.external_handoff_receipts(),
             "read_only_execution_preflights": self.read_only_execution_preflights(),
             "read_only_execution_receipts": self.read_only_execution_receipts(),
             "read_only_result_projections": self.read_only_result_projections(),

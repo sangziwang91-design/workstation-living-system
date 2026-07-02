@@ -36,6 +36,7 @@ class OwnerConsoleProductProjection:
         "goals",
         "actions_approval",
         "scheduled_events",
+        "external_handoffs",
         "task_previews",
         "execution_preflight",
         "execution_receipts",
@@ -53,6 +54,7 @@ class OwnerConsoleProductProjection:
             self._goals_panel(status),
             self._actions_panel(status),
             self._scheduled_events_panel(status),
+            self._external_handoffs_panel(status),
             self._task_previews_panel(status),
             self._execution_preflight_panel(status),
             self._execution_receipts_panel(status),
@@ -155,6 +157,22 @@ class OwnerConsoleProductProjection:
                 "creates_goal": False,
                 "creates_action": False,
                 "standing_goal_authority": "Owner and GoalStore only",
+            },
+        }
+
+    @staticmethod
+    def _external_handoffs_panel(status: dict[str, Any]) -> dict[str, Any]:
+        receipts = status.get("external_handoff_receipts", [])
+        return {
+            "panel_id": "external_handoffs",
+            "title": "External Handoffs",
+            "status": {
+                "receipt_count": len(receipts) if isinstance(receipts, list) else 0,
+                "items": receipts if isinstance(receipts, list) else [],
+                "candidate_only": True,
+                "authority_transfer_allowed": False,
+                "creates_action": False,
+                "creates_goal": False,
             },
         }
 

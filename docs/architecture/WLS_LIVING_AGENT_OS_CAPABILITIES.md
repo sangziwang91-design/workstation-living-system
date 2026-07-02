@@ -214,6 +214,10 @@ fields such as `memory_id`/`active`.
   Scheduled items can enter the runtime as canonical Events with evidence and
   Owner Console receipts, while explicitly creating no Goals, Actions, standing
   tasks, direct tool execution, or autonomous long-running daemon.
+- P25 is a shadow-level runtime admission for external handoff receipts.
+  Reviewed MCP candidates and hashed A2A artifacts can be recorded as
+  candidate-only runtime receipts with evidence and Owner Console visibility,
+  without creating Actions, Goals, canonical Memory, or authority transfer.
 
 ## Projection Rule
 

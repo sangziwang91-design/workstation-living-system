@@ -584,6 +584,7 @@ def validate_phase2_owner_surface_and_readonly_organs(
         "goals",
         "actions_approval",
         "scheduled_events",
+        "external_handoffs",
         "task_previews",
         "execution_preflight",
         "execution_receipts",
@@ -1585,6 +1586,107 @@ def validate_phase2_scheduler_due_event_runtime_intake(
         [str(receipt["event_id"]), str(evidence[0]["evidence_id"])],
         [
             "Scheduler due events can enter runtime as canonical Events with evidence and Owner Console receipts without creating Goals, Actions, standing tasks, or direct tool execution",
+        ],
+    )
+
+
+def validate_phase2_external_handoff_runtime_receipts(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home))
+    before_goals = runtime.db.query_one("SELECT COUNT(*) AS count FROM goals")
+    before_actions = runtime.db.query_one("SELECT COUNT(*) AS count FROM actions")
+    before_memories = runtime.db.query_one("SELECT COUNT(*) AS count FROM memories")
+    mcp_receipt = runtime.admit_mcp_candidate(
+        McpCandidate(
+            server_id="phase2-reviewed-mcp",
+            identity_digest="sha256:phase2-reviewed-mcp",
+            transport="stdio",
+            side_effect_class="none",
+            review_status="REVIEWED",
+        ),
+        reason="architecture validation external handoff",
+    )
+    contract = TaskContract(
+        task_id="phase2-a2a-worker-1",
+        objective="produce candidate-only handoff artifact",
+        scope={"paths": [], "authority": "none"},
+        allowed_outputs=["report"],
+        expires_at="2026-07-02T00:00:00+00:00",
+    )
+    payload = {"summary": "candidate-only", "confidence": "fixture"}
+    digest = payload_digest(payload)
+    a2a_receipt = runtime.receive_a2a_artifact(
+        contract,
+        ArtifactEnvelope(
+            task_id=contract.task_id,
+            artifact_type="report",
+            payload=payload,
+            hashes={"payload_sha256": digest},
+        ),
+        reason="architecture validation external worker artifact",
+    )
+    after_goals = runtime.db.query_one("SELECT COUNT(*) AS count FROM goals")
+    after_actions = runtime.db.query_one("SELECT COUNT(*) AS count FROM actions")
+    after_memories = runtime.db.query_one("SELECT COUNT(*) AS count FROM memories")
+    evidence = runtime.db.query_all(
+        """
+        SELECT event_type,evidence_id FROM evidence
+        WHERE event_type IN ('mcp_candidate_admitted','a2a_artifact_received')
+        ORDER BY seq
+        """
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "external_handoffs"
+        ),
+        None,
+    )
+    event_types = {row["event_type"] for row in evidence}
+    if (
+        mcp_receipt.get("status") != "VALIDATED_CANDIDATE"
+        or a2a_receipt.get("status") != "CANDIDATE_ONLY"
+        or not mcp_receipt.get("candidate_only")
+        or not a2a_receipt.get("candidate_only")
+        or mcp_receipt.get("direct_tool_execution")
+        or a2a_receipt.get("direct_tool_execution")
+        or mcp_receipt.get("creates_action")
+        or a2a_receipt.get("creates_action")
+        or before_goals is None
+        or after_goals is None
+        or before_goals["count"] != after_goals["count"]
+        or before_actions is None
+        or after_actions is None
+        or before_actions["count"] != after_actions["count"]
+        or before_memories is None
+        or after_memories is None
+        or before_memories["count"] != after_memories["count"]
+        or not {"mcp_candidate_admitted", "a2a_artifact_received"} <= event_types
+        or panel is None
+        or panel["status"]["receipt_count"] != 2
+        or not panel["status"]["candidate_only"]
+        or panel["status"]["authority_transfer_allowed"]
+    ):
+        return ArchitecturePassResult(
+            "P25",
+            "BLOCKED",
+            [str(mcp_receipt), str(a2a_receipt)],
+            ["external handoff runtime receipt validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P25",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(mcp_receipt["identity_digest"]),
+            str(a2a_receipt["payload_hash"]),
+            *[str(row["evidence_id"]) for row in evidence[-2:]],
+        ],
+        [
+            "MCP and A2A external handoffs can be recorded as candidate-only runtime receipts with evidence and Owner Console visibility, without creating actions, goals, canonical memory, or authority transfer",
         ],
     )
 
