@@ -673,6 +673,53 @@ def test_r17_generates_failure_candidate_from_r16_evidence(
     state = load_json(paths.campaign_home / "campaign_state.json")
     assert state["rounds"]["R17"]["status"] == "PASS"
     assert state["rounds"]["R18"]["status"] == "PENDING"
+
+
+def test_r18_runs_isolated_recovery_experiment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner, paths = _prepared_r16_runner(tmp_path, monkeypatch, authorize_level3=True)
+    for index in range(3):
+        runner.record_real_failure(
+            source_type="owner_host_disposable_activity",
+            normalized_signature="http.loopback_outage_timeout",
+            raw_evidence_ids=[f"raw-ev-{index}"],
+            reproduction_status="REPRODUCED",
+            environment="pytest-disposable-campaign",
+            input_hash=f"sha256:input-{index}",
+            output_hash=f"sha256:output-{index}",
+            repair_status="UNREPAIRED",
+            note="pytest real repeated failure fixture",
+        )
+    events_path = paths.campaign_home / "campaign_evidence" / "R16" / "r16_outage_events.json"
+    events_path.write_text(
+        json.dumps(
+            [
+                {
+                    "event_id": f"evt-{index}",
+                    "subject": f"r16-outage-{index}",
+                    "value": {"healthy": False, "error": "<urlopen error timed out>"},
+                }
+                for index in range(3)
+            ]
+        ),
+        encoding="utf-8",
+    )
+    runner.run(["R17"])
+    result = runner.run(["R18"])
+    assert result["results"][0]["status"] == "PASS"
+    assert result["results"][0]["diagnostic_improvement_count"] == 3
+    experiment = load_json(
+        paths.campaign_home / "campaign_evidence" / "R18" / "recovery_experiment.json"
+    )
+    assert experiment["service_recovery_proven"] is False
+    assert experiment["baseline_immutable"]
+    assert experiment["candidate_results"][0]["classification"] == "RECOVERABLE_SERVICE_HEALTH_OUTAGE"
+    state = load_json(paths.campaign_home / "campaign_state.json")
+    assert state["rounds"]["R18"]["status"] == "PASS"
+    assert state["rounds"]["R19"]["status"] == "PENDING"
+
+
 def _prepared_r16_runner(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, authorize_level3: bool
 ) -> tuple[CampaignRunner, CampaignPaths]:

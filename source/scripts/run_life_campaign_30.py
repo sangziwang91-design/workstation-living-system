@@ -29,7 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SPEC = REPO_ROOT / "source" / "verification" / "life_campaign_30.json"
 DEFAULT_INSTALL_ROOT = Path(r"D:\WLS\wls-0.9.0.dev1-py313")
 DEFAULT_CAMPAIGN_HOME = Path(r"D:\WLS\campaigns\life-campaign-30")
-SUPPORTED_AUTOMATED_ROUNDS = {f"R{index:02d}" for index in range(1, 18)}
+SUPPORTED_AUTOMATED_ROUNDS = {f"R{index:02d}" for index in range(1, 19)}
 LEVEL2_GOAL_PREFIXES = ("Clarify", "Inspect", "Learn", "Recover", "Preserve")
 
 
@@ -385,6 +385,7 @@ class CampaignRunner:
             "R15": self._round_15,
             "R16": self._round_16,
             "R17": self._round_17,
+            "R18": self._round_18,
         }
         return handlers[round_id]()
 
@@ -1059,6 +1060,95 @@ class CampaignRunner:
             "candidate_id": candidate["candidate_id"],
             "normalized_signature": candidate["normalized_signature"],
             "claim_ceiling": "failure candidate exists, not a fix",
+        }
+
+    def _round_18(self) -> dict[str, Any]:
+        candidate_path = self.paths.campaign_home / "campaign_evidence" / "R17" / "failure_candidate.json"
+        events_path = self.paths.campaign_home / "campaign_evidence" / "R16" / "r16_outage_events.json"
+        if not candidate_path.exists():
+            return {
+                "status": "OWNER_REVIEW",
+                "reason": "R18 requires R17 failure candidate",
+                "claim_ceiling": "recovery experiment not started",
+            }
+        candidate = load_json(candidate_path)
+        raw_events = json.loads(events_path.read_text(encoding="utf-8")) if events_path.exists() else []
+        if not isinstance(raw_events, list) or len(raw_events) < 3:
+            return {
+                "status": "OWNER_REVIEW",
+                "reason": "R18 requires frozen R16 outage regression events",
+                "claim_ceiling": "recovery experiment not started",
+            }
+        regression_path = self.paths.campaign_home / "campaign_evidence" / "R18" / "frozen_regression_set.json"
+        experiment_path = self.paths.campaign_home / "campaign_evidence" / "R18" / "recovery_experiment.json"
+        regression = {
+            "round_id": "R18",
+            "created_at": utc_now(),
+            "source_candidate_id": candidate.get("candidate_id"),
+            "source_signature": candidate.get("normalized_signature"),
+            "events": raw_events,
+            "frozen_hash_inputs": {
+                "candidate_sha256": self._sha256_optional(candidate_path),
+                "outage_events_sha256": self._sha256_optional(events_path),
+            },
+            "claim_ceiling": "frozen regression set for isolated experiment only",
+        }
+        atomic_write_json(regression_path, regression)
+        baseline_results = [self._classify_outage_baseline(item) for item in raw_events]
+        candidate_results = [self._classify_outage_candidate(item) for item in raw_events]
+        improved = sum(
+            1
+            for before, after in zip(baseline_results, candidate_results, strict=True)
+            if before.get("classification") != after.get("classification")
+        )
+        experiment = {
+            "round_id": "R18",
+            "created_at": utc_now(),
+            "baseline_immutable": self._sha256_optional(regression_path),
+            "candidate_id": candidate.get("candidate_id"),
+            "learning_modes": ["off_baseline", "candidate_classifier"],
+            "baseline_results": baseline_results,
+            "candidate_results": candidate_results,
+            "diagnostic_improvement_count": improved,
+            "service_recovery_proven": False,
+            "null_result": improved == 0,
+            "side_effects": [],
+            "rollback": ["delete R18 experiment candidate outputs", "keep frozen regression evidence"],
+            "claim_ceiling": "isolated recovery experiment result; no live service recovery proven",
+        }
+        atomic_write_json(experiment_path, experiment)
+        regression_evidence = self.manifest.record_file("R18", "frozen_regression_set", regression_path)
+        experiment_evidence = self.manifest.record_file("R18", "recovery_experiment", experiment_path)
+        for evidence_id in [regression_evidence, experiment_evidence]:
+            self.state.append_evidence("R18", evidence_id)
+        return {
+            "status": "PASS",
+            "evidence_ids": [regression_evidence, experiment_evidence],
+            "candidate_id": candidate.get("candidate_id"),
+            "diagnostic_improvement_count": improved,
+            "service_recovery_proven": False,
+            "claim_ceiling": "isolated recovery result only; no live fix",
+        }
+
+    def _classify_outage_baseline(self, event: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "event_id": event.get("event_id"),
+            "subject": event.get("subject"),
+            "classification": "UNCLASSIFIED_FAILURE",
+            "recommended_action": "OWNER_REVIEW",
+        }
+
+    def _classify_outage_candidate(self, event: dict[str, Any]) -> dict[str, Any]:
+        value = event.get("value", {}) if isinstance(event, dict) else {}
+        error = str(value.get("error", "")) if isinstance(value, dict) else ""
+        classification = "RECOVERABLE_SERVICE_HEALTH_OUTAGE" if "timed out" in error.lower() else "UNCLASSIFIED_FAILURE"
+        action = "bounded_retry_then_report" if classification == "RECOVERABLE_SERVICE_HEALTH_OUTAGE" else "OWNER_REVIEW"
+        return {
+            "event_id": event.get("event_id"),
+            "subject": event.get("subject"),
+            "classification": classification,
+            "recommended_action": action,
+            "reason": error,
         }
 
     def _sha256_optional(self, path: Path) -> str | None:
