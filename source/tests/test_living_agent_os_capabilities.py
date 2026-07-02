@@ -13,6 +13,7 @@ from wls.architecture_validation import (
     validate_external_memory_projection,
     validate_mcp_a2a_candidates,
     validate_phase2_owner_surface_and_readonly_organs,
+    validate_phase2_typed_readonly_organ_profiles,
     validate_p01_registry,
     validate_runtime_approval_receipts,
     validate_runtime_event_ingress,
@@ -34,7 +35,11 @@ from wls.external_memory import ExternalMemoryCandidate, ExternalMemoryProjectio
 from wls.mcp_adapter import McpCandidate, McpTrustGate
 from wls.multimodal import MultimodalArtifactEnvelope
 from wls.provider_router import ProviderDescriptor, ProviderRouter, RouteRequest
-from wls.read_only_organs import ReadOnlyTaskRequest
+from wls.read_only_organs import (
+    ORGAN_PROFILES,
+    ReadOnlyOrganProfile,
+    ReadOnlyTaskRequest,
+)
 from wls.runtime import LivingSystem
 from wls.scheduler import EventScheduler, ScheduledEvent
 from wls.schemas import ActionSpec, RiskLevel
@@ -471,6 +476,42 @@ def test_read_only_task_organs_submit_events_without_actions_or_goals(
         ).to_event()
 
 
+def test_typed_read_only_organs_produce_planner_candidates() -> None:
+    assert {
+        "research",
+        "browser",
+        "file",
+        "coding",
+        "content",
+        "social_research",
+        "multimodal",
+    } <= set(ORGAN_PROFILES)
+    for organ_id in ORGAN_PROFILES:
+        request = ReadOnlyTaskRequest(
+            request_id=f"typed-{organ_id}",
+            organ_id=organ_id,
+            owner_intent=f"prepare {organ_id} work",
+            inputs={"fixture": organ_id},
+        )
+        candidate = request.to_plan_candidate()
+        assert candidate["status"] == "PLAN_CANDIDATE_ONLY"
+        assert candidate["canonical_owner"] == "Planner"
+        assert candidate["writes_canonical_state"] is False
+        assert candidate["direct_tool_execution"] is False
+        assert candidate["requires_planner_admission"] is True
+        assert candidate["candidate_actions"]
+        assert {action["risk"] for action in candidate["candidate_actions"]} == {"READ"}
+        assert "event_receipt" in candidate["evidence_required"]
+    with pytest.raises(PermissionError, match="forbidden tool"):
+        ReadOnlyOrganProfile(
+            organ_id="bad",
+            canonical_owner="planning",
+            tool_hints=("write_file",),
+            evidence_required=("receipt",),
+            planner_contract="bad",
+        ).to_dict()
+
+
 def test_multimodal_and_workbench_contracts() -> None:
     envelope = MultimodalArtifactEnvelope("art1", "text/plain", b"hello")
     assert envelope.to_dict()["sha256"]
@@ -573,6 +614,21 @@ def test_architecture_validation_checks_phase2_owner_surface_and_organs(
         "ADMIT_SHADOW_ONLY",
     ]
     assert all(result.evidence for result in results)
+
+
+def test_architecture_validation_checks_typed_readonly_organs() -> None:
+    result = validate_phase2_typed_readonly_organ_profiles()
+    assert result.pass_id == "P13"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert {
+        "research",
+        "browser",
+        "file",
+        "coding",
+        "content",
+        "social_research",
+        "multimodal",
+    } <= set(result.evidence)
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

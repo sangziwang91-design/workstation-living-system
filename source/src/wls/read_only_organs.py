@@ -4,20 +4,118 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from .channel_gateway import ChannelMessage
-from .schemas import Event, digest_json, utc_now
+from .schemas import Event, RiskLevel, digest_json, utc_now
 from .stores import EventStore
 from .workbench import WorkbenchTemplate
 
 
-SUPPORTED_READ_ONLY_ORGANS = {
-    "research",
-    "browser",
-    "file",
-    "coding",
-    "content",
-    "social_research",
-    "multimodal",
+READ_ONLY_TOOL_HINTS = {
+    "browser_readonly.fetch_text",
+    "list_directory",
+    "noop",
+    "read_file",
 }
+FORBIDDEN_TOOL_HINTS = {
+    "delete_file",
+    "deploy",
+    "merge",
+    "promote_skill",
+    "send_payment",
+    "write_file",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class ReadOnlyOrganProfile:
+    organ_id: str
+    canonical_owner: str
+    tool_hints: tuple[str, ...]
+    evidence_required: tuple[str, ...]
+    planner_contract: str
+    blocked_operations: tuple[str, ...] = (
+        "canonical_write",
+        "direct_tool_execution",
+        "goal_completion",
+        "memory_write",
+        "skill_promotion",
+        "deployment",
+        "payment",
+        "secret_access",
+    )
+
+    def validate(self) -> None:
+        if self.canonical_owner != "planning":
+            raise ValueError("read-only organ profiles must bind to Planner")
+        if not self.tool_hints:
+            raise ValueError("read-only organ profile requires tool hints")
+        if not self.evidence_required:
+            raise ValueError("read-only organ profile requires evidence")
+        forbidden = sorted(set(self.tool_hints) & FORBIDDEN_TOOL_HINTS)
+        if forbidden:
+            raise PermissionError(f"forbidden tool hints: {', '.join(forbidden)}")
+        unsupported = sorted(set(self.tool_hints) - READ_ONLY_TOOL_HINTS)
+        if unsupported:
+            raise PermissionError(f"unsupported read-only tool hints: {', '.join(unsupported)}")
+
+    def to_dict(self) -> dict[str, Any]:
+        self.validate()
+        data = asdict(self)
+        data["status"] = "READ_ONLY_PROFILE"
+        return data
+
+
+ORGAN_PROFILES: dict[str, ReadOnlyOrganProfile] = {
+    "research": ReadOnlyOrganProfile(
+        organ_id="research",
+        canonical_owner="planning",
+        tool_hints=("read_file", "list_directory", "browser_readonly.fetch_text"),
+        evidence_required=("source_hashes", "claim_trace", "citation_audit"),
+        planner_contract="prepare traceable research plan candidate",
+    ),
+    "browser": ReadOnlyOrganProfile(
+        organ_id="browser",
+        canonical_owner="planning",
+        tool_hints=("browser_readonly.fetch_text",),
+        evidence_required=("allowed_host", "navigation_log", "content_hash"),
+        planner_contract="prepare allowlisted browser inspection plan candidate",
+    ),
+    "file": ReadOnlyOrganProfile(
+        organ_id="file",
+        canonical_owner="planning",
+        tool_hints=("list_directory", "read_file"),
+        evidence_required=("path_scope", "file_hash_or_listing"),
+        planner_contract="prepare path-scoped file inspection plan candidate",
+    ),
+    "coding": ReadOnlyOrganProfile(
+        organ_id="coding",
+        canonical_owner="planning",
+        tool_hints=("list_directory", "read_file"),
+        evidence_required=("worktree_path", "base_sha", "focused_tests"),
+        planner_contract="prepare disposable coding analysis plan candidate",
+    ),
+    "content": ReadOnlyOrganProfile(
+        organ_id="content",
+        canonical_owner="planning",
+        tool_hints=("read_file", "noop"),
+        evidence_required=("source_hashes", "fact_audit"),
+        planner_contract="prepare content workbench plan candidate",
+    ),
+    "social_research": ReadOnlyOrganProfile(
+        organ_id="social_research",
+        canonical_owner="planning",
+        tool_hints=("read_file", "browser_readonly.fetch_text"),
+        evidence_required=("raw_data", "interpretation_boundary", "alternatives"),
+        planner_contract="prepare social research plan candidate",
+    ),
+    "multimodal": ReadOnlyOrganProfile(
+        organ_id="multimodal",
+        canonical_owner="planning",
+        tool_hints=("read_file", "noop"),
+        evidence_required=("asset_hashes", "model_or_source_provenance"),
+        planner_contract="prepare multimodal artifact review plan candidate",
+    ),
+}
+SUPPORTED_READ_ONLY_ORGANS = set(ORGAN_PROFILES)
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +131,37 @@ class ReadOnlyTaskReceipt:
     direct_tool_execution: bool = False
     risk_ceiling: str = "READ"
     side_effect_class: str = "none"
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class ReadOnlyPlanCandidate:
+    request_id: str
+    organ_id: str
+    status: str
+    canonical_owner: str
+    rationale: str
+    candidate_actions: list[dict[str, Any]]
+    evidence_required: list[str]
+    blocked_operations: list[str]
+    requires_planner_admission: bool = True
+    writes_canonical_state: bool = False
+    direct_tool_execution: bool = False
+    risk_ceiling: str = "READ"
+    side_effect_class: str = "none"
+
+    def __post_init__(self) -> None:
+        if self.status != "PLAN_CANDIDATE_ONLY":
+            raise ValueError("read-only plan candidates cannot be admitted directly")
+        if self.canonical_owner != "Planner":
+            raise ValueError("read-only plan candidates must be owned by Planner")
+        for action in self.candidate_actions:
+            if action.get("risk") != RiskLevel.READ.value:
+                raise PermissionError("read-only plan candidate action must be READ")
+            if action.get("tool") in FORBIDDEN_TOOL_HINTS:
+                raise PermissionError("read-only plan candidate includes forbidden tool")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -113,6 +242,42 @@ class ReadOnlyTaskRequest:
             ],
             evidence_required=list(self.evidence_required),
         ).to_dict()
+
+    def profile(self) -> ReadOnlyOrganProfile:
+        self.validate()
+        return ORGAN_PROFILES[self.organ_id]
+
+    def to_plan_candidate(self) -> dict[str, Any]:
+        profile = self.profile()
+        profile.validate()
+        actions = [
+            {
+                "tool": tool,
+                "arguments": {
+                    "request_id": self.request_id,
+                    "organ_id": self.organ_id,
+                    "inputs": dict(self.inputs),
+                },
+                "purpose": profile.planner_contract,
+                "expected_result": "bounded read-only evidence receipt",
+                "risk": RiskLevel.READ.value,
+                "candidate_only": True,
+            }
+            for tool in profile.tool_hints
+        ]
+        candidate = ReadOnlyPlanCandidate(
+            request_id=self.request_id,
+            organ_id=self.organ_id,
+            status="PLAN_CANDIDATE_ONLY",
+            canonical_owner="Planner",
+            rationale=profile.planner_contract,
+            candidate_actions=actions,
+            evidence_required=list(
+                dict.fromkeys([*self.evidence_required, *profile.evidence_required])
+            ),
+            blocked_operations=list(profile.blocked_operations),
+        )
+        return candidate.to_dict()
 
     def submit(self, events: EventStore) -> ReadOnlyTaskReceipt:
         event_id, inserted = events.add_event(self.to_event())

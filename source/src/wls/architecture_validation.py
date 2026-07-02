@@ -16,7 +16,11 @@ from .config import default_config
 from .coding_adapter import CodingTaskContract
 from .external_memory import ExternalMemoryCandidate, ExternalMemoryProjection
 from .mcp_adapter import McpCandidate, McpTrustGate
-from .read_only_organs import ReadOnlyTaskRequest
+from .read_only_organs import (
+    ORGAN_PROFILES,
+    ReadOnlyOrganProfile,
+    ReadOnlyTaskRequest,
+)
 from .runtime import LivingSystem
 from .scheduler import ScheduledEvent
 from .schemas import ActionSpec, ActionStatus, Plan, RiskLevel, utc_now
@@ -659,6 +663,61 @@ def validate_phase2_owner_surface_and_readonly_organs(
             ],
         )
     return [console_result, organ_result]
+
+
+def validate_phase2_typed_readonly_organ_profiles() -> ArchitecturePassResult:
+    evidence: list[str] = []
+    for organ_id, profile in ORGAN_PROFILES.items():
+        profile.to_dict()
+        candidate = ReadOnlyTaskRequest(
+            request_id=f"typed-{organ_id}",
+            organ_id=organ_id,
+            owner_intent=f"Prepare read-only {organ_id} work",
+            inputs={"fixture": organ_id},
+        ).to_plan_candidate()
+        actions = candidate.get("candidate_actions", [])
+        if (
+            candidate.get("status") != "PLAN_CANDIDATE_ONLY"
+            or candidate.get("canonical_owner") != "Planner"
+            or candidate.get("writes_canonical_state")
+            or candidate.get("direct_tool_execution")
+            or not actions
+            or any(action.get("risk") != "READ" for action in actions)
+            or "event_receipt" not in candidate.get("evidence_required", [])
+        ):
+            return ArchitecturePassResult(
+                "P13",
+                "BLOCKED",
+                evidence,
+                [f"typed read-only organ profile failed: {organ_id}"],
+            )
+        evidence.append(str(candidate["organ_id"]))
+    blocked_write_tool = False
+    try:
+        ReadOnlyOrganProfile(
+            organ_id="bad",
+            canonical_owner="planning",
+            tool_hints=("write_file",),
+            evidence_required=("receipt",),
+            planner_contract="bad",
+        ).to_dict()
+    except PermissionError:
+        blocked_write_tool = True
+    if not blocked_write_tool:
+        return ArchitecturePassResult(
+            "P13",
+            "BLOCKED",
+            evidence,
+            ["forbidden tool profile was not rejected"],
+        )
+    return ArchitecturePassResult(
+        "P13",
+        "ADMIT_SHADOW_ONLY",
+        evidence,
+        [
+            "Typed read-only organ profiles produce Planner-owned plan candidates for common Agent abilities and reject forbidden write tool hints",
+        ],
+    )
 
 
 def _insert_waiting_write_action(

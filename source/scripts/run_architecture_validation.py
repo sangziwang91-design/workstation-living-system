@@ -19,6 +19,7 @@ from wls.architecture_validation import (  # noqa: E402
     validate_external_memory_projection,
     validate_mcp_a2a_candidates,
     validate_phase2_owner_surface_and_readonly_organs,
+    validate_phase2_typed_readonly_organ_profiles,
     validate_p01_registry,
     validate_runtime_approval_receipts,
     validate_runtime_event_ingress,
@@ -46,6 +47,7 @@ def run_validation() -> dict[str, object]:
                 temp_path / "phase2-owner-surface-home"
             )
         )
+        results.append(validate_phase2_typed_readonly_organ_profiles())
     for pass_id, note in PASS_CONTRACTS.items():
         results.append(
             ArchitecturePassResult(

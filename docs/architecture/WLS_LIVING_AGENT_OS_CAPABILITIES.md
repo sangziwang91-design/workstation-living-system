@@ -155,6 +155,11 @@ fields such as `memory_id`/`active`.
 - P12 is a shadow-level runtime admission for read-only real-task organs. They
   submit canonical Events and planning templates only; they do not create
   Actions, Goals, Memories, Skills, deployments, or direct tool executions.
+- P13 is a shadow-level fixture admission for typed read-only organ profiles
+  across research, browser, file, coding, content, social-research, and
+  multimodal work. Each profile produces a Planner-owned plan candidate with
+  read-only tool hints and evidence requirements, while forbidden write,
+  deployment, payment, and Skill-promotion paths remain rejected.
 
 ## Projection Rule
 
