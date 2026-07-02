@@ -782,6 +782,63 @@ def validate_phase2_runtime_readonly_task_preview(home: Path) -> ArchitecturePas
     )
 
 
+def validate_phase2_readonly_planner_admission(home: Path) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home))
+    runtime.intake_read_only_task(
+        ReadOnlyTaskRequest(
+            request_id="phase2-admit-file-1",
+            organ_id="file",
+            owner_intent="Inspect a disposable folder",
+            inputs={"path": str(home)},
+        )
+    )
+    result = runtime.admit_read_only_plan_preview(
+        "phase2-admit-file-1", reason="architecture validation admission"
+    )
+    plan = runtime.db.query_one(
+        "SELECT status FROM plans WHERE plan_id=?", (result["plan_id"],)
+    )
+    actions = runtime.db.query_all(
+        "SELECT status,risk,side_effect_class FROM actions WHERE plan_id=?",
+        (result["plan_id"],),
+    )
+    executed = [row for row in actions if row["status"] != "PLANNED"]
+    evidence = runtime.db.query_all(
+        """
+        SELECT evidence_id FROM evidence
+        WHERE event_type='read_only_plan_preview_admitted'
+        ORDER BY seq DESC LIMIT 1
+        """
+    )
+    previews = runtime.status()["read_only_plan_previews"]
+    if (
+        result.get("status") != "ADMITTED_AS_PLAN"
+        or plan is None
+        or plan["status"] != "PLANNED"
+        or not actions
+        or executed
+        or any(row["risk"] != "READ" for row in actions)
+        or any(row["side_effect_class"] != "none" for row in actions)
+        or not evidence
+        or previews[0].get("status") != "ADMITTED_AS_PLAN"
+        or previews[0].get("direct_tool_execution")
+    ):
+        return ArchitecturePassResult(
+            "P15",
+            "BLOCKED",
+            [str(result)],
+            ["read-only Planner admission validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P15",
+        "ADMIT_SHADOW_ONLY",
+        [str(result["plan_id"]), str(evidence[0]["evidence_id"])],
+        [
+            "Read-only preview admission creates a PLANNED Plan with only READ/none Actions, records evidence, updates Owner Console preview state, and executes nothing",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

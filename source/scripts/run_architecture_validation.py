@@ -20,6 +20,7 @@ from wls.architecture_validation import (  # noqa: E402
     validate_mcp_a2a_candidates,
     validate_phase2_owner_surface_and_readonly_organs,
     validate_phase2_runtime_readonly_task_preview,
+    validate_phase2_readonly_planner_admission,
     validate_phase2_typed_readonly_organ_profiles,
     validate_p01_registry,
     validate_runtime_approval_receipts,
@@ -52,6 +53,11 @@ def run_validation() -> dict[str, object]:
         results.append(
             validate_phase2_runtime_readonly_task_preview(
                 temp_path / "phase2-preview-home"
+            )
+        )
+        results.append(
+            validate_phase2_readonly_planner_admission(
+                temp_path / "phase2-admission-home"
             )
         )
     for pass_id, note in PASS_CONTRACTS.items():

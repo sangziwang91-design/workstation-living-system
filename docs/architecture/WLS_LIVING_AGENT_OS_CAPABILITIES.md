@@ -165,6 +165,11 @@ fields such as `memory_id`/`active`.
   Event and evidence-bound preview in runtime state, exposes it through the
   Owner Console `task_previews` panel, and deliberately creates no `plans` or
   `actions` rows until a later Planner admission gate exists.
+- P15 is a shadow-level runtime admission for guarded Planner intake.
+  `LivingSystem.admit_read_only_plan_preview(...)` can turn an Owner-visible
+  preview into a formal `PLANNED` Plan with only registered READ/none Actions,
+  records evidence, rejects unknown or non-read tool hints, and executes
+  nothing during admission.
 
 ## Projection Rule
 

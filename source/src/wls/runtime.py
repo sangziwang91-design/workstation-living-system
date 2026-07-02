@@ -218,7 +218,10 @@ class LivingSystem:
             "claim_ceiling": "Owner Console preview only; Planner has not admitted a plan",
         }
         current = self.read_only_plan_previews(limit=100)
-        updated = [preview, *[item for item in current if item.get("request_id") != request.request_id]][:100]
+        updated = [
+            preview,
+            *[item for item in current if item.get("request_id") != request.request_id],
+        ][:100]
         with self.db.transaction() as connection:
             self.db.set_runtime("read_only_plan_previews", updated, connection)
             self.ledger.append(
@@ -232,6 +235,152 @@ class LivingSystem:
                 connection,
             )
         return preview
+
+    def admit_read_only_plan_preview(
+        self, request_id: str, *, reason: str = "owner-approved preview admission"
+    ) -> dict[str, Any]:
+        previews = self.read_only_plan_previews(limit=100)
+        preview = next(
+            (item for item in previews if item.get("request_id") == request_id),
+            None,
+        )
+        if preview is None:
+            raise KeyError(f"unknown read-only plan preview: {request_id}")
+        if preview.get("status") not in {"PREVIEW_ONLY", "ADMITTED_AS_PLAN"}:
+            raise ValueError(f"preview cannot be admitted from {preview.get('status')}")
+        if preview.get("admitted_plan_id"):
+            return {
+                "status": "ALREADY_ADMITTED",
+                "plan_id": preview["admitted_plan_id"],
+                "preview": preview,
+            }
+        candidate = preview.get("candidate", {})
+        actions, rejected_hints = self._read_only_candidate_actions(candidate)
+        if not actions:
+            raise ValueError("read-only preview has no admissible registered actions")
+        plan = Plan(
+            rationale=(
+                f"Planner-admitted read-only preview {request_id}: "
+                f"{candidate.get('rationale', '')}"
+            ).strip(),
+            actions=actions,
+            unknowns=[
+                "origin=read_only_plan_preview",
+                f"request_id={request_id}",
+                *[f"rejected_tool_hint={hint}" for hint in rejected_hints],
+            ],
+        )
+        with self.db.transaction() as connection:
+            connection.execute(
+                "INSERT INTO plans(plan_id,cycle_id,plan_json,status,created_at) VALUES (?,?,?,?,?)",
+                (
+                    plan.plan_id,
+                    f"preview:{request_id}",
+                    json.dumps(plan.to_dict(), ensure_ascii=False, sort_keys=True),
+                    "PLANNED",
+                    plan.created_at,
+                ),
+            )
+            for action in plan.actions:
+                side_effect_class = self.tools.get(action.tool).side_effect_class
+                if action.risk != RiskLevel.READ or side_effect_class != "none":
+                    raise PermissionError("only read-only side-effect-free actions can be admitted")
+                connection.execute(
+                    """
+                    INSERT INTO actions(
+                        action_id,plan_id,goal_id,skill_id,tool,arguments_json,purpose,expected_result,
+                        risk,acceptance_json,idempotency_key,status,side_effect_class
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        action.action_id,
+                        plan.plan_id,
+                        action.goal_id,
+                        action.skill_id,
+                        action.tool,
+                        json.dumps(
+                            action.arguments, ensure_ascii=False, sort_keys=True
+                        ),
+                        action.purpose,
+                        action.expected_result,
+                        action.risk.value,
+                        json.dumps(action.acceptance, ensure_ascii=False),
+                        action.idempotency_key,
+                        action.status.value,
+                        side_effect_class,
+                    ),
+                )
+            admitted_preview = {
+                **preview,
+                "status": "ADMITTED_AS_PLAN",
+                "admitted_at": utc_now(),
+                "admitted_plan_id": plan.plan_id,
+                "admitted_action_ids": [action.action_id for action in plan.actions],
+                "rejected_tool_hints": rejected_hints,
+                "admission_reason": reason,
+                "creates_plan_row": True,
+                "creates_action_row": True,
+                "direct_tool_execution": False,
+                "claim_ceiling": "Planner admitted read-only plan; actions are not executed by admission",
+            }
+            updated = [
+                admitted_preview,
+                *[item for item in previews if item.get("request_id") != request_id],
+            ][:100]
+            self.db.set_runtime("read_only_plan_previews", updated, connection)
+            self.ledger.append(
+                "read_only_plan_preview_admitted",
+                {
+                    "request_id": request_id,
+                    "plan_id": plan.plan_id,
+                    "action_ids": [action.action_id for action in plan.actions],
+                    "rejected_tool_hints": rejected_hints,
+                    "reason": reason,
+                },
+                connection,
+            )
+        return {
+            "status": "ADMITTED_AS_PLAN",
+            "plan_id": plan.plan_id,
+            "action_ids": [action.action_id for action in plan.actions],
+            "rejected_tool_hints": rejected_hints,
+            "preview": admitted_preview,
+        }
+
+    def _read_only_candidate_actions(
+        self, candidate: dict[str, Any]
+    ) -> tuple[list[ActionSpec], list[str]]:
+        actions: list[ActionSpec] = []
+        rejected_hints: list[str] = []
+        for item in candidate.get("candidate_actions", []):
+            if not isinstance(item, dict):
+                continue
+            tool = str(item.get("tool", ""))
+            try:
+                definition = self.tools.get(tool)
+            except KeyError:
+                rejected_hints.append(tool)
+                continue
+            if definition.side_effect_class != "none" or item.get("risk") != "READ":
+                rejected_hints.append(tool)
+                continue
+            actions.append(
+                ActionSpec(
+                    tool=tool,
+                    arguments=dict(item.get("arguments", {})),
+                    purpose=str(item.get("purpose", "Admit read-only preview action")),
+                    expected_result=str(
+                        item.get("expected_result", "bounded read-only receipt")
+                    ),
+                    risk=RiskLevel.READ,
+                    acceptance=[
+                        "tool is registered",
+                        "risk is READ",
+                        "side_effect_class is none",
+                    ],
+                )
+            )
+        return actions, rejected_hints
 
     def run_cycle(self) -> dict[str, Any]:
         if self.db.get_runtime("kill_switch", False):

@@ -14,6 +14,7 @@ from wls.architecture_validation import (
     validate_mcp_a2a_candidates,
     validate_phase2_owner_surface_and_readonly_organs,
     validate_phase2_runtime_readonly_task_preview,
+    validate_phase2_readonly_planner_admission,
     validate_phase2_typed_readonly_organ_profiles,
     validate_p01_registry,
     validate_runtime_approval_receipts,
@@ -551,6 +552,44 @@ def test_runtime_intakes_read_only_task_as_preview_without_execution(
     assert evidence
 
 
+def test_runtime_admits_read_only_preview_as_planned_actions_without_execution(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime.intake_read_only_task(
+        ReadOnlyTaskRequest(
+            request_id="admit-file-1",
+            organ_id="file",
+            owner_intent="inspect files before planning",
+            inputs={"path": str(tmp_path)},
+        )
+    )
+    result = runtime.admit_read_only_plan_preview(
+        "admit-file-1", reason="test admission"
+    )
+    assert result["status"] == "ADMITTED_AS_PLAN"
+    assert result["action_ids"]
+    actions = runtime.db.query_all(
+        "SELECT status,risk,side_effect_class,result_json FROM actions WHERE plan_id=?",
+        (result["plan_id"],),
+    )
+    assert actions
+    assert {row["status"] for row in actions} == {"PLANNED"}
+    assert {row["risk"] for row in actions} == {"READ"}
+    assert {row["side_effect_class"] for row in actions} == {"none"}
+    assert {row["result_json"] for row in actions} == {None}
+    previews = runtime.status()["read_only_plan_previews"]
+    assert previews[0]["status"] == "ADMITTED_AS_PLAN"
+    assert previews[0]["admitted_plan_id"] == result["plan_id"]
+    assert previews[0]["direct_tool_execution"] is False
+    second = runtime.admit_read_only_plan_preview("admit-file-1")
+    assert second["status"] == "ALREADY_ADMITTED"
+    evidence = runtime.db.query_all(
+        "SELECT event_type FROM evidence WHERE event_type='read_only_plan_preview_admitted'"
+    )
+    assert evidence
+
+
 def test_multimodal_and_workbench_contracts() -> None:
     envelope = MultimodalArtifactEnvelope("art1", "text/plain", b"hello")
     assert envelope.to_dict()["sha256"]
@@ -675,6 +714,15 @@ def test_architecture_validation_checks_runtime_readonly_task_preview(
 ) -> None:
     result = validate_phase2_runtime_readonly_task_preview(tmp_path / "preview-home")
     assert result.pass_id == "P14"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) == 2
+
+
+def test_architecture_validation_checks_readonly_planner_admission(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_readonly_planner_admission(tmp_path / "admit-home")
+    assert result.pass_id == "P15"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) == 2
 
