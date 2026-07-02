@@ -16,9 +16,12 @@ from .config import default_config
 from .coding_adapter import CodingTaskContract
 from .external_memory import ExternalMemoryCandidate, ExternalMemoryProjection
 from .mcp_adapter import McpCandidate, McpTrustGate
+from .read_only_organs import ReadOnlyTaskRequest
 from .runtime import LivingSystem
 from .scheduler import ScheduledEvent
 from .schemas import ActionSpec, ActionStatus, Plan, RiskLevel, utc_now
+from .ui_projection import OwnerConsoleProductProjection
+from .wechat_adapter import WeChatW0W1Adapter
 from .workbench import WorkbenchTemplate
 
 
@@ -562,6 +565,100 @@ def validate_external_memory_projection() -> ArchitecturePassResult:
             "External memory is admitted only as a pinned, evidence-hashed candidate projection; canonical MemoryStore fields and canonical claims are rejected",
         ],
     )
+
+
+def validate_phase2_owner_surface_and_readonly_organs(
+    home: Path,
+) -> list[ArchitecturePassResult]:
+    runtime = LivingSystem(default_config(home))
+    projection = OwnerConsoleProductProjection().project(runtime.status())
+    notification = WeChatW0W1Adapter("W1").console_digest_notification(projection)
+    panel_ids = set(projection.get("panel_ids", []))
+    required_panels = {
+        "life",
+        "attention",
+        "goals",
+        "actions_approval",
+        "memory_world",
+        "evolution_lab",
+        "organs",
+    }
+    if (
+        projection.get("mode") != "READ_ONLY_PROJECTION"
+        or projection.get("writes_canonical_state")
+        or projection.get("direct_tool_execution")
+        or not required_panels <= panel_ids
+        or notification.get("direct_tool_execution")
+        or notification.get("writes_canonical_state")
+    ):
+        console_result = ArchitecturePassResult(
+            "P11",
+            "BLOCKED",
+            [],
+            ["Owner Console product projection or WeChat digest contract failed"],
+        )
+    else:
+        console_result = ArchitecturePassResult(
+            "P11",
+            "ADMIT_SHADOW_ONLY",
+            [str(projection["projection_digest"])],
+            [
+                "Owner Console product panels and WeChat W0/W1 digest are read-only projections with no canonical writes or tool execution",
+            ],
+        )
+
+    before_actions = runtime.db.query_one("SELECT COUNT(*) AS count FROM actions")
+    before_goals = runtime.db.query_one("SELECT COUNT(*) AS count FROM goals")
+    request = ReadOnlyTaskRequest(
+        request_id="phase2-readonly-research-1",
+        organ_id="research",
+        owner_intent="Summarize current Phase 1 evidence",
+        inputs={"scope": "campaign evidence"},
+    )
+    receipt = request.submit(runtime.events)
+    template = request.to_workbench_template()
+    after_actions = runtime.db.query_one("SELECT COUNT(*) AS count FROM actions")
+    after_goals = runtime.db.query_one("SELECT COUNT(*) AS count FROM goals")
+    side_effect_blocked = False
+    try:
+        ReadOnlyTaskRequest(
+            request_id="bad-write",
+            organ_id="research",
+            owner_intent="write somewhere",
+            side_effect_class="external",
+        ).to_event()
+    except PermissionError:
+        side_effect_blocked = True
+    if (
+        receipt.status != "QUEUED_EVENT_ONLY"
+        or not receipt.inserted
+        or receipt.writes_canonical_state
+        or receipt.direct_tool_execution
+        or template.get("status") != "TEMPLATE_ONLY"
+        or before_actions is None
+        or after_actions is None
+        or before_goals is None
+        or after_goals is None
+        or before_actions["count"] != after_actions["count"]
+        or before_goals["count"] != after_goals["count"]
+        or not side_effect_blocked
+    ):
+        organ_result = ArchitecturePassResult(
+            "P12",
+            "BLOCKED",
+            [str(receipt.event_id)],
+            ["Read-only real-task organ contract failed"],
+        )
+    else:
+        organ_result = ArchitecturePassResult(
+            "P12",
+            "ADMIT_SHADOW_ONLY",
+            [str(receipt.event_id), str(template["template_id"])],
+            [
+                "Read-only task organ submits only a canonical Event and planning template; it creates no Actions or Goals and blocks side effects",
+            ],
+        )
+    return [console_result, organ_result]
 
 
 def _insert_waiting_write_action(

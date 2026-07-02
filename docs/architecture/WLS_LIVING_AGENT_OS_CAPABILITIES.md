@@ -149,6 +149,12 @@ fields such as `memory_id`/`active`.
 - MCP discovery is rejected unless identity is pinned and reviewed.
 - A2A, MCP, and coding outputs remain candidate-only.
 - Owner Console and WeChat W0/W1 are read-only projection/Event paths.
+- P11 is a shadow-level fixture admission for productized Owner Console panels
+  and WeChat W0/W1 digest notifications. They remain read-only projections and
+  cannot write canonical state or execute tools.
+- P12 is a shadow-level runtime admission for read-only real-task organs. They
+  submit canonical Events and planning templates only; they do not create
+  Actions, Goals, Memories, Skills, deployments, or direct tool executions.
 
 ## Projection Rule
 

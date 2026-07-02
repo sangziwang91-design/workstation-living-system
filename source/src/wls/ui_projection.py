@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .schemas import digest_json, utc_now
+
 
 class OwnerConsoleProjection:
     """Read-only rebuildable projection over LivingSystem.status()."""
@@ -23,3 +25,144 @@ class OwnerConsoleProjection:
 
     def project(self, status: dict[str, Any]) -> dict[str, Any]:
         return {key: status.get(key) for key in sorted(self.ALLOWED_KEYS)}
+
+
+class OwnerConsoleProductProjection:
+    """Productized read-only console panels over the canonical runtime status."""
+
+    PANEL_IDS = (
+        "life",
+        "attention",
+        "goals",
+        "actions_approval",
+        "memory_world",
+        "evolution_lab",
+        "organs",
+    )
+
+    def project(self, status: dict[str, Any]) -> dict[str, Any]:
+        panels = [
+            self._life_panel(status),
+            self._attention_panel(status),
+            self._goals_panel(status),
+            self._actions_panel(status),
+            self._memory_world_panel(status),
+            self._evolution_panel(status),
+            self._organs_panel(status),
+        ]
+        payload: dict[str, Any] = {
+            "surface": "owner_console",
+            "projection_version": "0.2.0",
+            "generated_at": utc_now(),
+            "mode": "READ_ONLY_PROJECTION",
+            "canonical_owner": "evidence",
+            "writes_canonical_state": False,
+            "direct_tool_execution": False,
+            "panels": panels,
+            "panel_ids": [panel["panel_id"] for panel in panels],
+            "source_keys": sorted(status.keys()),
+            "claim_ceiling": "read-only product projection over LivingSystem.status",
+        }
+        payload["projection_digest"] = digest_json(
+            {
+                "mode": payload["mode"],
+                "panel_ids": payload["panel_ids"],
+                "panels": panels,
+            }
+        )
+        return payload
+
+    @staticmethod
+    def _life_panel(status: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "panel_id": "life",
+            "title": "Life",
+            "status": {
+                "version": status.get("version"),
+                "home": status.get("home"),
+                "read_only": status.get("read_only"),
+                "paused": status.get("paused"),
+                "killed": status.get("killed"),
+                "cycle_count": status.get("cycle_count"),
+                "event_counts": status.get("event_counts", {}),
+            },
+        }
+
+    @staticmethod
+    def _attention_panel(status: dict[str, Any]) -> dict[str, Any]:
+        planner_route = status.get("planner_route", {})
+        return {
+            "panel_id": "attention",
+            "title": "Attention",
+            "status": {
+                "next_focus": status.get("next_focus", []),
+                "planner_provider": status.get("planner_provider"),
+                "planner_route": {
+                    "provider_id": planner_route.get("provider_id")
+                    if isinstance(planner_route, dict)
+                    else None,
+                    "claim_ceiling": "route summary only",
+                },
+            },
+        }
+
+    @staticmethod
+    def _goals_panel(status: dict[str, Any]) -> dict[str, Any]:
+        goals = status.get("active_goals", [])
+        return {
+            "panel_id": "goals",
+            "title": "Goals",
+            "status": {
+                "active_count": len(goals) if isinstance(goals, list) else 0,
+                "items": goals if isinstance(goals, list) else [],
+            },
+        }
+
+    @staticmethod
+    def _actions_panel(status: dict[str, Any]) -> dict[str, Any]:
+        actions = status.get("pending_actions", [])
+        return {
+            "panel_id": "actions_approval",
+            "title": "Actions And Approval",
+            "status": {
+                "pending_count": len(actions) if isinstance(actions, list) else 0,
+                "items": actions if isinstance(actions, list) else [],
+                "approval_required_for_execution": True,
+            },
+        }
+
+    @staticmethod
+    def _memory_world_panel(status: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "panel_id": "memory_world",
+            "title": "Memory And World",
+            "status": {
+                "causal_memory": status.get("causal_memory", {}),
+                "temporal_world": status.get("temporal_world", {}),
+                "cognition": status.get("cognition", {}),
+                "claim_ceiling": "summary projection only",
+            },
+        }
+
+    @staticmethod
+    def _evolution_panel(status: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "panel_id": "evolution_lab",
+            "title": "Evolution Lab",
+            "status": {
+                "growth_cycles": status.get("growth_cycles", []),
+                "active_skills": status.get("active_skills", []),
+                "skill_promotion_executed": False,
+            },
+        }
+
+    @staticmethod
+    def _organs_panel(status: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "panel_id": "organs",
+            "title": "Organs",
+            "status": {
+                "capabilities": status.get("capabilities", {}),
+                "authority_model": "many organs, one canonical WLS subject",
+            },
+        }

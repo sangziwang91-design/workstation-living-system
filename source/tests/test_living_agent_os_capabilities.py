@@ -12,6 +12,7 @@ from wls.architecture_validation import (
     validate_coding_worktree_candidate,
     validate_external_memory_projection,
     validate_mcp_a2a_candidates,
+    validate_phase2_owner_surface_and_readonly_organs,
     validate_p01_registry,
     validate_runtime_approval_receipts,
     validate_runtime_event_ingress,
@@ -33,10 +34,11 @@ from wls.external_memory import ExternalMemoryCandidate, ExternalMemoryProjectio
 from wls.mcp_adapter import McpCandidate, McpTrustGate
 from wls.multimodal import MultimodalArtifactEnvelope
 from wls.provider_router import ProviderDescriptor, ProviderRouter, RouteRequest
+from wls.read_only_organs import ReadOnlyTaskRequest
 from wls.runtime import LivingSystem
 from wls.scheduler import EventScheduler, ScheduledEvent
 from wls.schemas import ActionSpec, RiskLevel
-from wls.ui_projection import OwnerConsoleProjection
+from wls.ui_projection import OwnerConsoleProductProjection, OwnerConsoleProjection
 from wls.wechat_adapter import WeChatW0W1Adapter
 from wls.workbench import WorkbenchTemplate
 
@@ -403,6 +405,72 @@ def test_owner_projection_and_wechat_w0_w1_are_read_only() -> None:
     assert event.source == "channel:wechat"
 
 
+def test_owner_console_product_projection_and_wechat_digest_are_read_only(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    projection = OwnerConsoleProductProjection().project(runtime.status())
+    assert projection["mode"] == "READ_ONLY_PROJECTION"
+    assert projection["writes_canonical_state"] is False
+    assert projection["direct_tool_execution"] is False
+    assert {
+        "life",
+        "attention",
+        "goals",
+        "actions_approval",
+        "memory_world",
+        "evolution_lab",
+        "organs",
+    } <= set(projection["panel_ids"])
+    digest = WeChatW0W1Adapter("W1").console_digest_notification(projection)
+    assert digest["status"] == "DRAFT_NOTIFICATION"
+    assert digest["summary"]["panel_count"] == len(projection["panel_ids"])
+    assert digest["writes_canonical_state"] is False
+    assert digest["direct_tool_execution"] is False
+    with pytest.raises(PermissionError, match="read-only projection"):
+        WeChatW0W1Adapter("W1").console_digest_notification({"mode": "WRITE"})
+
+
+def test_read_only_task_organs_submit_events_without_actions_or_goals(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    before_actions = runtime.db.query_one("SELECT COUNT(*) AS count FROM actions")
+    before_goals = runtime.db.query_one("SELECT COUNT(*) AS count FROM goals")
+    request = ReadOnlyTaskRequest(
+        request_id="readonly-research-1",
+        organ_id="research",
+        owner_intent="inspect campaign evidence",
+        inputs={"scope": "R26-R30"},
+    )
+    receipt = request.submit(runtime.events)
+    template = request.to_workbench_template()
+    after_actions = runtime.db.query_one("SELECT COUNT(*) AS count FROM actions")
+    after_goals = runtime.db.query_one("SELECT COUNT(*) AS count FROM goals")
+    assert receipt.status == "QUEUED_EVENT_ONLY"
+    assert receipt.inserted is True
+    assert receipt.writes_canonical_state is False
+    assert receipt.direct_tool_execution is False
+    assert template["canonical_owner"] == "planning"
+    assert template["status"] == "TEMPLATE_ONLY"
+    assert before_actions is not None and after_actions is not None
+    assert before_goals is not None and after_goals is not None
+    assert before_actions["count"] == after_actions["count"]
+    assert before_goals["count"] == after_goals["count"]
+    rows = runtime.db.query_all(
+        "SELECT event_type,source FROM events WHERE event_id=?", (receipt.event_id,)
+    )
+    assert rows[0]["event_type"] == "read_only_task.requested"
+    assert rows[0]["source"] == "organ:research"
+    with pytest.raises(PermissionError, match="side effects"):
+        ReadOnlyTaskRequest(
+            request_id="bad-write",
+            organ_id="research",
+            owner_intent="write to the world",
+            side_effect_class="external",
+        ).to_event()
+
+
 def test_multimodal_and_workbench_contracts() -> None:
     envelope = MultimodalArtifactEnvelope("art1", "text/plain", b"hello")
     assert envelope.to_dict()["sha256"]
@@ -493,6 +561,18 @@ def test_architecture_validation_checks_external_memory_projection() -> None:
     assert result.pass_id == "P06"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert result.evidence
+
+
+def test_architecture_validation_checks_phase2_owner_surface_and_organs(
+    tmp_path: Path,
+) -> None:
+    results = validate_phase2_owner_surface_and_readonly_organs(tmp_path / "phase2-home")
+    assert [result.pass_id for result in results] == ["P11", "P12"]
+    assert [result.verdict for result in results] == [
+        "ADMIT_SHADOW_ONLY",
+        "ADMIT_SHADOW_ONLY",
+    ]
+    assert all(result.evidence for result in results)
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:
