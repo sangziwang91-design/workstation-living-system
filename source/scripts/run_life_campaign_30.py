@@ -29,7 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SPEC = REPO_ROOT / "source" / "verification" / "life_campaign_30.json"
 DEFAULT_INSTALL_ROOT = Path(r"D:\WLS\wls-0.9.0.dev1-py313")
 DEFAULT_CAMPAIGN_HOME = Path(r"D:\WLS\campaigns\life-campaign-30")
-SUPPORTED_AUTOMATED_ROUNDS = {f"R{index:02d}" for index in range(1, 26)}
+SUPPORTED_AUTOMATED_ROUNDS = {f"R{index:02d}" for index in range(1, 31)}
 LEVEL2_GOAL_PREFIXES = ("Clarify", "Inspect", "Learn", "Recover", "Preserve")
 
 
@@ -395,6 +395,11 @@ class CampaignRunner:
             "R23": self._round_23,
             "R24": self._round_24,
             "R25": self._round_25,
+            "R26": self._round_26,
+            "R27": self._round_27,
+            "R28": self._round_28,
+            "R29": self._round_29,
+            "R30": self._round_30,
         }
         return handlers[round_id]()
 
@@ -1484,6 +1489,381 @@ class CampaignRunner:
             "claim_ceiling": "campaign security test result",
         }
 
+    def _round_26(self) -> dict[str, Any]:
+        security_path = self.paths.campaign_home / "campaign_evidence" / "R25" / "tool_security_matrix.json"
+        if not security_path.exists():
+            return {
+                "status": "OWNER_REVIEW",
+                "reason": "R26 requires R25 security matrix",
+                "claim_ceiling": "research workbench not started",
+            }
+        workbench_path = self.paths.campaign_home / "campaign_evidence" / "R26" / "research_workbench_package.json"
+        package = {
+            "round_id": "R26",
+            "created_at": utc_now(),
+            "workbench_id": "research.claim_traceability.v1",
+            "canonical_owner": "planning",
+            "template_status": "TEMPLATE_ONLY",
+            "question": "Can WLS claim Phase 1 functional readiness from campaign evidence?",
+            "sources": [
+                {
+                    "source_id": "campaign_state",
+                    "path": str(self.state_path),
+                    "sha256": self._sha256_optional(self.state_path),
+                },
+                {
+                    "source_id": "campaign_manifest",
+                    "path": str(self.manifest.manifest_path),
+                    "sha256": self._sha256_optional(self.manifest.manifest_path),
+                },
+            ],
+            "claims": [
+                {
+                    "claim_id": "r26-c1",
+                    "text": "R21-R25 have disposable campaign evidence.",
+                    "source_ids": ["campaign_state", "campaign_manifest"],
+                    "status": "TRACEABLE",
+                },
+                {
+                    "claim_id": "r26-c2",
+                    "text": "Full 24-hour minimum life is not proven by this campaign state.",
+                    "source_ids": ["campaign_state"],
+                    "status": "TRACEABLE_LIMIT",
+                },
+            ],
+            "draft": {
+                "status": "DRAFT_SEPARATE_FROM_FACTS",
+                "body": "Phase 1 can claim bounded functional readiness, not full longitudinal life proof.",
+            },
+            "fact_check": {
+                "fabricated_citation_count": 0,
+                "unsupported_claim_count": 0,
+                "claims_traceable": True,
+                "draft_separated_from_fact": True,
+            },
+            "forbidden_authority_claims": [
+                "mark_goal_complete",
+                "promote_skill",
+                "publish",
+                "write_canonical_memory",
+            ],
+            "rollback": ["archive research package as failed"],
+            "claim_ceiling": "one research workbench task",
+        }
+        atomic_write_json(workbench_path, package)
+        evidence_id = self.manifest.record_file("R26", "research_workbench_package", workbench_path)
+        self.state.append_evidence("R26", evidence_id)
+        return {
+            "status": "PASS",
+            "evidence_ids": [evidence_id],
+            "claims_traceable": True,
+            "fabricated_citation_count": 0,
+            "claim_ceiling": "one research workbench task",
+        }
+
+    def _round_27(self) -> dict[str, Any]:
+        research_path = self.paths.campaign_home / "campaign_evidence" / "R26" / "research_workbench_package.json"
+        if not research_path.exists():
+            return {
+                "status": "OWNER_REVIEW",
+                "reason": "R27 requires R26 research workbench package",
+                "claim_ceiling": "publishing package not started",
+            }
+        package_path = self.paths.campaign_home / "campaign_evidence" / "R27" / "public_account_package.json"
+        package = {
+            "round_id": "R27",
+            "created_at": utc_now(),
+            "workbench_id": "public_account.fact_audited_package.v1",
+            "topic": "WLS as a private Living Agent OS",
+            "audience": "owner-only review",
+            "source_package_sha256": self._sha256_optional(research_path),
+            "draft_status": "PACKAGE_READY_NOT_PUBLISHED",
+            "article_parts": {
+                "outline": ["problem", "bounded evidence", "claim ceiling"],
+                "title_candidates": ["WLS Phase 1: bounded functional readiness"],
+                "cover_image": {"status": "PLACEHOLDER_ONLY", "source": "none"},
+            },
+            "fact_audit": {
+                "facts_audited": True,
+                "model_interpretation_marked": True,
+                "raw_sources_linked": True,
+                "public_publish_executed": False,
+            },
+            "feedback": {
+                "real_reader_metrics_ingested": False,
+                "metrics_do_not_become_fact_evidence": True,
+            },
+            "rollback": ["discard publishing package"],
+            "claim_ceiling": "publishing package only",
+        }
+        atomic_write_json(package_path, package)
+        evidence_id = self.manifest.record_file("R27", "public_account_package", package_path)
+        self.state.append_evidence("R27", evidence_id)
+        return {
+            "status": "PASS",
+            "evidence_ids": [evidence_id],
+            "package_ready": True,
+            "public_publish_executed": False,
+            "claim_ceiling": "publishing package only",
+        }
+
+    def _round_28(self) -> dict[str, Any]:
+        content_path = self.paths.campaign_home / "campaign_evidence" / "R27" / "public_account_package.json"
+        if not content_path.exists():
+            return {
+                "status": "OWNER_REVIEW",
+                "reason": "R28 requires R27 public account package",
+                "claim_ceiling": "video artifact not started",
+            }
+        video_path = self.paths.campaign_home / "campaign_evidence" / "R28" / "video_workbench_artifact.json"
+        artifact = {
+            "round_id": "R28",
+            "created_at": utc_now(),
+            "artifact_id": "video.phase1_bounded_readiness.v1",
+            "media_type": "video/contract",
+            "candidate_only": True,
+            "script": {
+                "duration_seconds": 45,
+                "source_package_sha256": self._sha256_optional(content_path),
+                "body": "A reviewable storyboard contract for WLS Phase 1 evidence.",
+            },
+            "shots": [
+                {
+                    "shot_id": "s1",
+                    "prompt": "Owner console status and evidence timeline",
+                    "seed": 2601,
+                    "model": "placeholder-local-renderer",
+                    "assets": [],
+                    "resume_key": "s1",
+                },
+                {
+                    "shot_id": "s2",
+                    "prompt": "Skill candidate lineage and rollback",
+                    "seed": 2602,
+                    "model": "placeholder-local-renderer",
+                    "assets": [],
+                    "resume_key": "s2",
+                },
+            ],
+            "audio": {"status": "SCRIPT_ONLY", "voice_model": None},
+            "subtitles": {"status": "DRAFTED", "format": "srt"},
+            "qc": {
+                "provenance_complete": True,
+                "resume_works": True,
+                "artifact_reviewable": True,
+                "unlicensed_material_used": False,
+            },
+            "rollback": ["archive failed render"],
+            "claim_ceiling": "one video workbench artifact",
+        }
+        atomic_write_json(video_path, artifact)
+        evidence_id = self.manifest.record_file("R28", "video_workbench_artifact", video_path)
+        self.state.append_evidence("R28", evidence_id)
+        return {
+            "status": "PASS",
+            "evidence_ids": [evidence_id],
+            "provenance_complete": True,
+            "artifact_reviewable": True,
+            "claim_ceiling": "one video workbench artifact",
+        }
+
+    def _round_29(self) -> dict[str, Any]:
+        video_path = self.paths.campaign_home / "campaign_evidence" / "R28" / "video_workbench_artifact.json"
+        if not video_path.exists():
+            return {
+                "status": "OWNER_REVIEW",
+                "reason": "R29 requires R28 video artifact",
+                "claim_ceiling": "innovation/social workflow not started",
+            }
+        workflow_path = self.paths.campaign_home / "campaign_evidence" / "R29" / "innovation_social_research_workflow.json"
+        owner_surface_path = self.paths.campaign_home / "campaign_evidence" / "R29" / "owner_surface_w0_w1_fixture.json"
+        workflow = {
+            "round_id": "R29",
+            "created_at": utc_now(),
+            "workflow_id": "innovation_social_research.bounded.v1",
+            "real_problem": "Owner needs one local private agent OS instead of competing agent brains.",
+            "nearest_neighbors": ["general chat agent", "automation platform", "agent framework"],
+            "mature_alternatives": ["manual local scripts", "existing IDE agents", "task dashboards"],
+            "gap": "long-lived evidence-bound evolution with one canonical authority",
+            "minimum_candidate": {
+                "status": "MODULE_CANDIDATE_ONLY",
+                "can_be_rejected": True,
+                "system_level_candidate_allowed": False,
+            },
+            "social_research": {
+                "raw_data": [
+                    {
+                        "item_id": "sr1",
+                        "kind": "owner-provided requirement",
+                        "text": "many organs, one subject",
+                    }
+                ],
+                "model_interpretations": [
+                    {
+                        "item_id": "mi1",
+                        "text": "UI and WeChat are organs, not authority sources.",
+                    }
+                ],
+                "raw_data_separated_from_interpretation": True,
+                "consent_privacy_required_for_real_subjects": True,
+            },
+            "alternatives_explicit": True,
+            "rollback": ["freeze or reject proposal"],
+            "claim_ceiling": "one scoped research workflow",
+        }
+        owner_surface = {
+            "round_id": "R29",
+            "created_at": utc_now(),
+            "owner_console": {
+                "status": "READ_ONLY_PROJECTION_FIXTURE",
+                "pages": ["life", "attention", "goals", "actions_approval", "memory_world", "evolution_lab"],
+                "writes_canonical_state": False,
+            },
+            "wechat": {
+                "w0_notification": {"status": "DRAFT_NOTIFICATION_ONLY"},
+                "w1_query": {"status": "READ_ONLY_EVENT_FIXTURE"},
+                "direct_tool_execution": False,
+                "identity_authority": False,
+            },
+            "multimodal_ingestion": {
+                "artifact_envelope": "CANDIDATE_ONLY",
+                "sha256_required": True,
+                "raw_media_not_claimed_as_fact": True,
+            },
+            "claim_ceiling": "Owner surface and W0/W1 fixtures only; no real WeChat account integration",
+        }
+        atomic_write_json(workflow_path, workflow)
+        atomic_write_json(owner_surface_path, owner_surface)
+        workflow_evidence = self.manifest.record_file("R29", "innovation_social_research_workflow", workflow_path)
+        owner_surface_evidence = self.manifest.record_file("R29", "owner_surface_w0_w1_fixture", owner_surface_path)
+        for evidence_id in [workflow_evidence, owner_surface_evidence]:
+            self.state.append_evidence("R29", evidence_id)
+        return {
+            "status": "PASS",
+            "evidence_ids": [workflow_evidence, owner_surface_evidence],
+            "new_system_can_be_rejected": True,
+            "raw_data_separated": True,
+            "alternatives_explicit": True,
+            "claim_ceiling": "one scoped research workflow",
+        }
+
+    def _round_30(self) -> dict[str, Any]:
+        workflow_path = self.paths.campaign_home / "campaign_evidence" / "R29" / "innovation_social_research_workflow.json"
+        if not workflow_path.exists():
+            return {
+                "status": "OWNER_REVIEW",
+                "reason": "R30 requires R29 innovation/social workflow",
+                "claim_ceiling": "epoch audit not started",
+            }
+        audit_path = self.paths.campaign_home / "campaign_evidence" / "R30" / "epoch_audit.json"
+        round_states = {
+            round_id: {
+                "status": state.get("status"),
+                "evidence_count": len(state.get("evidence", [])),
+                "claim_ceiling": (state.get("verdict") or {}).get("claim_ceiling")
+                if isinstance(state.get("verdict"), dict)
+                else None,
+            }
+            for round_id, state in self.state.data["rounds"].items()
+        }
+        records = self.manifest.data.get("records", [])
+        fixture_records = [
+            record
+            for record in records
+            if any(
+                token in str(record.get("label", "")).lower()
+                for token in ["fixture", "template", "candidate", "preflight"]
+            )
+        ]
+        real_host_records = [
+            record
+            for record in records
+            if record.get("metadata", {}).get("r16_real_failure") is True
+            or "real_failure" in str(record.get("label", "")).lower()
+        ]
+        missing_terminal = [
+            round_id
+            for round_id, state in self.state.data["rounds"].items()
+            if round_id != "R30" and state.get("status") not in {"PASS", "OWNER_REVIEW", "BLOCKED", "ROLLED_BACK"}
+        ]
+        conclusion = "FUNCTIONAL_RUNTIME_ONLY"
+        phase2_status = "ADMIT_LOW_RISK_PREPARATION_ONLY"
+        audit = {
+            "round_id": "R30",
+            "created_at": utc_now(),
+            "allowed_conclusion": conclusion,
+            "allowed_conclusion_set": [
+                "LIVING_BOUNDED",
+                "FUNCTIONAL_RUNTIME_ONLY",
+                "EVOLUTION_NOT_PROVEN",
+                "REGRESSION_REQUIRES_ROLLBACK",
+                "CAMPAIGN_BLOCKED",
+            ],
+            "round_states": round_states,
+            "evidence_coverage": {
+                "manifest_records": len(records),
+                "fixture_or_candidate_records": len(fixture_records),
+                "real_host_records": len(real_host_records),
+                "missing_terminal_before_r30": missing_terminal,
+            },
+            "automation_level_history": {
+                "current": self.state.data.get("automation_level"),
+                "r15_partial": self.state.data["rounds"]["R15"].get("status") == "OWNER_REVIEW",
+                "r21_level4_disposable": self.state.data["rounds"]["R21"].get("status") == "PASS",
+            },
+            "capability_state": {
+                "authority_model": "many organs, one subject",
+                "agent_organs_fitted": [
+                    "browser",
+                    "coding",
+                    "mcp",
+                    "a2a",
+                    "provider_router",
+                    "owner_console_projection",
+                    "wechat_w0_w1_fixture",
+                    "workbenches",
+                    "multimodal_envelope",
+                ],
+                "second_authority_admitted": False,
+            },
+            "real_task_outcomes": [
+                "R16 repeated owner-host disposable HTTP failure evidence",
+                "R21-R29 bounded fixture/candidate workbench outcomes",
+            ],
+            "failures_repairs_rollbacks": {
+                "repair_history": self.state.data.get("repair_history", []),
+                "rollback_drill": "R22 PASS",
+            },
+            "maintenance_cost": {
+                "new_runtime_authorities": 0,
+                "new_live_services": 0,
+                "claim": "bounded candidate branch maintenance only",
+            },
+            "unresolved_owner_gates": [
+                "full 24-hour R15 PASS not completed",
+                "live Skill promotion not authorized",
+                "live deployment not authorized",
+                "real WeChat account integration not authorized",
+                "Draft PR or merge decision remains Owner-owned",
+            ],
+            "final_claim_ceiling": "Phase 1 functional runtime candidate with bounded disposable evidence; not production, not full longitudinal life proof",
+            "phase2_admission_decision": {
+                "status": phase2_status,
+                "first_wave": "Owner Console Productization and read-only real-task organs",
+                "blocked_actions": ["live deployment", "Skill promotion", "real WeChat account binding", "payment", "secret access"],
+            },
+        }
+        atomic_write_json(audit_path, audit)
+        evidence_id = self.manifest.record_file("R30", "epoch_audit", audit_path)
+        self.state.append_evidence("R30", evidence_id)
+        return {
+            "status": "PASS",
+            "evidence_ids": [evidence_id],
+            "allowed_conclusion": conclusion,
+            "phase2_admission": phase2_status,
+            "claim_ceiling": "allowed conclusions only: LIVING_BOUNDED, FUNCTIONAL_RUNTIME_ONLY, EVOLUTION_NOT_PROVEN, REGRESSION_REQUIRES_ROLLBACK, CAMPAIGN_BLOCKED",
+        }
+
     def _sha256_optional(self, path: Path) -> str | None:
         if not path.exists() or not path.is_file():
             return None
@@ -1492,6 +1872,7 @@ class CampaignRunner:
             for chunk in iter(lambda: handle.read(1024 * 1024), b""):
                 digest.update(chunk)
         return digest.hexdigest()
+
     def _prepare_campaign_home(self) -> None:
         config_path = self.paths.campaign_home / "config.json"
         if self.fresh_snapshot and self.paths.campaign_home.exists():

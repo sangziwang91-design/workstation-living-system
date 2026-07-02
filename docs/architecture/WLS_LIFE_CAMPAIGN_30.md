@@ -98,7 +98,7 @@ replace raw evidence.
 
 ## Execution Levels
 
-This implementation supports executable handlers for R01-R25. R14 is the first
+This implementation supports executable handlers for R01-R30. R14 is the first
 LEVEL_2 boundary and remains owner-gated because it admits an endogenous
 read-only Goal. R15 requires real elapsed time for a full 24-hour validation
 unless the Owner stops it and explicitly authorizes the partial-continuation
@@ -108,7 +108,10 @@ packet generation. R21-R25 cover the M3 interoperability and security band:
 disposable canary reuse, rollback drill, multi-agent handoff, provider failure
 fallback, and tool/MCP/A2A security checks.
 
-R26-R30 remain specified but not yet admitted in this candidate branch.
+R26-R30 cover bounded workbench and product-surface evidence: research writing,
+public-account/content packaging, video/multimodal artifact contracts,
+innovation/social-research workflow, Owner Console + WeChat W0/W1 fixtures, and
+R30 Epoch Audit.
 
 If the Owner explicitly stops R15 before 24 hours, the runner preserves the
 partial heartbeat evidence and marks R15 `OWNER_REVIEW`, not `PASS`. A separate
@@ -155,6 +158,35 @@ The M3 claim ceiling is:
 multi-agent/provider/MCP/A2A/tool-security remain candidate-only or
 owner-gated in the disposable campaign clone; no second authority is admitted
 ```
+
+## M4 Band
+
+R26-R30 fit private work capability and Phase 1 audit evidence without public
+side effects:
+
+- R26 records a research workbench package with traceable claims, source hashes,
+  draft/fact separation, and zero fabricated citations.
+- R27 records a public-account/content package that is ready for Owner review
+  but not published.
+- R28 records a video workbench artifact contract with script, shots, prompts,
+  seeds, model placeholders, audio/subtitle state, resume keys, provenance, and
+  reviewability.
+- R29 records an innovation/social-research workflow with nearest alternatives,
+  raw data separated from model interpretation, and a rejectable minimum
+  candidate. It also records Owner Console and WeChat W0/W1 read-only fixtures.
+- R30 records the Epoch Audit.
+
+Because R15 remains a partial Owner-stopped run rather than a full 24-hour PASS,
+R30 must not select `LIVING_BOUNDED`. The current allowed conclusion is:
+
+```text
+FUNCTIONAL_RUNTIME_ONLY
+```
+
+The R30 Phase 2 admission decision is low-risk preparation only: Owner Console
+productization and read-only real-task organs may begin, while live deployment,
+Skill promotion, real WeChat account binding, payment, and secret access remain
+blocked Owner Gates.
 
 ## Repair And Resume
 
@@ -228,3 +260,13 @@ interoperability/security checks pass inside the disposable campaign clone.
 It does not prove full 24-hour survival, live Skill evolution, longitudinal
 self-evolution, production deployment, public publishing, payment, secret
 access, external worker truth, or any live-instance configuration change.
+
+Passing R01-R30 with the current R15 partial continuation supports only:
+
+```text
+Phase 1 functional runtime candidate with bounded disposable evidence and an
+Epoch Audit conclusion of FUNCTIONAL_RUNTIME_ONLY.
+```
+
+It does not prove `LIVING_BOUNDED` until a real full-duration R15 run and later
+longitudinal evidence are completed.

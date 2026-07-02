@@ -811,6 +811,53 @@ def test_r21_to_r25_generate_m3_unified_evidence(
     assert "no second authority" in security["m3_unified_conclusion"]
 
 
+def test_r26_to_r30_generate_phase1_epoch_audit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner, paths = _prepared_r25_runner(tmp_path, monkeypatch)
+    result = runner.run(["R26", "R27", "R28", "R29", "R30"])
+    assert [item["status"] for item in result["results"]] == ["PASS"] * 5
+    assert result["results"][-1]["allowed_conclusion"] == "FUNCTIONAL_RUNTIME_ONLY"
+    research = load_json(
+        paths.campaign_home / "campaign_evidence" / "R26" / "research_workbench_package.json"
+    )
+    assert research["fact_check"]["claims_traceable"] is True
+    assert research["fact_check"]["fabricated_citation_count"] == 0
+    public_package = load_json(
+        paths.campaign_home / "campaign_evidence" / "R27" / "public_account_package.json"
+    )
+    assert public_package["fact_audit"]["public_publish_executed"] is False
+    video = load_json(
+        paths.campaign_home / "campaign_evidence" / "R28" / "video_workbench_artifact.json"
+    )
+    assert video["qc"]["provenance_complete"] is True
+    assert video["candidate_only"] is True
+    workflow = load_json(
+        paths.campaign_home / "campaign_evidence" / "R29" / "innovation_social_research_workflow.json"
+    )
+    assert workflow["minimum_candidate"]["can_be_rejected"] is True
+    assert workflow["social_research"]["raw_data_separated_from_interpretation"] is True
+    owner_surface = load_json(
+        paths.campaign_home / "campaign_evidence" / "R29" / "owner_surface_w0_w1_fixture.json"
+    )
+    assert owner_surface["owner_console"]["writes_canonical_state"] is False
+    assert owner_surface["wechat"]["direct_tool_execution"] is False
+    audit = load_json(paths.campaign_home / "campaign_evidence" / "R30" / "epoch_audit.json")
+    assert audit["allowed_conclusion"] == "FUNCTIONAL_RUNTIME_ONLY"
+    assert audit["capability_state"]["second_authority_admitted"] is False
+    assert audit["phase2_admission_decision"]["status"] == "ADMIT_LOW_RISK_PREPARATION_ONLY"
+    state = load_json(paths.campaign_home / "campaign_state.json")
+    assert state["rounds"]["R30"]["status"] == "PASS"
+
+
+def _prepared_r25_runner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[CampaignRunner, CampaignPaths]:
+    runner, paths = _prepared_r20_runner(tmp_path, monkeypatch, authorize_level4=True)
+    runner.run(["R21", "R22", "R23", "R24", "R25"])
+    return runner, paths
+
+
 def _prepared_r20_runner(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, authorize_level4: bool
 ) -> tuple[CampaignRunner, CampaignPaths]:
