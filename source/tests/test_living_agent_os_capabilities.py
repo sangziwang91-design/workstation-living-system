@@ -13,6 +13,7 @@ from wls.architecture_validation import (
     validate_coding_worktree_candidate,
     validate_external_memory_projection,
     validate_mcp_a2a_candidates,
+    validate_phase2_browser_readonly_runtime_execution,
     validate_phase2_owner_surface_and_readonly_organs,
     validate_phase2_preflighted_readonly_execution,
     validate_phase2_projection_review_and_rollback,
@@ -514,6 +515,7 @@ def test_typed_read_only_organs_produce_planner_candidates() -> None:
         assert candidate["candidate_actions"]
         assert {action["risk"] for action in candidate["candidate_actions"]} == {"READ"}
         assert "event_receipt" in candidate["evidence_required"]
+    assert ORGAN_PROFILES["browser"].tool_hints == ("http_get",)
     with pytest.raises(PermissionError, match="forbidden tool"):
         ReadOnlyOrganProfile(
             organ_id="bad",
@@ -957,6 +959,61 @@ def test_architecture_validation_checks_projection_review_and_rollback(
     assert result.pass_id == "P19"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) == 3
+
+
+def test_browser_read_only_organ_executes_loopback_http_get(tmp_path: Path) -> None:
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _BrowserTestHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        port = int(server.server_port)
+        runtime = LivingSystem(default_config(tmp_path / "browser-runtime-home"))
+        runtime.intake_read_only_task(
+            ReadOnlyTaskRequest(
+                request_id="browser-http-get-1",
+                organ_id="browser",
+                owner_intent="inspect loopback page",
+                inputs={
+                    "url": f"http://127.0.0.1:{port}/page",
+                    "max_bytes": 4096,
+                },
+            )
+        )
+        admission = runtime.admit_read_only_plan_preview(
+            "browser-http-get-1", reason="unit test browser execution"
+        )
+        actions = runtime.db.query_all(
+            "SELECT tool,risk,side_effect_class,arguments_json FROM actions WHERE plan_id=?",
+            (admission["plan_id"],),
+        )
+        assert [row["tool"] for row in actions] == ["http_get"]
+        assert actions[0]["risk"] == "READ"
+        assert actions[0]["side_effect_class"] == "none"
+        arguments = json.loads(actions[0]["arguments_json"])
+        assert arguments["host"] == "127.0.0.1"
+        preflight = runtime.preflight_read_only_plan(str(admission["plan_id"]))
+        assert preflight["status"] == "READY_FOR_EXECUTION"
+        receipt = runtime.execute_preflighted_read_only_plan(str(admission["plan_id"]))
+        assert receipt["status"] == "EXECUTED_READ_ONLY"
+        assert receipt["all_succeeded"] is True
+        assert receipt["outcomes"][0]["status"] == "SUCCEEDED"
+        assert receipt["outcomes"][0]["output"]["status"] == 200
+        assert "browser test fixture" in receipt["outcomes"][0]["output"]["body"]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_architecture_validation_checks_browser_runtime_execution(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_browser_readonly_runtime_execution(
+        tmp_path / "browser-validation-home"
+    )
+    assert result.pass_id == "P20"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) >= 3
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

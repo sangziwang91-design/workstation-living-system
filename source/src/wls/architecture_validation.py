@@ -1137,6 +1137,95 @@ def validate_phase2_projection_review_and_rollback(home: Path) -> ArchitecturePa
     )
 
 
+def validate_phase2_browser_readonly_runtime_execution(home: Path) -> ArchitecturePassResult:
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _BrowserFixtureHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        port = int(server.server_port)
+        runtime = LivingSystem(default_config(home))
+        runtime.intake_read_only_task(
+            ReadOnlyTaskRequest(
+                request_id="phase2-browser-runtime-1",
+                organ_id="browser",
+                owner_intent="Inspect a loopback browser fixture",
+                inputs={
+                    "url": f"http://127.0.0.1:{port}/page",
+                    "max_bytes": 4096,
+                },
+            )
+        )
+        admission = runtime.admit_read_only_plan_preview(
+            "phase2-browser-runtime-1",
+            reason="architecture validation browser read-only execution",
+        )
+        preflight = runtime.preflight_read_only_plan(str(admission["plan_id"]))
+        receipt = runtime.execute_preflighted_read_only_plan(str(admission["plan_id"]))
+        actions = runtime.db.query_all(
+            """
+            SELECT tool,status,risk,side_effect_class,result_json FROM actions
+            WHERE plan_id=?
+            """,
+            (admission["plan_id"],),
+        )
+        evidence = runtime.db.query_all(
+            """
+            SELECT event_type,evidence_id FROM evidence
+            WHERE event_type IN ('action_completed','read_only_plan_executed')
+            ORDER BY seq
+            """
+        )
+        receipt_panel = next(
+            (
+                panel
+                for panel in OwnerConsoleProductProjection().project(runtime.status())[
+                    "panels"
+                ]
+                if panel.get("panel_id") == "execution_receipts"
+            ),
+            None,
+        )
+        output = receipt.get("outcomes", [{}])[0].get("output", {})
+        event_types = {row["event_type"] for row in evidence}
+        if (
+            admission.get("status") != "ADMITTED_AS_PLAN"
+            or preflight.get("status") != "READY_FOR_EXECUTION"
+            or receipt.get("status") != "EXECUTED_READ_ONLY"
+            or not receipt.get("all_succeeded")
+            or not actions
+            or any(row["tool"] != "http_get" for row in actions)
+            or any(row["status"] != "SUCCEEDED" for row in actions)
+            or any(row["risk"] != "READ" for row in actions)
+            or any(row["side_effect_class"] != "none" for row in actions)
+            or output.get("status") != 200
+            or "WLS browser fixture" not in str(output.get("body", ""))
+            or not {"action_completed", "read_only_plan_executed"} <= event_types
+            or receipt_panel is None
+            or receipt_panel["status"]["receipt_count"] < 1
+        ):
+            return ArchitecturePassResult(
+                "P20",
+                "BLOCKED",
+                [str(receipt)],
+                ["browser read-only runtime execution validation failed"],
+            )
+        return ArchitecturePassResult(
+            "P20",
+            "ADMIT_SHADOW_ONLY",
+            [
+                str(admission["plan_id"]),
+                *[str(row["evidence_id"]) for row in evidence[-2:]],
+            ],
+            [
+                "Browser read-only organs can execute allowlisted loopback http_get actions through Planner, Policy, ToolRegistry, receipts, evidence, and Owner Console without external writes",
+            ],
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

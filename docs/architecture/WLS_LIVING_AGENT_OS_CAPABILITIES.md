@@ -188,6 +188,12 @@ fields such as `memory_id`/`active`.
   Candidate read-only projections can be reviewed or rolled back; rollback
   deactivates the candidate memory/world entries and records evidence without
   promoting Skills or completing Goals.
+- P20 is a shadow-level runtime admission for browser read-only execution.
+  Browser, research, and social-research organs now emit registered `http_get`
+  read actions instead of adapter-only hints. Validation executes only an
+  allowlisted loopback fixture through Planner admission, Policy preflight,
+  ToolRegistry receipts, evidence, and Owner Console projection; it does not
+  prove live web browsing or desktop control.
 
 ## Projection Rule
 

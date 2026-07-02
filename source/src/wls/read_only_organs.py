@@ -10,7 +10,7 @@ from .workbench import WorkbenchTemplate
 
 
 READ_ONLY_TOOL_HINTS = {
-    "browser_readonly.fetch_text",
+    "http_get",
     "list_directory",
     "noop",
     "read_file",
@@ -68,14 +68,14 @@ ORGAN_PROFILES: dict[str, ReadOnlyOrganProfile] = {
     "research": ReadOnlyOrganProfile(
         organ_id="research",
         canonical_owner="planning",
-        tool_hints=("read_file", "list_directory", "browser_readonly.fetch_text"),
+        tool_hints=("read_file", "list_directory", "http_get"),
         evidence_required=("source_hashes", "claim_trace", "citation_audit"),
         planner_contract="prepare traceable research plan candidate",
     ),
     "browser": ReadOnlyOrganProfile(
         organ_id="browser",
         canonical_owner="planning",
-        tool_hints=("browser_readonly.fetch_text",),
+        tool_hints=("http_get",),
         evidence_required=("allowed_host", "navigation_log", "content_hash"),
         planner_contract="prepare allowlisted browser inspection plan candidate",
     ),
@@ -103,7 +103,7 @@ ORGAN_PROFILES: dict[str, ReadOnlyOrganProfile] = {
     "social_research": ReadOnlyOrganProfile(
         organ_id="social_research",
         canonical_owner="planning",
-        tool_hints=("read_file", "browser_readonly.fetch_text"),
+        tool_hints=("read_file", "http_get"),
         evidence_required=("raw_data", "interpretation_boundary", "alternatives"),
         planner_contract="prepare social research plan candidate",
     ),

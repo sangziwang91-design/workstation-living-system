@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 import importlib
 import json
 import os
@@ -725,6 +726,20 @@ class LivingSystem:
                     )
                 )
             }
+        if tool == "http_get":
+            url = inputs.get("url")
+            if not isinstance(url, str) or not url.strip():
+                raise ValueError("http_get requires url input")
+            parsed = urlparse(url)
+            host = (parsed.hostname or "").lower()
+            if parsed.scheme not in {"http", "https"} or not host:
+                raise ValueError("http_get requires an http(s) URL with hostname")
+            return {
+                "url": url,
+                "host": host,
+                "timeout": float(inputs.get("timeout", 5.0)),
+                "max_bytes": int(inputs.get("max_bytes", 1048576)),
+            }
         raise ValueError(f"unsupported read-only tool mapping: {tool}")
 
     @staticmethod
@@ -735,6 +750,8 @@ class LivingSystem:
             return ["output contains path", "output contains text or binary marker"]
         if tool == "noop":
             return ["output ok is true"]
+        if tool == "http_get":
+            return ["output contains status", "output contains body"]
         return []
 
     def run_cycle(self) -> dict[str, Any]:

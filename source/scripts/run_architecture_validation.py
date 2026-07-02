@@ -18,6 +18,7 @@ from wls.architecture_validation import (  # noqa: E402
     validate_coding_worktree_candidate,
     validate_external_memory_projection,
     validate_mcp_a2a_candidates,
+    validate_phase2_browser_readonly_runtime_execution,
     validate_phase2_owner_surface_and_readonly_organs,
     validate_phase2_preflighted_readonly_execution,
     validate_phase2_projection_review_and_rollback,
@@ -82,6 +83,11 @@ def run_validation() -> dict[str, object]:
         results.append(
             validate_phase2_projection_review_and_rollback(
                 temp_path / "phase2-review-home"
+            )
+        )
+        results.append(
+            validate_phase2_browser_readonly_runtime_execution(
+                temp_path / "phase2-browser-runtime-home"
             )
         )
     for pass_id, note in PASS_CONTRACTS.items():
