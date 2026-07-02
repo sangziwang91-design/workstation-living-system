@@ -24,6 +24,7 @@ from wls.architecture_validation import (
     validate_phase2_readonly_planner_admission,
     validate_phase2_readonly_execution_preflight,
     validate_phase2_research_composite_readonly_execution,
+    validate_phase2_scheduler_due_event_runtime_intake,
     validate_phase2_typed_readonly_organ_profiles,
     validate_p01_registry,
     validate_runtime_approval_receipts,
@@ -189,6 +190,42 @@ def test_living_system_exposes_channel_and_scheduler_ingress(tmp_path: Path) -> 
     assert scheduled_inserted is True
     assert runtime.events.counts()["PENDING"] == 2
     assert channel_id != scheduled_id
+
+
+def test_living_system_intakes_scheduled_event_with_receipt_only(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    before = {
+        name: runtime.db.query_one(f"SELECT COUNT(*) AS count FROM {name}")["count"]
+        for name in ("goals", "plans", "actions")
+    }
+    receipt = runtime.intake_scheduled_event(
+        ScheduledEvent(
+            schedule_id="unit-scheduled-1",
+            event_type="scheduled.read_only_check",
+            payload={"target": "status"},
+            due_at="2026-07-02T00:00:00+00:00",
+        )
+    )
+    after = {
+        name: runtime.db.query_one(f"SELECT COUNT(*) AS count FROM {name}")["count"]
+        for name in ("goals", "plans", "actions")
+    }
+    assert receipt["status"] == "QUEUED_EVENT_ONLY"
+    assert receipt["inserted"] is True
+    assert receipt["creates_goal"] is False
+    assert receipt["creates_action"] is False
+    assert receipt["direct_tool_execution"] is False
+    assert before == after
+    assert runtime.scheduled_event_receipts()[0]["schedule_id"] == "unit-scheduled-1"
+    panel = next(
+        panel
+        for panel in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if panel["panel_id"] == "scheduled_events"
+    )
+    assert panel["status"]["receipt_count"] == 1
+    assert panel["status"]["creates_goal"] is False
 
 
 def test_provider_router_enforces_local_first_and_cost() -> None:
@@ -434,6 +471,7 @@ def test_owner_console_product_projection_and_wechat_digest_are_read_only(
         "attention",
         "goals",
         "actions_approval",
+        "scheduled_events",
         "task_previews",
         "execution_preflight",
         "execution_receipts",
@@ -1118,6 +1156,17 @@ def test_architecture_validation_checks_coding_candidate_execution(
     assert result.pass_id == "P23"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) >= 5
+
+
+def test_architecture_validation_checks_scheduler_due_event_intake(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_scheduler_due_event_runtime_intake(
+        tmp_path / "scheduler-validation-home"
+    )
+    assert result.pass_id == "P24"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) == 2
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

@@ -35,6 +35,7 @@ class OwnerConsoleProductProjection:
         "attention",
         "goals",
         "actions_approval",
+        "scheduled_events",
         "task_previews",
         "execution_preflight",
         "execution_receipts",
@@ -51,6 +52,7 @@ class OwnerConsoleProductProjection:
             self._attention_panel(status),
             self._goals_panel(status),
             self._actions_panel(status),
+            self._scheduled_events_panel(status),
             self._task_previews_panel(status),
             self._execution_preflight_panel(status),
             self._execution_receipts_panel(status),
@@ -138,6 +140,21 @@ class OwnerConsoleProductProjection:
                 "pending_count": len(actions) if isinstance(actions, list) else 0,
                 "items": actions if isinstance(actions, list) else [],
                 "approval_required_for_execution": True,
+            },
+        }
+
+    @staticmethod
+    def _scheduled_events_panel(status: dict[str, Any]) -> dict[str, Any]:
+        receipts = status.get("scheduled_event_receipts", [])
+        return {
+            "panel_id": "scheduled_events",
+            "title": "Scheduled Events",
+            "status": {
+                "receipt_count": len(receipts) if isinstance(receipts, list) else 0,
+                "items": receipts if isinstance(receipts, list) else [],
+                "creates_goal": False,
+                "creates_action": False,
+                "standing_goal_authority": "Owner and GoalStore only",
             },
         }
 

@@ -210,6 +210,10 @@ fields such as `memory_id`/`active`.
   commands, and rollback metadata as a read-only receipt and candidate
   Memory/World projection. It does not run commands, merge, deploy, or promote
   Skills.
+- P24 is a shadow-level runtime admission for scheduler due-event intake.
+  Scheduled items can enter the runtime as canonical Events with evidence and
+  Owner Console receipts, while explicitly creating no Goals, Actions, standing
+  tasks, direct tool execution, or autonomous long-running daemon.
 
 ## Projection Rule
 

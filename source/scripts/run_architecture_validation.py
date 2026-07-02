@@ -29,6 +29,7 @@ from wls.architecture_validation import (  # noqa: E402
     validate_phase2_readonly_planner_admission,
     validate_phase2_readonly_execution_preflight,
     validate_phase2_research_composite_readonly_execution,
+    validate_phase2_scheduler_due_event_runtime_intake,
     validate_phase2_typed_readonly_organ_profiles,
     validate_p01_registry,
     validate_runtime_approval_receipts,
@@ -106,6 +107,11 @@ def run_validation() -> dict[str, object]:
         results.append(
             validate_phase2_coding_candidate_readonly_execution(
                 temp_path / "phase2-coding-candidate-home"
+            )
+        )
+        results.append(
+            validate_phase2_scheduler_due_event_runtime_intake(
+                temp_path / "phase2-scheduler-due-home"
             )
         )
     for pass_id, note in PASS_CONTRACTS.items():

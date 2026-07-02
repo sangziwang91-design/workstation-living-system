@@ -583,6 +583,7 @@ def validate_phase2_owner_surface_and_readonly_organs(
         "attention",
         "goals",
         "actions_approval",
+        "scheduled_events",
         "task_previews",
         "execution_preflight",
         "execution_receipts",
@@ -1505,6 +1506,85 @@ def validate_phase2_coding_candidate_readonly_execution(
         ],
         [
             "Coding organs can inspect disposable worktree candidate files, tests, and rollback metadata through a read-only receipt and project candidate evidence without running commands, merging, deployment, or Skill promotion",
+        ],
+    )
+
+
+def validate_phase2_scheduler_due_event_runtime_intake(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home))
+    before_goals = runtime.db.query_one("SELECT COUNT(*) AS count FROM goals")
+    before_plans = runtime.db.query_one("SELECT COUNT(*) AS count FROM plans")
+    before_actions = runtime.db.query_one("SELECT COUNT(*) AS count FROM actions")
+    receipt = runtime.intake_scheduled_event(
+        ScheduledEvent(
+            schedule_id="phase2-scheduler-due-1",
+            event_type="scheduled.read_only_check",
+            payload={"target": "owner_console_status"},
+            due_at="2026-07-02T00:00:00+00:00",
+        )
+    )
+    after_goals = runtime.db.query_one("SELECT COUNT(*) AS count FROM goals")
+    after_plans = runtime.db.query_one("SELECT COUNT(*) AS count FROM plans")
+    after_actions = runtime.db.query_one("SELECT COUNT(*) AS count FROM actions")
+    event_row = runtime.db.query_one(
+        "SELECT event_type,source,status FROM events WHERE event_id=?",
+        (receipt["event_id"],),
+    )
+    evidence = runtime.db.query_all(
+        """
+        SELECT event_type,evidence_id FROM evidence
+        WHERE event_type='scheduled_event_queued'
+        ORDER BY seq DESC LIMIT 1
+        """
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "scheduled_events"
+        ),
+        None,
+    )
+    if (
+        receipt.get("status") != "QUEUED_EVENT_ONLY"
+        or not receipt.get("inserted")
+        or receipt.get("creates_goal")
+        or receipt.get("creates_action")
+        or receipt.get("direct_tool_execution")
+        or event_row is None
+        or event_row["event_type"] != "scheduled.read_only_check"
+        or event_row["source"] != "scheduler"
+        or before_goals is None
+        or after_goals is None
+        or before_goals["count"] != after_goals["count"]
+        or before_plans is None
+        or after_plans is None
+        or before_plans["count"] != after_plans["count"]
+        or before_actions is None
+        or after_actions is None
+        or before_actions["count"] != after_actions["count"]
+        or not evidence
+        or panel is None
+        or panel["status"]["receipt_count"] < 1
+        or panel["status"]["creates_goal"]
+        or panel["status"]["creates_action"]
+    ):
+        return ArchitecturePassResult(
+            "P24",
+            "BLOCKED",
+            [str(receipt)],
+            ["scheduler due-event runtime intake validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P24",
+        "ADMIT_SHADOW_ONLY",
+        [str(receipt["event_id"]), str(evidence[0]["evidence_id"])],
+        [
+            "Scheduler due events can enter runtime as canonical Events with evidence and Owner Console receipts without creating Goals, Actions, standing tasks, or direct tool execution",
         ],
     )
 

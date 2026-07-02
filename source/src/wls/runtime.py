@@ -192,6 +192,50 @@ class LivingSystem:
     def emit_scheduled_event(self, item: ScheduledEvent) -> tuple[str, bool]:
         return self.event_scheduler.submit_due(item, self.events)
 
+    def intake_scheduled_event(self, item: ScheduledEvent) -> dict[str, Any]:
+        event = self.event_scheduler.emit_due(item)
+        event_id, inserted = self.events.add_event(event)
+        receipt = {
+            "schedule_id": item.schedule_id,
+            "event_id": event_id,
+            "inserted": inserted,
+            "event_type": item.event_type,
+            "source": item.source,
+            "due_at": item.due_at,
+            "emitted_at": item.emitted_at,
+            "status": "QUEUED_EVENT_ONLY",
+            "allowed_next_authority": "EventStore",
+            "creates_goal": False,
+            "creates_action": False,
+            "direct_tool_execution": False,
+            "writes_canonical_state": False,
+            "claim_ceiling": "scheduled event queued only; no standing goal or action created",
+        }
+        current = self.scheduled_event_receipts(limit=100)
+        updated = [
+            receipt,
+            *[
+                row
+                for row in current
+                if row.get("schedule_id") != item.schedule_id
+                or row.get("due_at") != item.due_at
+            ],
+        ][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("scheduled_event_receipts", updated, connection)
+            self.ledger.append(
+                "scheduled_event_queued",
+                {
+                    "schedule_id": item.schedule_id,
+                    "event_id": event_id,
+                    "inserted": inserted,
+                    "event_type": item.event_type,
+                    "due_at": item.due_at,
+                },
+                connection,
+            )
+        return receipt
+
     def intake_read_only_task(
         self, request: ReadOnlyTaskRequest
     ) -> dict[str, Any]:
@@ -204,6 +248,12 @@ class LivingSystem:
         if not isinstance(previews, list):
             return []
         return previews[: max(0, int(limit))]
+
+    def scheduled_event_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("scheduled_event_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
 
     def read_only_execution_preflights(self, limit: int = 20) -> list[dict[str, Any]]:
         preflights = self.db.get_runtime("read_only_execution_preflights", [])
@@ -1504,6 +1554,7 @@ class LivingSystem:
             "memory_attribution": self.memory_attribution.summary(),
             "capabilities": self.capabilities.summary(),
             "read_only_plan_previews": self.read_only_plan_previews(),
+            "scheduled_event_receipts": self.scheduled_event_receipts(),
             "read_only_execution_preflights": self.read_only_execution_preflights(),
             "read_only_execution_receipts": self.read_only_execution_receipts(),
             "read_only_result_projections": self.read_only_result_projections(),
