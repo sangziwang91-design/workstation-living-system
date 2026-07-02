@@ -1033,6 +1033,27 @@ class CampaignRunner:
                     "candidate-only auxiliary package receipts",
                 ],
             },
+            "owner_decision_required": {
+                "decision_id": "R16_LEVEL_3_REAL_FAILURE_CAPTURE",
+                "authorization_level": "LEVEL_3",
+                "scope": str(self.paths.campaign_home),
+                "decision": (
+                    "Authorize or deny real repeated failure capture in the disposable "
+                    "campaign clone only"
+                ),
+                "command_after_authorization": self.owner_command("R16", "R16"),
+                "must_not_claim": [
+                    "R15 PASS",
+                    "R16 PASS before three real owner-host failures are bound",
+                    "LEVEL_3 outside the disposable campaign clone",
+                    "live deployment or Skill promotion",
+                ],
+                "rollback": [
+                    "archive the R16 failure candidate",
+                    "run --repair-round R16 to return R16 to PENDING/blocked review",
+                    "keep manifest evidence for audit",
+                ],
+            },
             "claim_ceiling": (
                 "R16 preflight only; no real repeated owner-host failure captured; "
                 "R16 must remain OWNER_REVIEW until LEVEL_3 Owner authorization"

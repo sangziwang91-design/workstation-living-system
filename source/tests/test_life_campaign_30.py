@@ -597,6 +597,10 @@ def test_r16_preflight_preserves_owner_gate_after_partial_continuation(
         paths.campaign_home / "campaign_evidence" / "R16" / "r16_capability_preflight.json"
     )
     assert report["r16_owner_gate"]["required"] is True
+    assert report["owner_decision_required"]["decision_id"] == "R16_LEVEL_3_REAL_FAILURE_CAPTURE"
+    assert report["owner_decision_required"]["authorization_level"] == "LEVEL_3"
+    assert "-StartRound R16 -EndRound R16 -Execute" in report["owner_decision_required"]["command_after_authorization"]
+    assert "R16 PASS before three real owner-host failures are bound" in report["owner_decision_required"]["must_not_claim"]
     assert report["negative_control_signatures"]
     assert "not PASS" in state["rounds"]["R16"]["verdict"]["claim_ceiling"]
 
