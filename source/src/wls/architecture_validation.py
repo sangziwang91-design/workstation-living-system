@@ -1328,6 +1328,96 @@ def validate_phase2_research_composite_readonly_execution(
         thread.join(timeout=2)
 
 
+def validate_phase2_multimodal_asset_readonly_execution(
+    home: Path,
+) -> ArchitecturePassResult:
+    home.mkdir(parents=True, exist_ok=True)
+    asset = home / "sample.png"
+    asset.write_bytes(
+        b"\x89PNG\r\n\x1a\n"
+        b"\x00\x00\x00\rIHDR"
+        b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00"
+    )
+    runtime = LivingSystem(default_config(home / "runtime"))
+    runtime.intake_read_only_task(
+        ReadOnlyTaskRequest(
+            request_id="phase2-multimodal-asset-1",
+            organ_id="multimodal",
+            owner_intent="Inspect a local media asset before multimodal work",
+            inputs={
+                "asset_path": str(asset),
+                "reason": "retain candidate-only multimodal review trace",
+                "max_bytes": 4096,
+            },
+        )
+    )
+    admission = runtime.admit_read_only_plan_preview(
+        "phase2-multimodal-asset-1",
+        reason="architecture validation multimodal asset inspection",
+    )
+    runtime.preflight_read_only_plan(str(admission["plan_id"]))
+    receipt = runtime.execute_preflighted_read_only_plan(str(admission["plan_id"]))
+    projection = runtime.project_read_only_execution_receipt(str(admission["plan_id"]))
+    actions = runtime.db.query_all(
+        "SELECT tool,status,risk,side_effect_class,result_json FROM actions WHERE plan_id=? ORDER BY rowid",
+        (admission["plan_id"],),
+    )
+    evidence = runtime.db.query_all(
+        """
+        SELECT event_type,evidence_id FROM evidence
+        WHERE event_type IN (
+            'action_completed',
+            'read_only_plan_executed',
+            'read_only_execution_result_projected'
+        )
+        ORDER BY seq
+        """
+    )
+    tools = [str(row["tool"]) for row in actions]
+    outputs = [item.get("output", {}) for item in receipt.get("outcomes", [])]
+    asset_output: dict[str, Any] = next(
+        (item for item in outputs if item.get("path") == str(asset.resolve())),
+        {},
+    )
+    event_types = {row["event_type"] for row in evidence}
+    if (
+        admission.get("rejected_tool_hints")
+        or tools != ["inspect_asset", "noop"]
+        or not receipt.get("all_succeeded")
+        or asset_output.get("mime_type") != "image/png"
+        or not asset_output.get("sha256")
+        or projection.get("status") != "PROJECTED_CANDIDATE"
+        or any(row["status"] != "SUCCEEDED" for row in actions)
+        or any(row["risk"] != "READ" for row in actions)
+        or any(row["side_effect_class"] != "none" for row in actions)
+        or not {
+            "action_completed",
+            "read_only_plan_executed",
+            "read_only_execution_result_projected",
+        }
+        <= event_types
+    ):
+        return ArchitecturePassResult(
+            "P22",
+            "BLOCKED",
+            [str(admission), str(receipt), str(projection)],
+            ["multimodal asset read-only execution validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P22",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(admission["plan_id"]),
+            str(asset_output["sha256"]),
+            str(projection["memory_id"]),
+            *[str(row["evidence_id"]) for row in evidence[-3:]],
+        ],
+        [
+            "Multimodal organs can inspect local media assets through a path-scoped read-only tool receipt and project candidate memory/world evidence without parsing, generation, Skill promotion, or goal completion",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

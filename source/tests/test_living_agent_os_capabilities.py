@@ -14,6 +14,7 @@ from wls.architecture_validation import (
     validate_external_memory_projection,
     validate_mcp_a2a_candidates,
     validate_phase2_browser_readonly_runtime_execution,
+    validate_phase2_multimodal_asset_readonly_execution,
     validate_phase2_owner_surface_and_readonly_organs,
     validate_phase2_preflighted_readonly_execution,
     validate_phase2_projection_review_and_rollback,
@@ -1024,6 +1025,46 @@ def test_architecture_validation_checks_research_composite_execution(
         tmp_path / "research-composite-home"
     )
     assert result.pass_id == "P21"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) >= 5
+
+
+def test_multimodal_organ_executes_asset_inspection(tmp_path: Path) -> None:
+    asset = tmp_path / "sample.png"
+    asset.write_bytes(b"\x89PNG\r\n\x1a\nWLS")
+    runtime = LivingSystem(default_config(tmp_path / "multimodal-home"))
+    runtime.intake_read_only_task(
+        ReadOnlyTaskRequest(
+            request_id="multimodal-inspect-1",
+            organ_id="multimodal",
+            owner_intent="inspect local asset",
+            inputs={"asset_path": str(asset), "reason": "unit test", "max_bytes": 128},
+        )
+    )
+    admission = runtime.admit_read_only_plan_preview("multimodal-inspect-1")
+    assert admission["rejected_tool_hints"] == []
+    actions = runtime.db.query_all(
+        "SELECT tool,risk,side_effect_class FROM actions WHERE plan_id=? ORDER BY rowid",
+        (admission["plan_id"],),
+    )
+    assert [row["tool"] for row in actions] == ["inspect_asset", "noop"]
+    assert {row["risk"] for row in actions} == {"READ"}
+    assert {row["side_effect_class"] for row in actions} == {"none"}
+    runtime.preflight_read_only_plan(str(admission["plan_id"]))
+    receipt = runtime.execute_preflighted_read_only_plan(str(admission["plan_id"]))
+    assert receipt["all_succeeded"] is True
+    asset_output = receipt["outcomes"][0]["output"]
+    assert asset_output["mime_type"] == "image/png"
+    assert asset_output["sha256"]
+
+
+def test_architecture_validation_checks_multimodal_asset_execution(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_multimodal_asset_readonly_execution(
+        tmp_path / "multimodal-validation-home"
+    )
+    assert result.pass_id == "P22"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) >= 5
 

@@ -199,6 +199,11 @@ fields such as `memory_id`/`active`.
   loopback HTTP sources in one Planner-owned Plan and read-only receipt, then
   project/review that result as candidate Memory/World state without completing
   a Goal or promoting a Skill.
+- P22 is a shadow-level runtime admission for multimodal asset inspection.
+  A multimodal organ can inspect a local media asset with a path-scoped
+  `inspect_asset` read-only tool that records size, MIME guess, sha256, and a
+  bounded header sample, then projects candidate evidence without parsing,
+  generation, Skill promotion, or Goal completion.
 
 ## Projection Rule
 

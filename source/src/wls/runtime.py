@@ -702,18 +702,24 @@ class LivingSystem:
         inputs = candidate_arguments.get("inputs", {})
         if not isinstance(inputs, dict):
             inputs = {}
-        if tool in {"read_file", "list_directory"}:
-            input_key = "file_path" if tool == "read_file" else "dir_path"
+        if tool in {"read_file", "list_directory", "inspect_asset"}:
+            input_key = (
+                "dir_path"
+                if tool == "list_directory"
+                else ("asset_path" if tool == "inspect_asset" else "file_path")
+            )
             path = inputs.get(input_key, inputs.get("path"))
             if not isinstance(path, str) or not path.strip():
-                raise ValueError("read-only file tools require path input")
+                raise ValueError("read-only path tools require path input")
             path_obj = Path(path).expanduser().resolve(strict=False)
             if tool == "read_file" and not path_obj.is_file():
                 raise ValueError("read_file requires file input")
             if tool == "list_directory" and path_obj.exists() and not path_obj.is_dir():
                 raise ValueError("list_directory requires directory input")
+            if tool == "inspect_asset" and not path_obj.is_file():
+                raise ValueError("inspect_asset requires file input")
             arguments: dict[str, Any] = {"path": path}
-            if tool == "read_file":
+            if tool in {"read_file", "inspect_asset"}:
                 arguments["max_bytes"] = int(inputs.get("max_bytes", 524288))
             if tool == "list_directory":
                 arguments["limit"] = int(inputs.get("limit", 200))
@@ -753,6 +759,8 @@ class LivingSystem:
             return ["output ok is true"]
         if tool == "http_get":
             return ["output contains status", "output contains body"]
+        if tool == "inspect_asset":
+            return ["output contains sha256", "output contains mime_type"]
         return []
 
     def run_cycle(self) -> dict[str, Any]:

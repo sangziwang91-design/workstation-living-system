@@ -11,6 +11,7 @@ from .workbench import WorkbenchTemplate
 
 READ_ONLY_TOOL_HINTS = {
     "http_get",
+    "inspect_asset",
     "list_directory",
     "noop",
     "read_file",
@@ -110,7 +111,7 @@ ORGAN_PROFILES: dict[str, ReadOnlyOrganProfile] = {
     "multimodal": ReadOnlyOrganProfile(
         organ_id="multimodal",
         canonical_owner="planning",
-        tool_hints=("read_file", "noop"),
+        tool_hints=("inspect_asset", "noop"),
         evidence_required=("asset_hashes", "model_or_source_provenance"),
         planner_contract="prepare multimodal artifact review plan candidate",
     ),
