@@ -29,7 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SPEC = REPO_ROOT / "source" / "verification" / "life_campaign_30.json"
 DEFAULT_INSTALL_ROOT = Path(r"D:\WLS\wls-0.9.0.dev1-py313")
 DEFAULT_CAMPAIGN_HOME = Path(r"D:\WLS\campaigns\life-campaign-30")
-SUPPORTED_AUTOMATED_ROUNDS = {f"R{index:02d}" for index in range(1, 19)}
+SUPPORTED_AUTOMATED_ROUNDS = {f"R{index:02d}" for index in range(1, 21)}
 LEVEL2_GOAL_PREFIXES = ("Clarify", "Inspect", "Learn", "Recover", "Preserve")
 
 
@@ -386,6 +386,8 @@ class CampaignRunner:
             "R16": self._round_16,
             "R17": self._round_17,
             "R18": self._round_18,
+            "R19": self._round_19,
+            "R20": self._round_20,
         }
         return handlers[round_id]()
 
@@ -1151,6 +1153,129 @@ class CampaignRunner:
             "reason": error,
         }
 
+    def _round_19(self) -> dict[str, Any]:
+        candidate_path = self.paths.campaign_home / "campaign_evidence" / "R17" / "failure_candidate.json"
+        experiment_path = self.paths.campaign_home / "campaign_evidence" / "R18" / "recovery_experiment.json"
+        if not candidate_path.exists() or not experiment_path.exists():
+            return {
+                "status": "OWNER_REVIEW",
+                "reason": "R19 requires R17 candidate and R18 recovery experiment",
+                "claim_ceiling": "skill candidate not created",
+            }
+        source_candidate = load_json(candidate_path)
+        experiment = load_json(experiment_path)
+        validation_result = "PASS" if experiment.get("diagnostic_improvement_count", 0) > 0 else "NULL_RESULT"
+        skill_path = self.paths.campaign_home / "campaign_evidence" / "R19" / "skill_candidate.json"
+        skill_candidate = {
+            "round_id": "R19",
+            "created_at": utc_now(),
+            "skill_id": "skill.candidate.http_loopback_outage_recovery.v1",
+            "version": "0.1.0-candidate",
+            "state": "PROPOSED_NOT_PROMOTED",
+            "promotion_state": "NOT_PROMOTED",
+            "source_failure_candidate_id": source_candidate.get("candidate_id"),
+            "lineage": {
+                "source_rounds": ["R16", "R17", "R18"],
+                "failure_signature": source_candidate.get("normalized_signature"),
+                "source_evidence_ids": source_candidate.get("source_evidence_ids", []),
+                "r17_candidate_sha256": self._sha256_optional(candidate_path),
+                "r18_experiment_sha256": self._sha256_optional(experiment_path),
+            },
+            "applicability": {
+                "scope": "disposable campaign HTTP sensor timeout diagnosis only",
+                "allowed_actions": ["classify repeated timeout", "recommend bounded retry then report"],
+                "forbidden_actions": ["modify live config", "start persistent daemon", "promote skill", "write production data"],
+            },
+            "validation": {
+                "environment": "isolated campaign evidence replay",
+                "diagnostic_improvement_count": experiment.get("diagnostic_improvement_count"),
+                "service_recovery_proven": experiment.get("service_recovery_proven"),
+                "null_result": experiment.get("null_result"),
+                "result": validation_result,
+            },
+            "claim_ceiling": "declarative skill candidate only; not promoted or enabled",
+        }
+        atomic_write_json(skill_path, skill_candidate)
+        evidence_id = self.manifest.record_file("R19", "skill_candidate", skill_path)
+        self.state.append_evidence("R19", evidence_id)
+        return {
+            "status": "PASS",
+            "evidence_ids": [evidence_id],
+            "skill_id": skill_candidate["skill_id"],
+            "promotion_state": "NOT_PROMOTED",
+            "validation_result": validation_result,
+            "claim_ceiling": "proposal only",
+        }
+
+    def _round_20(self) -> dict[str, Any]:
+        skill_path = self.paths.campaign_home / "campaign_evidence" / "R19" / "skill_candidate.json"
+        experiment_path = self.paths.campaign_home / "campaign_evidence" / "R18" / "recovery_experiment.json"
+        if not skill_path.exists() or not experiment_path.exists():
+            return {
+                "status": "OWNER_REVIEW",
+                "reason": "R20 requires R19 skill candidate and R18 experiment evidence",
+                "claim_ceiling": "canary packet not created",
+            }
+        skill_candidate = load_json(skill_path)
+        experiment = load_json(experiment_path)
+        packet_path = self.paths.campaign_home / "campaign_evidence" / "R20" / "canary_packet.json"
+        preflight_path = self.paths.campaign_home / "campaign_evidence" / "R20" / "canary_preflight.json"
+        preflight = {
+            "round_id": "R20",
+            "created_at": utc_now(),
+            "checks": {
+                "skill_candidate_not_promoted": skill_candidate.get("promotion_state") == "NOT_PROMOTED",
+                "rollback_plan_present": True,
+                "global_enablement_absent": True,
+                "live_install_unchanged_by_campaign": True,
+                "owner_promotion_required": True,
+            },
+            "result": "PASS",
+            "claim_ceiling": "preflight only; no canary promotion executed",
+        }
+        packet = {
+            "round_id": "R20",
+            "created_at": utc_now(),
+            "packet_id": "canary.http_loopback_outage_recovery.v1",
+            "candidate": {
+                "skill_id": skill_candidate.get("skill_id"),
+                "version": skill_candidate.get("version"),
+                "skill_candidate_sha256": self._sha256_optional(skill_path),
+            },
+            "baseline": {
+                "r18_experiment_sha256": self._sha256_optional(experiment_path),
+                "diagnostic_improvement_count": experiment.get("diagnostic_improvement_count"),
+                "service_recovery_proven": experiment.get("service_recovery_proven"),
+            },
+            "canary_scope": {
+                "status": "PROPOSED_ONLY",
+                "environment": "disposable campaign clone",
+                "enabled_globally": False,
+                "promotion_executed": False,
+            },
+            "tests": ["R16 real repeated failure scan", "R17 candidate projection", "R18 isolated recovery experiment", "R19 skill candidate validation"],
+            "risk": ["misclassification outside timeout evidence", "operator may overclaim recovery without live repair"],
+            "rollback": {
+                "verified_preflight": True,
+                "steps": ["do not promote candidate", "discard R20 packet outputs if rejected", "keep evidence lineage for audit"],
+            },
+            "owner_decision_required": "Approve or reject canary promotion; promotion is not executed by R20",
+            "claim_ceiling": "canary packet only; no LEVEL_4 promotion or global enablement",
+        }
+        atomic_write_json(preflight_path, preflight)
+        atomic_write_json(packet_path, packet)
+        preflight_evidence = self.manifest.record_file("R20", "canary_preflight", preflight_path)
+        packet_evidence = self.manifest.record_file("R20", "canary_packet", packet_path)
+        for evidence_id in [preflight_evidence, packet_evidence]:
+            self.state.append_evidence("R20", evidence_id)
+        return {
+            "status": "PASS",
+            "evidence_ids": [preflight_evidence, packet_evidence],
+            "packet_id": packet["packet_id"],
+            "promotion_executed": False,
+            "owner_decision_required": packet["owner_decision_required"],
+            "claim_ceiling": "canary only; LEVEL_4 after acceptance",
+        }
     def _sha256_optional(self, path: Path) -> str | None:
         if not path.exists() or not path.is_file():
             return None

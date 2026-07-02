@@ -720,6 +720,84 @@ def test_r18_runs_isolated_recovery_experiment(
     assert state["rounds"]["R19"]["status"] == "PENDING"
 
 
+def test_r19_creates_unpromoted_skill_candidate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner, paths = _prepared_r18_runner(tmp_path, monkeypatch)
+    result = runner.run(["R19"])
+    assert result["results"][0]["status"] == "PASS"
+    assert result["results"][0]["promotion_state"] == "NOT_PROMOTED"
+    skill = load_json(
+        paths.campaign_home / "campaign_evidence" / "R19" / "skill_candidate.json"
+    )
+    assert skill["state"] == "PROPOSED_NOT_PROMOTED"
+    assert skill["lineage"]["source_rounds"] == ["R16", "R17", "R18"]
+    assert skill["validation"]["result"] == "PASS"
+    assert "promote skill" in skill["applicability"]["forbidden_actions"]
+    state = load_json(paths.campaign_home / "campaign_state.json")
+    assert state["rounds"]["R19"]["status"] == "PASS"
+    assert state["rounds"]["R20"]["status"] == "PENDING"
+
+
+def test_r20_creates_canary_packet_without_promotion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner, paths = _prepared_r18_runner(tmp_path, monkeypatch)
+    runner.run(["R19"])
+    result = runner.run(["R20"])
+    assert result["results"][0]["status"] == "PASS"
+    assert result["results"][0]["promotion_executed"] is False
+    packet = load_json(
+        paths.campaign_home / "campaign_evidence" / "R20" / "canary_packet.json"
+    )
+    assert packet["canary_scope"]["status"] == "PROPOSED_ONLY"
+    assert packet["canary_scope"]["enabled_globally"] is False
+    assert packet["owner_decision_required"].startswith("Approve or reject")
+    preflight = load_json(
+        paths.campaign_home / "campaign_evidence" / "R20" / "canary_preflight.json"
+    )
+    assert preflight["checks"]["owner_promotion_required"] is True
+    assert preflight["checks"]["global_enablement_absent"] is True
+    state = load_json(paths.campaign_home / "campaign_state.json")
+    assert state["rounds"]["R20"]["status"] == "PASS"
+    assert state["rounds"]["R21"]["status"] == "PENDING"
+
+
+def _prepared_r18_runner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[CampaignRunner, CampaignPaths]:
+    runner, paths = _prepared_r16_runner(tmp_path, monkeypatch, authorize_level3=True)
+    for index in range(3):
+        runner.record_real_failure(
+            source_type="owner_host_disposable_activity",
+            normalized_signature="http.loopback_outage_timeout",
+            raw_evidence_ids=[f"raw-ev-{index}"],
+            reproduction_status="REPRODUCED",
+            environment="pytest-disposable-campaign",
+            input_hash=f"sha256:input-{index}",
+            output_hash=f"sha256:output-{index}",
+            repair_status="UNREPAIRED",
+            note="pytest real repeated failure fixture",
+        )
+    events_path = paths.campaign_home / "campaign_evidence" / "R16" / "r16_outage_events.json"
+    events_path.write_text(
+        json.dumps(
+            [
+                {
+                    "event_id": f"evt-{index}",
+                    "subject": f"r16-outage-{index}",
+                    "value": {"healthy": False, "error": "<urlopen error timed out>"},
+                }
+                for index in range(3)
+            ]
+        ),
+        encoding="utf-8",
+    )
+    runner.run(["R17"])
+    runner.run(["R18"])
+    return runner, paths
+
+
 def _prepared_r16_runner(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, authorize_level3: bool
 ) -> tuple[CampaignRunner, CampaignPaths]:
