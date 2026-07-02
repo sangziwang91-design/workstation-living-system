@@ -13,6 +13,7 @@ from wls.architecture_validation import (
     validate_coding_worktree_candidate,
     validate_external_memory_projection,
     validate_mcp_a2a_candidates,
+    validate_phase2_coding_candidate_readonly_execution,
     validate_phase2_browser_readonly_runtime_execution,
     validate_phase2_multimodal_asset_readonly_execution,
     validate_phase2_owner_surface_and_readonly_organs,
@@ -1065,6 +1066,56 @@ def test_architecture_validation_checks_multimodal_asset_execution(
         tmp_path / "multimodal-validation-home"
     )
     assert result.pass_id == "P22"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) >= 5
+
+
+def test_coding_organ_executes_candidate_inspection(tmp_path: Path) -> None:
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    (worktree / "candidate_patch.py").write_text("print('candidate')\n", encoding="utf-8")
+    runtime = LivingSystem(default_config(tmp_path / "coding-home"))
+    runtime.intake_read_only_task(
+        ReadOnlyTaskRequest(
+            request_id="coding-inspect-1",
+            organ_id="coding",
+            owner_intent="inspect coding candidate",
+            inputs={
+                "task_id": "coding-inspect-1",
+                "base_sha": "unit-base",
+                "worktree_path": str(worktree),
+                "changed_files": ["candidate_patch.py"],
+                "tests": ["python -m pytest source/tests/test_placeholder.py"],
+                "rollback": ["remove worktree"],
+            },
+        )
+    )
+    admission = runtime.admit_read_only_plan_preview("coding-inspect-1")
+    assert admission["rejected_tool_hints"] == []
+    actions = runtime.db.query_all(
+        "SELECT tool,risk,side_effect_class FROM actions WHERE plan_id=?",
+        (admission["plan_id"],),
+    )
+    assert [row["tool"] for row in actions] == ["inspect_coding_candidate"]
+    assert actions[0]["risk"] == "READ"
+    assert actions[0]["side_effect_class"] == "none"
+    runtime.preflight_read_only_plan(str(admission["plan_id"]))
+    receipt = runtime.execute_preflighted_read_only_plan(str(admission["plan_id"]))
+    assert receipt["all_succeeded"] is True
+    output = receipt["outcomes"][0]["output"]
+    assert output["status"] == "CANDIDATE_ONLY"
+    assert output["changed_files"][0]["path"] == "candidate_patch.py"
+    assert output["tests"]
+    assert output["rollback"]
+
+
+def test_architecture_validation_checks_coding_candidate_execution(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_coding_candidate_readonly_execution(
+        tmp_path / "coding-validation-home"
+    )
+    assert result.pass_id == "P23"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) >= 5
 

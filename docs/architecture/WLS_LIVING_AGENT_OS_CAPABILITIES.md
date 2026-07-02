@@ -204,6 +204,12 @@ fields such as `memory_id`/`active`.
   `inspect_asset` read-only tool that records size, MIME guess, sha256, and a
   bounded header sample, then projects candidate evidence without parsing,
   generation, Skill promotion, or Goal completion.
+- P23 is a shadow-level runtime admission for coding candidate inspection.
+  A coding organ can inspect a disposable worktree candidate with
+  `inspect_coding_candidate`, preserving changed-file hashes, base SHA, test
+  commands, and rollback metadata as a read-only receipt and candidate
+  Memory/World projection. It does not run commands, merge, deploy, or promote
+  Skills.
 
 ## Projection Rule
 

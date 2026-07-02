@@ -12,6 +12,7 @@ from .workbench import WorkbenchTemplate
 READ_ONLY_TOOL_HINTS = {
     "http_get",
     "inspect_asset",
+    "inspect_coding_candidate",
     "list_directory",
     "noop",
     "read_file",
@@ -90,7 +91,7 @@ ORGAN_PROFILES: dict[str, ReadOnlyOrganProfile] = {
     "coding": ReadOnlyOrganProfile(
         organ_id="coding",
         canonical_owner="planning",
-        tool_hints=("list_directory", "read_file"),
+        tool_hints=("inspect_coding_candidate",),
         evidence_required=("worktree_path", "base_sha", "focused_tests"),
         planner_contract="prepare disposable coding analysis plan candidate",
     ),

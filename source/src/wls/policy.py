@@ -85,6 +85,7 @@ class PolicyEngine:
             "write_file",
             "delete_file",
             "emit_note",
+            "inspect_coding_candidate",
             "inspect_asset",
         }:
             raw_path = action.arguments.get("path")

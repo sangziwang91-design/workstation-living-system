@@ -1418,6 +1418,97 @@ def validate_phase2_multimodal_asset_readonly_execution(
     )
 
 
+def validate_phase2_coding_candidate_readonly_execution(
+    home: Path,
+) -> ArchitecturePassResult:
+    worktree = home / "worktree"
+    worktree.mkdir(parents=True, exist_ok=True)
+    candidate_file = worktree / "candidate_patch.py"
+    candidate_file.write_text("print('candidate receipt')\n", encoding="utf-8")
+    runtime = LivingSystem(default_config(home / "runtime"))
+    runtime.intake_read_only_task(
+        ReadOnlyTaskRequest(
+            request_id="phase2-coding-candidate-1",
+            organ_id="coding",
+            owner_intent="Inspect a disposable coding candidate",
+            inputs={
+                "task_id": "phase2-coding-candidate-1",
+                "base_sha": "base-sha-for-architecture-validation",
+                "worktree_path": str(worktree),
+                "changed_files": ["candidate_patch.py"],
+                "tests": ["python -m pytest source/tests/test_placeholder.py"],
+                "rollback": [f"remove disposable worktree {worktree}"],
+            },
+        )
+    )
+    admission = runtime.admit_read_only_plan_preview(
+        "phase2-coding-candidate-1",
+        reason="architecture validation coding candidate inspection",
+    )
+    runtime.preflight_read_only_plan(str(admission["plan_id"]))
+    receipt = runtime.execute_preflighted_read_only_plan(str(admission["plan_id"]))
+    projection = runtime.project_read_only_execution_receipt(str(admission["plan_id"]))
+    actions = runtime.db.query_all(
+        "SELECT tool,status,risk,side_effect_class,result_json FROM actions WHERE plan_id=? ORDER BY rowid",
+        (admission["plan_id"],),
+    )
+    evidence = runtime.db.query_all(
+        """
+        SELECT event_type,evidence_id FROM evidence
+        WHERE event_type IN (
+            'action_completed',
+            'read_only_plan_executed',
+            'read_only_execution_result_projected'
+        )
+        ORDER BY seq
+        """
+    )
+    output = receipt.get("outcomes", [{}])[0].get("output", {})
+    changed_files = output.get("changed_files", [])
+    first_file = changed_files[0] if changed_files else {}
+    event_types = {row["event_type"] for row in evidence}
+    if (
+        admission.get("rejected_tool_hints")
+        or [str(row["tool"]) for row in actions] != ["inspect_coding_candidate"]
+        or not receipt.get("all_succeeded")
+        or output.get("status") != "CANDIDATE_ONLY"
+        or output.get("base_sha") != "base-sha-for-architecture-validation"
+        or first_file.get("path") != "candidate_patch.py"
+        or not first_file.get("sha256")
+        or not output.get("tests")
+        or not output.get("rollback")
+        or projection.get("status") != "PROJECTED_CANDIDATE"
+        or any(row["status"] != "SUCCEEDED" for row in actions)
+        or any(row["risk"] != "READ" for row in actions)
+        or any(row["side_effect_class"] != "none" for row in actions)
+        or not {
+            "action_completed",
+            "read_only_plan_executed",
+            "read_only_execution_result_projected",
+        }
+        <= event_types
+    ):
+        return ArchitecturePassResult(
+            "P23",
+            "BLOCKED",
+            [str(admission), str(receipt), str(projection)],
+            ["coding candidate read-only execution validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P23",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(admission["plan_id"]),
+            str(first_file["sha256"]),
+            str(projection["memory_id"]),
+            *[str(row["evidence_id"]) for row in evidence[-3:]],
+        ],
+        [
+            "Coding organs can inspect disposable worktree candidate files, tests, and rollback metadata through a read-only receipt and project candidate evidence without running commands, merging, deployment, or Skill promotion",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

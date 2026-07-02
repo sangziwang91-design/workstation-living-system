@@ -747,6 +747,33 @@ class LivingSystem:
                 "timeout": float(inputs.get("timeout", 5.0)),
                 "max_bytes": int(inputs.get("max_bytes", 1048576)),
             }
+        if tool == "inspect_coding_candidate":
+            worktree = inputs.get("worktree_path", inputs.get("path"))
+            if not isinstance(worktree, str) or not worktree.strip():
+                raise ValueError("inspect_coding_candidate requires worktree_path input")
+            changed_files = inputs.get("changed_files", [])
+            tests = inputs.get("tests", [])
+            rollback = inputs.get("rollback", [])
+            if not isinstance(changed_files, list) or not all(
+                isinstance(item, str) for item in changed_files
+            ):
+                raise ValueError("changed_files must be a string list")
+            if not isinstance(tests, list) or not all(
+                isinstance(item, str) for item in tests
+            ):
+                raise ValueError("tests must be a string list")
+            if not isinstance(rollback, list) or not all(
+                isinstance(item, str) for item in rollback
+            ):
+                raise ValueError("rollback must be a string list")
+            return {
+                "path": worktree,
+                "task_id": str(inputs.get("task_id", candidate_arguments.get("request_id", ""))),
+                "base_sha": str(inputs.get("base_sha", "")),
+                "changed_files": changed_files,
+                "tests": tests,
+                "rollback": rollback,
+            }
         raise ValueError(f"unsupported read-only tool mapping: {tool}")
 
     @staticmethod
@@ -761,6 +788,8 @@ class LivingSystem:
             return ["output contains status", "output contains body"]
         if tool == "inspect_asset":
             return ["output contains sha256", "output contains mime_type"]
+        if tool == "inspect_coding_candidate":
+            return ["output contains changed_files", "output contains rollback"]
         return []
 
     def run_cycle(self) -> dict[str, Any]:

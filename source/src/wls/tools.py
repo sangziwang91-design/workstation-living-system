@@ -82,6 +82,13 @@ class ToolRegistry:
         self.register(ToolDefinition("write_file", self._write_file, "reversible"))
         self.register(ToolDefinition("http_get", self._http_get, "none"))
         self.register(ToolDefinition("inspect_asset", self._inspect_asset, "none"))
+        self.register(
+            ToolDefinition(
+                "inspect_coding_candidate",
+                self._inspect_coding_candidate,
+                "none",
+            )
+        )
         self.register(ToolDefinition("run_command", self._run_command, "external"))
         self.register(ToolDefinition("emit_note", self._emit_note, "reversible"))
         self.register(
@@ -190,6 +197,21 @@ class ToolRegistry:
             "encoding": encoding,
             "header_hex": data[:64].hex(),
         }
+
+    def _inspect_coding_candidate(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        from .coding_adapter import CodingTaskContract
+
+        contract = CodingTaskContract(
+            task_id=str(arguments["task_id"]),
+            base_sha=str(arguments["base_sha"]),
+            worktree=Path(str(arguments["path"])).expanduser().resolve(strict=True),
+            changed_files=[
+                str(item) for item in arguments.get("changed_files", [])
+            ],
+            tests=[str(item) for item in arguments.get("tests", [])],
+            rollback=[str(item) for item in arguments.get("rollback", [])],
+        )
+        return contract.candidate_artifact()
 
     def _run_command(self, arguments: dict[str, Any]) -> dict[str, Any]:
         command = list(arguments["command"])
