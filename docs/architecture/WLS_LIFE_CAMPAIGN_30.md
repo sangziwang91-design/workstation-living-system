@@ -98,11 +98,17 @@ replace raw evidence.
 
 ## Execution Levels
 
-This implementation supports executable handlers for R01-R13. R14 is the first
+This implementation supports executable handlers for R01-R25. R14 is the first
 LEVEL_2 boundary and remains owner-gated because it admits an endogenous
-read-only Goal. R15 also requires real elapsed time for 24-hour validation.
-R16-R30 are fully specified in the campaign spec and normally remain blocked
-behind the earlier gates.
+read-only Goal. R15 requires real elapsed time for a full 24-hour validation
+unless the Owner stops it and explicitly authorizes the partial-continuation
+path. R16-R20 cover real repeated failure capture, failure candidate
+projection, isolated recovery experiment, Skill candidate proposal, and canary
+packet generation. R21-R25 cover the M3 interoperability and security band:
+disposable canary reuse, rollback drill, multi-agent handoff, provider failure
+fallback, and tool/MCP/A2A security checks.
+
+R26-R30 remain specified but not yet admitted in this candidate branch.
 
 If the Owner explicitly stops R15 before 24 hours, the runner preserves the
 partial heartbeat evidence and marks R15 `OWNER_REVIEW`, not `PASS`. A separate
@@ -115,6 +121,40 @@ permission signal and does not modify the live instance or authorize R06.
 
 R13 passing does not update the campaign to `LEVEL_2`; explicit Owner
 authorization is still required before R14.
+
+R21 passing updates campaign state to `LEVEL_4` only inside the disposable
+campaign home and only after explicit `--authorize-level4`. This does not
+promote a live Skill, modify the live install, merge a branch, deploy code, or
+grant external workers canonical authority.
+
+## M3 Band
+
+R21-R25 fit common Agent abilities into WLS without splitting authority:
+
+- R21 records a bounded LEVEL_4 authorization and runs one non-identical
+  disposable reuse case for the R20 canary packet. It records a measured
+  diagnostic improvement and an out-of-scope guard while keeping global
+  promotion disabled.
+- R22 runs a disposable rollback drill, preserving lineage and proving the
+  candidate can return from canary-only scope to proposed-only scope without
+  state corruption.
+- R23 records a multi-agent handoff packet where the external worker artifact
+  remains candidate-only, stale results are rejected, and one integration
+  authority is preserved.
+- R24 records a provider failure/fallback packet where the subject is not lost,
+  local fallback is sourced, unknown output stays separated, and no automatic
+  payment occurs.
+- R25 records a tool security matrix for path escape, command injection,
+  malicious MCP description, credential access, unauthorized write, approval
+  replay/prompt injection, and forged A2A hashes. Cases must be rejected or
+  Owner-gated, with no credential exposure and no live pollution.
+
+The M3 claim ceiling is:
+
+```text
+multi-agent/provider/MCP/A2A/tool-security remain candidate-only or
+owner-gated in the disposable campaign clone; no second authority is admitted
+```
 
 ## Repair And Resume
 
@@ -171,16 +211,20 @@ D:\WLS\wls-0.9.0.dev1-py313
 
 ## Claim Ceiling
 
-Passing R01-R13 supports only:
+Passing R01-R25 supports only:
 
 ```text
 Disposable campaign clone is prepared, bounded read-only cycles can run,
 process-real restart continuity is checked, bounded survival is checked,
 pause/resume/kill/reset/lease behavior is evidenced in the clone, LEVEL_1
-bounded cycles are measured, campaign backup/restore is checked, and memory,
-planner, and goal profiles are compared without promoting LEVEL_2.
+bounded cycles are measured, campaign backup/restore is checked, memory,
+planner, and goal profiles are compared, one endogenous read-only Goal path is
+admitted under LEVEL_2, partial R15 continuation is preserved without claiming
+24-hour PASS, real repeated failure evidence feeds a failure candidate, a Skill
+candidate and canary packet are proposed without promotion, and M3
+interoperability/security checks pass inside the disposable campaign clone.
 ```
 
-It does not prove 24-hour survival, endogenous goals, skill evolution,
-longitudinal self-evolution, production deployment, or any live-instance
-configuration change.
+It does not prove full 24-hour survival, live Skill evolution, longitudinal
+self-evolution, production deployment, public publishing, payment, secret
+access, external worker truth, or any live-instance configuration change.

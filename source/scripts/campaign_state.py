@@ -250,6 +250,8 @@ class CampaignState:
             self.data["automation_level"] = "LEVEL_2"
         elif round_id == "R15":
             self.data["automation_level"] = "LEVEL_3"
+        elif round_id == "R21":
+            self.data["automation_level"] = "LEVEL_4"
         self.save()
 
     def mark_fail(self, round_id: str, verdict: dict[str, Any]) -> None:

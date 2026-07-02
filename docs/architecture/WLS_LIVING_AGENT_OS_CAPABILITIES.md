@@ -29,6 +29,57 @@ New capability modules are adapters, projections, event sources, workbenches, or
 candidate-artifact contracts. They do not create a second runtime, planner,
 memory, goal store, policy engine, evidence ledger, or skill system.
 
+## Product Shape
+
+WLS is being fitted as a private, local-first Living Agent Operating System:
+
+- private owner-operated software, not a public SaaS requirement;
+- commercial-quality reliability, evidence, rollback, and recovery expectations;
+- replaceable model and worker organs under one WLS subject;
+- a local runtime that can do real work, not only heartbeat and self-maintenance;
+- long-lived state where every capability can enter the life history and
+  evolution loop.
+
+Mainstream Agent capabilities are required organs, not decorative add-ons:
+
+- conversation and instruction ingress becomes canonical Events, not direct
+  Actions;
+- planning remains `Planner` owned and evidence-bound;
+- tool use remains `Policy -> Approval -> Executor -> Receipt`;
+- file, browser, desktop, code, scheduler, MCP, A2A, multimodal, UI, WeChat,
+  and workbench paths are organs fitted to existing authorities;
+- external models and workers may propose or execute bounded work, but they do
+  not own WLS identity, truth, memory, goal completion, or Skill promotion.
+
+The product rule is:
+
+```text
+many organs, one subject
+many views, one canonical history
+many workers, one integration authority
+many candidates, one evidence-bound promotion path
+```
+
+The first usable product surface is an Owner Console, not a chat shell. It must
+show life state, attention, goals, actions/approvals, memory/world projections,
+and the evolution lab. WeChat or any similar daily-life channel is an ingress,
+notification, query, and approval organ only. It never becomes the WLS brain.
+
+## Three Growth Lines
+
+The 30-round campaign should be read as three interlocked growth lines:
+
+- survival: heartbeat, recovery, backup, resource limits, permissions, Owner
+  control, and long-running continuity;
+- agent capability: planning, browser, file, desktop, coding, multi-agent,
+  MCP/A2A, scheduler, multimodal, UI, and WeChat organs;
+- evolution: trajectory, failure candidates, Skill candidates, world-model
+  projections, experiments, canary, rollback, lineage, and niche selection.
+
+These lines should bite into each other. Agent capability is not postponed until
+after the life loop; it is admitted as organs whose use is captured by the life
+loop.
+
 `LivingSystem` owns a rebuildable capability registry projection via
 `self.capabilities`. The registry appears in `status()` as a summary only; it
 does not create canonical tables or replace existing stores. Channel and
@@ -98,6 +149,29 @@ fields such as `memory_id`/`active`.
 - MCP discovery is rejected unless identity is pinned and reviewed.
 - A2A, MCP, and coding outputs remain candidate-only.
 - Owner Console and WeChat W0/W1 are read-only projection/Event paths.
+
+## Projection Rule
+
+Future graph, markdown, vector, CRDT, Notion-like, Obsidian-like, or UI views
+are projections over the same history. They may help the Owner read, navigate,
+and annotate WLS, but they cannot override canonical SQLite state or evidence.
+
+The preferred first implementation remains local SQLite with canonical tables,
+FTS, graph-shaped projection tables, temporal validity fields, and optional
+vector indices after measured need. A separate graph database or knowledge
+system is not admitted as a second authority.
+
+Reality, cognition, and possibility stay separated:
+
+- reality: Events, Actions, tool receipts, commits, test output, Owner
+  decisions, costs, failures, and artifacts that actually happened;
+- cognition: derived memories, facts, skills, relationships, causes, and
+  interpretations with provenance and revision history;
+- possibility: plans, hypotheses, predictions, simulations, and counterfactuals
+  that must not pollute fact state.
+
+Skill and security learning follow the same path: signature, quarantine rule,
+test, future detection, false-positive review, and rollback.
 
 Run:
 

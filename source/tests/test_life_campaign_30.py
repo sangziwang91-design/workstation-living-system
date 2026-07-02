@@ -763,6 +763,63 @@ def test_r20_creates_canary_packet_without_promotion(
     assert state["rounds"]["R21"]["status"] == "PENDING"
 
 
+def test_r21_requires_level4_authorization(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner, paths = _prepared_r20_runner(tmp_path, monkeypatch, authorize_level4=False)
+    result = runner.run(["R21"])
+    assert result["results"][0]["status"] == "OWNER_REVIEW"
+    assert "LEVEL_4" in result["results"][0]["reason"]
+    state = load_json(paths.campaign_home / "campaign_state.json")
+    assert state["rounds"]["R21"]["status"] == "OWNER_REVIEW"
+
+
+def test_r21_to_r25_generate_m3_unified_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner, paths = _prepared_r20_runner(tmp_path, monkeypatch, authorize_level4=True)
+    result = runner.run(["R21", "R22", "R23", "R24", "R25"])
+    assert [item["status"] for item in result["results"]] == ["PASS"] * 5
+    state = load_json(paths.campaign_home / "campaign_state.json")
+    assert state["automation_level"] == "LEVEL_4"
+    assert state["rounds"]["R25"]["status"] == "PASS"
+    assert state["rounds"]["R26"]["status"] == "PENDING"
+    reuse = load_json(
+        paths.campaign_home / "campaign_evidence" / "R21" / "reuse_transfer_experiment.json"
+    )
+    assert reuse["global_promotion_executed"] is False
+    assert reuse["benefit_measured"]["diagnostic_improvement_count"] == 1
+    rollback = load_json(
+        paths.campaign_home / "campaign_evidence" / "R22" / "rollback_drill.json"
+    )
+    assert rollback["rollback"]["lineage_preserved"] is True
+    handoff = load_json(
+        paths.campaign_home / "campaign_evidence" / "R23" / "multi_agent_handoff.json"
+    )
+    assert handoff["single_integration_authority"] is True
+    provider = load_json(
+        paths.campaign_home / "campaign_evidence" / "R24" / "provider_failure_recovery.json"
+    )
+    assert provider["fallback"]["sourced"] is True
+    assert provider["automatic_payment"] is False
+    security = load_json(
+        paths.campaign_home / "campaign_evidence" / "R25" / "tool_security_matrix.json"
+    )
+    assert security["all_rejected_or_owner_gated"] is True
+    assert security["credential_exposure"] == "NONE"
+    assert security["live_pollution"] is False
+    assert "no second authority" in security["m3_unified_conclusion"]
+
+
+def _prepared_r20_runner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, authorize_level4: bool
+) -> tuple[CampaignRunner, CampaignPaths]:
+    runner, paths = _prepared_r18_runner(tmp_path, monkeypatch)
+    runner.authorize_level4 = authorize_level4
+    runner.run(["R19", "R20"])
+    return runner, paths
+
+
 def _prepared_r18_runner(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> tuple[CampaignRunner, CampaignPaths]:
@@ -809,6 +866,7 @@ def _prepared_r16_runner(
         fresh_snapshot=True,
         authorize_level2=True,
         authorize_level3=authorize_level3,
+        authorize_level4=False,
     )
     runner._prepare_campaign_home()
     for index in range(1, 15):
