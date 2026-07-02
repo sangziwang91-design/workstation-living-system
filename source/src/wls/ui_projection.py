@@ -38,6 +38,7 @@ class OwnerConsoleProductProjection:
         "task_previews",
         "execution_preflight",
         "execution_receipts",
+        "result_projections",
         "memory_world",
         "evolution_lab",
         "organs",
@@ -52,6 +53,7 @@ class OwnerConsoleProductProjection:
             self._task_previews_panel(status),
             self._execution_preflight_panel(status),
             self._execution_receipts_panel(status),
+            self._result_projections_panel(status),
             self._memory_world_panel(status),
             self._evolution_panel(status),
             self._organs_panel(status),
@@ -178,6 +180,22 @@ class OwnerConsoleProductProjection:
                 "items": receipts if isinstance(receipts, list) else [],
                 "writes_canonical_state": False,
                 "receipt_source": "EvidenceLedger and action results",
+            },
+        }
+
+    @staticmethod
+    def _result_projections_panel(status: dict[str, Any]) -> dict[str, Any]:
+        projections = status.get("read_only_result_projections", [])
+        return {
+            "panel_id": "result_projections",
+            "title": "Result Projections",
+            "status": {
+                "projection_count": len(projections)
+                if isinstance(projections, list)
+                else 0,
+                "items": projections if isinstance(projections, list) else [],
+                "candidate_only": True,
+                "promotion_authority": "MemoryStore and WorldModel with evidence",
             },
         }
 

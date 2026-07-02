@@ -180,6 +180,10 @@ fields such as `memory_id`/`active`.
   have a recorded READY preflight, still through the existing executor and
   policy/evidence path, records action receipts plus a plan-level receipt, and
   exposes them in the Owner Console `execution_receipts` panel.
+- P18 is a shadow-level runtime admission for result projection. Successful
+  read-only execution receipts can be projected into candidate MemoryStore and
+  inferred WorldModel entries, with explicit candidate-only claim ceilings and
+  no goal completion or Skill promotion.
 
 ## Projection Rule
 

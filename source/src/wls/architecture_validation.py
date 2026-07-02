@@ -586,6 +586,7 @@ def validate_phase2_owner_surface_and_readonly_organs(
         "task_previews",
         "execution_preflight",
         "execution_receipts",
+        "result_projections",
         "memory_world",
         "evolution_lab",
         "organs",
@@ -972,6 +973,92 @@ def validate_phase2_preflighted_readonly_execution(home: Path) -> ArchitecturePa
         ],
         [
             "Preflighted read-only execution runs only READY READ/none Actions through the existing executor, records action and plan receipts, and exposes Owner Console evidence",
+        ],
+    )
+
+
+def validate_phase2_readonly_result_projection(home: Path) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home))
+    runtime.intake_read_only_task(
+        ReadOnlyTaskRequest(
+            request_id="phase2-project-file-1",
+            organ_id="file",
+            owner_intent="Inspect and project a disposable folder result",
+            inputs={"path": str(home), "limit": 5},
+        )
+    )
+    admission = runtime.admit_read_only_plan_preview(
+        "phase2-project-file-1", reason="architecture validation projection"
+    )
+    runtime.preflight_read_only_plan(str(admission["plan_id"]))
+    runtime.execute_preflighted_read_only_plan(str(admission["plan_id"]))
+    projection = runtime.project_read_only_execution_receipt(str(admission["plan_id"]))
+    memory = runtime.db.query_one(
+        "SELECT memory_type,content_json,active FROM memories WHERE memory_id=?",
+        (projection["memory_id"],),
+    )
+    fact = runtime.db.query_one(
+        "SELECT verification,source_kind,value_json FROM world_facts WHERE fact_id=?",
+        (projection["fact_id"],),
+    )
+    evidence = runtime.db.query_all(
+        """
+        SELECT event_type,evidence_id FROM evidence
+        WHERE event_type IN (
+            'memory_created',
+            'world_model_assimilated',
+            'read_only_execution_result_projected'
+        )
+        ORDER BY seq
+        """
+    )
+    projection_panel = next(
+        (
+            panel
+            for panel in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+            if panel.get("panel_id") == "result_projections"
+        ),
+        None,
+    )
+    memory_content = json.loads(memory["content_json"]) if memory is not None else {}
+    fact_value = json.loads(fact["value_json"]) if fact is not None else {}
+    event_types = {row["event_type"] for row in evidence}
+    if (
+        projection.get("status") != "PROJECTED_CANDIDATE"
+        or not projection.get("candidate_only")
+        or memory is None
+        or memory["memory_type"] != "read_only_execution_candidate"
+        or not memory_content.get("candidate_only")
+        or not memory_content.get("does_not_complete_goal")
+        or fact is None
+        or fact["verification"] != "INFERENCE"
+        or fact["source_kind"] != "INFERENCE"
+        or not fact_value.get("candidate_only")
+        or not {
+            "memory_created",
+            "world_model_assimilated",
+            "read_only_execution_result_projected",
+        }
+        <= event_types
+        or projection_panel is None
+        or projection_panel["status"]["projection_count"] < 1
+    ):
+        return ArchitecturePassResult(
+            "P18",
+            "BLOCKED",
+            [str(projection)],
+            ["read-only result projection validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P18",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(projection["memory_id"]),
+            str(projection["fact_id"]),
+            *[str(row["evidence_id"]) for row in evidence[-3:]],
+        ],
+        [
+            "Read-only execution receipts project into candidate MemoryStore and inferred WorldModel entries with evidence, without claiming goal completion or Skill promotion",
         ],
     )
 

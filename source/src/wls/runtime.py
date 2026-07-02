@@ -33,9 +33,13 @@ from .schemas import (
     ActionSpec,
     ActionStatus,
     Event,
+    EvidenceKind,
     Goal,
+    MemoryItem,
+    Observation,
     Plan,
     RiskLevel,
+    VerificationStatus,
     new_id,
     utc_now,
 )
@@ -211,6 +215,12 @@ class LivingSystem:
         if not isinstance(receipts, list):
             return []
         return receipts[: max(0, int(limit))]
+
+    def read_only_result_projections(self, limit: int = 20) -> list[dict[str, Any]]:
+        projections = self.db.get_runtime("read_only_result_projections", [])
+        if not isinstance(projections, list):
+            return []
+        return projections[: max(0, int(limit))]
 
     def _record_read_only_plan_preview(
         self, request: ReadOnlyTaskRequest, receipt: ReadOnlyTaskReceipt
@@ -490,6 +500,94 @@ class LivingSystem:
                 connection,
             )
         return receipt
+
+    def project_read_only_execution_receipt(self, plan_id: str) -> dict[str, Any]:
+        receipt = next(
+            (
+                item
+                for item in self.read_only_execution_receipts(limit=100)
+                if item.get("plan_id") == plan_id
+            ),
+            None,
+        )
+        if receipt is None:
+            raise KeyError(f"unknown read-only execution receipt: {plan_id}")
+        if not receipt.get("all_succeeded"):
+            raise ValueError("only successful read-only receipts can be projected")
+        source_ids = [
+            str(item.get("action_id"))
+            for item in receipt.get("outcomes", [])
+            if item.get("action_id")
+        ]
+        if not source_ids:
+            raise ValueError("receipt has no action sources")
+        summary = {
+            "plan_id": plan_id,
+            "outcome_count": len(receipt.get("outcomes", [])),
+            "claim_ceiling": "candidate projection from read-only tool receipt",
+        }
+        memory = MemoryItem(
+            memory_type="read_only_execution_candidate",
+            content={
+                "summary": summary,
+                "receipt": receipt,
+                "candidate_only": True,
+                "does_not_complete_goal": True,
+                "does_not_promote_skill": True,
+            },
+            importance=0.35,
+            confidence=0.55,
+            source_ids=source_ids,
+            tags=["candidate_projection", "read_only_execution"],
+        )
+        memory_id = self.memories.add(memory)
+        observation = Observation(
+            source="read_only_execution_projection",
+            kind="candidate_projection",
+            subject=f"plan:{plan_id}",
+            predicate="read_only_execution_receipt_projected",
+            value={
+                "memory_id": memory_id,
+                "outcome_count": len(receipt.get("outcomes", [])),
+                "candidate_only": True,
+            },
+            confidence=0.55,
+            evidence_kind=EvidenceKind.INFERENCE,
+            verification=VerificationStatus.INFERENCE,
+            metadata={"plan_id": plan_id, "source_action_ids": source_ids},
+        )
+        world_result = self.world.assimilate(observation)
+        projection = {
+            "plan_id": plan_id,
+            "status": "PROJECTED_CANDIDATE",
+            "projected_at": utc_now(),
+            "memory_id": memory_id,
+            "fact_id": world_result["fact_id"],
+            "observation_id": observation.observation_id,
+            "source_action_ids": source_ids,
+            "candidate_only": True,
+            "writes_canonical_memory": True,
+            "writes_world_projection": True,
+            "claim_ceiling": "candidate memory/world projection, not final fact or skill",
+        }
+        current = self.read_only_result_projections(limit=100)
+        updated = [
+            projection,
+            *[item for item in current if item.get("plan_id") != plan_id],
+        ][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("read_only_result_projections", updated, connection)
+            self.ledger.append(
+                "read_only_execution_result_projected",
+                {
+                    "plan_id": plan_id,
+                    "memory_id": memory_id,
+                    "fact_id": world_result["fact_id"],
+                    "observation_id": observation.observation_id,
+                },
+                connection,
+            )
+        return projection
 
     def _read_only_candidate_actions(
         self, candidate: dict[str, Any]
@@ -1284,6 +1382,7 @@ class LivingSystem:
             "read_only_plan_previews": self.read_only_plan_previews(),
             "read_only_execution_preflights": self.read_only_execution_preflights(),
             "read_only_execution_receipts": self.read_only_execution_receipts(),
+            "read_only_result_projections": self.read_only_result_projections(),
             "next_focus": self.db.get_runtime("next_focus", []),
         }
 

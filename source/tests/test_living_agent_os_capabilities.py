@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
 import threading
 
 import pytest
@@ -14,6 +15,7 @@ from wls.architecture_validation import (
     validate_mcp_a2a_candidates,
     validate_phase2_owner_surface_and_readonly_organs,
     validate_phase2_preflighted_readonly_execution,
+    validate_phase2_readonly_result_projection,
     validate_phase2_runtime_readonly_task_preview,
     validate_phase2_readonly_planner_admission,
     validate_phase2_readonly_execution_preflight,
@@ -430,6 +432,7 @@ def test_owner_console_product_projection_and_wechat_digest_are_read_only(
         "task_previews",
         "execution_preflight",
         "execution_receipts",
+        "result_projections",
         "memory_world",
         "evolution_lab",
         "organs",
@@ -683,6 +686,60 @@ def test_runtime_executes_preflighted_read_only_plan_with_receipts(
     assert {"action_completed", "read_only_plan_executed"} <= event_types
 
 
+def test_runtime_projects_read_only_execution_receipt_as_candidate_memory_world(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime.intake_read_only_task(
+        ReadOnlyTaskRequest(
+            request_id="project-file-1",
+            organ_id="file",
+            owner_intent="project inspected files",
+            inputs={"path": str(tmp_path), "limit": 10},
+        )
+    )
+    admission = runtime.admit_read_only_plan_preview("project-file-1")
+    runtime.preflight_read_only_plan(admission["plan_id"])
+    runtime.execute_preflighted_read_only_plan(admission["plan_id"])
+    projection = runtime.project_read_only_execution_receipt(admission["plan_id"])
+    assert projection["status"] == "PROJECTED_CANDIDATE"
+    assert projection["candidate_only"] is True
+    memory = runtime.db.query_one(
+        "SELECT memory_type,content_json FROM memories WHERE memory_id=?",
+        (projection["memory_id"],),
+    )
+    assert memory is not None
+    assert memory["memory_type"] == "read_only_execution_candidate"
+    memory_content = json.loads(memory["content_json"])
+    assert memory_content["candidate_only"] is True
+    assert memory_content["does_not_complete_goal"] is True
+    fact = runtime.db.query_one(
+        "SELECT verification,source_kind,value_json FROM world_facts WHERE fact_id=?",
+        (projection["fact_id"],),
+    )
+    assert fact is not None
+    assert fact["verification"] == "INFERENCE"
+    assert fact["source_kind"] == "INFERENCE"
+    assert json.loads(fact["value_json"])["candidate_only"] is True
+    projection_panel = next(
+        panel
+        for panel in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if panel["panel_id"] == "result_projections"
+    )
+    assert projection_panel["status"]["projection_count"] == 1
+    event_types = {
+        row["event_type"]
+        for row in runtime.db.query_all(
+            "SELECT event_type FROM evidence WHERE event_type IN ('memory_created','world_model_assimilated','read_only_execution_result_projected')"
+        )
+    }
+    assert {
+        "memory_created",
+        "world_model_assimilated",
+        "read_only_execution_result_projected",
+    } <= event_types
+
+
 def test_multimodal_and_workbench_contracts() -> None:
     envelope = MultimodalArtifactEnvelope("art1", "text/plain", b"hello")
     assert envelope.to_dict()["sha256"]
@@ -836,6 +893,15 @@ def test_architecture_validation_checks_preflighted_readonly_execution(
     assert result.pass_id == "P17"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) >= 2
+
+
+def test_architecture_validation_checks_readonly_result_projection(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_readonly_result_projection(tmp_path / "projection-home")
+    assert result.pass_id == "P18"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) >= 3
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:
