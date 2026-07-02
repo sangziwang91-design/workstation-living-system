@@ -584,6 +584,7 @@ def validate_phase2_owner_surface_and_readonly_organs(
         "goals",
         "actions_approval",
         "task_previews",
+        "execution_preflight",
         "memory_world",
         "evolution_lab",
         "organs",
@@ -835,6 +836,68 @@ def validate_phase2_readonly_planner_admission(home: Path) -> ArchitecturePassRe
         [str(result["plan_id"]), str(evidence[0]["evidence_id"])],
         [
             "Read-only preview admission creates a PLANNED Plan with only READ/none Actions, records evidence, updates Owner Console preview state, and executes nothing",
+        ],
+    )
+
+
+def validate_phase2_readonly_execution_preflight(home: Path) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home))
+    runtime.intake_read_only_task(
+        ReadOnlyTaskRequest(
+            request_id="phase2-preflight-file-1",
+            organ_id="file",
+            owner_intent="Inspect a disposable folder",
+            inputs={"path": str(home)},
+        )
+    )
+    admission = runtime.admit_read_only_plan_preview(
+        "phase2-preflight-file-1", reason="architecture validation preflight"
+    )
+    preflight = runtime.preflight_read_only_plan(str(admission["plan_id"]))
+    actions = runtime.db.query_all(
+        "SELECT status,result_json FROM actions WHERE plan_id=?",
+        (admission["plan_id"],),
+    )
+    evidence = runtime.db.query_all(
+        """
+        SELECT evidence_id FROM evidence
+        WHERE event_type='read_only_execution_preflight_recorded'
+        ORDER BY seq DESC LIMIT 1
+        """
+    )
+    projection = OwnerConsoleProductProjection().project(runtime.status())
+    preflight_panel = next(
+        (
+            panel
+            for panel in projection["panels"]
+            if panel.get("panel_id") == "execution_preflight"
+        ),
+        None,
+    )
+    if (
+        preflight.get("status") != "READY_FOR_EXECUTION"
+        or preflight.get("direct_tool_execution")
+        or preflight.get("writes_canonical_state")
+        or not preflight.get("actions")
+        or any(not item.get("preflight_ok") for item in preflight["actions"])
+        or any(row["status"] != "PLANNED" for row in actions)
+        or any(row["result_json"] is not None for row in actions)
+        or not evidence
+        or preflight_panel is None
+        or preflight_panel["status"]["preflight_count"] < 1
+    ):
+        return ArchitecturePassResult(
+            "P16",
+            "BLOCKED",
+            [str(preflight)],
+            ["read-only execution preflight validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P16",
+        "ADMIT_SHADOW_ONLY",
+        [str(admission["plan_id"]), str(evidence[0]["evidence_id"])],
+        [
+            "Execution preflight reuses PolicyEngine against admitted READ/none Actions, records evidence, exposes Owner Console state, and executes nothing",
         ],
     )
 

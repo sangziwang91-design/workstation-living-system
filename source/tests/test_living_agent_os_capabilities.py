@@ -15,6 +15,7 @@ from wls.architecture_validation import (
     validate_phase2_owner_surface_and_readonly_organs,
     validate_phase2_runtime_readonly_task_preview,
     validate_phase2_readonly_planner_admission,
+    validate_phase2_readonly_execution_preflight,
     validate_phase2_typed_readonly_organ_profiles,
     validate_p01_registry,
     validate_runtime_approval_receipts,
@@ -426,6 +427,7 @@ def test_owner_console_product_projection_and_wechat_digest_are_read_only(
         "goals",
         "actions_approval",
         "task_previews",
+        "execution_preflight",
         "memory_world",
         "evolution_lab",
         "organs",
@@ -590,6 +592,45 @@ def test_runtime_admits_read_only_preview_as_planned_actions_without_execution(
     assert evidence
 
 
+def test_runtime_preflights_admitted_read_only_plan_without_execution(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime.intake_read_only_task(
+        ReadOnlyTaskRequest(
+            request_id="preflight-file-1",
+            organ_id="file",
+            owner_intent="inspect files before execution",
+            inputs={"path": str(tmp_path), "limit": 10},
+        )
+    )
+    admission = runtime.admit_read_only_plan_preview("preflight-file-1")
+    preflight = runtime.preflight_read_only_plan(admission["plan_id"])
+    assert preflight["status"] == "READY_FOR_EXECUTION"
+    assert preflight["direct_tool_execution"] is False
+    assert preflight["writes_canonical_state"] is False
+    assert {item["preflight_ok"] for item in preflight["actions"]} == {True}
+    assert {item["requires_approval"] for item in preflight["actions"]} == {False}
+    actions = runtime.db.query_all(
+        "SELECT status,result_json,arguments_json FROM actions WHERE plan_id=?",
+        (admission["plan_id"],),
+    )
+    assert {row["status"] for row in actions} == {"PLANNED"}
+    assert {row["result_json"] for row in actions} == {None}
+    assert all("path" in row["arguments_json"] for row in actions)
+    projection = OwnerConsoleProductProjection().project(runtime.status())
+    preflight_panel = next(
+        panel
+        for panel in projection["panels"]
+        if panel["panel_id"] == "execution_preflight"
+    )
+    assert preflight_panel["status"]["preflight_count"] == 1
+    evidence = runtime.db.query_all(
+        "SELECT event_type FROM evidence WHERE event_type='read_only_execution_preflight_recorded'"
+    )
+    assert evidence
+
+
 def test_multimodal_and_workbench_contracts() -> None:
     envelope = MultimodalArtifactEnvelope("art1", "text/plain", b"hello")
     assert envelope.to_dict()["sha256"]
@@ -723,6 +764,15 @@ def test_architecture_validation_checks_readonly_planner_admission(
 ) -> None:
     result = validate_phase2_readonly_planner_admission(tmp_path / "admit-home")
     assert result.pass_id == "P15"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) == 2
+
+
+def test_architecture_validation_checks_readonly_execution_preflight(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_readonly_execution_preflight(tmp_path / "preflight-home")
+    assert result.pass_id == "P16"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) == 2
 

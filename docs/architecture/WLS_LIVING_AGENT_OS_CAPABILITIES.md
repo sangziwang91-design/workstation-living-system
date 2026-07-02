@@ -170,6 +170,11 @@ fields such as `memory_id`/`active`.
   preview into a formal `PLANNED` Plan with only registered READ/none Actions,
   records evidence, rejects unknown or non-read tool hints, and executes
   nothing during admission.
+- P16 is a shadow-level runtime admission for execution preflight.
+  `LivingSystem.preflight_read_only_plan(...)` reuses `PolicyEngine` against
+  the admitted READ/none Actions, records a preflight evidence receipt, exposes
+  the result through the Owner Console `execution_preflight` panel, and still
+  performs no tool execution.
 
 ## Projection Rule
 

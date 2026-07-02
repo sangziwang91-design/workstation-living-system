@@ -36,6 +36,7 @@ class OwnerConsoleProductProjection:
         "goals",
         "actions_approval",
         "task_previews",
+        "execution_preflight",
         "memory_world",
         "evolution_lab",
         "organs",
@@ -48,6 +49,7 @@ class OwnerConsoleProductProjection:
             self._goals_panel(status),
             self._actions_panel(status),
             self._task_previews_panel(status),
+            self._execution_preflight_panel(status),
             self._memory_world_panel(status),
             self._evolution_panel(status),
             self._organs_panel(status),
@@ -144,6 +146,22 @@ class OwnerConsoleProductProjection:
                 "items": previews if isinstance(previews, list) else [],
                 "planner_admission_required": True,
                 "direct_execution_allowed": False,
+            },
+        }
+
+    @staticmethod
+    def _execution_preflight_panel(status: dict[str, Any]) -> dict[str, Any]:
+        preflights = status.get("read_only_execution_preflights", [])
+        return {
+            "panel_id": "execution_preflight",
+            "title": "Execution Preflight",
+            "status": {
+                "preflight_count": len(preflights)
+                if isinstance(preflights, list)
+                else 0,
+                "items": preflights if isinstance(preflights, list) else [],
+                "direct_execution_allowed": False,
+                "approval_authority": "PolicyEngine and ApprovalManager",
             },
         }
 

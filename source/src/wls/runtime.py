@@ -200,6 +200,12 @@ class LivingSystem:
             return []
         return previews[: max(0, int(limit))]
 
+    def read_only_execution_preflights(self, limit: int = 20) -> list[dict[str, Any]]:
+        preflights = self.db.get_runtime("read_only_execution_preflights", [])
+        if not isinstance(preflights, list):
+            return []
+        return preflights[: max(0, int(limit))]
+
     def _record_read_only_plan_preview(
         self, request: ReadOnlyTaskRequest, receipt: ReadOnlyTaskReceipt
     ) -> dict[str, Any]:
@@ -347,6 +353,75 @@ class LivingSystem:
             "preview": admitted_preview,
         }
 
+    def preflight_read_only_plan(self, plan_id: str) -> dict[str, Any]:
+        plan_row = self.db.query_one("SELECT status FROM plans WHERE plan_id=?", (plan_id,))
+        if plan_row is None:
+            raise KeyError(f"unknown plan: {plan_id}")
+        action_rows = self.db.query_all(
+            "SELECT * FROM actions WHERE plan_id=? ORDER BY rowid", (plan_id,)
+        )
+        checks: list[dict[str, Any]] = []
+        ok = True
+        for row in action_rows:
+            action = self._action_from_row(row)
+            validation_error = None
+            try:
+                self.policy.validate_arguments(action)
+            except Exception as exc:
+                validation_error = f"{type(exc).__name__}: {exc}"
+            decision = self.policy.decide(action, approval_valid=False)
+            tool = self.tools.get(action.tool)
+            action_ok = (
+                validation_error is None
+                and row["status"] == ActionStatus.PLANNED.value
+                and action.risk == RiskLevel.READ
+                and tool.side_effect_class == "none"
+                and decision.allowed
+                and not decision.requires_approval
+            )
+            ok = ok and action_ok
+            checks.append(
+                {
+                    "action_id": action.action_id,
+                    "tool": action.tool,
+                    "status": row["status"],
+                    "risk": action.risk.value,
+                    "side_effect_class": tool.side_effect_class,
+                    "arguments_valid": validation_error is None,
+                    "validation_error": validation_error,
+                    "policy_allowed": decision.allowed,
+                    "requires_approval": decision.requires_approval,
+                    "policy_reason": decision.reason,
+                    "preflight_ok": action_ok,
+                }
+            )
+        preflight = {
+            "plan_id": plan_id,
+            "status": "READY_FOR_EXECUTION" if ok and checks else "BLOCKED",
+            "checked_at": utc_now(),
+            "actions": checks,
+            "direct_tool_execution": False,
+            "writes_canonical_state": False,
+            "claim_ceiling": "preflight only; no actions executed",
+        }
+        current = self.read_only_execution_preflights(limit=100)
+        updated = [
+            preflight,
+            *[item for item in current if item.get("plan_id") != plan_id],
+        ][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("read_only_execution_preflights", updated, connection)
+            self.ledger.append(
+                "read_only_execution_preflight_recorded",
+                {
+                    "plan_id": plan_id,
+                    "status": preflight["status"],
+                    "action_ids": [item["action_id"] for item in checks],
+                },
+                connection,
+            )
+        return preflight
+
     def _read_only_candidate_actions(
         self, candidate: dict[str, Any]
     ) -> tuple[list[ActionSpec], list[str]]:
@@ -364,10 +439,17 @@ class LivingSystem:
             if definition.side_effect_class != "none" or item.get("risk") != "READ":
                 rejected_hints.append(tool)
                 continue
+            try:
+                arguments = self._read_only_action_arguments(
+                    tool, dict(item.get("arguments", {}))
+                )
+            except ValueError:
+                rejected_hints.append(tool)
+                continue
             actions.append(
                 ActionSpec(
                     tool=tool,
-                    arguments=dict(item.get("arguments", {})),
+                    arguments=arguments,
                     purpose=str(item.get("purpose", "Admit read-only preview action")),
                     expected_result=str(
                         item.get("expected_result", "bounded read-only receipt")
@@ -381,6 +463,34 @@ class LivingSystem:
                 )
             )
         return actions, rejected_hints
+
+    @staticmethod
+    def _read_only_action_arguments(
+        tool: str, candidate_arguments: dict[str, Any]
+    ) -> dict[str, Any]:
+        inputs = candidate_arguments.get("inputs", {})
+        if not isinstance(inputs, dict):
+            inputs = {}
+        if tool in {"read_file", "list_directory"}:
+            path = inputs.get("path")
+            if not isinstance(path, str) or not path.strip():
+                raise ValueError("read-only file tools require path input")
+            arguments: dict[str, Any] = {"path": path}
+            if tool == "read_file":
+                arguments["max_bytes"] = int(inputs.get("max_bytes", 524288))
+            if tool == "list_directory":
+                arguments["limit"] = int(inputs.get("limit", 200))
+            return arguments
+        if tool == "noop":
+            return {
+                "reason": str(
+                    inputs.get(
+                        "reason",
+                        "Read-only organ candidate retained as deliberate no-op",
+                    )
+                )
+            }
+        raise ValueError(f"unsupported read-only tool mapping: {tool}")
 
     def run_cycle(self) -> dict[str, Any]:
         if self.db.get_runtime("kill_switch", False):
@@ -1094,6 +1204,7 @@ class LivingSystem:
             "memory_attribution": self.memory_attribution.summary(),
             "capabilities": self.capabilities.summary(),
             "read_only_plan_previews": self.read_only_plan_previews(),
+            "read_only_execution_preflights": self.read_only_execution_preflights(),
             "next_focus": self.db.get_runtime("next_focus", []),
         }
 
