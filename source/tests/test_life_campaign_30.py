@@ -625,23 +625,20 @@ def test_r16_passes_with_three_real_repeated_failure_records(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     runner, paths = _prepared_r16_runner(tmp_path, monkeypatch, authorize_level3=True)
-    failure_file = paths.campaign_home / "campaign_evidence" / "R16" / "real_failure.txt"
-    failure_file.parent.mkdir(parents=True, exist_ok=True)
-    failure_file.write_text("real repeated failure evidence", encoding="utf-8")
     for index in range(3):
-        runner.manifest.record_file(
-            "R16",
-            f"real_failure_{index}",
-            failure_file,
-            {
-                "r16_real_failure": True,
-                "normalized_signature": "sqlite.database_locked",
-                "synthetic_or_fixture": False,
-            },
+        result = runner.record_real_failure(
+            source_type="owner_host_disposable_activity",
+            normalized_signature="sqlite.database_locked",
+            raw_evidence_ids=[f"raw-ev-{index}"],
+            reproduction_status="REPRODUCED",
+            environment="pytest-disposable-campaign",
+            input_hash=f"sha256:input-{index}",
+            output_hash=f"sha256:output-{index}",
+            repair_status="UNREPAIRED",
+            note="pytest real repeated failure fixture",
         )
-    result = runner.run(["R16"])
-    assert result["results"][0]["status"] == "PASS"
-    assert result["results"][0]["normalized_signature"] == "sqlite.database_locked"
+    assert result["status"] == "PASS"
+    assert result["normalized_signature"] == "sqlite.database_locked"
     state = load_json(paths.campaign_home / "campaign_state.json")
     assert state["rounds"]["R16"]["status"] == "PASS"
     assert state["rounds"]["R17"]["status"] == "PENDING"

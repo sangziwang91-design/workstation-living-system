@@ -139,6 +139,108 @@ class CampaignRunner:
             "claim_ceiling": verdict_patch["claim_ceiling"],
         }
 
+    def record_real_failure(
+        self,
+        source_type: str,
+        normalized_signature: str,
+        raw_evidence_ids: list[str],
+        reproduction_status: str,
+        environment: str,
+        input_hash: str,
+        output_hash: str,
+        repair_status: str,
+        note: str,
+    ) -> dict[str, Any]:
+        with CampaignLock(self.lock_path):
+            if self.authorize_level3 and self.state.data.get("automation_level") != "LEVEL_3":
+                self._record_level3_authorization("R16")
+            if self.state.data.get("automation_level") != "LEVEL_3":
+                raise PermissionError("recording R16 real failures requires LEVEL_3 disposable authorization")
+            signature = normalized_signature.strip()
+            if not signature:
+                raise ValueError("normalized_signature is required")
+            if not raw_evidence_ids:
+                raise ValueError("raw_evidence_ids are required")
+            now = utc_now()
+            failure_path = (
+                self.paths.campaign_home
+                / "campaign_evidence"
+                / "R16"
+                / f"real_failure_{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ_%f')}.json"
+            )
+            payload = {
+                "round_id": "R16",
+                "source_type": source_type,
+                "count_toward_gate": True,
+                "normalized_signature": signature,
+                "raw_evidence_ids": raw_evidence_ids,
+                "reproduction_status": reproduction_status,
+                "environment": environment,
+                "first_seen": now,
+                "last_seen": now,
+                "input_hash": input_hash,
+                "output_hash": output_hash,
+                "repair_status": repair_status,
+                "note": note,
+                "synthetic_or_fixture": False,
+                "claim_ceiling": "single real failure record; not sufficient for R16 PASS by itself",
+            }
+            atomic_write_json(failure_path, payload)
+            failure_evidence = self.manifest.record_file(
+                "R16",
+                "real_failure_record",
+                failure_path,
+                {
+                    "r16_real_failure": True,
+                    "normalized_signature": signature,
+                    "synthetic_or_fixture": False,
+                    "source_type": source_type,
+                    "reproduction_status": reproduction_status,
+                    "repair_status": repair_status,
+                },
+            )
+            scan = self._write_r16_repeated_failure_report()
+            self.state.append_evidence("R16", failure_evidence)
+            self.state.append_evidence("R16", scan["evidence_id"])
+            if scan["pass_ready"]:
+                verdict = {
+                    "status": "PASS",
+                    "evidence_ids": [failure_evidence, scan["evidence_id"]],
+                    "normalized_signature": scan["normalized_signature"],
+                    "real_failure_count": scan["real_failure_count"],
+                    "claim_ceiling": "three real repeated owner-host failures captured and evidence-bound in disposable campaign clone",
+                }
+                self.state.mark_pass("R16", verdict)
+                self._unblock_after_pass("R16")
+            return {
+                "campaign_id": self.spec.get("campaign_id"),
+                "state_path": str(self.state_path),
+                "manifest_path": str(self.manifest.manifest_path),
+                "round_id": "R16",
+                "status": self.state.round_status("R16"),
+                "failure_evidence_id": failure_evidence,
+                "scan_evidence_id": scan["evidence_id"],
+                "pass_ready": scan["pass_ready"],
+                "normalized_signature": scan["normalized_signature"],
+                "real_failure_count": scan["real_failure_count"],
+            }
+
+    def _unblock_after_pass(self, round_id: str) -> None:
+        keys = list(self.state.data["rounds"])
+        start = keys.index(round_id) + 1
+        for later in keys[start:]:
+            value = self.state.data["rounds"][later]
+            verdict = value.get("verdict")
+            if (
+                value.get("status") == "BLOCKED"
+                and isinstance(verdict, dict)
+                and verdict.get("reason") == f"blocked pending owner review after {round_id}"
+            ):
+                value["status"] = "PENDING"
+                value["verdict"] = None
+            else:
+                break
+        self.state.save()
     def _write_progress_sync_report(self, round_id: str, reason: str) -> Path:
         report_path = (
             self.paths.campaign_home
@@ -1613,6 +1715,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--authorize-level2", action="store_true")
     parser.add_argument("--authorize-level3", action="store_true")
+    parser.add_argument("--record-real-failure", action="store_true")
+    parser.add_argument("--failure-source-type", default="owner_host_disposable_activity")
+    parser.add_argument("--failure-signature")
+    parser.add_argument("--failure-raw-evidence-id", action="append", default=[])
+    parser.add_argument("--failure-reproduction-status", default="REPRODUCED")
+    parser.add_argument("--failure-environment", default="disposable_campaign_clone")
+    parser.add_argument("--failure-input-hash", default="UNKNOWN")
+    parser.add_argument("--failure-output-hash", default="UNKNOWN")
+    parser.add_argument("--failure-repair-status", default="UNREPAIRED")
+    parser.add_argument("--failure-note", default="R16 real failure record")
     parser.add_argument("--r15-duration-seconds", type=int, default=24 * 60 * 60)
     parser.add_argument("--r15-heartbeat-seconds", type=int, default=5 * 60)
     return parser
@@ -1648,6 +1760,20 @@ def main(argv: list[str] | None = None) -> int:
             result = runner.authorize_partial_continuation(
                 args.authorize_partial_continuation_round,
                 args.partial_continuation_reason,
+            )
+        elif args.record_real_failure:
+            if not args.failure_signature:
+                raise ValueError("--failure-signature is required with --record-real-failure")
+            result = runner.record_real_failure(
+                source_type=args.failure_source_type,
+                normalized_signature=args.failure_signature,
+                raw_evidence_ids=args.failure_raw_evidence_id,
+                reproduction_status=args.failure_reproduction_status,
+                environment=args.failure_environment,
+                input_hash=args.failure_input_hash,
+                output_hash=args.failure_output_hash,
+                repair_status=args.failure_repair_status,
+                note=args.failure_note,
             )
         else:
             result = runner.run(round_ids)
