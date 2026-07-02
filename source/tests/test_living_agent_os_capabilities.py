@@ -13,6 +13,7 @@ from wls.architecture_validation import (
     validate_external_memory_projection,
     validate_mcp_a2a_candidates,
     validate_phase2_owner_surface_and_readonly_organs,
+    validate_phase2_preflighted_readonly_execution,
     validate_phase2_runtime_readonly_task_preview,
     validate_phase2_readonly_planner_admission,
     validate_phase2_readonly_execution_preflight,
@@ -428,6 +429,7 @@ def test_owner_console_product_projection_and_wechat_digest_are_read_only(
         "actions_approval",
         "task_previews",
         "execution_preflight",
+        "execution_receipts",
         "memory_world",
         "evolution_lab",
         "organs",
@@ -631,6 +633,56 @@ def test_runtime_preflights_admitted_read_only_plan_without_execution(
     assert evidence
 
 
+def test_runtime_executes_preflighted_read_only_plan_with_receipts(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    (tmp_path / "fixture.txt").write_text("hello", encoding="utf-8")
+    runtime.intake_read_only_task(
+        ReadOnlyTaskRequest(
+            request_id="execute-file-1",
+            organ_id="file",
+            owner_intent="inspect files after preflight",
+            inputs={"path": str(tmp_path), "limit": 10},
+        )
+    )
+    admission = runtime.admit_read_only_plan_preview("execute-file-1")
+    with pytest.raises(PermissionError, match="preflight"):
+        runtime.execute_preflighted_read_only_plan(admission["plan_id"])
+    runtime.preflight_read_only_plan(admission["plan_id"])
+    receipt = runtime.execute_preflighted_read_only_plan(admission["plan_id"])
+    assert receipt["status"] == "EXECUTED_READ_ONLY"
+    assert receipt["all_succeeded"] is True
+    assert receipt["writes_canonical_state"] is False
+    rows = runtime.db.query_all(
+        "SELECT status,risk,side_effect_class,result_json FROM actions WHERE plan_id=?",
+        (admission["plan_id"],),
+    )
+    assert {row["status"] for row in rows} == {"SUCCEEDED"}
+    assert {row["risk"] for row in rows} == {"READ"}
+    assert {row["side_effect_class"] for row in rows} == {"none"}
+    assert all(row["result_json"] for row in rows)
+    plan_row = runtime.db.query_one(
+        "SELECT status FROM plans WHERE plan_id=?", (admission["plan_id"],)
+    )
+    assert plan_row is not None
+    assert plan_row["status"] == "COMPLETED"
+    projection = OwnerConsoleProductProjection().project(runtime.status())
+    receipt_panel = next(
+        panel
+        for panel in projection["panels"]
+        if panel["panel_id"] == "execution_receipts"
+    )
+    assert receipt_panel["status"]["receipt_count"] == 1
+    event_types = {
+        row["event_type"]
+        for row in runtime.db.query_all(
+            "SELECT event_type FROM evidence WHERE event_type IN ('action_completed','read_only_plan_executed')"
+        )
+    }
+    assert {"action_completed", "read_only_plan_executed"} <= event_types
+
+
 def test_multimodal_and_workbench_contracts() -> None:
     envelope = MultimodalArtifactEnvelope("art1", "text/plain", b"hello")
     assert envelope.to_dict()["sha256"]
@@ -775,6 +827,15 @@ def test_architecture_validation_checks_readonly_execution_preflight(
     assert result.pass_id == "P16"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) == 2
+
+
+def test_architecture_validation_checks_preflighted_readonly_execution(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_preflighted_readonly_execution(tmp_path / "execute-home")
+    assert result.pass_id == "P17"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) >= 2
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

@@ -585,6 +585,7 @@ def validate_phase2_owner_surface_and_readonly_organs(
         "actions_approval",
         "task_previews",
         "execution_preflight",
+        "execution_receipts",
         "memory_world",
         "evolution_lab",
         "organs",
@@ -898,6 +899,79 @@ def validate_phase2_readonly_execution_preflight(home: Path) -> ArchitecturePass
         [str(admission["plan_id"]), str(evidence[0]["evidence_id"])],
         [
             "Execution preflight reuses PolicyEngine against admitted READ/none Actions, records evidence, exposes Owner Console state, and executes nothing",
+        ],
+    )
+
+
+def validate_phase2_preflighted_readonly_execution(home: Path) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home))
+    runtime.intake_read_only_task(
+        ReadOnlyTaskRequest(
+            request_id="phase2-execute-file-1",
+            organ_id="file",
+            owner_intent="Inspect a disposable folder",
+            inputs={"path": str(home), "limit": 5},
+        )
+    )
+    admission = runtime.admit_read_only_plan_preview(
+        "phase2-execute-file-1", reason="architecture validation execution"
+    )
+    runtime.preflight_read_only_plan(str(admission["plan_id"]))
+    receipt = runtime.execute_preflighted_read_only_plan(str(admission["plan_id"]))
+    plan = runtime.db.query_one(
+        "SELECT status FROM plans WHERE plan_id=?", (admission["plan_id"],)
+    )
+    actions = runtime.db.query_all(
+        "SELECT status,risk,side_effect_class,result_json FROM actions WHERE plan_id=?",
+        (admission["plan_id"],),
+    )
+    evidence = runtime.db.query_all(
+        """
+        SELECT event_type,evidence_id FROM evidence
+        WHERE event_type IN ('action_completed','read_only_plan_executed')
+        ORDER BY seq
+        """
+    )
+    projection = OwnerConsoleProductProjection().project(runtime.status())
+    receipt_panel = next(
+        (
+            panel
+            for panel in projection["panels"]
+            if panel.get("panel_id") == "execution_receipts"
+        ),
+        None,
+    )
+    event_types = {row["event_type"] for row in evidence}
+    if (
+        receipt.get("status") != "EXECUTED_READ_ONLY"
+        or not receipt.get("all_succeeded")
+        or receipt.get("writes_canonical_state")
+        or plan is None
+        or plan["status"] != "COMPLETED"
+        or not actions
+        or any(row["status"] != "SUCCEEDED" for row in actions)
+        or any(row["risk"] != "READ" for row in actions)
+        or any(row["side_effect_class"] != "none" for row in actions)
+        or any(row["result_json"] is None for row in actions)
+        or not {"action_completed", "read_only_plan_executed"} <= event_types
+        or receipt_panel is None
+        or receipt_panel["status"]["receipt_count"] < 1
+    ):
+        return ArchitecturePassResult(
+            "P17",
+            "BLOCKED",
+            [str(receipt)],
+            ["preflighted read-only execution validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P17",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(admission["plan_id"]),
+            *[str(row["evidence_id"]) for row in evidence[-2:]],
+        ],
+        [
+            "Preflighted read-only execution runs only READY READ/none Actions through the existing executor, records action and plan receipts, and exposes Owner Console evidence",
         ],
     )
 

@@ -175,6 +175,11 @@ fields such as `memory_id`/`active`.
   the admitted READ/none Actions, records a preflight evidence receipt, exposes
   the result through the Owner Console `execution_preflight` panel, and still
   performs no tool execution.
+- P17 is a shadow-level runtime admission for preflighted read-only execution.
+  `LivingSystem.execute_preflighted_read_only_plan(...)` runs only actions that
+  have a recorded READY preflight, still through the existing executor and
+  policy/evidence path, records action receipts plus a plan-level receipt, and
+  exposes them in the Owner Console `execution_receipts` panel.
 
 ## Projection Rule
 

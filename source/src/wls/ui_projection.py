@@ -37,6 +37,7 @@ class OwnerConsoleProductProjection:
         "actions_approval",
         "task_previews",
         "execution_preflight",
+        "execution_receipts",
         "memory_world",
         "evolution_lab",
         "organs",
@@ -50,6 +51,7 @@ class OwnerConsoleProductProjection:
             self._actions_panel(status),
             self._task_previews_panel(status),
             self._execution_preflight_panel(status),
+            self._execution_receipts_panel(status),
             self._memory_world_panel(status),
             self._evolution_panel(status),
             self._organs_panel(status),
@@ -162,6 +164,20 @@ class OwnerConsoleProductProjection:
                 "items": preflights if isinstance(preflights, list) else [],
                 "direct_execution_allowed": False,
                 "approval_authority": "PolicyEngine and ApprovalManager",
+            },
+        }
+
+    @staticmethod
+    def _execution_receipts_panel(status: dict[str, Any]) -> dict[str, Any]:
+        receipts = status.get("read_only_execution_receipts", [])
+        return {
+            "panel_id": "execution_receipts",
+            "title": "Execution Receipts",
+            "status": {
+                "receipt_count": len(receipts) if isinstance(receipts, list) else 0,
+                "items": receipts if isinstance(receipts, list) else [],
+                "writes_canonical_state": False,
+                "receipt_source": "EvidenceLedger and action results",
             },
         }
 

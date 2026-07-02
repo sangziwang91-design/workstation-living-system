@@ -19,6 +19,7 @@ from wls.architecture_validation import (  # noqa: E402
     validate_external_memory_projection,
     validate_mcp_a2a_candidates,
     validate_phase2_owner_surface_and_readonly_organs,
+    validate_phase2_preflighted_readonly_execution,
     validate_phase2_runtime_readonly_task_preview,
     validate_phase2_readonly_planner_admission,
     validate_phase2_readonly_execution_preflight,
@@ -64,6 +65,11 @@ def run_validation() -> dict[str, object]:
         results.append(
             validate_phase2_readonly_execution_preflight(
                 temp_path / "phase2-preflight-home"
+            )
+        )
+        results.append(
+            validate_phase2_preflighted_readonly_execution(
+                temp_path / "phase2-execution-home"
             )
         )
     for pass_id, note in PASS_CONTRACTS.items():
