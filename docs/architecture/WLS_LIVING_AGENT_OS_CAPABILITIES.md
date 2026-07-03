@@ -275,6 +275,11 @@ fields such as `memory_id`/`active`.
   local document ingress receipt can become a Planner-owned read-only plan
   candidate visible in Owner Console task previews, while explicitly creating
   no Plan rows, Action rows, parsing, OCR, vector index, or tool execution.
+- P38 is a shadow-level runtime admission for document read-only execution. A
+  local document preview can pass through Planner admission, Policy preflight,
+  ToolRegistry execution, receipts, and evidence using only `inspect_asset` and
+  `read_file`, while explicitly performing no external writes, OCR, vector
+  indexing, Skill promotion, or live deployment.
 
 ## Projection Rule
 

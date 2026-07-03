@@ -2728,6 +2728,95 @@ def validate_phase2_document_retrieval_preview(
     )
 
 
+def validate_phase2_document_readonly_execution(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    document_path = home / "fixtures" / "phase2-document-execution.pdf"
+    document_path.parent.mkdir(parents=True, exist_ok=True)
+    document_path.write_bytes(b"%PDF-1.4\n% WLS document execution fixture\n")
+    source_receipt = runtime.intake_document_asset(
+        document_id="phase2-document-execution-1",
+        path=document_path,
+        source="architecture_validation_fixture",
+        purpose="architecture validation document read-only execution",
+    )
+    preview = runtime.prepare_document_retrieval_preview(
+        document_id="phase2-document-execution-1",
+        request_id="phase2-document-execution-request-1",
+        owner_intent="Inspect a local document through read-only tools",
+    )
+    admission = runtime.admit_read_only_plan_preview(
+        "phase2-document-execution-request-1",
+        reason="architecture validation document admission",
+    )
+    preflight = runtime.preflight_read_only_plan(str(admission["plan_id"]))
+    receipt = runtime.execute_preflighted_read_only_plan(str(admission["plan_id"]))
+    actions = runtime.db.query_all(
+        "SELECT status,risk,side_effect_class,tool FROM actions WHERE plan_id=?",
+        (admission["plan_id"],),
+    )
+    event_types = {
+        row["event_type"]
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN (
+                'read_only_plan_preview_recorded',
+                'read_only_plan_preview_admitted',
+                'read_only_execution_preflight_recorded',
+                'action_completed',
+                'read_only_plan_executed'
+            )
+            """
+        )
+    }
+    outcomes = receipt.get("outcomes", [])
+    output_keys = {
+        key
+        for outcome in outcomes
+        if isinstance(outcome, dict)
+        for key in outcome.get("output", {})
+    }
+    if (
+        source_receipt.get("status") != "QUEUED_EVENT_ONLY"
+        or preview.get("status") != "PREVIEW_ONLY"
+        or admission.get("status") != "ADMITTED_AS_PLAN"
+        or preflight.get("status") != "READY_FOR_EXECUTION"
+        or receipt.get("status") != "EXECUTED_READ_ONLY"
+        or not receipt.get("all_succeeded")
+        or receipt.get("direct_tool_execution") is not True
+        or not actions
+        or {row["tool"] for row in actions} != {"inspect_asset", "read_file"}
+        or any(row["risk"] != "READ" for row in actions)
+        or any(row["side_effect_class"] != "none" for row in actions)
+        or any(row["status"] != "SUCCEEDED" for row in actions)
+        or not {"sha256", "mime_type", "text", "path"} <= output_keys
+        or not {
+            "read_only_plan_preview_recorded",
+            "read_only_plan_preview_admitted",
+            "read_only_execution_preflight_recorded",
+            "action_completed",
+            "read_only_plan_executed",
+        }
+        <= event_types
+    ):
+        return ArchitecturePassResult(
+            "P38",
+            "BLOCKED",
+            [str(receipt)],
+            ["document read-only execution validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P38",
+        "ADMIT_SHADOW_ONLY",
+        [str(admission["plan_id"]), str(source_receipt["event_id"])],
+        [
+            "Document read-only execution admits a local document preview through Planner, Policy preflight, ToolRegistry, receipts, and evidence using only inspect_asset/read_file with no external writes, OCR, vector indexing, Skill promotion, or live deployment",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

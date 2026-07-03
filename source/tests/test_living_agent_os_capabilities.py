@@ -16,6 +16,7 @@ from wls.architecture_validation import (
     validate_phase2_download_quarantine_draft_receipts,
     validate_phase2_document_ingress_receipts,
     validate_phase2_document_retrieval_preview,
+    validate_phase2_document_readonly_execution,
     validate_external_memory_projection,
     validate_mcp_a2a_candidates,
     validate_phase2_capability_epoch_audit_receipts,
@@ -588,6 +589,59 @@ def test_living_system_prepares_document_retrieval_preview_without_execution(
             request_id="bad-document-preview",
             owner_intent="bad preview",
         )
+
+
+def test_document_organ_executes_local_readonly_inspection(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    document = tmp_path / "sample.pdf"
+    document.write_bytes(b"%PDF-1.4\nWLS document execution fixture\n")
+    source = runtime.intake_document_asset(
+        document_id="document-execute-1",
+        path=document,
+        source="pytest_fixture",
+        purpose="unit test document execution",
+    )
+    preview = runtime.prepare_document_retrieval_preview(
+        document_id="document-execute-1",
+        request_id="document-execute-request-1",
+        owner_intent="inspect a local document through read-only tools",
+    )
+    admission = runtime.admit_read_only_plan_preview(
+        "document-execute-request-1",
+        reason="unit test document admission",
+    )
+    preflight = runtime.preflight_read_only_plan(str(admission["plan_id"]))
+    receipt = runtime.execute_preflighted_read_only_plan(str(admission["plan_id"]))
+    actions = runtime.db.query_all(
+        "SELECT status,risk,side_effect_class,tool FROM actions WHERE plan_id=?",
+        (admission["plan_id"],),
+    )
+    output_keys = {
+        key
+        for outcome in receipt["outcomes"]
+        for key in outcome.get("output", {})
+    }
+    assert source["status"] == "QUEUED_EVENT_ONLY"
+    assert preview["status"] == "PREVIEW_ONLY"
+    assert admission["status"] == "ADMITTED_AS_PLAN"
+    assert preflight["status"] == "READY_FOR_EXECUTION"
+    assert receipt["status"] == "EXECUTED_READ_ONLY"
+    assert receipt["all_succeeded"] is True
+    assert receipt["direct_tool_execution"] is True
+    assert {row["tool"] for row in actions} == {"inspect_asset", "read_file"}
+    assert {row["risk"] for row in actions} == {"READ"}
+    assert {row["side_effect_class"] for row in actions} == {"none"}
+    assert {row["status"] for row in actions} == {"SUCCEEDED"}
+    assert {"sha256", "mime_type", "text", "path"} <= output_keys
+    event_types = {
+        row["event_type"]
+        for row in runtime.db.query_all(
+            "SELECT event_type FROM evidence WHERE event_type IN ('action_completed','read_only_plan_executed')"
+        )
+    }
+    assert {"action_completed", "read_only_plan_executed"} <= event_types
 
 
 def test_provider_router_enforces_local_first_and_cost() -> None:
@@ -1970,6 +2024,17 @@ def test_architecture_validation_checks_document_retrieval_preview(
         tmp_path / "document-retrieval-preview-validation-home"
     )
     assert result.pass_id == "P37"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) == 2
+
+
+def test_architecture_validation_checks_document_readonly_execution(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_document_readonly_execution(
+        tmp_path / "document-readonly-execution-validation-home"
+    )
+    assert result.pass_id == "P38"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) == 2
 
