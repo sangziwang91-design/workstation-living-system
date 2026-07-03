@@ -285,6 +285,11 @@ fields such as `memory_id`/`active`.
   Memory/World projections, remain `INFERENCE` and `candidate_only`, and be
   rolled back without completing Goals, promoting Skills, or claiming final
   truth.
+- P40 is a shadow-level runtime admission for document Skill candidates.
+  Repeated successful document read-only trajectories may propose `PROPOSED`
+  Skill candidates from `inspect_asset`/`read_file` sequences, while explicitly
+  performing no sandbox validation, approval, promotion, active Skill enablement,
+  Goal completion, or deployment.
 
 ## Projection Rule
 

@@ -219,7 +219,7 @@ class SkillLibrary:
         rows = self.db.query_all(
             """
             SELECT plan_id,tool,arguments_json,purpose,risk,status,action_id
-            FROM actions WHERE status='SUCCEEDED' ORDER BY plan_id,started_at,action_id
+            FROM actions WHERE status='SUCCEEDED' ORDER BY plan_id,rowid
             """
         )
         plans: dict[str, list[Any]] = defaultdict(list)

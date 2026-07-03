@@ -46,6 +46,7 @@ from wls.architecture_validation import (  # noqa: E402
     validate_phase2_document_retrieval_preview,
     validate_phase2_document_readonly_execution,
     validate_phase2_document_projection_review,
+    validate_phase2_document_skill_candidate_receipts,
     validate_p01_registry,
     validate_runtime_approval_receipts,
     validate_runtime_event_ingress,
@@ -202,6 +203,11 @@ def run_validation() -> dict[str, object]:
         results.append(
             validate_phase2_document_projection_review(
                 temp_path / "phase2-document-projection-review-home"
+            )
+        )
+        results.append(
+            validate_phase2_document_skill_candidate_receipts(
+                temp_path / "phase2-document-skill-candidate-home"
             )
         )
     for pass_id, note in PASS_CONTRACTS.items():

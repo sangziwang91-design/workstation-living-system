@@ -18,6 +18,7 @@ from wls.architecture_validation import (
     validate_phase2_document_retrieval_preview,
     validate_phase2_document_readonly_execution,
     validate_phase2_document_projection_review,
+    validate_phase2_document_skill_candidate_receipts,
     validate_external_memory_projection,
     validate_mcp_a2a_candidates,
     validate_phase2_capability_epoch_audit_receipts,
@@ -723,6 +724,74 @@ def test_document_readonly_execution_projects_and_rolls_back_candidate(
         "read_only_execution_result_projected",
         "read_only_result_projection_reviewed",
     } <= event_types
+
+
+def test_document_repeated_readonly_execution_proposes_skill_candidate(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    document = tmp_path / "sample.pdf"
+    document.write_bytes(b"%PDF-1.4\nWLS document skill fixture\n")
+    before_active = len(runtime.skills.active())
+    for index in range(3):
+        document_id = f"document-skill-{index}"
+        request_id = f"document-skill-request-{index}"
+        runtime.intake_document_asset(
+            document_id=document_id,
+            path=document,
+            source="pytest_fixture",
+            purpose="unit test document skill source",
+        )
+        runtime.prepare_document_retrieval_preview(
+            document_id=document_id,
+            request_id=request_id,
+            owner_intent="repeat local document inspection for Skill candidate",
+        )
+        admission = runtime.admit_read_only_plan_preview(
+            request_id,
+            reason="unit test document skill admission",
+        )
+        runtime.preflight_read_only_plan(str(admission["plan_id"]))
+        runtime.execute_preflighted_read_only_plan(str(admission["plan_id"]))
+    receipt = runtime.propose_skill_candidates_from_receipts(
+        minimum_repeats=3,
+        reason="unit test document skill extraction",
+    )
+    rows = [
+        runtime.db.query_one(
+            "SELECT status,definition_json FROM skills WHERE skill_id=?",
+            (skill_id,),
+        )
+        for skill_id in receipt["created_skill_ids"]
+    ]
+    definitions = [
+        json.loads(str(row["definition_json"])) for row in rows if row is not None
+    ]
+    tools = {
+        step["tool"]
+        for definition in definitions
+        for step in definition.get("steps", [])
+    }
+    assert receipt["status"] == "CANDIDATES_PROPOSED"
+    assert receipt["candidate_count"] >= 1
+    assert receipt["candidate_only"] is True
+    assert receipt["promotion_executed"] is False
+    assert receipt["approval_executed"] is False
+    assert receipt["sandbox_executed"] is False
+    assert {row["status"] for row in rows if row is not None} == {"PROPOSED"}
+    assert len(runtime.skills.active()) == before_active
+    assert {"inspect_asset", "read_file"} <= tools
+    assert sum(
+        len(definition.get("source_episode_ids", [])) for definition in definitions
+    ) >= 6
+    panel = next(
+        panel
+        for panel in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if panel["panel_id"] == "skill_candidates"
+    )
+    assert panel["status"]["receipt_count"] == 1
+    assert panel["status"]["candidate_only"] is True
+    assert panel["status"]["promotion_executed"] is False
 
 
 def test_provider_router_enforces_local_first_and_cost() -> None:
@@ -2129,6 +2198,17 @@ def test_architecture_validation_checks_document_projection_review(
     assert result.pass_id == "P39"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) == 3
+
+
+def test_architecture_validation_checks_document_skill_candidate(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_document_skill_candidate_receipts(
+        tmp_path / "document-skill-candidate-validation-home"
+    )
+    assert result.pass_id == "P40"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) >= 3
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

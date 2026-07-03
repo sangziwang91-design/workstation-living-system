@@ -2948,6 +2948,115 @@ def validate_phase2_document_projection_review(
     )
 
 
+def validate_phase2_document_skill_candidate_receipts(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    document_path = home / "fixtures" / "phase2-document-skill.pdf"
+    document_path.parent.mkdir(parents=True, exist_ok=True)
+    document_path.write_bytes(b"%PDF-1.4\n% WLS document skill fixture\n")
+    before_active = len(runtime.skills.active())
+    for index in range(3):
+        document_id = f"phase2-document-skill-{index}"
+        request_id = f"phase2-document-skill-request-{index}"
+        runtime.intake_document_asset(
+            document_id=document_id,
+            path=document_path,
+            source="architecture_validation_fixture",
+            purpose="architecture validation document skill source",
+        )
+        runtime.prepare_document_retrieval_preview(
+            document_id=document_id,
+            request_id=request_id,
+            owner_intent="Repeat local document inspection for Skill candidate",
+        )
+        admission = runtime.admit_read_only_plan_preview(
+            request_id,
+            reason="architecture validation document skill admission",
+        )
+        runtime.preflight_read_only_plan(str(admission["plan_id"]))
+        runtime.execute_preflighted_read_only_plan(str(admission["plan_id"]))
+    receipt = runtime.propose_skill_candidates_from_receipts(
+        minimum_repeats=3,
+        reason="architecture validation document skill extraction",
+    )
+    skill_rows = [
+        row
+        for skill_id in receipt.get("created_skill_ids", [])
+        if (
+            row := runtime.db.query_one(
+                "SELECT skill_id,status,definition_json FROM skills WHERE skill_id=?",
+                (skill_id,),
+            )
+        )
+        is not None
+    ]
+    definitions = [json.loads(str(row["definition_json"])) for row in skill_rows]
+    skill_tools = {
+        step.get("tool")
+        for definition in definitions
+        for step in definition.get("steps", [])
+        if isinstance(step, dict)
+    }
+    source_episode_count = sum(
+        len(definition.get("source_episode_ids", [])) for definition in definitions
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN ('skill_created','skill_candidates_extracted')
+            """
+        )
+    }
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "skill_candidates"
+        ),
+        None,
+    )
+    if (
+        receipt.get("status") != "CANDIDATES_PROPOSED"
+        or receipt.get("candidate_count", 0) < 1
+        or not skill_rows
+        or {str(row["status"]) for row in skill_rows} != {"PROPOSED"}
+        or len(runtime.skills.active()) != before_active
+        or not {"inspect_asset", "read_file"} <= skill_tools
+        or source_episode_count < 6
+        or receipt.get("promotion_executed")
+        or receipt.get("approval_executed")
+        or receipt.get("sandbox_executed")
+        or not receipt.get("candidate_only")
+        or {"skill_created", "skill_candidates_extracted"} - event_types
+        or panel is None
+        or panel["status"]["receipt_count"] != 1
+        or not panel["status"]["candidate_only"]
+        or panel["status"]["promotion_executed"]
+    ):
+        return ArchitecturePassResult(
+            "P40",
+            "BLOCKED",
+            [str(receipt)],
+            ["document skill candidate receipt validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P40",
+        "ADMIT_SHADOW_ONLY",
+        [
+            *[str(row["skill_id"]) for row in skill_rows],
+            *sorted(event_types),
+        ],
+        [
+            "Repeated document read-only execution receipts can propose PROPOSED Skill candidates from inspect_asset/read_file trajectories while preserving no sandbox, no approval, no promotion, no active Skill, and Owner Console visibility",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:
