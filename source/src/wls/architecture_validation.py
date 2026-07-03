@@ -2466,6 +2466,100 @@ def validate_phase2_browser_form_draft_receipts(
     )
 
 
+def validate_phase2_download_quarantine_draft_receipts(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    before_goals = runtime.db.query_one("SELECT COUNT(*) AS count FROM goals")
+    before_plans = runtime.db.query_one("SELECT COUNT(*) AS count FROM plans")
+    before_actions = runtime.db.query_one("SELECT COUNT(*) AS count FROM actions")
+    receipt = runtime.draft_download_quarantine(
+        download_id="phase2-download-1",
+        url="http://127.0.0.1/file.txt",
+        filename="file.txt",
+        purpose="architecture validation download quarantine draft",
+    )
+    after_goals = runtime.db.query_one("SELECT COUNT(*) AS count FROM goals")
+    after_plans = runtime.db.query_one("SELECT COUNT(*) AS count FROM plans")
+    after_actions = runtime.db.query_one("SELECT COUNT(*) AS count FROM actions")
+    blocked = False
+    try:
+        runtime.draft_download_quarantine(
+            download_id="phase2-download-blocked",
+            url="http://example.com/file.txt",
+            filename="file.txt",
+            purpose="blocked download quarantine",
+        )
+    except PermissionError:
+        blocked = True
+    manifest_path = Path(str(receipt.get("manifest_path", "")))
+    manifest = (
+        json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest_path.exists()
+        else {}
+    )
+    evidence = runtime.db.query_all(
+        """
+        SELECT event_type,evidence_id FROM evidence
+        WHERE event_type='download_quarantine_drafted'
+        ORDER BY seq DESC LIMIT 1
+        """
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "download_quarantine"
+        ),
+        None,
+    )
+    if (
+        receipt.get("status") != "QUARANTINE_DRAFT_RECORDED"
+        or receipt.get("network_fetch_executed")
+        or receipt.get("file_materialized")
+        or receipt.get("external_write_executed")
+        or receipt.get("creates_goal")
+        or receipt.get("creates_action")
+        or receipt.get("direct_tool_execution")
+        or not receipt.get("approval_required_for_fetch")
+        or manifest.get("network_fetch_executed")
+        or manifest.get("file_materialized")
+        or not blocked
+        or before_goals is None
+        or after_goals is None
+        or before_goals["count"] != after_goals["count"]
+        or before_plans is None
+        or after_plans is None
+        or before_plans["count"] != after_plans["count"]
+        or before_actions is None
+        or after_actions is None
+        or before_actions["count"] != after_actions["count"]
+        or not evidence
+        or panel is None
+        or panel["status"]["receipt_count"] != 1
+        or panel["status"]["network_fetch_executed"]
+        or panel["status"]["file_materialized"]
+        or panel["status"]["external_write_executed"]
+        or not panel["status"]["approval_required_for_fetch"]
+    ):
+        return ArchitecturePassResult(
+            "P35",
+            "BLOCKED",
+            [str(receipt)],
+            ["download quarantine draft receipt validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P35",
+        "ADMIT_SHADOW_ONLY",
+        [str(manifest_path), str(evidence[0]["evidence_id"])],
+        [
+            "Download quarantine drafting records a sandbox manifest for a policy-bounded download intent with evidence and Owner Console visibility, without network fetch, file materialization, external writes, Goals, Plans, Actions, or tool execution",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

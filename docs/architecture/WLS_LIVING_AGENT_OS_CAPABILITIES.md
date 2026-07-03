@@ -261,6 +261,11 @@ fields such as `memory_id`/`active`.
   evidence, and Owner Console visibility, while explicitly performing no
   browser open, form submit, POST, download, Goal creation, planning execution,
   or Action execution.
+- P35 is a shadow-level runtime admission for download quarantine drafts. The
+  runtime can create a sandbox manifest for a policy-bounded download intent
+  with evidence and Owner Console visibility, while explicitly performing no
+  network fetch, file materialization, external write, Goal creation, planning
+  execution, or Action execution.
 
 ## Projection Rule
 

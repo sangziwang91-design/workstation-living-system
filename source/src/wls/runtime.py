@@ -297,6 +297,12 @@ class LivingSystem:
             return []
         return receipts[: max(0, int(limit))]
 
+    def download_quarantine_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("download_quarantine_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
     def provider_route_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         receipts = self.db.get_runtime("provider_route_receipts", [])
         if not isinstance(receipts, list):
@@ -720,6 +726,83 @@ class LivingSystem:
         with self.db.transaction() as connection:
             self.db.set_runtime("browser_form_draft_receipts", updated, connection)
             self.ledger.append("browser_form_drafted", receipt, connection)
+        return receipt
+
+    def draft_download_quarantine(
+        self,
+        *,
+        download_id: str,
+        url: str,
+        filename: str,
+        purpose: str,
+    ) -> dict[str, Any]:
+        if not download_id.strip():
+            raise ValueError("download_id is required")
+        parsed = urlparse(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("download quarantine draft requires an http(s) URL")
+        host = parsed.hostname or ""
+        if parsed.scheme != "https" and host not in {"127.0.0.1", "localhost"}:
+            raise PermissionError(
+                "download quarantine draft requires HTTPS or loopback HTTP"
+            )
+        safe_name = Path(filename).name
+        if not safe_name or safe_name in {".", ".."}:
+            raise ValueError("download quarantine draft requires a safe filename")
+        quarantine_dir = self.config.sandbox_path / "download-quarantine" / download_id
+        quarantine_dir.mkdir(parents=True, exist_ok=True)
+        target_path = quarantine_dir / safe_name
+        manifest = {
+            "download_id": download_id,
+            "url": url,
+            "scheme": parsed.scheme,
+            "host": host,
+            "filename": safe_name,
+            "target_path": str(target_path),
+            "purpose": purpose,
+            "network_fetch_executed": False,
+            "file_materialized": False,
+            "external_write_executed": False,
+            "created_at": utc_now(),
+        }
+        manifest_path = quarantine_dir / "manifest.json"
+        temporary = manifest_path.with_suffix(".json.tmp")
+        temporary.write_text(
+            json.dumps(manifest, indent=2, ensure_ascii=False, sort_keys=True),
+            encoding="utf-8",
+        )
+        os.replace(temporary, manifest_path)
+        receipt = {
+            "receipt_type": "DOWNLOAD_QUARANTINE_DRAFT",
+            "status": "QUARANTINE_DRAFT_RECORDED",
+            "download_id": download_id,
+            "url": url,
+            "scheme": parsed.scheme,
+            "host": host,
+            "filename": safe_name,
+            "manifest_path": str(manifest_path),
+            "target_path": str(target_path),
+            "manifest_sha256": hashlib.sha256(
+                manifest_path.read_bytes()
+            ).hexdigest(),
+            "network_fetch_executed": False,
+            "file_materialized": False,
+            "external_write_executed": False,
+            "creates_goal": False,
+            "creates_action": False,
+            "direct_tool_execution": False,
+            "approval_required_for_fetch": True,
+            "claim_ceiling": "download quarantine draft only; no network fetch, file materialization, external write, planning execution, or action execution",
+            "created_at": manifest["created_at"],
+        }
+        current = self.download_quarantine_receipts(limit=100)
+        updated = [
+            receipt,
+            *[row for row in current if row.get("download_id") != download_id],
+        ][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("download_quarantine_receipts", updated, connection)
+            self.ledger.append("download_quarantine_drafted", receipt, connection)
         return receipt
 
     def record_provider_route_receipt(self, *, reason: str) -> dict[str, Any]:
@@ -2192,6 +2275,7 @@ class LivingSystem:
             "notification_draft_receipts": self.notification_draft_receipts(),
             "screen_snapshot_receipts": self.screen_snapshot_receipts(),
             "browser_form_draft_receipts": self.browser_form_draft_receipts(),
+            "download_quarantine_receipts": self.download_quarantine_receipts(),
             "provider_route_receipts": self.provider_route_receipts(),
             "skill_candidate_receipts": self.skill_candidate_receipts(),
             "learning_epoch_receipts": self.learning_epoch_receipts(),

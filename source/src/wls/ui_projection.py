@@ -43,6 +43,7 @@ class OwnerConsoleProductProjection:
         "notification_drafts",
         "screen_snapshots",
         "browser_form_drafts",
+        "download_quarantine",
         "task_previews",
         "execution_preflight",
         "execution_receipts",
@@ -70,6 +71,7 @@ class OwnerConsoleProductProjection:
             self._notification_drafts_panel(status),
             self._screen_snapshots_panel(status),
             self._browser_form_drafts_panel(status),
+            self._download_quarantine_panel(status),
             self._task_previews_panel(status),
             self._execution_preflight_panel(status),
             self._execution_receipts_panel(status),
@@ -286,6 +288,22 @@ class OwnerConsoleProductProjection:
                 "form_submitted": False,
                 "network_post_executed": False,
                 "approval_required_for_submission": True,
+            },
+        }
+
+    @staticmethod
+    def _download_quarantine_panel(status: dict[str, Any]) -> dict[str, Any]:
+        receipts = status.get("download_quarantine_receipts", [])
+        return {
+            "panel_id": "download_quarantine",
+            "title": "Download Quarantine",
+            "status": {
+                "receipt_count": len(receipts) if isinstance(receipts, list) else 0,
+                "items": receipts if isinstance(receipts, list) else [],
+                "network_fetch_executed": False,
+                "file_materialized": False,
+                "external_write_executed": False,
+                "approval_required_for_fetch": True,
             },
         }
 

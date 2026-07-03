@@ -13,6 +13,7 @@ from wls.architecture_validation import (
     validate_browser_computer_organs,
     validate_phase2_browser_form_draft_receipts,
     validate_coding_worktree_candidate,
+    validate_phase2_download_quarantine_draft_receipts,
     validate_external_memory_projection,
     validate_mcp_a2a_candidates,
     validate_phase2_capability_epoch_audit_receipts,
@@ -431,6 +432,55 @@ def test_living_system_drafts_browser_form_without_submission(
         )
 
 
+def test_living_system_drafts_download_quarantine_without_fetch(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    before = {
+        name: runtime.db.query_one(f"SELECT COUNT(*) AS count FROM {name}")["count"]
+        for name in ("goals", "plans", "actions")
+    }
+    receipt = runtime.draft_download_quarantine(
+        download_id="download-1",
+        url="http://127.0.0.1/file.txt",
+        filename="../file.txt",
+        purpose="unit test download quarantine",
+    )
+    after = {
+        name: runtime.db.query_one(f"SELECT COUNT(*) AS count FROM {name}")["count"]
+        for name in ("goals", "plans", "actions")
+    }
+    manifest_path = Path(receipt["manifest_path"])
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert receipt["status"] == "QUARANTINE_DRAFT_RECORDED"
+    assert receipt["filename"] == "file.txt"
+    assert receipt["network_fetch_executed"] is False
+    assert receipt["file_materialized"] is False
+    assert receipt["external_write_executed"] is False
+    assert receipt["creates_goal"] is False
+    assert receipt["creates_action"] is False
+    assert receipt["approval_required_for_fetch"] is True
+    assert before == after
+    assert manifest["network_fetch_executed"] is False
+    assert manifest["file_materialized"] is False
+    assert not Path(manifest["target_path"]).exists()
+    panel = next(
+        panel
+        for panel in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if panel["panel_id"] == "download_quarantine"
+    )
+    assert panel["status"]["receipt_count"] == 1
+    assert panel["status"]["network_fetch_executed"] is False
+    assert panel["status"]["file_materialized"] is False
+    with pytest.raises(PermissionError, match="HTTPS or loopback"):
+        runtime.draft_download_quarantine(
+            download_id="download-bad",
+            url="http://example.com/file.txt",
+            filename="file.txt",
+            purpose="bad download",
+        )
+
+
 def test_provider_router_enforces_local_first_and_cost() -> None:
     router = ProviderRouter(
         [
@@ -805,6 +855,7 @@ def test_owner_console_product_projection_and_wechat_digest_are_read_only(
         "notification_drafts",
         "screen_snapshots",
         "browser_form_drafts",
+        "download_quarantine",
         "task_previews",
         "execution_preflight",
         "execution_receipts",
@@ -1774,6 +1825,17 @@ def test_architecture_validation_checks_browser_form_draft(
         tmp_path / "browser-form-validation-home"
     )
     assert result.pass_id == "P34"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) == 2
+
+
+def test_architecture_validation_checks_download_quarantine_draft(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_download_quarantine_draft_receipts(
+        tmp_path / "download-quarantine-validation-home"
+    )
+    assert result.pass_id == "P35"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) == 2
 
