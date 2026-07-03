@@ -31,6 +31,7 @@ from wls.architecture_validation import (
     validate_phase2_scheduler_due_event_runtime_intake,
     validate_phase2_skill_candidate_extraction_receipts,
     validate_phase2_learning_epoch_review_receipts,
+    validate_phase2_local_notification_draft_receipts,
     validate_phase2_typed_readonly_organ_profiles,
     validate_phase2_wechat_approval_channel_receipts,
     validate_phase2_voice_transcript_ingress_receipts,
@@ -282,6 +283,55 @@ def test_living_system_intakes_voice_transcript_as_event_only(
             transcript_id="voice-empty",
             speaker_id="owner",
             transcript=" ",
+        )
+
+
+def test_living_system_drafts_local_notification_without_delivery(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    before = {
+        name: runtime.db.query_one(f"SELECT COUNT(*) AS count FROM {name}")["count"]
+        for name in ("goals", "plans", "actions")
+    }
+    receipt = runtime.draft_local_notification(
+        channel="voice",
+        mode="speech_script",
+        purpose="unit test owner reply",
+        body="WLS status draft is ready for Owner review.",
+    )
+    after = {
+        name: runtime.db.query_one(f"SELECT COUNT(*) AS count FROM {name}")["count"]
+        for name in ("goals", "plans", "actions")
+    }
+    draft_path = Path(receipt["outbox_path"])
+    draft = json.loads(draft_path.read_text(encoding="utf-8"))
+    assert receipt["status"] == "DRAFT_WRITTEN"
+    assert receipt["delivery_executed"] is False
+    assert receipt["tts_executed"] is False
+    assert receipt["audio_played"] is False
+    assert receipt["external_send_executed"] is False
+    assert receipt["creates_goal"] is False
+    assert receipt["creates_action"] is False
+    assert before == after
+    assert draft["channel"] == "voice"
+    assert draft["mode"] == "speech_script"
+    assert draft["delivery_executed"] is False
+    assert draft["tts_executed"] is False
+    assert draft["audio_played"] is False
+    panel = next(
+        panel
+        for panel in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if panel["panel_id"] == "notification_drafts"
+    )
+    assert panel["status"]["receipt_count"] == 1
+    assert panel["status"]["delivery_executed"] is False
+    assert panel["status"]["tts_executed"] is False
+    with pytest.raises(ValueError, match="unsupported notification channel"):
+        runtime.draft_local_notification(
+            channel="external_sms",
+            purpose="bad channel",
+            body="no",
         )
 
 
@@ -656,6 +706,7 @@ def test_owner_console_product_projection_and_wechat_digest_are_read_only(
         "scheduled_events",
         "external_handoffs",
         "voice_ingress",
+        "notification_drafts",
         "task_previews",
         "execution_preflight",
         "execution_receipts",
@@ -1592,6 +1643,17 @@ def test_architecture_validation_checks_voice_transcript_ingress(
         tmp_path / "voice-transcript-validation-home"
     )
     assert result.pass_id == "P31"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) == 2
+
+
+def test_architecture_validation_checks_local_notification_draft(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_local_notification_draft_receipts(
+        tmp_path / "local-notification-validation-home"
+    )
+    assert result.pass_id == "P32"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) == 2
 

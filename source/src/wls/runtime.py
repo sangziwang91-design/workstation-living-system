@@ -279,6 +279,12 @@ class LivingSystem:
             return []
         return receipts[: max(0, int(limit))]
 
+    def notification_draft_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("notification_draft_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
     def provider_route_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         receipts = self.db.get_runtime("provider_route_receipts", [])
         if not isinstance(receipts, list):
@@ -528,6 +534,65 @@ class LivingSystem:
         with self.db.transaction() as connection:
             self.db.set_runtime("voice_transcript_receipts", updated, connection)
             self.ledger.append("voice_transcript_queued", receipt, connection)
+        return receipt
+
+    def draft_local_notification(
+        self,
+        *,
+        channel: str,
+        body: str,
+        purpose: str,
+        mode: str = "text",
+    ) -> dict[str, Any]:
+        if channel not in {"owner_console", "wechat", "voice"}:
+            raise ValueError("unsupported notification channel")
+        if mode not in {"text", "speech_script"}:
+            raise ValueError("unsupported notification mode")
+        if not body.strip():
+            raise ValueError("notification body cannot be empty")
+        draft_id = new_id("notification")
+        payload = {
+            "draft_id": draft_id,
+            "channel": channel,
+            "mode": mode,
+            "purpose": purpose,
+            "body": body,
+            "delivery_executed": False,
+            "tts_executed": False,
+            "audio_played": False,
+            "created_at": utc_now(),
+        }
+        target = self.config.outbox_path / f"{draft_id}.json"
+        temporary = target.with_suffix(".json.tmp")
+        temporary.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True),
+            encoding="utf-8",
+        )
+        os.replace(temporary, target)
+        receipt = {
+            "receipt_type": "LOCAL_NOTIFICATION_DRAFT",
+            "status": "DRAFT_WRITTEN",
+            "draft_id": draft_id,
+            "channel": channel,
+            "mode": mode,
+            "purpose": purpose,
+            "outbox_path": str(target),
+            "body_sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+            "delivery_executed": False,
+            "tts_executed": False,
+            "audio_played": False,
+            "external_send_executed": False,
+            "creates_goal": False,
+            "creates_action": False,
+            "direct_tool_execution": False,
+            "claim_ceiling": "local outbox draft only; no external delivery, TTS, playback, planning, or action execution",
+            "created_at": payload["created_at"],
+        }
+        current = self.notification_draft_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("notification_draft_receipts", updated, connection)
+            self.ledger.append("local_notification_drafted", receipt, connection)
         return receipt
 
     def record_provider_route_receipt(self, *, reason: str) -> dict[str, Any]:
@@ -1997,6 +2062,7 @@ class LivingSystem:
             "external_handoff_receipts": self.external_handoff_receipts(),
             "approval_channel_receipts": self.approval_channel_receipts(),
             "voice_transcript_receipts": self.voice_transcript_receipts(),
+            "notification_draft_receipts": self.notification_draft_receipts(),
             "provider_route_receipts": self.provider_route_receipts(),
             "skill_candidate_receipts": self.skill_candidate_receipts(),
             "learning_epoch_receipts": self.learning_epoch_receipts(),

@@ -246,6 +246,11 @@ fields such as `memory_id`/`active`.
   `channel:voice` Event with receipt evidence and Owner Console visibility,
   while explicitly performing no audio capture, speech-to-text, Goal creation,
   Action creation, planning, or tool execution.
+- P32 is a shadow-level runtime admission for local notification drafts. The
+  runtime can write an Owner-visible outbox draft for text or speech-script
+  notification with receipt evidence and Owner Console visibility, while
+  explicitly performing no external send, TTS, audio playback, Goal creation,
+  planning, or Action execution.
 
 ## Projection Rule
 

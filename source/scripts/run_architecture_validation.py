@@ -38,6 +38,7 @@ from wls.architecture_validation import (  # noqa: E402
     validate_phase2_typed_readonly_organ_profiles,
     validate_phase2_wechat_approval_channel_receipts,
     validate_phase2_voice_transcript_ingress_receipts,
+    validate_phase2_local_notification_draft_receipts,
     validate_p01_registry,
     validate_runtime_approval_receipts,
     validate_runtime_event_ingress,
@@ -154,6 +155,11 @@ def run_validation() -> dict[str, object]:
         results.append(
             validate_phase2_voice_transcript_ingress_receipts(
                 temp_path / "phase2-voice-transcript-home"
+            )
+        )
+        results.append(
+            validate_phase2_local_notification_draft_receipts(
+                temp_path / "phase2-local-notification-home"
             )
         )
     for pass_id, note in PASS_CONTRACTS.items():

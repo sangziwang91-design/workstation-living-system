@@ -40,6 +40,7 @@ class OwnerConsoleProductProjection:
         "scheduled_events",
         "external_handoffs",
         "voice_ingress",
+        "notification_drafts",
         "task_previews",
         "execution_preflight",
         "execution_receipts",
@@ -64,6 +65,7 @@ class OwnerConsoleProductProjection:
             self._scheduled_events_panel(status),
             self._external_handoffs_panel(status),
             self._voice_ingress_panel(status),
+            self._notification_drafts_panel(status),
             self._task_previews_panel(status),
             self._execution_preflight_panel(status),
             self._execution_receipts_panel(status),
@@ -232,6 +234,22 @@ class OwnerConsoleProductProjection:
                 "audio_captured": False,
                 "stt_executed": False,
                 "allowed_next_authority": "EventStore",
+            },
+        }
+
+    @staticmethod
+    def _notification_drafts_panel(status: dict[str, Any]) -> dict[str, Any]:
+        receipts = status.get("notification_draft_receipts", [])
+        return {
+            "panel_id": "notification_drafts",
+            "title": "Notification Drafts",
+            "status": {
+                "receipt_count": len(receipts) if isinstance(receipts, list) else 0,
+                "items": receipts if isinstance(receipts, list) else [],
+                "delivery_executed": False,
+                "tts_executed": False,
+                "audio_played": False,
+                "external_send_executed": False,
             },
         }
 

@@ -2215,6 +2215,87 @@ def validate_phase2_voice_transcript_ingress_receipts(
     )
 
 
+def validate_phase2_local_notification_draft_receipts(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    before_goals = runtime.db.query_one("SELECT COUNT(*) AS count FROM goals")
+    before_plans = runtime.db.query_one("SELECT COUNT(*) AS count FROM plans")
+    before_actions = runtime.db.query_one("SELECT COUNT(*) AS count FROM actions")
+    receipt = runtime.draft_local_notification(
+        channel="voice",
+        mode="speech_script",
+        purpose="architecture validation owner status reply draft",
+        body="WLS status draft is ready for Owner review.",
+    )
+    after_goals = runtime.db.query_one("SELECT COUNT(*) AS count FROM goals")
+    after_plans = runtime.db.query_one("SELECT COUNT(*) AS count FROM plans")
+    after_actions = runtime.db.query_one("SELECT COUNT(*) AS count FROM actions")
+    draft_path = Path(str(receipt.get("outbox_path", "")))
+    draft = json.loads(draft_path.read_text(encoding="utf-8")) if draft_path.exists() else {}
+    evidence = runtime.db.query_all(
+        """
+        SELECT event_type,evidence_id FROM evidence
+        WHERE event_type='local_notification_drafted'
+        ORDER BY seq DESC LIMIT 1
+        """
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "notification_drafts"
+        ),
+        None,
+    )
+    if (
+        receipt.get("status") != "DRAFT_WRITTEN"
+        or receipt.get("delivery_executed")
+        or receipt.get("tts_executed")
+        or receipt.get("audio_played")
+        or receipt.get("external_send_executed")
+        or receipt.get("creates_goal")
+        or receipt.get("creates_action")
+        or receipt.get("direct_tool_execution")
+        or before_goals is None
+        or after_goals is None
+        or before_goals["count"] != after_goals["count"]
+        or before_plans is None
+        or after_plans is None
+        or before_plans["count"] != after_plans["count"]
+        or before_actions is None
+        or after_actions is None
+        or before_actions["count"] != after_actions["count"]
+        or not draft_path.exists()
+        or draft.get("delivery_executed")
+        or draft.get("tts_executed")
+        or draft.get("audio_played")
+        or not evidence
+        or panel is None
+        or panel["status"]["receipt_count"] != 1
+        or panel["status"]["delivery_executed"]
+        or panel["status"]["tts_executed"]
+        or panel["status"]["audio_played"]
+        or panel["status"]["external_send_executed"]
+    ):
+        return ArchitecturePassResult(
+            "P32",
+            "BLOCKED",
+            [str(receipt)],
+            ["local notification draft receipt validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P32",
+        "ADMIT_SHADOW_ONLY",
+        [str(draft_path), str(evidence[0]["evidence_id"])],
+        [
+            "Local notification drafting writes a reversible outbox draft with evidence and Owner Console visibility, without external send, TTS, audio playback, Goals, Plans, Actions, or tool execution",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:
