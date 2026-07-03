@@ -20,6 +20,7 @@ from campaign_state import (  # noqa: E402
     validate_campaign_spec,
 )
 from run_life_campaign_30 import DEFAULT_SPEC, CampaignRunner, expand_rounds  # noqa: E402
+from run_single_software_tail_check import run_tail_check  # noqa: E402
 
 
 def _write_fake_wls(live_home: Path) -> None:
@@ -323,6 +324,60 @@ def test_runner_executes_r01_to_r13_against_disposable_campaign_home(
     assert any(record["kind"] == "command" for record in manifest["records"])
     assert (paths.campaign_home / "state" / "wls.db").exists()
     assert any(record["round_id"] == "R13" for record in manifest["records"])
+
+
+def test_single_software_tail_check_preserves_live_hashes(
+    tmp_path: Path,
+) -> None:
+    install_root = tmp_path / "install"
+    campaign_home = tmp_path / "campaign"
+    (install_root / "state").mkdir(parents=True)
+    (campaign_home / "campaign_evidence" / "R30").mkdir(parents=True)
+    (install_root / "config.json").write_text(
+        json.dumps({"home": str(install_root)}),
+        encoding="utf-8",
+    )
+    (install_root / "state" / "wls.db").write_bytes(b"live-db")
+    (campaign_home / "config.json").write_text(
+        json.dumps({"home": str(campaign_home)}),
+        encoding="utf-8",
+    )
+    (campaign_home / "campaign_evidence" / "R30" / "epoch_audit.json").write_text(
+        json.dumps({"status": "PASS"}),
+        encoding="utf-8",
+    )
+
+    receipt = run_tail_check(
+        install_root=install_root,
+        campaign_home=campaign_home,
+    )
+
+    assert receipt["status"] == "PASS_WITH_LIMITS"
+    assert receipt["checks"]["campaign_not_live_home"] is True
+    assert receipt["checks"]["campaign_config_points_to_campaign_home"] is True
+    assert receipt["checks"]["live_config_unchanged"] is True
+    assert receipt["checks"]["live_db_unchanged"] is True
+    assert receipt["status_smoke"]["executed"] is False
+
+
+def test_single_software_tail_check_rejects_live_home_as_campaign_home(
+    tmp_path: Path,
+) -> None:
+    install_root = tmp_path / "install"
+    (install_root / "state").mkdir(parents=True)
+    (install_root / "config.json").write_text(
+        json.dumps({"home": str(install_root)}),
+        encoding="utf-8",
+    )
+    (install_root / "state" / "wls.db").write_bytes(b"live-db")
+
+    receipt = run_tail_check(
+        install_root=install_root,
+        campaign_home=install_root,
+    )
+
+    assert receipt["status"] == "FAIL"
+    assert receipt["checks"]["campaign_not_live_home"] is False
 
 
 def test_runner_blocks_after_failed_round(tmp_path: Path) -> None:
