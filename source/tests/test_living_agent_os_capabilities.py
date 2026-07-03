@@ -29,6 +29,7 @@ from wls.architecture_validation import (
     validate_phase2_research_composite_readonly_execution,
     validate_phase2_scheduler_due_event_runtime_intake,
     validate_phase2_skill_candidate_extraction_receipts,
+    validate_phase2_learning_epoch_review_receipts,
     validate_phase2_typed_readonly_organ_profiles,
     validate_phase2_wechat_approval_channel_receipts,
     validate_p01_registry,
@@ -611,6 +612,7 @@ def test_owner_console_product_projection_and_wechat_digest_are_read_only(
         "memory_world",
         "evolution_lab",
         "skill_candidates",
+        "learning_epoch",
         "organs",
     } <= set(projection["panel_ids"])
     digest = WeChatW0W1Adapter("W1").console_digest_notification(projection)
@@ -919,6 +921,60 @@ def test_runtime_proposes_skill_candidates_from_repeated_readonly_receipts(
         )
     }
     assert {"skill_created", "skill_candidates_extracted"} <= event_types
+
+
+def test_runtime_reviews_learning_epoch_with_candidate_only_authorization(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    source = tmp_path / "learning-source.txt"
+    source.write_text("repeatable learning evidence", encoding="utf-8")
+    for index in range(3):
+        request_id = f"learning-source-{index}"
+        runtime.intake_read_only_task(
+            ReadOnlyTaskRequest(
+                request_id=request_id,
+                organ_id="file",
+                owner_intent="inspect repeated file evidence for learning epoch",
+                inputs={"path": str(source), "max_bytes": 1024},
+            )
+        )
+        admission = runtime.admit_read_only_plan_preview(request_id)
+        runtime.preflight_read_only_plan(str(admission["plan_id"]))
+        runtime.execute_preflighted_read_only_plan(str(admission["plan_id"]))
+    with pytest.raises(PermissionError, match="owner authorization"):
+        runtime.review_learning_epoch_from_receipts(
+            reason="unit test unauthorized learning",
+            minimum_repeats=3,
+            allow_candidate_extraction=True,
+        )
+    receipt = runtime.review_learning_epoch_from_receipts(
+        reason="unit test learning epoch",
+        minimum_repeats=3,
+        allow_candidate_extraction=True,
+        owner_authorization="pytest-owner-authorization",
+    )
+    modes = {
+        item["mode"]: item
+        for item in receipt["learning_modes"]
+        if isinstance(item, dict)
+    }
+    assert receipt["status"] == "REVIEW_RECORDED"
+    assert modes["learning_frozen"]["candidate_extraction_executed"] is False
+    assert modes["candidate_only"]["candidate_extraction_executed"] is True
+    assert modes["candidate_only"]["candidate_count"] >= 1
+    assert receipt["active_skill_count_before"] == receipt["active_skill_count_after"]
+    assert receipt["promotion_executed"] is False
+    assert receipt["approval_executed"] is False
+    assert receipt["sandbox_executed"] is False
+    panel = next(
+        panel
+        for panel in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if panel["panel_id"] == "learning_epoch"
+    )
+    assert panel["status"]["receipt_count"] == 1
+    assert panel["status"]["default_mode"] == "learning_frozen"
+    assert panel["status"]["promotion_executed"] is False
 
 
 def test_runtime_projects_read_only_execution_receipt_as_candidate_memory_world(
@@ -1401,6 +1457,17 @@ def test_architecture_validation_checks_skill_candidate_extraction(
     assert result.pass_id == "P28"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) >= 3
+
+
+def test_architecture_validation_checks_learning_epoch_review(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_learning_epoch_review_receipts(
+        tmp_path / "learning-epoch-validation-home"
+    )
+    assert result.pass_id == "P29"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) >= 4
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

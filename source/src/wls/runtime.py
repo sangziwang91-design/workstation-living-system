@@ -284,6 +284,12 @@ class LivingSystem:
             return []
         return receipts[: max(0, int(limit))]
 
+    def learning_epoch_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("learning_epoch_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
     def propose_skill_candidates_from_receipts(
         self, *, minimum_repeats: int = 3, reason: str
     ) -> dict[str, Any]:
@@ -327,6 +333,75 @@ class LivingSystem:
         with self.db.transaction() as connection:
             self.db.set_runtime("skill_candidate_receipts", updated, connection)
             self.ledger.append("skill_candidates_extracted", receipt, connection)
+        return receipt
+
+    def review_learning_epoch_from_receipts(
+        self,
+        *,
+        reason: str,
+        minimum_repeats: int = 3,
+        allow_candidate_extraction: bool = False,
+        owner_authorization: str | None = None,
+    ) -> dict[str, Any]:
+        before_candidates = self.db.query_one("SELECT COUNT(*) AS count FROM skills")
+        before_active = len(self.skills.active())
+        frozen_snapshot = {
+            "mode": "learning_frozen",
+            "candidate_extraction_executed": False,
+            "skill_count": int(before_candidates["count"])
+            if before_candidates is not None
+            else 0,
+            "active_skill_count": before_active,
+        }
+        candidate_receipt = None
+        if allow_candidate_extraction:
+            if not owner_authorization:
+                raise PermissionError(
+                    "candidate learning epoch review requires owner authorization"
+                )
+            candidate_receipt = self.propose_skill_candidates_from_receipts(
+                minimum_repeats=minimum_repeats,
+                reason=reason,
+            )
+        after_candidates = self.db.query_one("SELECT COUNT(*) AS count FROM skills")
+        after_active = len(self.skills.active())
+        receipt = {
+            "receipt_type": "LEARNING_EPOCH_REVIEW",
+            "status": "REVIEW_RECORDED",
+            "reason": reason,
+            "owner_authorization": owner_authorization,
+            "minimum_repeats": minimum_repeats,
+            "learning_modes": [
+                frozen_snapshot,
+                {
+                    "mode": "candidate_only",
+                    "candidate_extraction_executed": candidate_receipt is not None,
+                    "candidate_count": candidate_receipt.get("candidate_count", 0)
+                    if isinstance(candidate_receipt, dict)
+                    else 0,
+                    "created_skill_ids": candidate_receipt.get("created_skill_ids", [])
+                    if isinstance(candidate_receipt, dict)
+                    else [],
+                },
+            ],
+            "skill_count_before": frozen_snapshot["skill_count"],
+            "skill_count_after": int(after_candidates["count"])
+            if after_candidates is not None
+            else frozen_snapshot["skill_count"],
+            "active_skill_count_before": before_active,
+            "active_skill_count_after": after_active,
+            "promotion_executed": False,
+            "approval_executed": False,
+            "sandbox_executed": False,
+            "candidate_only": True,
+            "claim_ceiling": "learning mode review only; no autonomous promotion or live deployment",
+            "created_at": utc_now(),
+        }
+        current = self.learning_epoch_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("learning_epoch_receipts", updated, connection)
+            self.ledger.append("learning_epoch_reviewed", receipt, connection)
         return receipt
 
     def record_provider_route_receipt(self, *, reason: str) -> dict[str, Any]:
@@ -1797,6 +1872,7 @@ class LivingSystem:
             "approval_channel_receipts": self.approval_channel_receipts(),
             "provider_route_receipts": self.provider_route_receipts(),
             "skill_candidate_receipts": self.skill_candidate_receipts(),
+            "learning_epoch_receipts": self.learning_epoch_receipts(),
             "read_only_execution_preflights": self.read_only_execution_preflights(),
             "read_only_execution_receipts": self.read_only_execution_receipts(),
             "read_only_result_projections": self.read_only_result_projections(),

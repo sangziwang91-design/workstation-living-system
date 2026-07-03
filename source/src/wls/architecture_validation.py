@@ -1945,6 +1945,101 @@ def validate_phase2_skill_candidate_extraction_receipts(
     )
 
 
+def validate_phase2_learning_epoch_review_receipts(
+    home: Path,
+) -> ArchitecturePassResult:
+    source = home / "learning-source.txt"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text("repeatable learning epoch evidence\n", encoding="utf-8")
+    runtime = LivingSystem(default_config(home / "runtime"))
+    for index in range(3):
+        request_id = f"phase2-learning-source-{index}"
+        runtime.intake_read_only_task(
+            ReadOnlyTaskRequest(
+                request_id=request_id,
+                organ_id="file",
+                owner_intent="inspect repeated local evidence for learning epoch",
+                inputs={"path": str(source), "max_bytes": 1024},
+            )
+        )
+        admission = runtime.admit_read_only_plan_preview(
+            request_id,
+            reason="architecture validation learning epoch source",
+        )
+        runtime.preflight_read_only_plan(str(admission["plan_id"]))
+        runtime.execute_preflighted_read_only_plan(str(admission["plan_id"]))
+    receipt = runtime.review_learning_epoch_from_receipts(
+        reason="architecture validation learning epoch",
+        minimum_repeats=3,
+        allow_candidate_extraction=True,
+        owner_authorization="architecture-validation-owner-authorization",
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN (
+              'learning_epoch_reviewed',
+              'skill_candidates_extracted',
+              'skill_created'
+            )
+            """
+        )
+    }
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "learning_epoch"
+        ),
+        None,
+    )
+    modes = {
+        str(item.get("mode")): item
+        for item in receipt.get("learning_modes", [])
+        if isinstance(item, dict)
+    }
+    if (
+        receipt.get("status") != "REVIEW_RECORDED"
+        or "learning_frozen" not in modes
+        or "candidate_only" not in modes
+        or modes["learning_frozen"].get("candidate_extraction_executed")
+        or not modes["candidate_only"].get("candidate_extraction_executed")
+        or modes["candidate_only"].get("candidate_count", 0) < 1
+        or receipt.get("active_skill_count_before")
+        != receipt.get("active_skill_count_after")
+        or receipt.get("promotion_executed")
+        or receipt.get("approval_executed")
+        or receipt.get("sandbox_executed")
+        or {"learning_epoch_reviewed", "skill_candidates_extracted", "skill_created"}
+        - event_types
+        or panel is None
+        or panel["status"]["receipt_count"] != 1
+        or panel["status"]["default_mode"] != "learning_frozen"
+        or panel["status"]["promotion_executed"]
+    ):
+        return ArchitecturePassResult(
+            "P29",
+            "BLOCKED",
+            [str(receipt)],
+            ["learning epoch review receipt validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P29",
+        "ADMIT_SHADOW_ONLY",
+        [
+            *modes["candidate_only"].get("created_skill_ids", []),
+            *sorted(event_types),
+        ],
+        [
+            "Learning epoch review records frozen and candidate-only modes from real read-only receipts with Owner authorization, while preserving the no-promotion, no-approval, no-sandbox ceiling",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

@@ -33,6 +33,7 @@ from wls.architecture_validation import (  # noqa: E402
     validate_phase2_research_composite_readonly_execution,
     validate_phase2_scheduler_due_event_runtime_intake,
     validate_phase2_skill_candidate_extraction_receipts,
+    validate_phase2_learning_epoch_review_receipts,
     validate_phase2_typed_readonly_organ_profiles,
     validate_phase2_wechat_approval_channel_receipts,
     validate_p01_registry,
@@ -136,6 +137,11 @@ def run_validation() -> dict[str, object]:
         results.append(
             validate_phase2_skill_candidate_extraction_receipts(
                 temp_path / "phase2-skill-candidate-home"
+            )
+        )
+        results.append(
+            validate_phase2_learning_epoch_review_receipts(
+                temp_path / "phase2-learning-epoch-home"
             )
         )
     for pass_id, note in PASS_CONTRACTS.items():

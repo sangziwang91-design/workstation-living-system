@@ -47,6 +47,7 @@ class OwnerConsoleProductProjection:
         "memory_world",
         "evolution_lab",
         "skill_candidates",
+        "learning_epoch",
         "organs",
     )
 
@@ -68,6 +69,7 @@ class OwnerConsoleProductProjection:
             self._memory_world_panel(status),
             self._evolution_panel(status),
             self._skill_candidates_panel(status),
+            self._learning_epoch_panel(status),
             self._organs_panel(status),
         ]
         payload: dict[str, Any] = {
@@ -323,6 +325,21 @@ class OwnerConsoleProductProjection:
                 "candidate_only": True,
                 "promotion_executed": False,
                 "promotion_authority": "SkillLibrary with explicit approval",
+            },
+        }
+
+    @staticmethod
+    def _learning_epoch_panel(status: dict[str, Any]) -> dict[str, Any]:
+        receipts = status.get("learning_epoch_receipts", [])
+        return {
+            "panel_id": "learning_epoch",
+            "title": "Learning Epoch",
+            "status": {
+                "receipt_count": len(receipts) if isinstance(receipts, list) else 0,
+                "items": receipts if isinstance(receipts, list) else [],
+                "default_mode": "learning_frozen",
+                "allowed_open_mode": "candidate_only",
+                "promotion_executed": False,
             },
         }
 

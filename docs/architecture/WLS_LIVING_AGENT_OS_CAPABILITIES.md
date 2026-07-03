@@ -231,6 +231,11 @@ fields such as `memory_id`/`active`.
   with evidence and Owner Console visibility, while remaining `PROPOSED` and
   never running sandbox validation, approval, promotion, rollback, or live
   deployment.
+- P29 is a shadow-level runtime admission for learning epoch review. The
+  runtime can record a frozen-learning baseline and an Owner-authorized
+  candidate-only extraction pass over the same successful read-only receipts,
+  preserving evidence and Owner Console visibility without approval, sandbox,
+  Skill promotion, or live deployment.
 
 ## Projection Rule
 
