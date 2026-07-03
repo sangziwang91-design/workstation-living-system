@@ -440,6 +440,63 @@ def test_agentic_node_acceptance_failure_blocks_dependents(
     assert graph.nodes["gather"].status is TaskNodeStatus.BLOCKED
 
 
+def test_agentic_repair_candidate_preserves_failed_node_state(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector"
+    )[0]
+    runtime.agentic.fail_node(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        error="fixture validation mismatch: inspection evidence missing",
+    )
+
+    candidate = runtime.agentic.propose_repair_candidate(
+        graph_id,
+        lease.node_id,
+        reason="unit test failed node needs bounded repair candidate",
+    )
+
+    graph = runtime.agentic.load_graph(graph_id)
+    receipts = runtime.status()["agentic_repair_candidate_receipts"]
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+    event_types = {
+        row["event_type"]
+        for row in runtime.db.query_all(
+            "SELECT event_type FROM evidence WHERE event_type='agentic_repair_candidate_proposed'"
+        )
+    }
+    assert candidate["policy_decision"]["decision"] == "REPAIR_CANDIDATE_ONLY"
+    assert candidate["provenance"]["failure_attribution"]["failure_class"] in {
+        "LOCAL",
+        "STRUCTURAL",
+    }
+    assert (
+        candidate["trigger"]["failure_class"]
+        == candidate["provenance"]["failure_attribution"]["failure_class"]
+    )
+    assert candidate["state_mutated"] is False
+    assert candidate["node_reset"] is False
+    assert candidate["direct_execution"] is False
+    assert graph.nodes[lease.node_id].status is TaskNodeStatus.FAILED
+    assert len(receipts) == 1
+    assert panel["status"]["repair_candidates_v1"]["receipt_count"] == 1
+    assert event_types == {"agentic_repair_candidate_proposed"}
+
+
 def test_agentic_file_mailbox_handoff_imports_through_canonical_harness(
     tmp_path: Path,
 ) -> None:

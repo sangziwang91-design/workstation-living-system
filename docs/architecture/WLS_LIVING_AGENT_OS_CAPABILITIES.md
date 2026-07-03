@@ -308,6 +308,11 @@ fields such as `memory_id`/`active`.
   artifacts, but payload digests, acceptance checks, node completion, and Owner
   Console visibility remain under `LivingSystem.AgenticHarness` and
   `EvidenceLedger`.
+- P45 is a shadow-level runtime admission for agentic repair candidates. Failed
+  or blocked task nodes can produce bounded repair-candidate receipts with
+  failure provenance, proposed non-executing steps, and Owner Console
+  visibility, while preserving node state and avoiding a second planner or
+  autonomous repair authority.
 
 ## Projection Rule
 

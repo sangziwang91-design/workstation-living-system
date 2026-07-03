@@ -386,6 +386,85 @@ class AgenticHarness:
                 )
         return receipts
 
+    def repair_candidate_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        rows = self.db.query_all(
+            """
+            SELECT payload_json,created_at FROM evidence
+            WHERE event_type='agentic_repair_candidate_proposed'
+            ORDER BY seq DESC
+            LIMIT ?
+            """,
+            (max(0, int(limit)),),
+        )
+        receipts: list[dict[str, Any]] = []
+        for row in rows:
+            payload = json.loads(str(row["payload_json"]))
+            if isinstance(payload, dict):
+                receipts.append({**payload, "created_at": row["created_at"]})
+        return receipts
+
+    def propose_repair_candidate(
+        self,
+        graph_id: str,
+        node_id: str,
+        *,
+        reason: str,
+        max_steps: int = 3,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("repair candidate reason is required")
+        graph = self.load_graph(graph_id)
+        if node_id not in graph.nodes:
+            raise KeyError(f"unknown task node: {node_id}")
+        node = graph.nodes[node_id]
+        if node.status not in {TaskNodeStatus.FAILED, TaskNodeStatus.BLOCKED}:
+            raise ValueError("repair candidate requires a failed or blocked node")
+        attribution = self._latest_failure_attribution(graph_id, node_id)
+        acceptance_trace = self._latest_acceptance_trace(graph_id, node_id)
+        failure_class = str(
+            (attribution or {}).get("failure_class")
+            or (attribution or {}).get("failure_attribution", {}).get("failure_class")
+            or "UNKNOWN"
+        )
+        candidate_steps = self._repair_candidate_steps(
+            failure_class=failure_class,
+            node_status=node.status.value,
+            max_steps=max_steps,
+        )
+        payload = {
+            "repair_id": new_id("repair"),
+            "graph_id": graph_id,
+            "node_id": node_id,
+            "trigger": {
+                "reason": reason,
+                "node_status": node.status.value,
+                "node_error": node.error,
+                "failure_class": failure_class,
+            },
+            "provenance": {
+                "failure_attribution": attribution,
+                "acceptance_trace": acceptance_trace,
+                "source": "LivingSystem.AgenticHarness",
+                "created_from_real_node_state": True,
+            },
+            "candidate_steps": candidate_steps,
+            "policy_decision": {
+                "decision": "REPAIR_CANDIDATE_ONLY",
+                "execution_authorized": False,
+                "requires_owner_or_explicit_runner_gate": True,
+                "second_planner_created": False,
+            },
+            "state_mutated": False,
+            "node_reset": False,
+            "direct_execution": False,
+            "claim_ceiling": (
+                "repair candidate receipt only; no retry, node reset, "
+                "external worker execution, owner approval, or fix success is inferred"
+            ),
+        }
+        self.ledger.append("agentic_repair_candidate_proposed", payload)
+        return payload
+
     def export_node_task_envelope(
         self,
         graph_id: str,
@@ -497,6 +576,127 @@ class AgenticHarness:
         }
         self.ledger.append("agentic_result_envelope_imported", receipt)
         return receipt
+
+    def _latest_failure_attribution(
+        self, graph_id: str, node_id: str
+    ) -> dict[str, Any] | None:
+        row = self.db.query_one(
+            """
+            SELECT attribution_json,created_at FROM agentic_failure_attributions
+            WHERE graph_id=? AND node_id=?
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (graph_id, node_id),
+        )
+        if row is None:
+            return None
+        payload = json.loads(str(row["attribution_json"]))
+        if isinstance(payload, dict):
+            return {**payload, "created_at": row["created_at"]}
+        return None
+
+    def _latest_acceptance_trace(
+        self, graph_id: str, node_id: str
+    ) -> dict[str, Any] | None:
+        rows = self.db.query_all(
+            """
+            SELECT payload_json,created_at FROM evidence
+            WHERE event_type='agentic_task_node_acceptance_evaluated'
+            ORDER BY seq DESC
+            LIMIT 50
+            """
+        )
+        for row in rows:
+            payload = json.loads(str(row["payload_json"]))
+            if (
+                isinstance(payload, dict)
+                and payload.get("graph_id") == graph_id
+                and payload.get("node_id") == node_id
+            ):
+                return {**payload, "created_at": row["created_at"]}
+        return None
+
+    @staticmethod
+    def _repair_candidate_steps(
+        *, failure_class: str, node_status: str, max_steps: int
+    ) -> list[dict[str, Any]]:
+        library: dict[str, list[dict[str, str]]] = {
+            "LOCAL": [
+                {
+                    "step": "inspect_node_output",
+                    "purpose": "compare result payload with declared acceptance checks",
+                },
+                {
+                    "step": "revise_candidate_result_or_worker_instruction",
+                    "purpose": "prepare a corrected candidate without resetting node state",
+                },
+                {
+                    "step": "rerun_focused_acceptance_checks",
+                    "purpose": "verify the candidate before any resume gate",
+                },
+            ],
+            "POLICY": [
+                {
+                    "step": "preserve_policy_denial",
+                    "purpose": "keep the approval boundary as evidence",
+                },
+                {
+                    "step": "request_explicit_owner_gate",
+                    "purpose": "avoid bypassing canonical Policy authority",
+                },
+            ],
+            "ENVIRONMENT": [
+                {
+                    "step": "capture_environment_condition",
+                    "purpose": "record path, lock, timeout, or resource evidence",
+                },
+                {
+                    "step": "rerun_after_environment_is_stable",
+                    "purpose": "resume only after the disposable condition is fixed",
+                },
+            ],
+            "STRUCTURAL": [
+                {
+                    "step": "revise_graph_contract_candidate",
+                    "purpose": "prepare a graph or acceptance-contract patch for review",
+                },
+                {
+                    "step": "run_graph_invariant_tests",
+                    "purpose": "prove the patch does not split planner authority",
+                },
+            ],
+            "UPSTREAM": [
+                {
+                    "step": "quarantine_upstream_receipt",
+                    "purpose": "avoid replaying untrusted external output",
+                },
+                {
+                    "step": "retry_with_fresh_upstream_evidence",
+                    "purpose": "resume only with a new receipt and unchanged policy gate",
+                },
+            ],
+            "UNKNOWN": [
+                {
+                    "step": "preserve_failure_packet",
+                    "purpose": "retain raw evidence for later diagnosis",
+                },
+                {
+                    "step": "perform_focused_root_cause_review",
+                    "purpose": "classify before any state transition",
+                },
+            ],
+        }
+        steps = library.get(failure_class, library["UNKNOWN"])
+        return [
+            {
+                **step,
+                "order": index + 1,
+                "node_status_at_proposal": node_status,
+                "executes_now": False,
+            }
+            for index, step in enumerate(steps[: max(1, int(max_steps))])
+        ]
 
     @staticmethod
     def _route(

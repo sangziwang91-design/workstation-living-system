@@ -50,6 +50,7 @@ from wls.architecture_validation import (  # noqa: E402
     validate_phase2_document_skill_sandbox_receipts,
     validate_phase2_agentic_acceptance_trace,
     validate_phase2_agentic_file_mailbox_handoff,
+    validate_phase2_agentic_repair_candidate,
     validate_phase2_agentic_task_harness,
     validate_p01_registry,
     validate_runtime_approval_receipts,
@@ -59,7 +60,7 @@ from wls.architecture_validation import (  # noqa: E402
 )
 
 PASS_CONTRACTS: dict[str, str] = {}
-SELECTIVE_VALIDATION_PASSES = {"P01", "P42", "P43", "P44"}
+SELECTIVE_VALIDATION_PASSES = {"P01", "P42", "P43", "P44", "P45"}
 
 
 def _selected(selected: set[str] | None, pass_id: str) -> bool:
@@ -94,6 +95,12 @@ def _run_selected_validation(selected: set[str]) -> dict[str, object]:
             results.append(
                 validate_phase2_agentic_file_mailbox_handoff(
                     temp_path / "phase2-agentic-file-mailbox-home"
+                )
+            )
+        if _selected(selected, "P45"):
+            results.append(
+                validate_phase2_agentic_repair_candidate(
+                    temp_path / "phase2-agentic-repair-candidate-home"
                 )
             )
     return {
@@ -278,6 +285,11 @@ def run_validation(selected: set[str] | None = None) -> dict[str, object]:
                 temp_path / "phase2-agentic-file-mailbox-home"
             )
         )
+        results.append(
+            validate_phase2_agentic_repair_candidate(
+                temp_path / "phase2-agentic-repair-candidate-home"
+            )
+        )
     for pass_id, note in PASS_CONTRACTS.items():
         results.append(
             ArchitecturePassResult(
@@ -301,7 +313,7 @@ def main(argv: list[str] | None = None) -> int:
         "--only",
         action="append",
         dest="only",
-        help="Run one validation pass only. Currently supports P01, P42, P43, and P44.",
+        help="Run one validation pass only. Currently supports P01, P42, P43, P44, and P45.",
     )
     args = parser.parse_args(argv)
     selected = {item.upper() for item in args.only} if args.only else None

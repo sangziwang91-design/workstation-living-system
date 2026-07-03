@@ -22,6 +22,7 @@ from wls.architecture_validation import (
     validate_phase2_document_skill_sandbox_receipts,
     validate_phase2_agentic_acceptance_trace,
     validate_phase2_agentic_file_mailbox_handoff,
+    validate_phase2_agentic_repair_candidate,
     validate_phase2_agentic_task_harness,
     validate_external_memory_projection,
     validate_mcp_a2a_candidates,
@@ -2346,6 +2347,17 @@ def test_architecture_validation_checks_agentic_file_mailbox_handoff(
     assert result.pass_id == "P44"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) >= 5
+
+
+def test_architecture_validation_checks_agentic_repair_candidate(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_agentic_repair_candidate(
+        tmp_path / "agentic-repair-candidate-validation-home"
+    )
+    assert result.pass_id == "P45"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) >= 4
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

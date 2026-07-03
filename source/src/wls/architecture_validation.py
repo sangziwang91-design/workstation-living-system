@@ -3435,6 +3435,84 @@ def validate_phase2_agentic_file_mailbox_handoff(home: Path) -> ArchitecturePass
     )
 
 
+def validate_phase2_agentic_repair_candidate(home: Path) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository documents",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = str(receipt["graph"]["graph_id"])
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector", limit=1
+    )[0]
+    failure = runtime.agentic.fail_node(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        error="fixture validation mismatch: inspection evidence missing",
+    )
+    repair = runtime.agentic.propose_repair_candidate(
+        graph_id,
+        lease.node_id,
+        reason="architecture validation failed node requires bounded repair candidate",
+    )
+    graph = runtime.agentic.load_graph(graph_id)
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "agentic_tasks"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN (
+                'agentic_task_node_failed',
+                'agentic_repair_candidate_proposed'
+            )
+            """
+        )
+    }
+    if (
+        failure["status"] != "FAILED"
+        or graph.nodes[lease.node_id].status.value != "FAILED"
+        or repair["state_mutated"] is not False
+        or repair["direct_execution"] is not False
+        or not repair["provenance"].get("failure_attribution")
+        or not repair["candidate_steps"]
+        or panel is None
+        or panel["status"]["repair_candidates_v1"]["receipt_count"] != 1
+        or {"agentic_task_node_failed", "agentic_repair_candidate_proposed"}
+        - event_types
+    ):
+        return ArchitecturePassResult(
+            "P45",
+            "BLOCKED",
+            [graph_id],
+            ["agentic repair candidate validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P45",
+        "ADMIT_SHADOW_ONLY",
+        [
+            graph_id,
+            lease.lease_id,
+            str(repair["repair_id"]),
+            *sorted(event_types),
+        ],
+        [
+            "Agentic repair candidates preserve failure provenance and Owner Console visibility without resetting node state or executing repair outside the canonical harness",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

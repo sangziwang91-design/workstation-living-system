@@ -469,6 +469,7 @@ class OwnerConsoleProductProjection:
         failures = status.get("agentic_failure_attribution_receipts", [])
         acceptance_traces = status.get("agentic_acceptance_trace_receipts", [])
         mailbox = status.get("agentic_mailbox_receipts", [])
+        repair_candidates = status.get("agentic_repair_candidate_receipts", [])
         audits = status.get("agentic_harness_epoch_audit_receipts", [])
         return {
             "panel_id": "agentic_tasks",
@@ -506,6 +507,16 @@ class OwnerConsoleProductProjection:
                 "file_mailbox_v1": {
                     "receipt_count": len(mailbox) if isinstance(mailbox, list) else 0,
                     "items": mailbox if isinstance(mailbox, list) else [],
+                },
+                "repair_candidates_v1": {
+                    "receipt_count": len(repair_candidates)
+                    if isinstance(repair_candidates, list)
+                    else 0,
+                    "items": repair_candidates
+                    if isinstance(repair_candidates, list)
+                    else [],
+                    "candidate_only": True,
+                    "direct_execution": False,
                 },
                 "harness_epoch_audit": {
                     "receipt_count": len(audits) if isinstance(audits, list) else 0,
