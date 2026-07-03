@@ -2645,6 +2645,89 @@ def validate_phase2_document_ingress_receipts(
     )
 
 
+def validate_phase2_document_retrieval_preview(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    document_path = home / "fixtures" / "phase2-document-preview.pdf"
+    document_path.parent.mkdir(parents=True, exist_ok=True)
+    document_path.write_bytes(b"%PDF-1.4\n% WLS document preview fixture\n")
+    source_receipt = runtime.intake_document_asset(
+        document_id="phase2-document-preview-1",
+        path=document_path,
+        source="architecture_validation_fixture",
+        purpose="architecture validation document retrieval preview",
+    )
+    before_plans = runtime.db.query_one("SELECT COUNT(*) AS count FROM plans")
+    before_actions = runtime.db.query_one("SELECT COUNT(*) AS count FROM actions")
+    result = runtime.prepare_document_retrieval_preview(
+        document_id="phase2-document-preview-1",
+        request_id="phase2-document-preview-request-1",
+        owner_intent="Prepare a read-only local document inspection preview",
+    )
+    after_plans = runtime.db.query_one("SELECT COUNT(*) AS count FROM plans")
+    after_actions = runtime.db.query_one("SELECT COUNT(*) AS count FROM actions")
+    preview = result.get("read_only_task", {}).get("preview", {})
+    candidate = preview.get("candidate", {})
+    action_tools = {
+        item.get("tool")
+        for item in candidate.get("candidate_actions", [])
+        if isinstance(item, dict)
+    }
+    evidence = runtime.db.query_all(
+        """
+        SELECT evidence_id FROM evidence
+        WHERE event_type='read_only_plan_preview_recorded'
+        ORDER BY seq DESC LIMIT 1
+        """
+    )
+    projection = OwnerConsoleProductProjection().project(runtime.status())
+    preview_panel = next(
+        (
+            panel
+            for panel in projection["panels"]
+            if panel.get("panel_id") == "task_previews"
+        ),
+        None,
+    )
+    if (
+        source_receipt.get("status") != "QUEUED_EVENT_ONLY"
+        or result.get("status") != "PREVIEW_ONLY"
+        or result.get("creates_plan")
+        or result.get("creates_action")
+        or result.get("direct_tool_execution")
+        or result.get("text_extracted")
+        or result.get("ocr_executed")
+        or result.get("vector_indexed")
+        or preview.get("status") != "PREVIEW_ONLY"
+        or candidate.get("organ_id") != "document"
+        or not {"inspect_asset", "read_file"} <= action_tools
+        or before_plans is None
+        or after_plans is None
+        or before_plans["count"] != after_plans["count"]
+        or before_actions is None
+        or after_actions is None
+        or before_actions["count"] != after_actions["count"]
+        or not evidence
+        or preview_panel is None
+        or preview_panel["status"]["preview_count"] != 1
+    ):
+        return ArchitecturePassResult(
+            "P37",
+            "BLOCKED",
+            [str(result)],
+            ["document retrieval preview validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P37",
+        "ADMIT_SHADOW_ONLY",
+        [str(preview["event_id"]), str(evidence[0]["evidence_id"])],
+        [
+            "Document retrieval preview turns a local document ingress receipt into a Planner-owned read-only plan candidate with Owner Console visibility, without parsing, OCR, vector indexing, Plan rows, Action rows, or tool execution",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

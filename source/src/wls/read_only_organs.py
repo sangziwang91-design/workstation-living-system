@@ -102,6 +102,13 @@ ORGAN_PROFILES: dict[str, ReadOnlyOrganProfile] = {
         evidence_required=("source_hashes", "fact_audit"),
         planner_contract="prepare content workbench plan candidate",
     ),
+    "document": ReadOnlyOrganProfile(
+        organ_id="document",
+        canonical_owner="planning",
+        tool_hints=("inspect_asset", "read_file"),
+        evidence_required=("document_hash", "mime_type", "path_scope"),
+        planner_contract="prepare local document inspection plan candidate",
+    ),
     "social_research": ReadOnlyOrganProfile(
         organ_id="social_research",
         canonical_owner="planning",

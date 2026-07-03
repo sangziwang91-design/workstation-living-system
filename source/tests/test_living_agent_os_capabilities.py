@@ -15,6 +15,7 @@ from wls.architecture_validation import (
     validate_coding_worktree_candidate,
     validate_phase2_download_quarantine_draft_receipts,
     validate_phase2_document_ingress_receipts,
+    validate_phase2_document_retrieval_preview,
     validate_external_memory_projection,
     validate_mcp_a2a_candidates,
     validate_phase2_capability_epoch_audit_receipts,
@@ -534,6 +535,61 @@ def test_living_system_intakes_document_asset_as_event_only(
         )
 
 
+def test_living_system_prepares_document_retrieval_preview_without_execution(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    document = tmp_path / "sample.pdf"
+    document.write_bytes(b"%PDF-1.4\nWLS document fixture\n")
+    source = runtime.intake_document_asset(
+        document_id="document-preview-1",
+        path=document,
+        source="pytest_fixture",
+        purpose="unit test document preview",
+    )
+    before = {
+        name: runtime.db.query_one(f"SELECT COUNT(*) AS count FROM {name}")["count"]
+        for name in ("plans", "actions")
+    }
+    result = runtime.prepare_document_retrieval_preview(
+        document_id="document-preview-1",
+        request_id="document-preview-request-1",
+        owner_intent="prepare a local document inspection preview",
+    )
+    after = {
+        name: runtime.db.query_one(f"SELECT COUNT(*) AS count FROM {name}")["count"]
+        for name in ("plans", "actions")
+    }
+    preview = result["read_only_task"]["preview"]
+    candidate = preview["candidate"]
+    tools = {action["tool"] for action in candidate["candidate_actions"]}
+    assert source["status"] == "QUEUED_EVENT_ONLY"
+    assert result["status"] == "PREVIEW_ONLY"
+    assert result["source_receipt_sha256"] == source["sha256"]
+    assert result["creates_plan"] is False
+    assert result["creates_action"] is False
+    assert result["direct_tool_execution"] is False
+    assert result["text_extracted"] is False
+    assert result["vector_indexed"] is False
+    assert before == after
+    assert preview["status"] == "PREVIEW_ONLY"
+    assert candidate["organ_id"] == "document"
+    assert {"inspect_asset", "read_file"} <= tools
+    assert "document_sha256" in candidate["evidence_required"]
+    panel = next(
+        panel
+        for panel in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if panel["panel_id"] == "task_previews"
+    )
+    assert panel["status"]["preview_count"] == 1
+    with pytest.raises(KeyError, match="unknown document"):
+        runtime.prepare_document_retrieval_preview(
+            document_id="missing",
+            request_id="bad-document-preview",
+            owner_intent="bad preview",
+        )
+
+
 def test_provider_router_enforces_local_first_and_cost() -> None:
     router = ProviderRouter(
         [
@@ -978,6 +1034,7 @@ def test_typed_read_only_organs_produce_planner_candidates() -> None:
         "file",
         "coding",
         "content",
+        "document",
         "social_research",
         "multimodal",
     } <= set(ORGAN_PROFILES)
@@ -998,6 +1055,7 @@ def test_typed_read_only_organs_produce_planner_candidates() -> None:
         assert {action["risk"] for action in candidate["candidate_actions"]} == {"READ"}
         assert "event_receipt" in candidate["evidence_required"]
     assert ORGAN_PROFILES["browser"].tool_hints == ("http_get",)
+    assert ORGAN_PROFILES["document"].tool_hints == ("inspect_asset", "read_file")
     with pytest.raises(PermissionError, match="forbidden tool"):
         ReadOnlyOrganProfile(
             organ_id="bad",
@@ -1901,6 +1959,17 @@ def test_architecture_validation_checks_document_ingress(
         tmp_path / "document-ingress-validation-home"
     )
     assert result.pass_id == "P36"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) == 2
+
+
+def test_architecture_validation_checks_document_retrieval_preview(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_document_retrieval_preview(
+        tmp_path / "document-retrieval-preview-validation-home"
+    )
+    assert result.pass_id == "P37"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) == 2
 

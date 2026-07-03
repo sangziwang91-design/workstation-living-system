@@ -271,6 +271,10 @@ fields such as `memory_id`/`active`.
   `channel:document` Event with hash evidence and Owner Console visibility,
   while explicitly performing no text extraction, OCR, vector indexing,
   external upload, Goal creation, planning execution, or Action execution.
+- P37 is a shadow-level runtime admission for document retrieval previews. A
+  local document ingress receipt can become a Planner-owned read-only plan
+  candidate visible in Owner Console task previews, while explicitly creating
+  no Plan rows, Action rows, parsing, OCR, vector index, or tool execution.
 
 ## Projection Rule
 

@@ -884,6 +884,65 @@ class LivingSystem:
             self.ledger.append("document_asset_queued", receipt, connection)
         return receipt
 
+    def prepare_document_retrieval_preview(
+        self,
+        *,
+        document_id: str,
+        request_id: str,
+        owner_intent: str,
+        max_bytes: int = 524288,
+    ) -> dict[str, Any]:
+        receipt = next(
+            (
+                item
+                for item in self.document_ingress_receipts(limit=100)
+                if item.get("document_id") == document_id
+            ),
+            None,
+        )
+        if receipt is None:
+            raise KeyError(f"unknown document ingress receipt: {document_id}")
+        path = str(receipt.get("path", ""))
+        if not path:
+            raise ValueError("document ingress receipt has no path")
+        result = self.intake_read_only_task(
+            ReadOnlyTaskRequest(
+                request_id=request_id,
+                organ_id="document",
+                owner_intent=owner_intent,
+                source="document_ingress",
+                inputs={
+                    "document_id": document_id,
+                    "path": path,
+                    "file_path": path,
+                    "asset_path": path,
+                    "sha256": receipt.get("sha256"),
+                    "mime_type": receipt.get("mime_type"),
+                    "max_bytes": max_bytes,
+                },
+                evidence_required=[
+                    "document_ingress_receipt",
+                    "document_sha256",
+                    "event_receipt",
+                ],
+            )
+        )
+        return {
+            "receipt_type": "DOCUMENT_RETRIEVAL_PREVIEW",
+            "status": "PREVIEW_ONLY",
+            "document_id": document_id,
+            "request_id": request_id,
+            "source_receipt_sha256": receipt.get("sha256"),
+            "read_only_task": result,
+            "creates_plan": False,
+            "creates_action": False,
+            "direct_tool_execution": False,
+            "text_extracted": False,
+            "ocr_executed": False,
+            "vector_indexed": False,
+            "claim_ceiling": "document retrieval preview only; no Planner admission, parsing, OCR, vector index, or action execution",
+        }
+
     def record_provider_route_receipt(self, *, reason: str) -> dict[str, Any]:
         route = self.planner.route_summary()
         evidence = route.get("evidence", {})
