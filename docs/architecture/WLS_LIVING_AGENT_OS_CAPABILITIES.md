@@ -280,6 +280,11 @@ fields such as `memory_id`/`active`.
   ToolRegistry execution, receipts, and evidence using only `inspect_asset` and
   `read_file`, while explicitly performing no external writes, OCR, vector
   indexing, Skill promotion, or live deployment.
+- P39 is a shadow-level runtime admission for document result projection and
+  rollback. Document read-only execution receipts can enter candidate
+  Memory/World projections, remain `INFERENCE` and `candidate_only`, and be
+  rolled back without completing Goals, promoting Skills, or claiming final
+  truth.
 
 ## Projection Rule
 

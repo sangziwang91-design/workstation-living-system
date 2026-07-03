@@ -2817,6 +2817,137 @@ def validate_phase2_document_readonly_execution(
     )
 
 
+def validate_phase2_document_projection_review(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    document_path = home / "fixtures" / "phase2-document-projection.pdf"
+    document_path.parent.mkdir(parents=True, exist_ok=True)
+    document_path.write_bytes(b"%PDF-1.4\n% WLS document projection fixture\n")
+    source_receipt = runtime.intake_document_asset(
+        document_id="phase2-document-projection-1",
+        path=document_path,
+        source="architecture_validation_fixture",
+        purpose="architecture validation document projection review",
+    )
+    runtime.prepare_document_retrieval_preview(
+        document_id="phase2-document-projection-1",
+        request_id="phase2-document-projection-request-1",
+        owner_intent="Project and review a local document read-only result",
+    )
+    admission = runtime.admit_read_only_plan_preview(
+        "phase2-document-projection-request-1",
+        reason="architecture validation document projection admission",
+    )
+    runtime.preflight_read_only_plan(str(admission["plan_id"]))
+    execution = runtime.execute_preflighted_read_only_plan(str(admission["plan_id"]))
+    projection = runtime.project_read_only_execution_receipt(str(admission["plan_id"]))
+    review = runtime.review_read_only_result_projection(
+        str(admission["plan_id"]),
+        "ROLLBACK_CANDIDATE",
+        reason="architecture validation document rollback",
+    )
+    memory = runtime.db.query_one(
+        "SELECT memory_type,content_json,active FROM memories WHERE memory_id=?",
+        (projection["memory_id"],),
+    )
+    fact = runtime.db.query_one(
+        "SELECT verification,source_kind,value_json,active FROM world_facts WHERE fact_id=?",
+        (projection["fact_id"],),
+    )
+    evidence = runtime.db.query_all(
+        """
+        SELECT event_type,evidence_id FROM evidence
+        WHERE event_type IN (
+            'memory_created',
+            'world_model_assimilated',
+            'read_only_execution_result_projected',
+            'read_only_result_projection_reviewed'
+        )
+        ORDER BY seq
+        """
+    )
+    projection_panel = next(
+        (
+            panel
+            for panel in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if panel.get("panel_id") == "result_projections"
+        ),
+        None,
+    )
+    review_panel = next(
+        (
+            panel
+            for panel in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if panel.get("panel_id") == "projection_reviews"
+        ),
+        None,
+    )
+    memory_content = json.loads(memory["content_json"]) if memory is not None else {}
+    fact_value = json.loads(fact["value_json"]) if fact is not None else {}
+    receipt = memory_content.get("receipt", {})
+    action_tools = {
+        outcome.get("output", {}).get("mime_type", outcome.get("output", {}).get("path"))
+        for outcome in receipt.get("outcomes", [])
+        if isinstance(outcome, dict)
+    }
+    event_types = {row["event_type"] for row in evidence}
+    if (
+        source_receipt.get("status") != "QUEUED_EVENT_ONLY"
+        or execution.get("status") != "EXECUTED_READ_ONLY"
+        or not execution.get("all_succeeded")
+        or projection.get("status") != "PROJECTED_CANDIDATE"
+        or not projection.get("candidate_only")
+        or review.get("decision") != "ROLLBACK_CANDIDATE"
+        or not review.get("rolled_back")
+        or memory is None
+        or memory["memory_type"] != "read_only_execution_candidate"
+        or memory["active"] != 0
+        or not memory_content.get("candidate_only")
+        or not memory_content.get("does_not_complete_goal")
+        or not memory_content.get("does_not_promote_skill")
+        or "application/pdf" not in action_tools
+        or fact is None
+        or fact["verification"] != "INFERENCE"
+        or fact["source_kind"] != "INFERENCE"
+        or fact["active"] != 0
+        or not fact_value.get("candidate_only")
+        or projection_panel is None
+        or projection_panel["status"]["projection_count"] < 1
+        or review_panel is None
+        or review_panel["status"]["review_count"] < 1
+        or not {
+            "memory_created",
+            "world_model_assimilated",
+            "read_only_execution_result_projected",
+            "read_only_result_projection_reviewed",
+        }
+        <= event_types
+    ):
+        return ArchitecturePassResult(
+            "P39",
+            "BLOCKED",
+            [str(projection), str(review)],
+            ["document projection review validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P39",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(projection["memory_id"]),
+            str(projection["fact_id"]),
+            str(source_receipt["event_id"]),
+        ],
+        [
+            "Document read-only execution results can enter candidate Memory/World projections and be rolled back, preserving inference status, candidate-only limits, evidence, and no Skill promotion or goal completion",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

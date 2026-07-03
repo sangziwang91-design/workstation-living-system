@@ -17,6 +17,7 @@ from wls.architecture_validation import (
     validate_phase2_document_ingress_receipts,
     validate_phase2_document_retrieval_preview,
     validate_phase2_document_readonly_execution,
+    validate_phase2_document_projection_review,
     validate_external_memory_projection,
     validate_mcp_a2a_candidates,
     validate_phase2_capability_epoch_audit_receipts,
@@ -642,6 +643,86 @@ def test_document_organ_executes_local_readonly_inspection(
         )
     }
     assert {"action_completed", "read_only_plan_executed"} <= event_types
+
+
+def test_document_readonly_execution_projects_and_rolls_back_candidate(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    document = tmp_path / "sample.pdf"
+    document.write_bytes(b"%PDF-1.4\nWLS document projection fixture\n")
+    source = runtime.intake_document_asset(
+        document_id="document-project-1",
+        path=document,
+        source="pytest_fixture",
+        purpose="unit test document projection",
+    )
+    runtime.prepare_document_retrieval_preview(
+        document_id="document-project-1",
+        request_id="document-project-request-1",
+        owner_intent="project and review a local document read-only result",
+    )
+    admission = runtime.admit_read_only_plan_preview(
+        "document-project-request-1",
+        reason="unit test document projection admission",
+    )
+    runtime.preflight_read_only_plan(str(admission["plan_id"]))
+    execution = runtime.execute_preflighted_read_only_plan(str(admission["plan_id"]))
+    projection = runtime.project_read_only_execution_receipt(str(admission["plan_id"]))
+    review = runtime.review_read_only_result_projection(
+        str(admission["plan_id"]),
+        "ROLLBACK_CANDIDATE",
+        reason="unit test document rollback",
+    )
+    memory = runtime.db.query_one(
+        "SELECT memory_type,content_json,active FROM memories WHERE memory_id=?",
+        (projection["memory_id"],),
+    )
+    fact = runtime.db.query_one(
+        "SELECT verification,source_kind,value_json,active FROM world_facts WHERE fact_id=?",
+        (projection["fact_id"],),
+    )
+    assert source["status"] == "QUEUED_EVENT_ONLY"
+    assert execution["status"] == "EXECUTED_READ_ONLY"
+    assert execution["all_succeeded"] is True
+    assert projection["status"] == "PROJECTED_CANDIDATE"
+    assert projection["candidate_only"] is True
+    assert review["decision"] == "ROLLBACK_CANDIDATE"
+    assert review["rolled_back"] is True
+    assert memory is not None
+    assert memory["memory_type"] == "read_only_execution_candidate"
+    assert memory["active"] == 0
+    memory_content = json.loads(memory["content_json"])
+    assert memory_content["candidate_only"] is True
+    assert memory_content["does_not_complete_goal"] is True
+    assert memory_content["does_not_promote_skill"] is True
+    assert fact is not None
+    assert fact["verification"] == "INFERENCE"
+    assert fact["source_kind"] == "INFERENCE"
+    assert fact["active"] == 0
+    assert json.loads(fact["value_json"])["candidate_only"] is True
+    projection_panel = next(
+        panel
+        for panel in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if panel["panel_id"] == "result_projections"
+    )
+    review_panel = next(
+        panel
+        for panel in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if panel["panel_id"] == "projection_reviews"
+    )
+    assert projection_panel["status"]["projection_count"] == 1
+    assert review_panel["status"]["review_count"] == 1
+    event_types = {
+        row["event_type"]
+        for row in runtime.db.query_all(
+            "SELECT event_type FROM evidence WHERE event_type IN ('read_only_execution_result_projected','read_only_result_projection_reviewed')"
+        )
+    }
+    assert {
+        "read_only_execution_result_projected",
+        "read_only_result_projection_reviewed",
+    } <= event_types
 
 
 def test_provider_router_enforces_local_first_and_cost() -> None:
@@ -2037,6 +2118,17 @@ def test_architecture_validation_checks_document_readonly_execution(
     assert result.pass_id == "P38"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) == 2
+
+
+def test_architecture_validation_checks_document_projection_review(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_document_projection_review(
+        tmp_path / "document-projection-review-validation-home"
+    )
+    assert result.pass_id == "P39"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) == 3
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:
