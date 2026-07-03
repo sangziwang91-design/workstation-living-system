@@ -343,6 +343,16 @@ class CampaignRunner:
                 status = result["status"]
                 if status == "PASS":
                     self.state.mark_pass(round_id, result)
+                    if round_id == "R30":
+                        final_evidence_id = self._finalize_r30_epoch_audit()
+                        if final_evidence_id is not None:
+                            evidence_ids = list(result.get("evidence_ids", []))
+                            evidence_ids.append(final_evidence_id)
+                            result = {
+                                **result,
+                                "evidence_ids": evidence_ids,
+                                "finalized_epoch_audit_evidence_id": final_evidence_id,
+                            }
                 elif status == "OWNER_REVIEW":
                     self.state.mark_owner_review(round_id, result)
                     results.append({"round_id": round_id, **result})
@@ -359,6 +369,49 @@ class CampaignRunner:
             "automation_level": self.state.data["automation_level"],
             "results": results,
         }
+
+    def _finalize_r30_epoch_audit(self) -> str | None:
+        audit_path = (
+            self.paths.campaign_home
+            / "campaign_evidence"
+            / "R30"
+            / "epoch_audit.json"
+        )
+        if not audit_path.exists():
+            return None
+        audit = load_json(audit_path)
+        r30_state = self.state.data["rounds"]["R30"]
+        verdict = r30_state.get("verdict") if isinstance(r30_state, dict) else {}
+        if not isinstance(verdict, dict):
+            verdict = {}
+        audit.setdefault("round_states", {})["R30"] = {
+            "status": r30_state.get("status"),
+            "evidence_count": len(r30_state.get("evidence", [])),
+            "claim_ceiling": verdict.get("claim_ceiling"),
+            "finalized_after_round_pass": True,
+            "evidence_count_excludes_this_finalization_record": True,
+        }
+        audit["status"] = "PASS"
+        audit["finalized_after_round_pass"] = True
+        audit["finalized_at"] = utc_now()
+        audit["final_state_source"] = str(self.state_path)
+        coverage = audit.setdefault("evidence_coverage", {})
+        if isinstance(coverage, dict):
+            coverage["post_pass_round_status_consistent"] = (
+                r30_state.get("status") == "PASS"
+            )
+            coverage["manifest_records_before_post_pass_record"] = len(
+                self.manifest.data.get("records", [])
+            )
+        atomic_write_json(audit_path, audit)
+        evidence_id = self.manifest.record_file(
+            "R30",
+            "epoch_audit_post_pass",
+            audit_path,
+            metadata={"post_pass_finalization": True},
+        )
+        self.state.append_evidence("R30", evidence_id)
+        return evidence_id
 
     def _run_round(self, round_id: str) -> dict[str, Any]:
         if not self.execute:

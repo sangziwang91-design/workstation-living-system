@@ -911,6 +911,7 @@ def test_r26_to_r30_generate_phase1_epoch_audit(
     result = runner.run(["R26", "R27", "R28", "R29", "R30"])
     assert [item["status"] for item in result["results"]] == ["PASS"] * 5
     assert result["results"][-1]["allowed_conclusion"] == "FUNCTIONAL_RUNTIME_ONLY"
+    assert "finalized_epoch_audit_evidence_id" in result["results"][-1]
     research = load_json(
         paths.campaign_home / "campaign_evidence" / "R26" / "research_workbench_package.json"
     )
@@ -936,11 +937,20 @@ def test_r26_to_r30_generate_phase1_epoch_audit(
     assert owner_surface["owner_console"]["writes_canonical_state"] is False
     assert owner_surface["wechat"]["direct_tool_execution"] is False
     audit = load_json(paths.campaign_home / "campaign_evidence" / "R30" / "epoch_audit.json")
+    assert audit["status"] == "PASS"
     assert audit["allowed_conclusion"] == "FUNCTIONAL_RUNTIME_ONLY"
+    assert audit["round_states"]["R30"]["status"] == "PASS"
+    assert audit["round_states"]["R30"]["finalized_after_round_pass"] is True
+    assert audit["evidence_coverage"]["post_pass_round_status_consistent"] is True
     assert audit["capability_state"]["second_authority_admitted"] is False
     assert audit["phase2_admission_decision"]["status"] == "ADMIT_LOW_RISK_PREPARATION_ONLY"
     state = load_json(paths.campaign_home / "campaign_state.json")
     assert state["rounds"]["R30"]["status"] == "PASS"
+    manifest = load_json(paths.campaign_home / "campaign_evidence" / "manifest.json")
+    assert any(
+        record["label"] == "epoch_audit_post_pass" and record["round_id"] == "R30"
+        for record in manifest["records"]
+    )
 
 
 def _prepared_r25_runner(
