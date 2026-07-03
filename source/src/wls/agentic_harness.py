@@ -8,6 +8,7 @@ import json
 from .db import Database
 from .context_manifest import ContextManifestBuilder
 from .evidence import EvidenceLedger
+from .failure_attribution import FailureAttributor
 from .schemas import RiskLevel, TaskNodeStatus, new_id, utc_now
 from .task_admission import TaskAdmissionClassifier, TaskIntent
 from .task_graph import TaskGraph, TaskGraphCompiler, TaskNode
@@ -53,6 +54,7 @@ class AgenticHarness:
         self.compiler = compiler or TaskGraphCompiler()
         self.context_manifest = ContextManifestBuilder(db)
         self.worker_registry = WorkerRegistry(db, ledger)
+        self.failure_attributor = FailureAttributor(db)
 
     def admit_and_compile(
         self,
@@ -249,6 +251,9 @@ class AgenticHarness:
             graph = self._load_graph_for_update(graph_id, connection)
             lease = self._active_lease(graph_id, node_id, lease_id, connection)
             node = graph.fail(node_id, error)
+            attribution = self.failure_attributor.classify(
+                graph_id=graph_id, node=node, lease_id=lease_id, error=error
+            )
             connection.execute(
                 """
                 UPDATE agentic_node_leases
@@ -258,6 +263,7 @@ class AgenticHarness:
                 (utc_now(), lease_id),
             )
             self._persist_graph(graph, connection)
+            self.failure_attributor.persist(attribution, connection=connection)
             payload = {
                 "graph_id": graph_id,
                 "node_id": node_id,
@@ -266,6 +272,7 @@ class AgenticHarness:
                 "status": node.status.value,
                 "error": error,
                 "terminal": graph.terminal(),
+                "failure_attribution": attribution.to_dict(),
             }
             self.ledger.append("agentic_task_node_failed", payload, connection)
             return payload

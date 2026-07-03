@@ -95,14 +95,15 @@ runtime:
 - L09: leased nodes can be bound into canonical `Plan`/`Action` rows after
   `PolicyEngine` decision, without executing tools, consuming approvals, or
   completing the node.
+- L10: failed node attempts receive deterministic first-pass attribution as
+  LOCAL, UPSTREAM, STRUCTURAL, POLICY, or ENVIRONMENT and are persisted as
+  evidence-linked receipts.
 
 ## Next Batches
 
 Recommended next increments:
 
-1. Failure attribution: classify LOCAL, UPSTREAM, STRUCTURAL, POLICY, and
-   ENVIRONMENT failures.
-2. Read-only node execution receipt: execute only preflighted READ/no-side-effect
+1. Read-only node execution receipt: execute only preflighted READ/no-side-effect
    node actions and feed results back to graph completion.
-3. Offspring birth contract: only after the parent harness can evaluate bounded
+2. Offspring birth contract: only after the parent harness can evaluate bounded
    task graphs without second authority drift.

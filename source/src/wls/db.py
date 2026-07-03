@@ -290,6 +290,25 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_agentic_node_action_status
                     ON agentic_node_action_bindings(status, created_at DESC);
 
+                CREATE TABLE IF NOT EXISTS agentic_failure_attributions (
+                    attribution_id TEXT PRIMARY KEY,
+                    graph_id TEXT NOT NULL,
+                    node_id TEXT NOT NULL,
+                    lease_id TEXT NOT NULL,
+                    failure_class TEXT NOT NULL,
+                    error_signature TEXT NOT NULL,
+                    attribution_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(graph_id) REFERENCES agentic_task_graphs(graph_id),
+                    FOREIGN KEY(lease_id) REFERENCES agentic_node_leases(lease_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_agentic_failure_graph
+                    ON agentic_failure_attributions(graph_id, node_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_agentic_failure_class
+                    ON agentic_failure_attributions(failure_class, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_agentic_failure_signature
+                    ON agentic_failure_attributions(error_signature);
+
                 CREATE TABLE IF NOT EXISTS approvals (
                     approval_id TEXT PRIMARY KEY,
                     action_id TEXT NOT NULL,

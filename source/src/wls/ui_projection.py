@@ -466,6 +466,7 @@ class OwnerConsoleProductProjection:
         manifests = status.get("agentic_context_manifest_receipts", [])
         workers = status.get("agentic_worker_profile_receipts", [])
         bindings = status.get("agentic_node_action_receipts", [])
+        failures = status.get("agentic_failure_attribution_receipts", [])
         return {
             "panel_id": "agentic_tasks",
             "title": "Agentic Tasks",
@@ -486,6 +487,10 @@ class OwnerConsoleProductProjection:
                 "policy_bound_actions": {
                     "receipt_count": len(bindings) if isinstance(bindings, list) else 0,
                     "items": bindings if isinstance(bindings, list) else [],
+                },
+                "failure_attribution_v1": {
+                    "receipt_count": len(failures) if isinstance(failures, list) else 0,
+                    "items": failures if isinstance(failures, list) else [],
                 },
             },
         }

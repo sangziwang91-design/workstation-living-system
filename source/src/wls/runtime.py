@@ -362,6 +362,20 @@ class LivingSystem:
         )
         return [dict(row) for row in rows]
 
+    def agentic_failure_attribution_receipts(
+        self, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        rows = self.db.query_all(
+            """
+            SELECT attribution_id,graph_id,node_id,lease_id,failure_class,error_signature,created_at
+            FROM agentic_failure_attributions
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (max(0, int(limit)),),
+        )
+        return [dict(row) for row in rows]
+
     def bind_agentic_node_to_action(
         self,
         graph_id: str,
@@ -2742,6 +2756,7 @@ class LivingSystem:
             "agentic_context_manifest_receipts": self.agentic_context_manifest_receipts(),
             "agentic_worker_profile_receipts": self.agentic_worker_profile_receipts(),
             "agentic_node_action_receipts": self.agentic_node_action_receipts(),
+            "agentic_failure_attribution_receipts": self.agentic_failure_attribution_receipts(),
             "learning_epoch_receipts": self.learning_epoch_receipts(),
             "capability_epoch_audit_receipts": self.capability_epoch_audit_receipts(),
             "read_only_execution_preflights": self.read_only_execution_preflights(),

@@ -117,6 +117,9 @@ def test_agentic_harness_failure_blocks_dependents(tmp_path: Path) -> None:
         lease_id=lease.lease_id,
         error="fixture failure",
     )
+    failure_rows = harness.db.query_all("SELECT * FROM agentic_failure_attributions")
+    assert len(failure_rows) == 1
+    assert failure_rows[0]["failure_class"] == "LOCAL"
     graph = harness.load_graph(graph_id)
 
     assert graph.nodes["scope"].status is TaskNodeStatus.FAILED
@@ -308,3 +311,30 @@ def test_agentic_node_action_binding_preserves_owner_gate_for_high_risk(
         "SELECT status FROM actions WHERE action_id=?", (binding["action_id"],)
     )
     assert action["status"] == "WAITING_APPROVAL"
+
+
+def test_failure_attribution_classifies_policy_and_environment(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs in parallel",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+        model_hints={"allow_parallel": True, "domain": "RESEARCH"},
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector"
+    )[0]
+
+    payload = runtime.agentic.fail_node(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        error="PermissionError: policy approval missing",
+    )
+
+    assert payload["failure_attribution"]["failure_class"] == "POLICY"
+    receipts = runtime.status()["agentic_failure_attribution_receipts"]
+    assert receipts[0]["failure_class"] == "POLICY"
