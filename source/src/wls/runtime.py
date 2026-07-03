@@ -381,6 +381,9 @@ class LivingSystem:
     ) -> list[dict[str, Any]]:
         return self.agentic.acceptance_trace_receipts(limit=limit)
 
+    def agentic_mailbox_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        return self.agentic.mailbox_receipts(limit=limit)
+
     def agentic_harness_epoch_audit_receipts(
         self, limit: int = 20
     ) -> list[dict[str, Any]]:
@@ -676,6 +679,7 @@ class LivingSystem:
         acceptance_trace_count = len(
             self.agentic_acceptance_trace_receipts(limit=100)
         )
+        mailbox_count = len(self.agentic_mailbox_receipts(limit=100))
         unsafe_executed = self.db.query_one(
             """
             SELECT COUNT(*) AS n
@@ -735,6 +739,13 @@ class LivingSystem:
                 acceptance_trace_count > 0
                 and "agentic_task_node_acceptance_evaluated" in event_types
             ),
+            "mailbox_handoff_retained": (
+                mailbox_count >= 2
+                and {
+                    "agentic_task_envelope_exported",
+                    "agentic_result_envelope_imported",
+                }.issubset(event_types)
+            ),
         }
         receipt = {
             "receipt_type": "AGENTIC_HARNESS_EPOCH_AUDIT",
@@ -747,6 +758,7 @@ class LivingSystem:
                 "node_action_binding": binding_count,
                 "failure_attribution": failure_count,
                 "acceptance_trace": acceptance_trace_count,
+                "file_mailbox": mailbox_count,
             },
             "invariants": invariants,
             "evidence_event_types": sorted(event_types),
@@ -794,6 +806,7 @@ class LivingSystem:
             "agentic_acceptance_trace": len(
                 self.agentic_acceptance_trace_receipts(100)
             ),
+            "agentic_file_mailbox": len(self.agentic_mailbox_receipts(100)),
             "read_only_execution": len(self.read_only_execution_receipts(100)),
             "skill_candidate": len(self.skill_candidate_receipts(100)),
             "skill_sandbox": len(self.skill_sandbox_receipts(100)),
@@ -3077,6 +3090,7 @@ class LivingSystem:
             "agentic_node_action_receipts": self.agentic_node_action_receipts(),
             "agentic_failure_attribution_receipts": self.agentic_failure_attribution_receipts(),
             "agentic_acceptance_trace_receipts": self.agentic_acceptance_trace_receipts(),
+            "agentic_mailbox_receipts": self.agentic_mailbox_receipts(),
             "agentic_harness_epoch_audit_receipts": self.agentic_harness_epoch_audit_receipts(),
             "single_software_convergence_receipts": self.single_software_convergence_receipts(),
             "learning_epoch_receipts": self.learning_epoch_receipts(),

@@ -8,6 +8,7 @@ import json
 import threading
 
 from .a2a_adapter import A2AAdapter, ArtifactEnvelope, TaskContract, payload_digest
+from .agentic_mailbox import AgenticFileMailbox, ResultEnvelope
 from .browser_adapter import BrowserReadOnlyAdapter, BrowserReadOnlyRequest
 from .capabilities import baseline_registry
 from .channel_gateway import ChannelMessage
@@ -3329,6 +3330,107 @@ def validate_phase2_agentic_acceptance_trace(home: Path) -> ArchitecturePassResu
         ],
         [
             "Agentic node completion can be gated by deterministic acceptance checks and trace digests while preserving EvidenceLedger and Owner Console visibility as the only authorities",
+        ],
+    )
+
+
+def validate_phase2_agentic_file_mailbox_handoff(home: Path) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    mailbox_root = home / "mailbox"
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository documents",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = str(receipt["graph"]["graph_id"])
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector", limit=1
+    )[0]
+    exported = runtime.agentic.export_node_task_envelope(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        mailbox_root=mailbox_root,
+        recipient="local-worker-shadow",
+    )
+    mailbox = AgenticFileMailbox(mailbox_root)
+    result_envelope = ResultEnvelope.create(
+        message_id="result-validation-1",
+        in_reply_to=str(exported["message_id"]),
+        graph_id=graph_id,
+        node_id=lease.node_id,
+        lease_id=lease.lease_id,
+        sender="local-worker-shadow",
+        recipient="LivingSystem.AgenticHarness",
+        status="SUCCEEDED",
+        payload={"summary": "inspection result is recorded", "evidence_count": 1},
+    )
+    mailbox.write_result(result_envelope)
+    imported = runtime.agentic.import_node_result_envelope(
+        mailbox_root=mailbox_root,
+        message_id=result_envelope.message_id,
+        acceptance_checks=[
+            {
+                "check_id": "summary",
+                "type": "regex",
+                "config": {"field": "payload", "pattern": "recorded"},
+            }
+        ],
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "agentic_tasks"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN (
+                'agentic_task_envelope_exported',
+                'agentic_result_envelope_imported',
+                'agentic_task_node_acceptance_evaluated'
+            )
+            """
+        )
+    }
+    graph = runtime.agentic.load_graph(graph_id)
+    if (
+        imported["status"] != "SUCCEEDED"
+        or graph.nodes[lease.node_id].status.value != "SUCCEEDED"
+        or panel is None
+        or panel["status"]["file_mailbox_v1"]["receipt_count"] < 2
+        or {
+            "agentic_task_envelope_exported",
+            "agentic_result_envelope_imported",
+            "agentic_task_node_acceptance_evaluated",
+        }
+        - event_types
+    ):
+        return ArchitecturePassResult(
+            "P44",
+            "BLOCKED",
+            [graph_id],
+            ["agentic file mailbox handoff validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P44",
+        "ADMIT_SHADOW_ONLY",
+        [
+            graph_id,
+            lease.lease_id,
+            str(exported["message_id"]),
+            result_envelope.message_id,
+            *sorted(event_types),
+        ],
+        [
+            "Agentic file mailbox handoff exports and imports local task/result envelopes as transport artifacts while canonical completion remains with LivingSystem.AgenticHarness",
         ],
     )
 

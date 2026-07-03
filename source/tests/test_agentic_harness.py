@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
 from wls.agentic_harness import AgenticHarness
+from wls.agentic_mailbox import AgenticFileMailbox, ResultEnvelope
 from wls.config import default_config
 from wls.evidence import EvidenceLedger
 from wls.db import Database
@@ -438,6 +440,91 @@ def test_agentic_node_acceptance_failure_blocks_dependents(
     assert graph.nodes["gather"].status is TaskNodeStatus.BLOCKED
 
 
+def test_agentic_file_mailbox_handoff_imports_through_canonical_harness(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    mailbox_root = tmp_path / "mailbox"
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector"
+    )[0]
+    exported = runtime.agentic.export_node_task_envelope(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        mailbox_root=mailbox_root,
+        recipient="local-worker-shadow",
+    )
+    mailbox = AgenticFileMailbox(mailbox_root)
+    task = mailbox.read_task(exported["message_id"])
+    result = ResultEnvelope.create(
+        message_id="result-1",
+        in_reply_to=task.message_id,
+        graph_id=task.graph_id,
+        node_id=task.node_id,
+        lease_id=task.lease_id,
+        sender="local-worker-shadow",
+        recipient=task.sender,
+        status="SUCCEEDED",
+        payload={"summary": "inspection result is recorded"},
+    )
+    mailbox.write_result(result)
+
+    imported = runtime.agentic.import_node_result_envelope(
+        mailbox_root=mailbox_root,
+        message_id=result.message_id,
+        acceptance_checks=[
+            {
+                "check_id": "summary",
+                "type": "regex",
+                "config": {"field": "payload", "pattern": "recorded"},
+            }
+        ],
+    )
+
+    assert imported["status"] == "SUCCEEDED"
+    assert imported["completion"]["acceptance_report"]["passed"] is True
+    graph = runtime.agentic.load_graph(graph_id)
+    assert graph.nodes[lease.node_id].status is TaskNodeStatus.SUCCEEDED
+    assert not (mailbox_root / "results" / "result-1.json").exists()
+    assert (mailbox_root / "processed" / "result-1.json").exists()
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+    assert panel["status"]["file_mailbox_v1"]["receipt_count"] == 2
+
+
+def test_agentic_file_mailbox_rejects_payload_digest_mismatch(tmp_path: Path) -> None:
+    mailbox = AgenticFileMailbox(tmp_path / "mailbox")
+    result = ResultEnvelope.create(
+        message_id="bad-result",
+        in_reply_to="task-1",
+        graph_id="graph",
+        node_id="node",
+        lease_id="lease",
+        sender="worker",
+        recipient="harness",
+        status="SUCCEEDED",
+        payload={"ok": True},
+    ).to_dict()
+    result["payload"]["ok"] = False
+    (tmp_path / "mailbox" / "results" / "bad-result.json").write_text(
+        json.dumps(result),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="payload digest mismatch"):
+        mailbox.read_result("bad-result")
+
+
 def test_bound_agentic_node_action_execution_rejects_owner_gated_binding(
     tmp_path: Path,
 ) -> None:
@@ -521,6 +608,41 @@ def test_agentic_harness_epoch_audit_records_safety_invariants(
             },
         ],
     )
+    mailbox_root = tmp_path / "audit-mailbox"
+    mailbox_receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    mailbox_graph_id = mailbox_receipt["graph"]["graph_id"]
+    mailbox_lease = runtime.agentic.acquire_ready_leases(
+        mailbox_graph_id, worker_id="readonly-inspector"
+    )[0]
+    exported = runtime.agentic.export_node_task_envelope(
+        mailbox_graph_id,
+        mailbox_lease.node_id,
+        lease_id=mailbox_lease.lease_id,
+        mailbox_root=mailbox_root,
+        recipient="local-worker-shadow",
+    )
+    mailbox = AgenticFileMailbox(mailbox_root)
+    mailbox.write_result(
+        ResultEnvelope.create(
+            message_id="audit-result-1",
+            in_reply_to=exported["message_id"],
+            graph_id=mailbox_graph_id,
+            node_id=mailbox_lease.node_id,
+            lease_id=mailbox_lease.lease_id,
+            sender="local-worker-shadow",
+            recipient="LivingSystem.AgenticHarness",
+            status="SUCCEEDED",
+            payload={"summary": "inspection result is recorded"},
+        )
+    )
+    runtime.agentic.import_node_result_envelope(
+        mailbox_root=mailbox_root,
+        message_id="audit-result-1",
+    )
 
     risky_receipt = runtime.agentic.admit_and_compile(
         "Publish release to an external system",
@@ -553,9 +675,10 @@ def test_agentic_harness_epoch_audit_records_safety_invariants(
     )
 
     assert audit["status"] == "PASS"
-    assert audit["receipt_counts"]["task_graph"] == 3
+    assert audit["receipt_counts"]["task_graph"] == 4
     assert audit["receipt_counts"]["node_action_binding"] == 2
     assert audit["receipt_counts"]["acceptance_trace"] == 1
+    assert audit["receipt_counts"]["file_mailbox"] == 2
     assert all(audit["invariants"].values())
     panel = next(
         item
@@ -589,6 +712,41 @@ def test_single_software_convergence_audit_records_remaining_tail_gaps(
         },
         acceptance_checks=[{"check_id": "status", "type": "result_status"}],
     )
+    mailbox_root = tmp_path / "convergence-mailbox"
+    mailbox_receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    mailbox_graph_id = mailbox_receipt["graph"]["graph_id"]
+    mailbox_lease = runtime.agentic.acquire_ready_leases(
+        mailbox_graph_id, worker_id="readonly-inspector"
+    )[0]
+    exported = runtime.agentic.export_node_task_envelope(
+        mailbox_graph_id,
+        mailbox_lease.node_id,
+        lease_id=mailbox_lease.lease_id,
+        mailbox_root=mailbox_root,
+        recipient="local-worker-shadow",
+    )
+    mailbox = AgenticFileMailbox(mailbox_root)
+    mailbox.write_result(
+        ResultEnvelope.create(
+            message_id="convergence-result-1",
+            in_reply_to=exported["message_id"],
+            graph_id=mailbox_graph_id,
+            node_id=mailbox_lease.node_id,
+            lease_id=mailbox_lease.lease_id,
+            sender="local-worker-shadow",
+            recipient="LivingSystem.AgenticHarness",
+            status="SUCCEEDED",
+            payload={"summary": "inspection result is recorded"},
+        )
+    )
+    runtime.agentic.import_node_result_envelope(
+        mailbox_root=mailbox_root,
+        message_id="convergence-result-1",
+    )
     runtime.record_agentic_harness_epoch_audit(
         reason="seed convergence audit with harness epoch receipt"
     )
@@ -609,6 +767,7 @@ def test_single_software_convergence_audit_records_remaining_tail_gaps(
     assert receipt["invariants"]["branch_is_not_final_state"] is True
     assert receipt["invariants"]["single_living_system_authority"] is True
     assert receipt["receipt_counts"]["agentic_acceptance_trace"] == 1
+    assert receipt["receipt_counts"]["agentic_file_mailbox"] == 2
     assert "candidate branch not yet packaged" in receipt["blocking_gaps"][0]
     panel = next(
         item

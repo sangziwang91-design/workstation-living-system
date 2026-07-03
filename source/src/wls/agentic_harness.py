@@ -8,6 +8,7 @@ import json
 import re
 
 from .db import Database
+from .agentic_mailbox import AgenticFileMailbox, TaskEnvelope
 from .context_manifest import ContextManifestBuilder
 from .evidence import EvidenceLedger
 from .failure_attribution import FailureAttributor
@@ -358,6 +359,144 @@ class AgenticHarness:
             if isinstance(payload, dict):
                 receipts.append({**payload, "created_at": row["created_at"]})
         return receipts
+
+    def mailbox_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        rows = self.db.query_all(
+            """
+            SELECT event_type,payload_json,created_at FROM evidence
+            WHERE event_type IN (
+                'agentic_task_envelope_exported',
+                'agentic_result_envelope_imported'
+            )
+            ORDER BY seq DESC
+            LIMIT ?
+            """,
+            (max(0, int(limit)),),
+        )
+        receipts: list[dict[str, Any]] = []
+        for row in rows:
+            payload = json.loads(str(row["payload_json"]))
+            if isinstance(payload, dict):
+                receipts.append(
+                    {
+                        **payload,
+                        "event_type": row["event_type"],
+                        "created_at": row["created_at"],
+                    }
+                )
+        return receipts
+
+    def export_node_task_envelope(
+        self,
+        graph_id: str,
+        node_id: str,
+        *,
+        lease_id: str,
+        mailbox_root: Path | str,
+        recipient: str,
+    ) -> dict[str, Any]:
+        mailbox = AgenticFileMailbox(mailbox_root)
+        with self.db.transaction() as connection:
+            graph = self._load_graph_for_update(graph_id, connection)
+            lease = self._active_lease(graph_id, node_id, lease_id, connection)
+            node = graph.nodes[node_id]
+            envelope = TaskEnvelope.create(
+                message_id=new_id("msg"),
+                graph_id=graph_id,
+                node_id=node_id,
+                lease_id=lease_id,
+                sender="LivingSystem.AgenticHarness",
+                recipient=recipient,
+                payload={
+                    "title": node.title,
+                    "role": node.role,
+                    "acceptance": list(node.acceptance),
+                    "risk": node.risk.value,
+                    "conflict_domain": node.conflict_domain,
+                    "worker_id": lease["worker_id"],
+                    "canonical_completion_authority": "LivingSystem.AgenticHarness",
+                },
+            )
+            path = mailbox.write_task(envelope)
+            receipt = {
+                "receipt_type": "AGENTIC_TASK_ENVELOPE_EXPORTED",
+                "graph_id": graph_id,
+                "node_id": node_id,
+                "lease_id": lease_id,
+                "message_id": envelope.message_id,
+                "recipient": recipient,
+                "path": str(path),
+                "payload_digest": envelope.payload_digest,
+                "direct_execution": False,
+                "canonical_completion_authority": "LivingSystem.AgenticHarness",
+                "claim_ceiling": (
+                    "local task envelope transport only; no external worker "
+                    "execution or node completion is claimed"
+                ),
+            }
+            self.ledger.append("agentic_task_envelope_exported", receipt, connection)
+        return receipt
+
+    def import_node_result_envelope(
+        self,
+        *,
+        mailbox_root: Path | str,
+        message_id: str,
+        acceptance_checks: list[dict[str, Any]] | None = None,
+        artifact_root: Path | str | None = None,
+    ) -> dict[str, Any]:
+        mailbox = AgenticFileMailbox(mailbox_root)
+        envelope = mailbox.read_result(message_id)
+        if envelope.status.upper() == "SUCCEEDED":
+            if acceptance_checks:
+                completion = self.complete_node_with_acceptance(
+                    envelope.graph_id,
+                    envelope.node_id,
+                    lease_id=envelope.lease_id,
+                    result={
+                        "status": envelope.status.upper(),
+                        "payload": envelope.payload,
+                    },
+                    acceptance_checks=acceptance_checks,
+                    artifact_root=artifact_root,
+                )
+            else:
+                completion = self.complete_node(
+                    envelope.graph_id,
+                    envelope.node_id,
+                    lease_id=envelope.lease_id,
+                    result={
+                        "status": envelope.status.upper(),
+                        "payload": envelope.payload,
+                    },
+                )
+        else:
+            completion = self.fail_node(
+                envelope.graph_id,
+                envelope.node_id,
+                lease_id=envelope.lease_id,
+                error=str(envelope.payload.get("error") or envelope.status),
+            )
+        processed_path = mailbox.mark_processed(message_id, result=True)
+        receipt = {
+            "receipt_type": "AGENTIC_RESULT_ENVELOPE_IMPORTED",
+            "graph_id": envelope.graph_id,
+            "node_id": envelope.node_id,
+            "lease_id": envelope.lease_id,
+            "message_id": envelope.message_id,
+            "in_reply_to": envelope.in_reply_to,
+            "status": envelope.status.upper(),
+            "payload_digest": envelope.payload_digest,
+            "processed_path": str(processed_path),
+            "completion": completion,
+            "canonical_completion_authority": "LivingSystem.AgenticHarness",
+            "claim_ceiling": (
+                "local result envelope imported through canonical harness only; "
+                "no external worker authority, deployment, or goal completion is claimed"
+            ),
+        }
+        self.ledger.append("agentic_result_envelope_imported", receipt)
+        return receipt
 
     @staticmethod
     def _route(

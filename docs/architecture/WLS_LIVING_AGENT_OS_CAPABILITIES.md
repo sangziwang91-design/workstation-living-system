@@ -303,6 +303,11 @@ fields such as `memory_id`/`active`.
   leased node can be completed only after deterministic local acceptance checks
   pass, with trace digests and EvidenceLedger receipts visible in Owner Console;
   failed acceptance blocks the node instead of claiming completion.
+- P44 is a shadow-level runtime admission for agentic file mailbox handoff.
+  Local task/result envelopes can cross a filesystem mailbox as transport
+  artifacts, but payload digests, acceptance checks, node completion, and Owner
+  Console visibility remain under `LivingSystem.AgenticHarness` and
+  `EvidenceLedger`.
 
 ## Projection Rule
 
