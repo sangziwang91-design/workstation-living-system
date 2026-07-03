@@ -3173,6 +3173,70 @@ def validate_phase2_document_skill_sandbox_receipts(
     )
 
 
+def validate_phase2_agentic_task_harness(home: Path) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository documents in parallel",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+        model_hints={"allow_parallel": True, "domain": "RESEARCH"},
+    )
+    graph_id = str(receipt["graph"]["graph_id"])
+    reloaded = LivingSystem(default_config(home / "runtime"))
+    graph = reloaded.agentic.load_graph(graph_id)
+    leases = reloaded.agentic.acquire_ready_leases(
+        graph_id, worker_id="architecture-validator", limit=2
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(reloaded.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "agentic_tasks"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in reloaded.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN (
+                'agentic_task_graph_compiled',
+                'agentic_task_node_leased'
+            )
+            """
+        )
+    }
+    if (
+        receipt["intent"]["risk_floor"] != "READ"
+        or receipt["route"]["mode"] != "TASK_GRAPH"
+        or graph.graph_id != graph_id
+        or [node.node_id for node in graph.ready_frontier()] != ["scope"]
+        or len(leases) != 1
+        or leases[0].conflict_domain != "readonly"
+        or panel is None
+        or panel["status"]["second_authority_created"]
+        or panel["status"]["direct_worker_execution"]
+        or {"agentic_task_graph_compiled", "agentic_task_node_leased"} - event_types
+    ):
+        return ArchitecturePassResult(
+            "P42",
+            "BLOCKED",
+            [graph_id],
+            ["agentic task harness validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P42",
+        "ADMIT_SHADOW_ONLY",
+        [graph_id, leases[0].lease_id, *sorted(event_types)],
+        [
+            "Agentic task harness admits, compiles, persists, reloads, leases, and projects bounded task graphs through canonical LivingSystem state without creating a second authority or executing external workers",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

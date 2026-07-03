@@ -54,6 +54,7 @@ class OwnerConsoleProductProjection:
         "evolution_lab",
         "skill_candidates",
         "skill_sandbox",
+        "agentic_tasks",
         "learning_epoch",
         "capability_epoch",
         "organs",
@@ -84,6 +85,7 @@ class OwnerConsoleProductProjection:
             self._evolution_panel(status),
             self._skill_candidates_panel(status),
             self._skill_sandbox_panel(status),
+            self._agentic_tasks_panel(status),
             self._learning_epoch_panel(status),
             self._capability_epoch_panel(status),
             self._organs_panel(status),
@@ -455,6 +457,21 @@ class OwnerConsoleProductProjection:
                 "approval_executed": False,
                 "promotion_executed": False,
                 "deployment_executed": False,
+            },
+        }
+
+    @staticmethod
+    def _agentic_tasks_panel(status: dict[str, Any]) -> dict[str, Any]:
+        receipts = status.get("agentic_task_receipts", [])
+        return {
+            "panel_id": "agentic_tasks",
+            "title": "Agentic Tasks",
+            "status": {
+                "receipt_count": len(receipts) if isinstance(receipts, list) else 0,
+                "items": receipts if isinstance(receipts, list) else [],
+                "canonical_runtime": "LivingSystem",
+                "second_authority_created": False,
+                "direct_worker_execution": False,
             },
         }
 

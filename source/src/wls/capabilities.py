@@ -158,6 +158,7 @@ def baseline_registry() -> CapabilityRegistry:
         ("screen_snapshot_ingress", "events", CapabilityMode.ADAPTER),
         ("read_only_task_organs", "planning", CapabilityMode.WORKBENCH),
         ("workbench_templates", "planning", CapabilityMode.WORKBENCH),
+        ("agentic_task_harness", "planning", CapabilityMode.WORKBENCH),
     ]:
         registry.register(
             CapabilityManifest(

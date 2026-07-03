@@ -20,6 +20,7 @@ from wls.architecture_validation import (
     validate_phase2_document_projection_review,
     validate_phase2_document_skill_candidate_receipts,
     validate_phase2_document_skill_sandbox_receipts,
+    validate_phase2_agentic_task_harness,
     validate_external_memory_projection,
     validate_mcp_a2a_candidates,
     validate_phase2_capability_epoch_audit_receipts,
@@ -1267,6 +1268,7 @@ def test_owner_console_product_projection_and_wechat_digest_are_read_only(
         "evolution_lab",
         "skill_candidates",
         "skill_sandbox",
+        "agentic_tasks",
         "learning_epoch",
         "capability_epoch",
         "organs",
@@ -2307,6 +2309,17 @@ def test_architecture_validation_checks_document_skill_sandbox(
         tmp_path / "document-skill-sandbox-validation-home"
     )
     assert result.pass_id == "P41"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) >= 4
+
+
+def test_architecture_validation_checks_agentic_task_harness(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_agentic_task_harness(
+        tmp_path / "agentic-task-harness-validation-home"
+    )
+    assert result.pass_id == "P42"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) >= 4
 

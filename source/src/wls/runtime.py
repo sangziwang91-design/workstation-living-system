@@ -14,6 +14,7 @@ import time
 
 from ._version import __version__
 from .approval import ApprovalManager
+from .agentic_harness import AgenticHarness
 from .autonomy import AutonomySystem
 from .attention import AttentionSystem
 from .capabilities import baseline_registry
@@ -108,6 +109,7 @@ class LivingSystem:
         )
         self.planner = Planner(config, self.cognition, self.ledger)
         self.growth = GrowthCycleManager(self)
+        self.agentic = AgenticHarness(self.db, self.ledger)
         self.capabilities = baseline_registry()
         self.capabilities.assert_no_duplicate_authority()
         self.channel_gateway = ChannelGateway()
@@ -329,6 +331,18 @@ class LivingSystem:
         if not isinstance(receipts, list):
             return []
         return receipts[: max(0, int(limit))]
+
+    def agentic_task_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        rows = self.db.query_all(
+            """
+            SELECT graph_id,intent_id,status,updated_at
+            FROM agentic_task_graphs
+            ORDER BY updated_at DESC
+            LIMIT ?
+            """,
+            (max(0, int(limit)),),
+        )
+        return [dict(row) for row in rows]
 
     def learning_epoch_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         receipts = self.db.get_runtime("learning_epoch_receipts", [])
@@ -2537,6 +2551,7 @@ class LivingSystem:
             "provider_route_receipts": self.provider_route_receipts(),
             "skill_candidate_receipts": self.skill_candidate_receipts(),
             "skill_sandbox_receipts": self.skill_sandbox_receipts(),
+            "agentic_task_receipts": self.agentic_task_receipts(),
             "learning_epoch_receipts": self.learning_epoch_receipts(),
             "capability_epoch_audit_receipts": self.capability_epoch_audit_receipts(),
             "read_only_execution_preflights": self.read_only_execution_preflights(),

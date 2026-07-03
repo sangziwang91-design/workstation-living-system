@@ -10,7 +10,7 @@ import threading
 from .schemas import utc_now
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class Database:
@@ -195,6 +195,44 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_actions_idempotency_success
                     ON actions(idempotency_key) WHERE status='SUCCEEDED';
                 CREATE INDEX IF NOT EXISTS idx_actions_status ON actions(status, started_at);
+
+                CREATE TABLE IF NOT EXISTS agentic_task_intents (
+                    intent_id TEXT PRIMARY KEY,
+                    raw_request TEXT NOT NULL,
+                    intent_json TEXT NOT NULL,
+                    route_json TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS agentic_task_graphs (
+                    graph_id TEXT PRIMARY KEY,
+                    intent_id TEXT NOT NULL,
+                    graph_json TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY(intent_id) REFERENCES agentic_task_intents(intent_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_agentic_graphs_intent
+                    ON agentic_task_graphs(intent_id, status);
+
+                CREATE TABLE IF NOT EXISTS agentic_node_leases (
+                    lease_id TEXT PRIMARY KEY,
+                    graph_id TEXT NOT NULL,
+                    node_id TEXT NOT NULL,
+                    conflict_domain TEXT NOT NULL,
+                    worker_id TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    acquired_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    released_at TEXT,
+                    FOREIGN KEY(graph_id) REFERENCES agentic_task_graphs(graph_id)
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_agentic_active_conflict_lease
+                    ON agentic_node_leases(graph_id, conflict_domain)
+                    WHERE status='ACTIVE';
 
                 CREATE TABLE IF NOT EXISTS approvals (
                     approval_id TEXT PRIMARY KEY,

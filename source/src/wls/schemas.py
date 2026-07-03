@@ -85,6 +85,47 @@ class CandidateStatus(StrEnum):
     ROLLED_BACK = "ROLLED_BACK"
 
 
+class TaskOperation(StrEnum):
+    ANSWER = "ANSWER"
+    INSPECT = "INSPECT"
+    CHANGE = "CHANGE"
+    EXECUTE = "EXECUTE"
+    PUBLISH = "PUBLISH"
+
+
+class TaskDomain(StrEnum):
+    CODE = "CODE"
+    RESEARCH = "RESEARCH"
+    DOCUMENT = "DOCUMENT"
+    OPERATIONS = "OPERATIONS"
+    PERSONAL = "PERSONAL"
+    SYSTEM = "SYSTEM"
+    MIXED = "MIXED"
+
+
+class TaskHorizon(StrEnum):
+    SHORT = "SHORT"
+    SESSION = "SESSION"
+    LONG = "LONG"
+
+
+class TaskParallelism(StrEnum):
+    SERIAL = "SERIAL"
+    PARALLEL_READ_ONLY = "PARALLEL_READ_ONLY"
+    PARALLEL_MIXED = "PARALLEL_MIXED"
+
+
+class TaskNodeStatus(StrEnum):
+    PENDING = "PENDING"
+    READY = "READY"
+    LEASED = "LEASED"
+    WAITING_APPROVAL = "WAITING_APPROVAL"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    BLOCKED = "BLOCKED"
+    CANCELLED = "CANCELLED"
+
+
 @dataclass(slots=True)
 class Observation:
     source: str
