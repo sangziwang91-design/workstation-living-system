@@ -3237,6 +3237,102 @@ def validate_phase2_agentic_task_harness(home: Path) -> ArchitecturePassResult:
     )
 
 
+def validate_phase2_agentic_acceptance_trace(home: Path) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    artifact_root = home / "artifacts"
+    artifact_root.mkdir(parents=True, exist_ok=True)
+    artifact = artifact_root / "acceptance.txt"
+    artifact.write_text("agentic acceptance trace fixture\n", encoding="utf-8")
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository documents",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = str(receipt["graph"]["graph_id"])
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector", limit=1
+    )[0]
+    completion = runtime.agentic.complete_node_with_acceptance(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        result={
+            "status": "SUCCEEDED",
+            "summary": "inspection result is recorded",
+            "evidence": ["agentic_task_graph_compiled"],
+            "payload": {"ok": True},
+        },
+        acceptance_checks=[
+            {"check_id": "status", "type": "result_status"},
+            {
+                "check_id": "summary",
+                "type": "regex",
+                "config": {"field": "summary", "pattern": "recorded"},
+            },
+            {
+                "check_id": "artifact",
+                "type": "artifact_exists",
+                "config": {"path": artifact.name},
+            },
+        ],
+        artifact_root=artifact_root,
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "agentic_tasks"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN (
+                'agentic_task_node_acceptance_evaluated',
+                'agentic_task_node_completed'
+            )
+            """
+        )
+    }
+    graph = runtime.agentic.load_graph(graph_id)
+    if (
+        completion["acceptance_report"]["passed"] is not True
+        or not completion["trace_event"].get("trace_digest")
+        or graph.nodes[lease.node_id].status.value != "SUCCEEDED"
+        or panel is None
+        or panel["status"]["acceptance_trace_v1"]["receipt_count"] != 1
+        or {
+            "agentic_task_node_acceptance_evaluated",
+            "agentic_task_node_completed",
+        }
+        - event_types
+    ):
+        return ArchitecturePassResult(
+            "P43",
+            "BLOCKED",
+            [graph_id],
+            ["agentic acceptance trace validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P43",
+        "ADMIT_SHADOW_ONLY",
+        [
+            graph_id,
+            lease.lease_id,
+            completion["trace_event"]["trace_digest"],
+            *sorted(event_types),
+        ],
+        [
+            "Agentic node completion can be gated by deterministic acceptance checks and trace digests while preserving EvidenceLedger and Owner Console visibility as the only authorities",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

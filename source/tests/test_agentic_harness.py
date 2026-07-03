@@ -345,6 +345,99 @@ def test_living_system_executes_bound_readonly_agentic_node_action(
     assert binding_row["status"] == "SUCCEEDED"
 
 
+def test_agentic_node_acceptance_trace_completes_only_when_checks_pass(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    artifact_root = tmp_path / "artifacts"
+    artifact_root.mkdir()
+    artifact = artifact_root / "summary.txt"
+    artifact.write_text("agentic acceptance trace fixture\n", encoding="utf-8")
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector"
+    )[0]
+
+    completion = runtime.agentic.complete_node_with_acceptance(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        result={
+            "status": "SUCCEEDED",
+            "summary": "inspection result is recorded",
+            "evidence": ["agentic_task_graph_compiled"],
+            "payload": {"ok": True, "artifact": "summary.txt"},
+        },
+        acceptance_checks=[
+            {"check_id": "status", "type": "result_status"},
+            {
+                "check_id": "summary",
+                "type": "regex",
+                "config": {"field": "summary", "pattern": "recorded"},
+            },
+            {
+                "check_id": "artifact",
+                "type": "artifact_exists",
+                "config": {"path": "summary.txt"},
+            },
+        ],
+        artifact_root=artifact_root,
+    )
+
+    assert completion["acceptance_report"]["passed"] is True
+    assert completion["trace_event"]["payload_digest"]
+    graph = runtime.agentic.load_graph(graph_id)
+    assert graph.nodes[lease.node_id].status is TaskNodeStatus.SUCCEEDED
+    receipts = runtime.status()["agentic_acceptance_trace_receipts"]
+    assert receipts[0]["graph_id"] == graph_id
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+    assert panel["status"]["acceptance_trace_v1"]["receipt_count"] == 1
+
+
+def test_agentic_node_acceptance_failure_blocks_dependents(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs in parallel",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+        model_hints={"allow_parallel": True, "domain": "RESEARCH"},
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector"
+    )[0]
+
+    completion = runtime.agentic.complete_node_with_acceptance(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        result={"status": "SUCCEEDED", "summary": "missing proof", "evidence": []},
+        acceptance_checks=[
+            {
+                "check_id": "evidence",
+                "type": "evidence_min",
+                "config": {"minimum": 1},
+            }
+        ],
+    )
+
+    assert completion["acceptance_report"]["passed"] is False
+    graph = runtime.agentic.load_graph(graph_id)
+    assert graph.nodes[lease.node_id].status is TaskNodeStatus.FAILED
+    assert graph.nodes["gather"].status is TaskNodeStatus.BLOCKED
+
+
 def test_bound_agentic_node_action_execution_rejects_owner_gated_binding(
     tmp_path: Path,
 ) -> None:

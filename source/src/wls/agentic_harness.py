@@ -2,14 +2,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 import json
+import re
 
 from .db import Database
 from .context_manifest import ContextManifestBuilder
 from .evidence import EvidenceLedger
 from .failure_attribution import FailureAttributor
-from .schemas import RiskLevel, TaskNodeStatus, new_id, utc_now
+from .schemas import RiskLevel, TaskNodeStatus, digest_json, new_id, utc_now
 from .task_admission import TaskAdmissionClassifier, TaskIntent
 from .task_graph import TaskGraph, TaskGraphCompiler, TaskNode
 from .worker_registry import WorkerRegistry
@@ -238,6 +240,69 @@ class AgenticHarness:
             self.ledger.append("agentic_task_node_completed", payload, connection)
             return payload
 
+    def complete_node_with_acceptance(
+        self,
+        graph_id: str,
+        node_id: str,
+        *,
+        lease_id: str,
+        result: dict[str, Any],
+        acceptance_checks: list[dict[str, Any]],
+        artifact_root: Path | str | None = None,
+    ) -> dict[str, Any]:
+        report = self._evaluate_acceptance(
+            result,
+            acceptance_checks,
+            artifact_root=artifact_root,
+        )
+        trace = self._trace_event(
+            graph_id=graph_id,
+            node_id=node_id,
+            lease_id=lease_id,
+            kind="agentic_node_acceptance",
+            payload={
+                "result_digest": digest_json(result),
+                "acceptance_digest": digest_json(report),
+                "passed": report["passed"],
+            },
+        )
+        if not report["passed"]:
+            failure = self.fail_node(
+                graph_id,
+                node_id,
+                lease_id=lease_id,
+                error="acceptance checks failed",
+            )
+            payload = {
+                **failure,
+                "acceptance_report": report,
+                "trace_event": trace,
+                "claim_ceiling": (
+                    "acceptance failure only; no retry, repair, external worker "
+                    "execution, or owner approval is inferred"
+                ),
+            }
+            self.ledger.append("agentic_task_node_acceptance_evaluated", payload)
+            return payload
+
+        completion = self.complete_node(
+            graph_id,
+            node_id,
+            lease_id=lease_id,
+            result={**result, "acceptance_report": report, "trace_event": trace},
+        )
+        payload = {
+            **completion,
+            "acceptance_report": report,
+            "trace_event": trace,
+            "claim_ceiling": (
+                "machine acceptance and trace receipt only; does not prove "
+                "external worker quality, deployment readiness, or goal completion"
+            ),
+        }
+        self.ledger.append("agentic_task_node_acceptance_evaluated", payload)
+        return payload
+
     def fail_node(
         self,
         graph_id: str,
@@ -276,6 +341,23 @@ class AgenticHarness:
             }
             self.ledger.append("agentic_task_node_failed", payload, connection)
             return payload
+
+    def acceptance_trace_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        rows = self.db.query_all(
+            """
+            SELECT payload_json,created_at FROM evidence
+            WHERE event_type='agentic_task_node_acceptance_evaluated'
+            ORDER BY seq DESC
+            LIMIT ?
+            """,
+            (max(0, int(limit)),),
+        )
+        receipts: list[dict[str, Any]] = []
+        for row in rows:
+            payload = json.loads(str(row["payload_json"]))
+            if isinstance(payload, dict):
+                receipts.append({**payload, "created_at": row["created_at"]})
+        return receipts
 
     @staticmethod
     def _route(
@@ -360,6 +442,145 @@ class AgenticHarness:
             connection,
         )
         return lease
+
+    def _evaluate_acceptance(
+        self,
+        result: dict[str, Any],
+        checks: list[dict[str, Any]],
+        *,
+        artifact_root: Path | str | None,
+    ) -> dict[str, Any]:
+        root = Path(artifact_root).expanduser().resolve() if artifact_root else None
+        outcomes = [
+            self._run_acceptance_check(result, check, artifact_root=root)
+            for check in checks
+        ]
+        passed = all(item["passed"] or not item["critical"] for item in outcomes)
+        return {
+            "passed": passed,
+            "checks": outcomes,
+            "check_count": len(outcomes),
+            "critical_failures": [
+                item["check_id"]
+                for item in outcomes
+                if not item["passed"] and item["critical"]
+            ],
+            "claim_ceiling": "local deterministic acceptance checks only",
+        }
+
+    def _run_acceptance_check(
+        self,
+        result: dict[str, Any],
+        check: dict[str, Any],
+        *,
+        artifact_root: Path | None,
+    ) -> dict[str, Any]:
+        check_id = str(check.get("check_id") or check.get("type") or "check")
+        check_type = str(check.get("type") or "json_required_keys")
+        critical = bool(check.get("critical", True))
+        try:
+            passed, detail = self._dispatch_acceptance_check(
+                result,
+                check_type=check_type,
+                config=dict(check.get("config", {})),
+                artifact_root=artifact_root,
+            )
+        except Exception as exc:
+            passed, detail = False, f"{type(exc).__name__}: {exc}"
+        return {
+            "check_id": check_id,
+            "type": check_type,
+            "passed": passed,
+            "detail": detail,
+            "critical": critical,
+        }
+
+    def _dispatch_acceptance_check(
+        self,
+        result: dict[str, Any],
+        *,
+        check_type: str,
+        config: dict[str, Any],
+        artifact_root: Path | None,
+    ) -> tuple[bool, str]:
+        if check_type == "result_status":
+            expected = str(config.get("expected", "SUCCEEDED")).upper()
+            actual = str(result.get("status", "SUCCEEDED")).upper()
+            return actual == expected, f"actual={actual} expected={expected}"
+        if check_type == "evidence_min":
+            minimum = int(config.get("minimum", 1))
+            count = len(result.get("evidence", []))
+            return count >= minimum, f"evidence={count} minimum={minimum}"
+        if check_type == "json_required_keys":
+            payload = result.get("payload")
+            if not isinstance(payload, dict):
+                payload = result
+            keys = [str(item) for item in config.get("keys", [])]
+            missing = [key for key in keys if key not in payload]
+            return not missing, f"missing={missing}"
+        if check_type == "regex":
+            pattern = str(config["pattern"])
+            field = str(config.get("field", "summary"))
+            target = str(result.get(field, ""))
+            if field == "payload":
+                target = json.dumps(result.get("payload", {}), sort_keys=True)
+            matched = re.search(pattern, target) is not None
+            return matched, f"pattern={pattern!r} matched={matched}"
+        if check_type in {"artifact_exists", "artifact_sha256"}:
+            if artifact_root is None:
+                raise ValueError("artifact_root is required")
+            relative = str(config["path"])
+            path = (artifact_root / relative).resolve()
+            if path != artifact_root and artifact_root not in path.parents:
+                raise ValueError("artifact path escapes artifact_root")
+            exists = path.is_file()
+            if check_type == "artifact_exists":
+                return exists, f"path={relative} exists={exists}"
+            if not exists:
+                return False, f"path={relative} missing"
+            expected = str(config["sha256"]).lower()
+            actual = self._sha256_file(path)
+            return actual == expected, f"actual={actual} expected={expected}"
+        raise ValueError(f"unsupported acceptance check type: {check_type}")
+
+    @staticmethod
+    def _trace_event(
+        *,
+        graph_id: str,
+        node_id: str,
+        lease_id: str,
+        kind: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        event = {
+            "trace_id": f"trace:{graph_id}",
+            "span_id": f"{node_id}:{lease_id}",
+            "parent_span_id": graph_id,
+            "kind": kind,
+            "actor": "LivingSystem.AgenticHarness",
+            "payload": payload,
+            "timestamp": utc_now(),
+        }
+        event["payload_digest"] = digest_json(payload)
+        event["trace_digest"] = digest_json(
+            {
+                "trace_id": event["trace_id"],
+                "span_id": event["span_id"],
+                "kind": kind,
+                "payload_digest": event["payload_digest"],
+            }
+        )
+        return event
+
+    @staticmethod
+    def _sha256_file(path: Path) -> str:
+        import hashlib
+
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
 
     def _load_graph_for_update(self, graph_id: str, connection: Any) -> TaskGraph:
         row = connection.execute(

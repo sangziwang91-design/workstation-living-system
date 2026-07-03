@@ -295,6 +295,14 @@ fields such as `memory_id`/`active`.
   `skill_experiments` sandbox and transition to `SANDBOXED`, while explicitly
   performing no validation pass, approval, promotion, active Skill enablement,
   Goal completion, or deployment.
+- P42 is a shadow-level runtime admission for the agentic task harness. Complex
+  read-only tasks can be admitted, compiled into bounded DAGs, persisted,
+  reloaded, leased, and projected through canonical `LivingSystem` state without
+  creating a second authority or executing external workers.
+- P43 is a shadow-level runtime admission for agentic acceptance traces. A
+  leased node can be completed only after deterministic local acceptance checks
+  pass, with trace digests and EvidenceLedger receipts visible in Owner Console;
+  failed acceptance blocks the node instead of claiming completion.
 
 ## Projection Rule
 

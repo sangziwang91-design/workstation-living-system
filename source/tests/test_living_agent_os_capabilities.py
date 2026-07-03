@@ -20,6 +20,7 @@ from wls.architecture_validation import (
     validate_phase2_document_projection_review,
     validate_phase2_document_skill_candidate_receipts,
     validate_phase2_document_skill_sandbox_receipts,
+    validate_phase2_agentic_acceptance_trace,
     validate_phase2_agentic_task_harness,
     validate_external_memory_projection,
     validate_mcp_a2a_candidates,
@@ -2320,6 +2321,17 @@ def test_architecture_validation_checks_agentic_task_harness(
         tmp_path / "agentic-task-harness-validation-home"
     )
     assert result.pass_id == "P42"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) >= 4
+
+
+def test_architecture_validation_checks_agentic_acceptance_trace(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_agentic_acceptance_trace(
+        tmp_path / "agentic-acceptance-trace-validation-home"
+    )
+    assert result.pass_id == "P43"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) >= 4
 

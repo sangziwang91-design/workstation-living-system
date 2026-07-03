@@ -376,6 +376,11 @@ class LivingSystem:
         )
         return [dict(row) for row in rows]
 
+    def agentic_acceptance_trace_receipts(
+        self, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        return self.agentic.acceptance_trace_receipts(limit=limit)
+
     def agentic_harness_epoch_audit_receipts(
         self, limit: int = 20
     ) -> list[dict[str, Any]]:
@@ -3060,6 +3065,7 @@ class LivingSystem:
             "agentic_worker_profile_receipts": self.agentic_worker_profile_receipts(),
             "agentic_node_action_receipts": self.agentic_node_action_receipts(),
             "agentic_failure_attribution_receipts": self.agentic_failure_attribution_receipts(),
+            "agentic_acceptance_trace_receipts": self.agentic_acceptance_trace_receipts(),
             "agentic_harness_epoch_audit_receipts": self.agentic_harness_epoch_audit_receipts(),
             "single_software_convergence_receipts": self.single_software_convergence_receipts(),
             "learning_epoch_receipts": self.learning_epoch_receipts(),
