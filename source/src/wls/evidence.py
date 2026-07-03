@@ -52,10 +52,10 @@ class EvidenceLedger:
             pass
         return data
 
-    def append(self, event_type: str, payload: dict[str, Any], connection=None) -> str:
+    def append(self, event_type: str, payload: dict[str, Any], connection=None, source_type: str = "synthetic", producer: str | None = None, branch: str | None = None, commit_sha: str | None = None) -> str:
         if connection is None:
             with self.db.transaction() as owned_connection:
-                return self.append(event_type, payload, owned_connection)
+                return self.append(event_type, payload, owned_connection, source_type, producer, branch, commit_sha)
         evidence_id = new_id("evd")
         created_at = utc_now()
         row = connection.execute(
@@ -68,6 +68,10 @@ class EvidenceLedger:
             "payload": payload,
             "created_at": created_at,
             "previous_hash": previous_hash,
+            "source_type": source_type,
+            "producer": producer,
+            "branch": branch,
+            "commit_sha": commit_sha,
         }
         record_hash = hashlib.sha256(
             canonical_json(record_body).encode("utf-8")
@@ -78,9 +82,13 @@ class EvidenceLedger:
         connection.execute(
             """
             INSERT INTO evidence(
-                evidence_id, event_type, payload_json, created_at,
-                previous_hash, record_hash, signature
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                evidence_id, event_type, payload_json, created_at, source_type, producer, branch, commit_sha,
+                previous_hash, record_hash, signature,
+                source_type,
+                producer,
+                branch,
+                commit_sha, source_type, producer, branch, commit_sha
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 evidence_id,
@@ -90,6 +98,10 @@ class EvidenceLedger:
                 previous_hash,
                 record_hash,
                 signature,
+                source_type,
+                producer,
+                branch,
+                commit_sha,
             ),
         )
         return evidence_id
@@ -107,6 +119,10 @@ class EvidenceLedger:
                 "payload": payload,
                 "created_at": row["created_at"],
                 "previous_hash": row["previous_hash"],
+                "source_type": row["source_type"],
+                "producer": row["producer"],
+                "branch": row["branch"],
+                "commit_sha": row["commit_sha"],
             }
             expected_hash = hashlib.sha256(
                 canonical_json(body).encode("utf-8")
@@ -116,7 +132,11 @@ class EvidenceLedger:
             expected_signature = hmac.new(
                 self._secret, row["record_hash"].encode("ascii"), hashlib.sha256
             ).hexdigest()
-            if not hmac.compare_digest(expected_signature, row["signature"]):
+            if not hmac.compare_digest(expected_signature,
+                source_type,
+                producer,
+                branch,
+                commit_sha, row["signature"]):
                 return False, {"reason": "signature_mismatch", "seq": row["seq"]}
             previous_hash = row["record_hash"]
         return True, {"records": len(rows), "head": previous_hash}

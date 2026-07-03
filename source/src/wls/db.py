@@ -11,7 +11,7 @@ import time
 from .schemas import utc_now
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 GROWTH_SCHEMA_SQL = [
@@ -560,6 +560,9 @@ class Database:
             if current == 2:
                 self._migrate_to_version_3()
                 continue
+            if current == 3:
+                self._migrate_to_version_4()
+                continue
             raise RuntimeError(f"unsupported schema migration from version {current}")
 
     def _schema_version(self) -> int:
@@ -584,7 +587,19 @@ class Database:
                 (3, utc_now()),
             )
 
-    def execute(self, sql: str, parameters: Sequence[Any] = ()) -> int:
+    
+    def _migrate_to_version_4(self) -> None:
+        with self.transaction() as connection:
+            connection.execute("ALTER TABLE evidence ADD COLUMN source_type TEXT NOT NULL DEFAULT "synthetic"")
+            connection.execute("ALTER TABLE evidence ADD COLUMN producer TEXT")
+            connection.execute("ALTER TABLE evidence ADD COLUMN branch TEXT")
+            connection.execute("ALTER TABLE evidence ADD COLUMN commit_sha TEXT")
+            connection.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                (4, utc_now()),
+            )
+
+def execute(self, sql: str, parameters: Sequence[Any] = ()) -> int:
         with self.transaction() as connection:
             cursor = connection.execute(sql, parameters)
             return cursor.rowcount

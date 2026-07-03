@@ -25,6 +25,17 @@ def digest_json(value: Any) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
+
+class EvidenceSourceType(StrEnum):
+    REAL_OWNER_HOST = "real_owner_host"
+    REAL_EXTERNAL = "real_external"
+    CI_INTEGRATION = "ci_integration"
+    LOOPBACK = "loopback"
+    TEMPORARY_REPO = "temporary_repo"
+    SYNTHETIC = "synthetic"
+    FIXTURE = "fixture"
+    SHADOW = "shadow"
+
 class EvidenceKind(StrEnum):
     DIRECT = "DIRECT"
     EXTERNAL = "EXTERNAL"

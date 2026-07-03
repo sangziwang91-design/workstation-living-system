@@ -45,7 +45,12 @@ def git(target: Path, *args: str) -> str:
 def collect(package_root: Path) -> list[Path]:
     files: set[Path] = set()
     for pattern in INCLUDE_PATTERNS:
-        files.update(path for path in package_root.glob(pattern) if path.is_file())
+        if pattern.endswith("/**"):
+            # Path.glob("**/") matches directories, we need to match files recursively
+            recursive_pattern = pattern.replace("/**", "/**/*")
+            files.update(path for path in package_root.glob(recursive_pattern) if path.is_file())
+        else:
+            files.update(path for path in package_root.glob(pattern) if path.is_file())
     return sorted(files)
 
 
