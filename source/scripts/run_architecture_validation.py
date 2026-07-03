@@ -22,6 +22,7 @@ from wls.architecture_validation import (  # noqa: E402
     validate_phase2_browser_readonly_runtime_execution,
     validate_phase2_external_handoff_runtime_receipts,
     validate_phase2_multimodal_asset_readonly_execution,
+    validate_phase2_capability_epoch_audit_receipts,
     validate_phase2_owner_surface_and_readonly_organs,
     validate_phase2_preflighted_readonly_execution,
     validate_phase2_projection_review_and_rollback,
@@ -142,6 +143,11 @@ def run_validation() -> dict[str, object]:
         results.append(
             validate_phase2_learning_epoch_review_receipts(
                 temp_path / "phase2-learning-epoch-home"
+            )
+        )
+        results.append(
+            validate_phase2_capability_epoch_audit_receipts(
+                temp_path / "phase2-capability-epoch-home"
             )
         )
     for pass_id, note in PASS_CONTRACTS.items():

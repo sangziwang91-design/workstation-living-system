@@ -236,6 +236,11 @@ fields such as `memory_id`/`active`.
   candidate-only extraction pass over the same successful read-only receipts,
   preserving evidence and Owner Console visibility without approval, sandbox,
   Skill promotion, or live deployment.
+- P30 is a shadow-level runtime admission for capability epoch audit. The
+  runtime records the P01-P29 capability evidence state as
+  `ADMIT_LOW_RISK_PREPARATION_ONLY` with `FUNCTIONAL_RUNTIME_ONLY` as the
+  allowed conclusion, preserving no second authority, no Skill promotion, no
+  live deployment, and no external writes.
 
 ## Projection Rule
 

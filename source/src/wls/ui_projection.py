@@ -48,6 +48,7 @@ class OwnerConsoleProductProjection:
         "evolution_lab",
         "skill_candidates",
         "learning_epoch",
+        "capability_epoch",
         "organs",
     )
 
@@ -70,6 +71,7 @@ class OwnerConsoleProductProjection:
             self._evolution_panel(status),
             self._skill_candidates_panel(status),
             self._learning_epoch_panel(status),
+            self._capability_epoch_panel(status),
             self._organs_panel(status),
         ]
         payload: dict[str, Any] = {
@@ -340,6 +342,20 @@ class OwnerConsoleProductProjection:
                 "default_mode": "learning_frozen",
                 "allowed_open_mode": "candidate_only",
                 "promotion_executed": False,
+            },
+        }
+
+    @staticmethod
+    def _capability_epoch_panel(status: dict[str, Any]) -> dict[str, Any]:
+        receipts = status.get("capability_epoch_audit_receipts", [])
+        return {
+            "panel_id": "capability_epoch",
+            "title": "Capability Epoch",
+            "status": {
+                "receipt_count": len(receipts) if isinstance(receipts, list) else 0,
+                "items": receipts if isinstance(receipts, list) else [],
+                "allowed_conclusion": "FUNCTIONAL_RUNTIME_ONLY",
+                "live_deployment_executed": False,
             },
         }
 

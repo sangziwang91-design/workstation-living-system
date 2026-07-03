@@ -2040,6 +2040,98 @@ def validate_phase2_learning_epoch_review_receipts(
     )
 
 
+def validate_phase2_capability_epoch_audit_receipts(
+    home: Path,
+) -> ArchitecturePassResult:
+    source = home / "epoch-source.txt"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text("repeatable capability epoch evidence\n", encoding="utf-8")
+    runtime = LivingSystem(default_config(home / "runtime"))
+    for index in range(3):
+        request_id = f"phase2-epoch-source-{index}"
+        runtime.intake_read_only_task(
+            ReadOnlyTaskRequest(
+                request_id=request_id,
+                organ_id="file",
+                owner_intent="inspect repeated local evidence for capability epoch",
+                inputs={"path": str(source), "max_bytes": 1024},
+            )
+        )
+        admission = runtime.admit_read_only_plan_preview(
+            request_id,
+            reason="architecture validation capability epoch source",
+        )
+        runtime.preflight_read_only_plan(str(admission["plan_id"]))
+        runtime.execute_preflighted_read_only_plan(str(admission["plan_id"]))
+    runtime.review_learning_epoch_from_receipts(
+        reason="architecture validation capability epoch learning review",
+        minimum_repeats=3,
+        allow_candidate_extraction=True,
+        owner_authorization="architecture-validation-owner-authorization",
+    )
+    completed = [f"P{index:02d}" for index in range(1, 30)]
+    receipt = runtime.record_capability_epoch_audit(
+        reason="architecture validation capability epoch audit",
+        completed_passes=completed,
+    )
+    evidence = runtime.db.query_all(
+        """
+        SELECT event_type,evidence_id FROM evidence
+        WHERE event_type='capability_epoch_audited'
+        ORDER BY seq DESC LIMIT 1
+        """
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "capability_epoch"
+        ),
+        None,
+    )
+    capability_state = receipt.get("capability_state", {})
+    decision = receipt.get("phase2_admission_decision", {})
+    counts = receipt.get("receipt_counts", {})
+    if (
+        receipt.get("status") != "AUDIT_RECORDED"
+        or receipt.get("highest_pass") != "P29"
+        or receipt.get("allowed_conclusion") != "FUNCTIONAL_RUNTIME_ONLY"
+        or decision.get("status") != "ADMIT_LOW_RISK_PREPARATION_ONLY"
+        or capability_state.get("second_authority_admitted")
+        or capability_state.get("skill_promotion_executed")
+        or capability_state.get("live_deployment_executed")
+        or capability_state.get("external_system_modified")
+        or counts.get("read_only_execution", 0) < 1
+        or counts.get("skill_candidate", 0) < 1
+        or counts.get("learning_epoch", 0) < 1
+        or not evidence
+        or panel is None
+        or panel["status"]["receipt_count"] != 1
+        or panel["status"]["allowed_conclusion"] != "FUNCTIONAL_RUNTIME_ONLY"
+        or panel["status"]["live_deployment_executed"]
+    ):
+        return ArchitecturePassResult(
+            "P30",
+            "BLOCKED",
+            [str(receipt)],
+            ["capability epoch audit receipt validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P30",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(evidence[0]["evidence_id"]),
+            str(receipt["highest_pass"]),
+            str(decision["status"]),
+        ],
+        [
+            "Capability epoch audit records the P01-P29 shadow admission state with low-risk preparation only, preserving no second authority, no Skill promotion, no live deployment, and no external writes",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

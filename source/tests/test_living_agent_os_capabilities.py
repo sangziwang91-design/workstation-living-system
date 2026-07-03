@@ -14,6 +14,7 @@ from wls.architecture_validation import (
     validate_coding_worktree_candidate,
     validate_external_memory_projection,
     validate_mcp_a2a_candidates,
+    validate_phase2_capability_epoch_audit_receipts,
     validate_phase2_coding_candidate_readonly_execution,
     validate_phase2_browser_readonly_runtime_execution,
     validate_phase2_external_handoff_runtime_receipts,
@@ -613,6 +614,7 @@ def test_owner_console_product_projection_and_wechat_digest_are_read_only(
         "evolution_lab",
         "skill_candidates",
         "learning_epoch",
+        "capability_epoch",
         "organs",
     } <= set(projection["panel_ids"])
     digest = WeChatW0W1Adapter("W1").console_digest_notification(projection)
@@ -975,6 +977,57 @@ def test_runtime_reviews_learning_epoch_with_candidate_only_authorization(
     assert panel["status"]["receipt_count"] == 1
     assert panel["status"]["default_mode"] == "learning_frozen"
     assert panel["status"]["promotion_executed"] is False
+
+
+def test_runtime_records_capability_epoch_audit_without_promotion_or_deploy(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    source = tmp_path / "epoch-source.txt"
+    source.write_text("repeatable epoch evidence", encoding="utf-8")
+    for index in range(3):
+        request_id = f"epoch-source-{index}"
+        runtime.intake_read_only_task(
+            ReadOnlyTaskRequest(
+                request_id=request_id,
+                organ_id="file",
+                owner_intent="inspect repeated file evidence for epoch audit",
+                inputs={"path": str(source), "max_bytes": 1024},
+            )
+        )
+        admission = runtime.admit_read_only_plan_preview(request_id)
+        runtime.preflight_read_only_plan(str(admission["plan_id"]))
+        runtime.execute_preflighted_read_only_plan(str(admission["plan_id"]))
+    runtime.review_learning_epoch_from_receipts(
+        reason="unit test epoch learning review",
+        minimum_repeats=3,
+        allow_candidate_extraction=True,
+        owner_authorization="pytest-owner-authorization",
+    )
+    receipt = runtime.record_capability_epoch_audit(
+        reason="unit test capability epoch",
+        completed_passes=[f"P{index:02d}" for index in range(1, 30)],
+    )
+    state = receipt["capability_state"]
+    decision = receipt["phase2_admission_decision"]
+    assert receipt["status"] == "AUDIT_RECORDED"
+    assert receipt["highest_pass"] == "P29"
+    assert receipt["allowed_conclusion"] == "FUNCTIONAL_RUNTIME_ONLY"
+    assert decision["status"] == "ADMIT_LOW_RISK_PREPARATION_ONLY"
+    assert state["second_authority_admitted"] is False
+    assert state["skill_promotion_executed"] is False
+    assert state["live_deployment_executed"] is False
+    assert state["external_system_modified"] is False
+    assert receipt["receipt_counts"]["skill_candidate"] >= 1
+    assert receipt["receipt_counts"]["learning_epoch"] >= 1
+    panel = next(
+        panel
+        for panel in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if panel["panel_id"] == "capability_epoch"
+    )
+    assert panel["status"]["receipt_count"] == 1
+    assert panel["status"]["allowed_conclusion"] == "FUNCTIONAL_RUNTIME_ONLY"
+    assert panel["status"]["live_deployment_executed"] is False
 
 
 def test_runtime_projects_read_only_execution_receipt_as_candidate_memory_world(
@@ -1468,6 +1521,17 @@ def test_architecture_validation_checks_learning_epoch_review(
     assert result.pass_id == "P29"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) >= 4
+
+
+def test_architecture_validation_checks_capability_epoch_audit(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_capability_epoch_audit_receipts(
+        tmp_path / "capability-epoch-validation-home"
+    )
+    assert result.pass_id == "P30"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) == 3
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

@@ -290,6 +290,14 @@ class LivingSystem:
             return []
         return receipts[: max(0, int(limit))]
 
+    def capability_epoch_audit_receipts(
+        self, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("capability_epoch_audit_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
     def propose_skill_candidates_from_receipts(
         self, *, minimum_repeats: int = 3, reason: str
     ) -> dict[str, Any]:
@@ -402,6 +410,57 @@ class LivingSystem:
         with self.db.transaction() as connection:
             self.db.set_runtime("learning_epoch_receipts", updated, connection)
             self.ledger.append("learning_epoch_reviewed", receipt, connection)
+        return receipt
+
+    def record_capability_epoch_audit(
+        self, *, reason: str, completed_passes: list[str]
+    ) -> dict[str, Any]:
+        capability_summary = self.capabilities.summary()
+        receipts = {
+            "read_only_execution": len(self.read_only_execution_receipts(limit=100)),
+            "projection_review": len(self.read_only_projection_reviews(limit=100)),
+            "provider_route": len(self.provider_route_receipts(limit=100)),
+            "skill_candidate": len(self.skill_candidate_receipts(limit=100)),
+            "learning_epoch": len(self.learning_epoch_receipts(limit=100)),
+        }
+        second_authority_admitted = any(
+            item.get("declares_authority")
+            for item in capability_summary.get("capabilities", [])
+            if isinstance(item, dict)
+        )
+        active_skill_count = len(self.skills.active())
+        receipt = {
+            "receipt_type": "CAPABILITY_EPOCH_AUDIT",
+            "status": "AUDIT_RECORDED",
+            "reason": reason,
+            "completed_passes": completed_passes,
+            "highest_pass": completed_passes[-1] if completed_passes else None,
+            "receipt_counts": receipts,
+            "capability_state": {
+                "second_authority_admitted": second_authority_admitted,
+                "active_skill_count": active_skill_count,
+                "skill_promotion_executed": False,
+                "live_deployment_executed": False,
+                "external_system_modified": False,
+            },
+            "phase2_admission_decision": {
+                "status": "ADMIT_LOW_RISK_PREPARATION_ONLY",
+                "owner_gate_required_for": [
+                    "Skill promotion",
+                    "live deployment",
+                    "external write",
+                    "long-running daemon",
+                ],
+            },
+            "allowed_conclusion": "FUNCTIONAL_RUNTIME_ONLY",
+            "claim_ceiling": "repository runtime admission evidence only; no live or production readiness claim",
+            "created_at": utc_now(),
+        }
+        current = self.capability_epoch_audit_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("capability_epoch_audit_receipts", updated, connection)
+            self.ledger.append("capability_epoch_audited", receipt, connection)
         return receipt
 
     def record_provider_route_receipt(self, *, reason: str) -> dict[str, Any]:
@@ -1873,6 +1932,7 @@ class LivingSystem:
             "provider_route_receipts": self.provider_route_receipts(),
             "skill_candidate_receipts": self.skill_candidate_receipts(),
             "learning_epoch_receipts": self.learning_epoch_receipts(),
+            "capability_epoch_audit_receipts": self.capability_epoch_audit_receipts(),
             "read_only_execution_preflights": self.read_only_execution_preflights(),
             "read_only_execution_receipts": self.read_only_execution_receipts(),
             "read_only_result_projections": self.read_only_result_projections(),
