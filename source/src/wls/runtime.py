@@ -384,6 +384,14 @@ class LivingSystem:
             return []
         return receipts[: max(0, int(limit))]
 
+    def single_software_convergence_receipts(
+        self, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("single_software_convergence_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
     def bind_agentic_node_to_action(
         self,
         graph_id: str,
@@ -743,6 +751,101 @@ class LivingSystem:
                 "agentic_harness_epoch_audit_receipts", updated, connection
             )
             self.ledger.append("agentic_harness_epoch_audited", receipt, connection)
+        return receipt
+
+    def record_single_software_convergence_audit(
+        self,
+        *,
+        reason: str,
+        source_branch: str | None = None,
+        required_live_tail_tests: list[str] | None = None,
+    ) -> dict[str, Any]:
+        required_tail = required_live_tail_tests or [
+            "30-round campaign replay against disposable campaign home",
+            "installed package compatibility smoke against disposable WLS home",
+            "live configuration/database non-mutation check",
+            "Owner Console/WeChat read-only projection smoke",
+            "package build/install/uninstall rollback drill",
+        ]
+        capability_summary = self.capabilities.summary()
+        receipt_counts = {
+            "capability_epoch_audit": len(self.capability_epoch_audit_receipts(100)),
+            "agentic_harness_epoch_audit": len(
+                self.agentic_harness_epoch_audit_receipts(100)
+            ),
+            "agentic_task": len(self.agentic_task_receipts(100)),
+            "agentic_node_action": len(self.agentic_node_action_receipts(100)),
+            "agentic_failure_attribution": len(
+                self.agentic_failure_attribution_receipts(100)
+            ),
+            "read_only_execution": len(self.read_only_execution_receipts(100)),
+            "skill_candidate": len(self.skill_candidate_receipts(100)),
+            "skill_sandbox": len(self.skill_sandbox_receipts(100)),
+        }
+        branch_only_scaffolding = [
+            {
+                "item": "candidate branch / worktree",
+                "status": "MUST_CONVERGE_BEFORE_FINAL",
+                "reason": "final state is one WLS software, not a permanent branch stack",
+            },
+            {
+                "item": "repository-only agentic harness receipts",
+                "status": "NEEDS_PACKAGE_AND_DISPOSABLE_RUNTIME_PROOF",
+                "reason": "repo tests do not prove installed software behavior",
+            },
+        ]
+        integrated_software_organs = [
+            item.get("capability_id")
+            for item in capability_summary.get("capabilities", [])
+            if isinstance(item, dict)
+            and not item.get("declares_authority")
+            and item.get("mode") in {"WORKBENCH", "SHADOW", "ACTIVE"}
+        ]
+        invariants = {
+            "single_living_system_authority": not any(
+                item.get("declares_authority")
+                for item in capability_summary.get("capabilities", [])
+                if isinstance(item, dict)
+            ),
+            "branch_is_not_final_state": True,
+            "live_tail_tests_explicit": bool(required_tail),
+            "no_live_deployment_claim": True,
+            "candidate_only_until_packaged": True,
+        }
+        receipt = {
+            "receipt_type": "SINGLE_SOFTWARE_CONVERGENCE_AUDIT",
+            "status": "CONVERGENCE_INCOMPLETE",
+            "reason": reason,
+            "source_branch": source_branch,
+            "target_state": "ONE_WLS_SOFTWARE",
+            "integrated_software_organs": sorted(
+                str(item) for item in integrated_software_organs if item
+            ),
+            "branch_only_scaffolding": branch_only_scaffolding,
+            "required_live_tail_tests": required_tail,
+            "receipt_counts": receipt_counts,
+            "invariants": invariants,
+            "blocking_gaps": [
+                "candidate branch not yet packaged into unified WLS release",
+                "live/disposable installed-instance tail tests not yet completed",
+                "30-round baseline plus package 2.0 plus common agent organs not yet proven as one software",
+            ],
+            "allowed_conclusion": "CONVERGENCE_MAP_RECORDED_NOT_FINAL_SOFTWARE",
+            "claim_ceiling": (
+                "single-software convergence audit only; records remaining gaps "
+                "and tail tests, not final packaging, deployment, or complete product state"
+            ),
+            "created_at": utc_now(),
+        }
+        current = self.single_software_convergence_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime(
+                "single_software_convergence_receipts", updated, connection
+            )
+            self.ledger.append(
+                "single_software_convergence_audited", receipt, connection
+            )
         return receipt
 
     def learning_epoch_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
@@ -2958,6 +3061,7 @@ class LivingSystem:
             "agentic_node_action_receipts": self.agentic_node_action_receipts(),
             "agentic_failure_attribution_receipts": self.agentic_failure_attribution_receipts(),
             "agentic_harness_epoch_audit_receipts": self.agentic_harness_epoch_audit_receipts(),
+            "single_software_convergence_receipts": self.single_software_convergence_receipts(),
             "learning_epoch_receipts": self.learning_epoch_receipts(),
             "capability_epoch_audit_receipts": self.capability_epoch_audit_receipts(),
             "read_only_execution_preflights": self.read_only_execution_preflights(),

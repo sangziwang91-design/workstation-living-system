@@ -104,12 +104,15 @@ runtime:
 - L12: Harness Epoch Audit records no-second-authority, no-external-worker,
   no-unsafe-bound-action, owner-gate, and evidence-retention invariants as a
   repository runtime receipt.
+- L13: Single-Software Convergence Audit records that the final target is one
+  WLS software, identifies branch-only scaffolding, and lists the remaining
+  disposable/live-tail tests required before unified packaging claims.
 
 ## Next Batches
 
 Recommended next increments:
 
-1. Offspring birth contract: only after the parent harness can evaluate bounded
-   task graphs without second authority drift.
-2. Single-software convergence audit: identify branch-only scaffolding and
-   remaining live-tail tests required before unified WLS packaging.
+1. Disposable installed-package tail tests: replay the convergence audit against
+   a cloned WLS home and prove no live config/database mutation.
+2. Offspring birth contract: only after the parent harness can evaluate bounded
+   task graphs without second authority drift and convergence gaps are explicit.

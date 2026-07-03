@@ -444,6 +444,40 @@ def test_agentic_harness_epoch_audit_records_safety_invariants(
     assert panel["status"]["harness_epoch_audit"]["receipt_count"] == 1
 
 
+def test_single_software_convergence_audit_records_remaining_tail_gaps(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime.record_agentic_harness_epoch_audit(
+        reason="seed convergence audit with harness epoch receipt"
+    )
+
+    receipt = runtime.record_single_software_convergence_audit(
+        reason="unit test convergence map",
+        source_branch="living-agent-os-capabilities-001",
+        required_live_tail_tests=["disposable install smoke", "30-round replay"],
+    )
+
+    assert receipt["status"] == "CONVERGENCE_INCOMPLETE"
+    assert receipt["target_state"] == "ONE_WLS_SOFTWARE"
+    assert receipt["source_branch"] == "living-agent-os-capabilities-001"
+    assert receipt["required_live_tail_tests"] == [
+        "disposable install smoke",
+        "30-round replay",
+    ]
+    assert receipt["invariants"]["branch_is_not_final_state"] is True
+    assert receipt["invariants"]["single_living_system_authority"] is True
+    assert "candidate branch not yet packaged" in receipt["blocking_gaps"][0]
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "capability_epoch"
+    )
+    assert (
+        panel["status"]["single_software_convergence"]["receipt_count"] == 1
+    )
+
+
 def test_failure_attribution_classifies_policy_and_environment(
     tmp_path: Path,
 ) -> None:

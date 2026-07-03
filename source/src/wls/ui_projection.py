@@ -518,12 +518,19 @@ class OwnerConsoleProductProjection:
     @staticmethod
     def _capability_epoch_panel(status: dict[str, Any]) -> dict[str, Any]:
         receipts = status.get("capability_epoch_audit_receipts", [])
+        convergence = status.get("single_software_convergence_receipts", [])
         return {
             "panel_id": "capability_epoch",
             "title": "Capability Epoch",
             "status": {
                 "receipt_count": len(receipts) if isinstance(receipts, list) else 0,
                 "items": receipts if isinstance(receipts, list) else [],
+                "single_software_convergence": {
+                    "receipt_count": len(convergence)
+                    if isinstance(convergence, list)
+                    else 0,
+                    "items": convergence if isinstance(convergence, list) else [],
+                },
                 "allowed_conclusion": "FUNCTIONAL_RUNTIME_ONLY",
                 "live_deployment_executed": False,
             },
