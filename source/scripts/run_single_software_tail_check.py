@@ -3,7 +3,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import subprocess  # nosec B404
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +24,20 @@ def _load_json(path: Path) -> dict[str, Any] | None:
     if not path.exists():
         return None
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _utc_now() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def _atomic_write_json(path: Path, value: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(temporary, path)
 
 
 def _contained(child: Path, parent: Path) -> bool:
@@ -75,13 +91,19 @@ def run_tail_check(
     *,
     install_root: Path,
     campaign_home: Path,
+    live_home: Path | None = None,
     run_status_smoke: bool = False,
     timeout_seconds: int = 30,
 ) -> dict[str, Any]:
     install_root = install_root.expanduser().resolve()
     campaign_home = campaign_home.expanduser().resolve()
-    live_config = install_root / "config.json"
-    live_db = install_root / "state" / "wls.db"
+    resolved_live_home = (
+        live_home.expanduser().resolve()
+        if live_home is not None
+        else install_root / "home"
+    )
+    live_config = resolved_live_home / "config.json"
+    live_db = resolved_live_home / "state" / "wls.db"
     campaign_config = campaign_home / "config.json"
     campaign_r30 = campaign_home / "campaign_evidence" / "R30" / "epoch_audit.json"
     before = {
@@ -91,8 +113,13 @@ def run_tail_check(
     checks = {
         "install_root_exists": install_root.exists(),
         "campaign_home_exists": campaign_home.exists(),
+        "live_home_exists": resolved_live_home.exists(),
         "campaign_not_live_home": install_root != campaign_home,
+        "campaign_not_runtime_live_home": resolved_live_home != campaign_home,
         "campaign_not_inside_live_home": not _contained(campaign_home, install_root),
+        "campaign_not_inside_runtime_live_home": not _contained(
+            campaign_home, resolved_live_home
+        ),
         "campaign_config_exists": campaign_config.exists(),
         "campaign_r30_epoch_audit_exists": campaign_r30.exists(),
         "live_config_present": live_config.exists(),
@@ -131,11 +158,16 @@ def run_tail_check(
     checks["live_db_unchanged"] = before["live_db_sha256"] == after["live_db_sha256"]
     required_checks = [
         "install_root_exists",
+        "live_home_exists",
         "campaign_home_exists",
         "campaign_not_live_home",
+        "campaign_not_runtime_live_home",
         "campaign_not_inside_live_home",
+        "campaign_not_inside_runtime_live_home",
         "campaign_config_exists",
         "campaign_config_points_to_campaign_home",
+        "live_config_present",
+        "live_db_present",
         "live_config_unchanged",
         "live_db_unchanged",
     ]
@@ -148,6 +180,7 @@ def run_tail_check(
         "receipt_type": "SINGLE_SOFTWARE_TAIL_CHECK",
         "status": "PASS_WITH_LIMITS" if ok else "FAIL",
         "install_root": str(install_root),
+        "live_home": str(resolved_live_home),
         "campaign_home": str(campaign_home),
         "checks": checks,
         "live_hashes_before": before,
@@ -161,18 +194,90 @@ def run_tail_check(
     }
 
 
+def record_tail_check_manifest(
+    *,
+    campaign_home: Path,
+    output: Path,
+    round_id: str = "R30",
+    label: str = "single_software_tail_check",
+) -> dict[str, Any]:
+    campaign_home = campaign_home.expanduser().resolve()
+    output = output.expanduser().resolve()
+    if not output.exists() or not output.is_file():
+        raise FileNotFoundError(f"tail-check output not found: {output}")
+    manifest_path = campaign_home / "campaign_evidence" / "manifest.json"
+    if manifest_path.exists():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    else:
+        manifest = {
+            "schema_version": 1,
+            "created_at": _utc_now(),
+            "records": [],
+        }
+    records = manifest.setdefault("records", [])
+    output_sha256 = _sha256(output)
+    for record in records:
+        if (
+            record.get("kind") == "file"
+            and record.get("round_id") == round_id
+            and record.get("label") == label
+            and Path(str(record.get("path", ""))).resolve() == output
+            and record.get("sha256") == output_sha256
+        ):
+            return {
+                "recorded": False,
+                "record_id": record.get("id"),
+                "manifest_path": str(manifest_path),
+            }
+
+    record_id = f"ev-{len(records) + 1:04d}"
+    receipt = _load_json(output) or {}
+    records.append(
+        {
+            "id": record_id,
+            "round_id": round_id,
+            "kind": "file",
+            "label": label,
+            "path": str(output),
+            "sha256": output_sha256,
+            "bytes": output.stat().st_size,
+            "recorded_at": _utc_now(),
+            "metadata": {
+                "receipt_type": receipt.get("receipt_type"),
+                "status": receipt.get("status"),
+                "status_smoke_executed": (
+                    receipt.get("status_smoke", {}).get("executed")
+                    if isinstance(receipt.get("status_smoke"), dict)
+                    else None
+                ),
+            },
+        }
+    )
+    _atomic_write_json(manifest_path, manifest)
+    return {
+        "recorded": True,
+        "record_id": record_id,
+        "manifest_path": str(manifest_path),
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Run WLS single-software disposable tail checks"
     )
     parser.add_argument("--install-root", required=True, type=Path)
+    parser.add_argument("--live-home", type=Path)
     parser.add_argument("--campaign-home", required=True, type=Path)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--record-manifest", action="store_true")
+    parser.add_argument("--manifest-round-id", default="R30")
+    parser.add_argument("--manifest-label", default="single_software_tail_check")
     parser.add_argument("--run-status-smoke", action="store_true")
     parser.add_argument("--timeout-seconds", type=int, default=30)
     args = parser.parse_args(argv)
     receipt = run_tail_check(
         install_root=args.install_root,
+        live_home=args.live_home,
         campaign_home=args.campaign_home,
         run_status_smoke=args.run_status_smoke,
         timeout_seconds=args.timeout_seconds,
@@ -181,6 +286,16 @@ def main(argv: list[str] | None = None) -> int:
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(payload + "\n", encoding="utf-8")
+        if args.record_manifest:
+            manifest_receipt = record_tail_check_manifest(
+                campaign_home=args.campaign_home,
+                output=args.output,
+                round_id=args.manifest_round_id,
+                label=args.manifest_label,
+            )
+            print(json.dumps(manifest_receipt, ensure_ascii=False, sort_keys=True))
+    elif args.record_manifest:
+        parser.error("--record-manifest requires --output")
     else:
         print(payload)
     return 0 if receipt["status"] == "PASS_WITH_LIMITS" else 1

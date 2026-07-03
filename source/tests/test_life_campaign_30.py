@@ -20,7 +20,10 @@ from campaign_state import (  # noqa: E402
     validate_campaign_spec,
 )
 from run_life_campaign_30 import DEFAULT_SPEC, CampaignRunner, expand_rounds  # noqa: E402
-from run_single_software_tail_check import run_tail_check  # noqa: E402
+from run_single_software_tail_check import (  # noqa: E402
+    record_tail_check_manifest,
+    run_tail_check,
+)
 
 
 def _write_fake_wls(live_home: Path) -> None:
@@ -330,14 +333,15 @@ def test_single_software_tail_check_preserves_live_hashes(
     tmp_path: Path,
 ) -> None:
     install_root = tmp_path / "install"
+    live_home = install_root / "home"
     campaign_home = tmp_path / "campaign"
-    (install_root / "state").mkdir(parents=True)
+    (live_home / "state").mkdir(parents=True)
     (campaign_home / "campaign_evidence" / "R30").mkdir(parents=True)
-    (install_root / "config.json").write_text(
-        json.dumps({"home": str(install_root)}),
+    (live_home / "config.json").write_text(
+        json.dumps({"home": str(live_home)}),
         encoding="utf-8",
     )
-    (install_root / "state" / "wls.db").write_bytes(b"live-db")
+    (live_home / "state" / "wls.db").write_bytes(b"live-db")
     (campaign_home / "config.json").write_text(
         json.dumps({"home": str(campaign_home)}),
         encoding="utf-8",
@@ -354,7 +358,10 @@ def test_single_software_tail_check_preserves_live_hashes(
 
     assert receipt["status"] == "PASS_WITH_LIMITS"
     assert receipt["checks"]["campaign_not_live_home"] is True
+    assert receipt["checks"]["campaign_not_runtime_live_home"] is True
     assert receipt["checks"]["campaign_config_points_to_campaign_home"] is True
+    assert receipt["checks"]["live_config_present"] is True
+    assert receipt["checks"]["live_db_present"] is True
     assert receipt["checks"]["live_config_unchanged"] is True
     assert receipt["checks"]["live_db_unchanged"] is True
     assert receipt["status_smoke"]["executed"] is False
@@ -364,20 +371,51 @@ def test_single_software_tail_check_rejects_live_home_as_campaign_home(
     tmp_path: Path,
 ) -> None:
     install_root = tmp_path / "install"
-    (install_root / "state").mkdir(parents=True)
-    (install_root / "config.json").write_text(
-        json.dumps({"home": str(install_root)}),
+    live_home = install_root / "home"
+    (live_home / "state").mkdir(parents=True)
+    (live_home / "config.json").write_text(
+        json.dumps({"home": str(live_home)}),
         encoding="utf-8",
     )
-    (install_root / "state" / "wls.db").write_bytes(b"live-db")
+    (live_home / "state" / "wls.db").write_bytes(b"live-db")
 
     receipt = run_tail_check(
         install_root=install_root,
-        campaign_home=install_root,
+        campaign_home=live_home,
     )
 
     assert receipt["status"] == "FAIL"
-    assert receipt["checks"]["campaign_not_live_home"] is False
+    assert receipt["checks"]["campaign_not_runtime_live_home"] is False
+
+
+def test_single_software_tail_check_records_manifest_without_duplicates(
+    tmp_path: Path,
+) -> None:
+    campaign_home = tmp_path / "campaign"
+    output = campaign_home / "campaign_evidence" / "tail_checks" / "receipt.json"
+    output.parent.mkdir(parents=True)
+    output.write_text(
+        json.dumps(
+            {
+                "receipt_type": "SINGLE_SOFTWARE_TAIL_CHECK",
+                "status": "PASS_WITH_LIMITS",
+                "status_smoke": {"executed": True, "ok": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    first = record_tail_check_manifest(campaign_home=campaign_home, output=output)
+    second = record_tail_check_manifest(campaign_home=campaign_home, output=output)
+
+    manifest = load_json(campaign_home / "campaign_evidence" / "manifest.json")
+    assert first["recorded"] is True
+    assert second["recorded"] is False
+    assert first["record_id"] == second["record_id"]
+    assert len(manifest["records"]) == 1
+    assert manifest["records"][0]["round_id"] == "R30"
+    assert manifest["records"][0]["label"] == "single_software_tail_check"
+    assert manifest["records"][0]["metadata"]["status_smoke_executed"] is True
 
 
 def test_runner_blocks_after_failed_round(tmp_path: Path) -> None:
