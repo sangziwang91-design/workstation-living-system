@@ -59,7 +59,38 @@ from wls.architecture_validation import (  # noqa: E402
 PASS_CONTRACTS: dict[str, str] = {}
 
 
-def run_validation() -> dict[str, object]:
+def _selected(selected: set[str] | None, pass_id: str) -> bool:
+    return selected is None or pass_id in selected
+
+
+def _run_selected_validation(selected: set[str]) -> dict[str, object]:
+    unknown = selected - {"P01", "P42"}
+    if unknown:
+        raise ValueError(
+            "selective architecture validation currently supports only "
+            f"P01 and P42, got {sorted(unknown)}"
+        )
+    results: list[ArchitecturePassResult] = []
+    with tempfile.TemporaryDirectory(prefix="wls-architecture-validation-") as temp:
+        temp_path = Path(temp)
+        if _selected(selected, "P01"):
+            results.append(validate_p01_registry())
+        if _selected(selected, "P42"):
+            results.append(
+                validate_phase2_agentic_task_harness(
+                    temp_path / "phase2-agentic-task-harness-home"
+                )
+            )
+    return {
+        "task_id": "WLS-LIVING-AGENT-OS-CAPABILITIES-001",
+        "claim_ceiling": "repository-level contracts and tests only; no live/external operation proven",
+        "results": [item.to_dict() for item in results],
+    }
+
+
+def run_validation(selected: set[str] | None = None) -> dict[str, object]:
+    if selected is not None:
+        return _run_selected_validation(selected)
     results: list[ArchitecturePassResult] = [validate_p01_registry()]
     with tempfile.TemporaryDirectory(prefix="wls-architecture-validation-") as temp:
         temp_path = Path(temp)
@@ -241,8 +272,15 @@ def run_validation() -> dict[str, object]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run WLS architecture validation passes")
     parser.add_argument("--output", type=Path)
+    parser.add_argument(
+        "--only",
+        action="append",
+        dest="only",
+        help="Run one validation pass only. Currently supports P01 and P42.",
+    )
     args = parser.parse_args(argv)
-    result = run_validation()
+    selected = {item.upper() for item in args.only} if args.only else None
+    result = run_validation(selected)
     payload = json.dumps(result, indent=2, ensure_ascii=False, sort_keys=True)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

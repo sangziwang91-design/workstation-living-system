@@ -463,6 +463,9 @@ class OwnerConsoleProductProjection:
     @staticmethod
     def _agentic_tasks_panel(status: dict[str, Any]) -> dict[str, Any]:
         receipts = status.get("agentic_task_receipts", [])
+        manifests = status.get("agentic_context_manifest_receipts", [])
+        workers = status.get("agentic_worker_profile_receipts", [])
+        bindings = status.get("agentic_node_action_receipts", [])
         return {
             "panel_id": "agentic_tasks",
             "title": "Agentic Tasks",
@@ -472,6 +475,18 @@ class OwnerConsoleProductProjection:
                 "canonical_runtime": "LivingSystem",
                 "second_authority_created": False,
                 "direct_worker_execution": False,
+                "context_manifest_v1": {
+                    "receipt_count": len(manifests) if isinstance(manifests, list) else 0,
+                    "items": manifests if isinstance(manifests, list) else [],
+                },
+                "worker_registry_v1": {
+                    "receipt_count": len(workers) if isinstance(workers, list) else 0,
+                    "items": workers if isinstance(workers, list) else [],
+                },
+                "policy_bound_actions": {
+                    "receipt_count": len(bindings) if isinstance(bindings, list) else 0,
+                    "items": bindings if isinstance(bindings, list) else [],
+                },
             },
         }
 

@@ -3185,7 +3185,7 @@ def validate_phase2_agentic_task_harness(home: Path) -> ArchitecturePassResult:
     reloaded = LivingSystem(default_config(home / "runtime"))
     graph = reloaded.agentic.load_graph(graph_id)
     leases = reloaded.agentic.acquire_ready_leases(
-        graph_id, worker_id="architecture-validator", limit=2
+        graph_id, worker_id="readonly-inspector", limit=2
     )
     panel = next(
         (

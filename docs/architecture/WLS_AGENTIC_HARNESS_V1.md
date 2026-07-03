@@ -82,15 +82,27 @@ restart reconstruction, and lease conflict behavior. It does not prove external
 worker execution, model routing, browser automation, code repair throughput,
 offspring evolution, vendor parity, deployment readiness, or live-host behavior.
 
+## Batch 2 Coverage
+
+This branch now adds the next bounded substrate without leaving the canonical
+runtime:
+
+- L06: Context Manifest V1 selects task intent, task graph, and canonical active
+  memory records deterministically;
+- L07: Worker Registry V1 persists local shadow worker profiles;
+- L08: node leases require an active worker profile and record profile assignment
+  receipts before any node is marked leased.
+- L09: leased nodes can be bound into canonical `Plan`/`Action` rows after
+  `PolicyEngine` decision, without executing tools, consuming approvals, or
+  completing the node.
+
 ## Next Batches
 
 Recommended next increments:
 
-1. Context Manifest V1: deterministic selection of scoped memory/project records.
-2. Worker Registry V1: local deterministic worker profiles without external tools.
-3. Policy-bound node execution: map leased nodes into canonical `Plan`/`Action`
-   without bypassing approval or evidence.
-4. Failure attribution: classify LOCAL, UPSTREAM, STRUCTURAL, POLICY, and
+1. Failure attribution: classify LOCAL, UPSTREAM, STRUCTURAL, POLICY, and
    ENVIRONMENT failures.
-5. Offspring birth contract: only after the parent harness can evaluate bounded
+2. Read-only node execution receipt: execute only preflighted READ/no-side-effect
+   node actions and feed results back to graph completion.
+3. Offspring birth contract: only after the parent harness can evaluate bounded
    task graphs without second authority drift.

@@ -6,10 +6,12 @@ from typing import Any
 import json
 
 from .db import Database
+from .context_manifest import ContextManifestBuilder
 from .evidence import EvidenceLedger
 from .schemas import RiskLevel, TaskNodeStatus, new_id, utc_now
 from .task_admission import TaskAdmissionClassifier, TaskIntent
 from .task_graph import TaskGraph, TaskGraphCompiler, TaskNode
+from .worker_registry import WorkerRegistry
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +51,8 @@ class AgenticHarness:
         self.ledger = ledger
         self.classifier = classifier or TaskAdmissionClassifier()
         self.compiler = compiler or TaskGraphCompiler()
+        self.context_manifest = ContextManifestBuilder(db)
+        self.worker_registry = WorkerRegistry(db, ledger)
 
     def admit_and_compile(
         self,
@@ -67,7 +71,8 @@ class AgenticHarness:
             model_hints=model_hints,
         )
         graph = self.compiler.compile(intent)
-        route = self._route(intent, graph)
+        manifest = self.context_manifest.build(intent, graph)
+        route = self._route(intent, graph, manifest=manifest)
         with self.db.transaction() as connection:
             connection.execute(
                 """
@@ -100,6 +105,8 @@ class AgenticHarness:
                     graph.updated_at,
                 ),
             )
+            self.context_manifest.persist(manifest, connection=connection)
+            self.worker_registry.ensure_defaults(connection=connection)
             self.ledger.append(
                 "agentic_task_graph_compiled",
                 {
@@ -110,6 +117,8 @@ class AgenticHarness:
                     "node_count": len(graph.nodes),
                     "graph_digest": graph.snapshot()["graph_digest"],
                     "claim_ceiling": "compiled task graph only; no worker execution or external action",
+                    "context_manifest_id": manifest["manifest_id"],
+                    "context_manifest_digest": manifest["manifest_digest"],
                 },
                 connection,
             )
@@ -117,6 +126,7 @@ class AgenticHarness:
             "intent": intent.to_dict(),
             "route": route,
             "graph": graph.snapshot(),
+            "context_manifest": manifest,
         }
 
     def load_graph(self, graph_id: str) -> TaskGraph:
@@ -202,6 +212,7 @@ class AgenticHarness:
         result: dict[str, Any],
     ) -> dict[str, Any]:
         with self.db.transaction() as connection:
+            self.worker_registry.ensure_defaults(connection=connection)
             graph = self._load_graph_for_update(graph_id, connection)
             lease = self._active_lease(graph_id, node_id, lease_id, connection)
             node = graph.complete(node_id, result)
@@ -234,6 +245,7 @@ class AgenticHarness:
         error: str,
     ) -> dict[str, Any]:
         with self.db.transaction() as connection:
+            self.worker_registry.ensure_defaults(connection=connection)
             graph = self._load_graph_for_update(graph_id, connection)
             lease = self._active_lease(graph_id, node_id, lease_id, connection)
             node = graph.fail(node_id, error)
@@ -259,7 +271,9 @@ class AgenticHarness:
             return payload
 
     @staticmethod
-    def _route(intent: TaskIntent, graph: TaskGraph) -> dict[str, Any]:
+    def _route(
+        intent: TaskIntent, graph: TaskGraph, *, manifest: dict[str, Any]
+    ) -> dict[str, Any]:
         side_effect_nodes = [
             node.node_id
             for node in graph.nodes.values()
@@ -277,6 +291,12 @@ class AgenticHarness:
             else max(1, min(4, len(graph.nodes))),
             "side_effect_node_ids": side_effect_nodes,
             "policy_path": "canonical PolicyEngine/ApprovalManager before execution",
+            "context_manifest": {
+                "manifest_id": manifest["manifest_id"],
+                "manifest_digest": manifest["manifest_digest"],
+                "record_count": len(manifest["records"]),
+            },
+            "worker_registry": "LOCAL_PROFILE_REGISTRY_V1",
         }
 
     def _lease_node(
@@ -290,6 +310,9 @@ class AgenticHarness:
         connection: Any,
     ) -> NodeLease:
         lease_id = new_id("lease")
+        assignment = self.worker_registry.validate_for_node(
+            worker_id, node, graph=graph, connection=connection
+        )
         graph.transition(node.node_id, TaskNodeStatus.LEASED)
         graph.nodes[node.node_id].lease_id = lease_id
         graph.nodes[node.node_id].worker_id = worker_id
@@ -325,6 +348,7 @@ class AgenticHarness:
             {
                 **lease.to_dict(),
                 "claim_ceiling": "lease only; node execution remains external to this receipt",
+                "worker_assignment_id": assignment["assignment_id"],
             },
             connection,
         )

@@ -234,6 +234,62 @@ class Database:
                     ON agentic_node_leases(graph_id, conflict_domain)
                     WHERE status='ACTIVE';
 
+                CREATE TABLE IF NOT EXISTS agentic_context_manifests (
+                    manifest_id TEXT PRIMARY KEY,
+                    graph_id TEXT NOT NULL,
+                    intent_id TEXT NOT NULL,
+                    manifest_json TEXT NOT NULL,
+                    manifest_digest TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(graph_id) REFERENCES agentic_task_graphs(graph_id),
+                    FOREIGN KEY(intent_id) REFERENCES agentic_task_intents(intent_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_agentic_context_graph
+                    ON agentic_context_manifests(graph_id, created_at DESC);
+
+                CREATE TABLE IF NOT EXISTS agentic_worker_profiles (
+                    worker_id TEXT PRIMARY KEY,
+                    profile_json TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    registered_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_agentic_worker_status
+                    ON agentic_worker_profiles(status, updated_at DESC);
+
+                CREATE TABLE IF NOT EXISTS agentic_worker_assignments (
+                    assignment_id TEXT PRIMARY KEY,
+                    graph_id TEXT NOT NULL,
+                    node_id TEXT NOT NULL,
+                    worker_id TEXT NOT NULL,
+                    assignment_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(graph_id) REFERENCES agentic_task_graphs(graph_id),
+                    FOREIGN KEY(worker_id) REFERENCES agentic_worker_profiles(worker_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_agentic_worker_assignments_graph
+                    ON agentic_worker_assignments(graph_id, node_id, created_at DESC);
+
+                CREATE TABLE IF NOT EXISTS agentic_node_action_bindings (
+                    binding_id TEXT PRIMARY KEY,
+                    graph_id TEXT NOT NULL,
+                    node_id TEXT NOT NULL,
+                    lease_id TEXT NOT NULL,
+                    plan_id TEXT NOT NULL,
+                    action_id TEXT NOT NULL,
+                    policy_decision_json TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(graph_id) REFERENCES agentic_task_graphs(graph_id),
+                    FOREIGN KEY(lease_id) REFERENCES agentic_node_leases(lease_id),
+                    FOREIGN KEY(plan_id) REFERENCES plans(plan_id),
+                    FOREIGN KEY(action_id) REFERENCES actions(action_id)
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_agentic_node_action_once
+                    ON agentic_node_action_bindings(graph_id, node_id, lease_id);
+                CREATE INDEX IF NOT EXISTS idx_agentic_node_action_status
+                    ON agentic_node_action_bindings(status, created_at DESC);
+
                 CREATE TABLE IF NOT EXISTS approvals (
                     approval_id TEXT PRIMARY KEY,
                     action_id TEXT NOT NULL,

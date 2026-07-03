@@ -344,6 +344,193 @@ class LivingSystem:
         )
         return [dict(row) for row in rows]
 
+    def agentic_context_manifest_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        return self.agentic.context_manifest.latest_receipts(limit=limit)
+
+    def agentic_worker_profile_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        return self.agentic.worker_registry.latest_receipts(limit=limit)
+
+    def agentic_node_action_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        rows = self.db.query_all(
+            """
+            SELECT binding_id,graph_id,node_id,lease_id,plan_id,action_id,status,created_at
+            FROM agentic_node_action_bindings
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (max(0, int(limit)),),
+        )
+        return [dict(row) for row in rows]
+
+    def bind_agentic_node_to_action(
+        self,
+        graph_id: str,
+        node_id: str,
+        *,
+        lease_id: str,
+        reason: str = "agentic harness policy-bound node admission",
+    ) -> dict[str, Any]:
+        graph = self.agentic.load_graph(graph_id)
+        if node_id not in graph.nodes:
+            raise KeyError(f"unknown task node: {node_id}")
+        node = graph.nodes[node_id]
+        if node.lease_id != lease_id:
+            raise PermissionError("node action binding requires the active node lease")
+        existing = self.db.query_one(
+            """
+            SELECT binding_id,plan_id,action_id,status,created_at
+            FROM agentic_node_action_bindings
+            WHERE graph_id=? AND node_id=? AND lease_id=?
+            """,
+            (graph_id, node_id, lease_id),
+        )
+        if existing is not None:
+            return {
+                "status": "ALREADY_BOUND",
+                "graph_id": graph_id,
+                "node_id": node_id,
+                "lease_id": lease_id,
+                "binding_id": existing["binding_id"],
+                "plan_id": existing["plan_id"],
+                "action_id": existing["action_id"],
+                "action_status": existing["status"],
+                "created_at": existing["created_at"],
+                "direct_tool_execution": False,
+            }
+        lease_row = self.db.query_one(
+            """
+            SELECT worker_id,status FROM agentic_node_leases
+            WHERE graph_id=? AND node_id=? AND lease_id=?
+            """,
+            (graph_id, node_id, lease_id),
+        )
+        if lease_row is None or lease_row["status"] != "ACTIVE":
+            raise PermissionError("active node lease is required")
+        action = ActionSpec(
+            tool="noop",
+            arguments={
+                "graph_id": graph_id,
+                "node_id": node_id,
+                "lease_id": lease_id,
+                "worker_id": lease_row["worker_id"],
+                "mode": "agentic_node_shadow_binding",
+            },
+            purpose=f"Bind agentic node '{node.title}' to canonical Action",
+            expected_result="policy decision and evidence receipt are recorded",
+            risk=node.risk,
+            acceptance=list(node.acceptance),
+            idempotency_key=digest_json(
+                {
+                    "kind": "agentic_node_action_binding",
+                    "graph_id": graph_id,
+                    "node_id": node_id,
+                    "lease_id": lease_id,
+                }
+            ),
+        )
+        decision = self.policy.decide(action, approval_valid=False)
+        if decision.allowed:
+            action.status = ActionStatus.PLANNED
+            binding_status = "PLANNED"
+        elif decision.requires_approval:
+            action.status = ActionStatus.WAITING_APPROVAL
+            binding_status = "WAITING_APPROVAL"
+        else:
+            action.status = ActionStatus.REJECTED
+            binding_status = "REJECTED"
+        plan = Plan(
+            rationale=(
+                "Policy-bound shadow plan for leased agentic task node; "
+                "created by LivingSystem without executing the node tool"
+            ),
+            actions=[action],
+            unknowns=[
+                f"graph_id={graph_id}",
+                f"node_id={node_id}",
+                f"lease_id={lease_id}",
+                f"worker_id={lease_row['worker_id']}",
+                f"reason={reason}",
+            ],
+        )
+        policy_payload = {
+            "allowed": decision.allowed,
+            "requires_approval": decision.requires_approval,
+            "reason": decision.reason,
+            "risk": self.policy.classify(action).value,
+            "direct_tool_execution": False,
+            "claim_ceiling": (
+                "canonical Plan/Action binding only; no tool execution, "
+                "node completion, or approval consumption"
+            ),
+        }
+        binding = {
+            "binding_id": new_id("binding"),
+            "graph_id": graph_id,
+            "node_id": node_id,
+            "lease_id": lease_id,
+            "plan_id": plan.plan_id,
+            "action_id": action.action_id,
+            "action_status": action.status.value,
+            "policy_decision": policy_payload,
+            "created_at": utc_now(),
+            "direct_tool_execution": False,
+        }
+        with self.db.transaction() as connection:
+            connection.execute(
+                "INSERT INTO plans(plan_id,cycle_id,plan_json,status,created_at) VALUES (?,?,?,?,?)",
+                (
+                    plan.plan_id,
+                    f"agentic:{graph_id}:{node_id}",
+                    json.dumps(plan.to_dict(), ensure_ascii=False, sort_keys=True),
+                    "PLANNED",
+                    plan.created_at,
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO actions(
+                    action_id,plan_id,goal_id,skill_id,tool,arguments_json,purpose,expected_result,
+                    risk,acceptance_json,idempotency_key,status,side_effect_class
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    action.action_id,
+                    plan.plan_id,
+                    action.goal_id,
+                    action.skill_id,
+                    action.tool,
+                    json.dumps(action.arguments, ensure_ascii=False, sort_keys=True),
+                    action.purpose,
+                    action.expected_result,
+                    action.risk.value,
+                    json.dumps(action.acceptance, ensure_ascii=False),
+                    action.idempotency_key,
+                    action.status.value,
+                    self.tools.get(action.tool).side_effect_class,
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO agentic_node_action_bindings(
+                    binding_id,graph_id,node_id,lease_id,plan_id,action_id,
+                    policy_decision_json,status,created_at
+                ) VALUES (?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    binding["binding_id"],
+                    graph_id,
+                    node_id,
+                    lease_id,
+                    plan.plan_id,
+                    action.action_id,
+                    json.dumps(policy_payload, ensure_ascii=False, sort_keys=True),
+                    binding_status,
+                    binding["created_at"],
+                ),
+            )
+            self.ledger.append("agentic_node_action_bound", binding, connection)
+        return binding
+
     def learning_epoch_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         receipts = self.db.get_runtime("learning_epoch_receipts", [])
         if not isinstance(receipts, list):
@@ -2552,6 +2739,9 @@ class LivingSystem:
             "skill_candidate_receipts": self.skill_candidate_receipts(),
             "skill_sandbox_receipts": self.skill_sandbox_receipts(),
             "agentic_task_receipts": self.agentic_task_receipts(),
+            "agentic_context_manifest_receipts": self.agentic_context_manifest_receipts(),
+            "agentic_worker_profile_receipts": self.agentic_worker_profile_receipts(),
+            "agentic_node_action_receipts": self.agentic_node_action_receipts(),
             "learning_epoch_receipts": self.learning_epoch_receipts(),
             "capability_epoch_audit_receipts": self.capability_epoch_audit_receipts(),
             "read_only_execution_preflights": self.read_only_execution_preflights(),
