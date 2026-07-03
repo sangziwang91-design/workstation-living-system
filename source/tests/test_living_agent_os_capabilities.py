@@ -21,6 +21,7 @@ from wls.architecture_validation import (
     validate_phase2_owner_surface_and_readonly_organs,
     validate_phase2_preflighted_readonly_execution,
     validate_phase2_projection_review_and_rollback,
+    validate_phase2_provider_route_runtime_receipts,
     validate_phase2_readonly_result_projection,
     validate_phase2_runtime_readonly_task_preview,
     validate_phase2_readonly_planner_admission,
@@ -270,6 +271,36 @@ def test_planner_provider_route_matches_config_and_blocks_silent_remote(tmp_path
     }
     with pytest.raises(PermissionError, match="provider route"):
         LivingSystem(remote_config)
+
+
+def test_runtime_records_provider_route_receipt_without_model_call(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    before = {
+        name: runtime.db.query_one(f"SELECT COUNT(*) AS count FROM {name}")["count"]
+        for name in ("plans", "actions")
+    }
+    receipt = runtime.record_provider_route_receipt(reason="unit test route")
+    after = {
+        name: runtime.db.query_one(f"SELECT COUNT(*) AS count FROM {name}")["count"]
+        for name in ("plans", "actions")
+    }
+    assert receipt["status"] == "RECORDED_ROUTE"
+    assert receipt["provider_id"] == "cognitive"
+    assert receipt["provider"]["locality"] == "local"
+    assert receipt["provider"]["cost_class"] == "free"
+    assert receipt["request"]["privacy"] == "local_only"
+    assert receipt["direct_model_call"] is False
+    assert receipt["direct_tool_execution"] is False
+    assert before == after
+    panel = next(
+        panel
+        for panel in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if panel["panel_id"] == "provider_routes"
+    )
+    assert panel["status"]["receipt_count"] == 1
+    assert panel["status"]["direct_model_call"] is False
 
 
 def test_browser_readonly_receipt_and_allowlist() -> None:
@@ -565,6 +596,7 @@ def test_owner_console_product_projection_and_wechat_digest_are_read_only(
     assert {
         "life",
         "attention",
+        "provider_routes",
         "goals",
         "actions_approval",
         "approval_channels",
@@ -1287,6 +1319,17 @@ def test_architecture_validation_checks_wechat_approval_channel(
     assert result.pass_id == "P26"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) == 4
+
+
+def test_architecture_validation_checks_provider_route_receipts(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_provider_route_runtime_receipts(
+        tmp_path / "provider-route-validation-home"
+    )
+    assert result.pass_id == "P27"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) == 2
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

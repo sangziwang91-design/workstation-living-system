@@ -272,6 +272,60 @@ class LivingSystem:
             return []
         return receipts[: max(0, int(limit))]
 
+    def provider_route_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("provider_route_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
+    def record_provider_route_receipt(self, *, reason: str) -> dict[str, Any]:
+        route = self.planner.route_summary()
+        evidence = route.get("evidence", {})
+        provider = (
+            self._json_safe(evidence.get("provider", {}))
+            if isinstance(evidence, dict)
+            else {}
+        )
+        request = (
+            self._json_safe(evidence.get("request", {}))
+            if isinstance(evidence, dict)
+            else {}
+        )
+        receipt = {
+            "receipt_type": "PROVIDER_ROUTE",
+            "status": "RECORDED_ROUTE",
+            "provider_id": route.get("provider_id"),
+            "planner_provider": self.planner.provider_type,
+            "rationale": route.get("rationale"),
+            "fallback_chain": route.get("fallback_chain", []),
+            "provider": provider,
+            "request": request,
+            "reason": reason,
+            "planner_authority": "Planner",
+            "creates_plan": False,
+            "creates_action": False,
+            "direct_model_call": False,
+            "direct_tool_execution": False,
+            "claim_ceiling": "route evidence receipt only; no model call or plan generated",
+            "created_at": utc_now(),
+        }
+        current = self.provider_route_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("provider_route_receipts", updated, connection)
+            self.ledger.append("provider_route_recorded", receipt, connection)
+        return receipt
+
+    @staticmethod
+    def _json_safe(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {str(key): LivingSystem._json_safe(item) for key, item in value.items()}
+        if isinstance(value, set):
+            return sorted(LivingSystem._json_safe(item) for item in value)
+        if isinstance(value, (list, tuple)):
+            return [LivingSystem._json_safe(item) for item in value]
+        return value
+
     def draft_wechat_approval_request(self, action_id: str) -> dict[str, Any]:
         row = self.db.query_one(
             "SELECT action_id,plan_id,tool,purpose,risk,status FROM actions WHERE action_id=?",
@@ -1690,6 +1744,7 @@ class LivingSystem:
             "scheduled_event_receipts": self.scheduled_event_receipts(),
             "external_handoff_receipts": self.external_handoff_receipts(),
             "approval_channel_receipts": self.approval_channel_receipts(),
+            "provider_route_receipts": self.provider_route_receipts(),
             "read_only_execution_preflights": self.read_only_execution_preflights(),
             "read_only_execution_receipts": self.read_only_execution_receipts(),
             "read_only_result_projections": self.read_only_result_projections(),

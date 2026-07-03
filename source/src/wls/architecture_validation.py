@@ -581,6 +581,7 @@ def validate_phase2_owner_surface_and_readonly_organs(
     required_panels = {
         "life",
         "attention",
+        "provider_routes",
         "goals",
         "actions_approval",
         "approval_channels",
@@ -1777,6 +1778,76 @@ def validate_phase2_wechat_approval_channel_receipts(
         ],
         [
             "WeChat approval channels can draft approval requests and queue Owner decision Events with evidence and Owner Console visibility, while ApprovalManager remains the only approval authority and no action executes",
+        ],
+    )
+
+
+def validate_phase2_provider_route_runtime_receipts(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home))
+    before_plans = runtime.db.query_one("SELECT COUNT(*) AS count FROM plans")
+    before_actions = runtime.db.query_one("SELECT COUNT(*) AS count FROM actions")
+    receipt = runtime.record_provider_route_receipt(
+        reason="architecture validation provider route"
+    )
+    after_plans = runtime.db.query_one("SELECT COUNT(*) AS count FROM plans")
+    after_actions = runtime.db.query_one("SELECT COUNT(*) AS count FROM actions")
+    evidence = runtime.db.query_all(
+        """
+        SELECT event_type,evidence_id FROM evidence
+        WHERE event_type='provider_route_recorded'
+        ORDER BY seq DESC LIMIT 1
+        """
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "provider_routes"
+        ),
+        None,
+    )
+    provider = receipt.get("provider", {})
+    request = receipt.get("request", {})
+    if (
+        receipt.get("status") != "RECORDED_ROUTE"
+        or receipt.get("provider_id") != runtime.planner.provider_type
+        or provider.get("remote")
+        or provider.get("paid")
+        or provider.get("cost_class") != "free"
+        or request.get("privacy") != "local_only"
+        or request.get("max_cost_class") != "free"
+        or receipt.get("creates_plan")
+        or receipt.get("creates_action")
+        or receipt.get("direct_model_call")
+        or receipt.get("direct_tool_execution")
+        or before_plans is None
+        or after_plans is None
+        or before_plans["count"] != after_plans["count"]
+        or before_actions is None
+        or after_actions is None
+        or before_actions["count"] != after_actions["count"]
+        or not evidence
+        or panel is None
+        or panel["status"]["receipt_count"] != 1
+        or panel["status"]["direct_model_call"]
+        or panel["status"]["direct_tool_execution"]
+    ):
+        return ArchitecturePassResult(
+            "P27",
+            "BLOCKED",
+            [str(receipt)],
+            ["provider route runtime receipt validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P27",
+        "ADMIT_SHADOW_ONLY",
+        [str(receipt["provider_id"]), str(evidence[0]["evidence_id"])],
+        [
+            "Planner provider routes can be recorded as runtime evidence receipts and Owner Console projections while preserving local/free policy evidence and creating no plan, action, model call, or tool execution",
         ],
     )
 

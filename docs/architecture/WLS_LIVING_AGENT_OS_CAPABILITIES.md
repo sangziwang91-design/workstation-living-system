@@ -222,6 +222,10 @@ fields such as `memory_id`/`active`.
   WeChat W2 can draft approval requests and queue Owner decision Events with
   evidence and Owner Console visibility, while `ApprovalManager` remains the
   only approval authority and no Action executes from the channel.
+- P27 is a shadow-level runtime admission for provider route receipts.
+  Planner-owned model/provider routing can be recorded as evidence and Owner
+  Console projection, preserving local/free/privacy policy evidence without
+  making a model call, creating a Plan, or executing a tool.
 
 ## Projection Rule
 

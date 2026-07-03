@@ -33,6 +33,7 @@ class OwnerConsoleProductProjection:
     PANEL_IDS = (
         "life",
         "attention",
+        "provider_routes",
         "goals",
         "actions_approval",
         "approval_channels",
@@ -52,6 +53,7 @@ class OwnerConsoleProductProjection:
         panels = [
             self._life_panel(status),
             self._attention_panel(status),
+            self._provider_routes_panel(status),
             self._goals_panel(status),
             self._actions_panel(status),
             self._approval_channels_panel(status),
@@ -119,6 +121,21 @@ class OwnerConsoleProductProjection:
                     else None,
                     "claim_ceiling": "route summary only",
                 },
+            },
+        }
+
+    @staticmethod
+    def _provider_routes_panel(status: dict[str, Any]) -> dict[str, Any]:
+        receipts = status.get("provider_route_receipts", [])
+        return {
+            "panel_id": "provider_routes",
+            "title": "Provider Routes",
+            "status": {
+                "receipt_count": len(receipts) if isinstance(receipts, list) else 0,
+                "items": receipts if isinstance(receipts, list) else [],
+                "planner_authority": "Planner",
+                "direct_model_call": False,
+                "direct_tool_execution": False,
             },
         }
 
