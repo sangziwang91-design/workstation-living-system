@@ -403,6 +403,90 @@ class AgenticHarness:
                 receipts.append({**payload, "created_at": row["created_at"]})
         return receipts
 
+    def budget_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        rows = self.db.query_all(
+            """
+            SELECT event_type,payload_json,created_at FROM evidence
+            WHERE event_type IN (
+                'agentic_node_budget_reserved',
+                'agentic_node_budget_blocked'
+            )
+            ORDER BY seq DESC
+            LIMIT ?
+            """,
+            (max(0, int(limit)),),
+        )
+        receipts: list[dict[str, Any]] = []
+        for row in rows:
+            payload = json.loads(str(row["payload_json"]))
+            if isinstance(payload, dict):
+                receipts.append(
+                    {
+                        **payload,
+                        "event_type": row["event_type"],
+                        "created_at": row["created_at"],
+                    }
+                )
+        return receipts
+
+    def reserve_node_budget(
+        self,
+        graph_id: str,
+        node_id: str,
+        *,
+        lease_id: str,
+        request: dict[str, int | float],
+        limit: dict[str, int | float],
+        reason: str,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("budget reservation reason is required")
+        requested = self._normalize_budget_usage(request)
+        caps = self._normalize_budget_limit(limit)
+        with self.db.transaction() as connection:
+            self._active_lease(graph_id, node_id, lease_id, connection)
+            prior = self._budget_usage_for_graph(graph_id, connection)
+            proposed = {
+                key: prior[key] + requested[key]
+                for key in ("cost_usd", "tokens", "seconds", "calls")
+            }
+            exceeded = [
+                key
+                for key, cap_key in (
+                    ("cost_usd", "max_cost_usd"),
+                    ("tokens", "max_tokens"),
+                    ("seconds", "max_seconds"),
+                    ("calls", "max_calls"),
+                )
+                if caps[cap_key] >= 0 and proposed[key] > caps[cap_key]
+            ]
+            payload = {
+                "budget_id": new_id("budget"),
+                "graph_id": graph_id,
+                "node_id": node_id,
+                "lease_id": lease_id,
+                "reason": reason,
+                "request": requested,
+                "limit": caps,
+                "prior_usage": prior,
+                "proposed_usage": proposed,
+                "status": "BLOCKED" if exceeded else "RESERVED",
+                "exceeded": exceeded,
+                "direct_execution": False,
+                "node_state_mutated": False,
+                "claim_ceiling": (
+                    "agentic node budget gate only; no provider call, tool "
+                    "execution, retry, approval, or task completion is inferred"
+                ),
+            }
+            event_type = (
+                "agentic_node_budget_blocked"
+                if exceeded
+                else "agentic_node_budget_reserved"
+            )
+            self.ledger.append(event_type, payload, connection)
+            return payload
+
     def propose_repair_candidate(
         self,
         graph_id: str,
@@ -697,6 +781,52 @@ class AgenticHarness:
             }
             for index, step in enumerate(steps[: max(1, int(max_steps))])
         ]
+
+    @staticmethod
+    def _normalize_budget_usage(payload: dict[str, int | float]) -> dict[str, float]:
+        usage = {
+            "cost_usd": float(payload.get("cost_usd", 0.0)),
+            "tokens": float(payload.get("tokens", 0)),
+            "seconds": float(payload.get("seconds", 0.0)),
+            "calls": float(payload.get("calls", 1)),
+        }
+        if any(value < 0 for value in usage.values()):
+            raise ValueError("budget usage values must be non-negative")
+        return usage
+
+    @staticmethod
+    def _normalize_budget_limit(payload: dict[str, int | float]) -> dict[str, float]:
+        caps = {
+            "max_cost_usd": float(payload.get("max_cost_usd", -1)),
+            "max_tokens": float(payload.get("max_tokens", -1)),
+            "max_seconds": float(payload.get("max_seconds", -1)),
+            "max_calls": float(payload.get("max_calls", -1)),
+        }
+        if any(value < -1 for value in caps.values()):
+            raise ValueError("budget limits must be -1 for unbounded or non-negative")
+        return caps
+
+    @staticmethod
+    def _budget_usage_for_graph(graph_id: str, connection: Any) -> dict[str, float]:
+        rows = connection.execute(
+            """
+            SELECT payload_json FROM evidence
+            WHERE event_type='agentic_node_budget_reserved'
+            ORDER BY seq ASC
+            """
+        ).fetchall()
+        usage = {"cost_usd": 0.0, "tokens": 0.0, "seconds": 0.0, "calls": 0.0}
+        for row in rows:
+            payload = json.loads(str(row["payload_json"]))
+            if not isinstance(payload, dict) or payload.get("graph_id") != graph_id:
+                continue
+            request = payload.get("request")
+            if not isinstance(request, dict):
+                continue
+            normalized = AgenticHarness._normalize_budget_usage(request)
+            for key, value in normalized.items():
+                usage[key] += value
+        return usage
 
     @staticmethod
     def _route(

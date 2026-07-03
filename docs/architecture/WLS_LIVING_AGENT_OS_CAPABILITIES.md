@@ -313,6 +313,10 @@ fields such as `memory_id`/`active`.
   failure provenance, proposed non-executing steps, and Owner Console
   visibility, while preserving node state and avoiding a second planner or
   autonomous repair authority.
+- P46 is a shadow-level runtime admission for agentic budget gates. A leased
+  node can reserve or be blocked by bounded cost, token, time, and call limits
+  with EvidenceLedger and Owner Console receipts, while performing no provider
+  call, tool execution, retry, approval, or node completion.
 
 ## Projection Rule
 

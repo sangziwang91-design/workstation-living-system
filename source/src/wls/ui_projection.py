@@ -470,6 +470,7 @@ class OwnerConsoleProductProjection:
         acceptance_traces = status.get("agentic_acceptance_trace_receipts", [])
         mailbox = status.get("agentic_mailbox_receipts", [])
         repair_candidates = status.get("agentic_repair_candidate_receipts", [])
+        budgets = status.get("agentic_budget_receipts", [])
         audits = status.get("agentic_harness_epoch_audit_receipts", [])
         return {
             "panel_id": "agentic_tasks",
@@ -517,6 +518,12 @@ class OwnerConsoleProductProjection:
                     else [],
                     "candidate_only": True,
                     "direct_execution": False,
+                },
+                "budget_gate_v1": {
+                    "receipt_count": len(budgets) if isinstance(budgets, list) else 0,
+                    "items": budgets if isinstance(budgets, list) else [],
+                    "provider_calls": False,
+                    "tool_execution": False,
                 },
                 "harness_epoch_audit": {
                     "receipt_count": len(audits) if isinstance(audits, list) else 0,

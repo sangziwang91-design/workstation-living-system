@@ -497,6 +497,54 @@ def test_agentic_repair_candidate_preserves_failed_node_state(
     assert event_types == {"agentic_repair_candidate_proposed"}
 
 
+def test_agentic_node_budget_gate_records_reserve_and_block(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector"
+    )[0]
+
+    reserved = runtime.agentic.reserve_node_budget(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        request={"tokens": 100, "seconds": 1, "calls": 1, "cost_usd": 0.0},
+        limit={"max_tokens": 150, "max_seconds": 10, "max_calls": 1, "max_cost_usd": 0.0},
+        reason="unit test bounded budget",
+    )
+    blocked = runtime.agentic.reserve_node_budget(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        request={"tokens": 75, "seconds": 1, "calls": 1, "cost_usd": 0.0},
+        limit={"max_tokens": 150, "max_seconds": 10, "max_calls": 1, "max_cost_usd": 0.0},
+        reason="unit test over-budget budget",
+    )
+
+    graph = runtime.agentic.load_graph(graph_id)
+    receipts = runtime.status()["agentic_budget_receipts"]
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+    assert reserved["status"] == "RESERVED"
+    assert blocked["status"] == "BLOCKED"
+    assert blocked["prior_usage"]["tokens"] == 100
+    assert set(blocked["exceeded"]) == {"tokens", "calls"}
+    assert graph.nodes[lease.node_id].status is TaskNodeStatus.LEASED
+    assert len(receipts) == 2
+    assert panel["status"]["budget_gate_v1"]["receipt_count"] == 2
+    assert panel["status"]["budget_gate_v1"]["provider_calls"] is False
+
+
 def test_agentic_file_mailbox_handoff_imports_through_canonical_harness(
     tmp_path: Path,
 ) -> None:

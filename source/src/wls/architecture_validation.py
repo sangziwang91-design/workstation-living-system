@@ -3513,6 +3513,89 @@ def validate_phase2_agentic_repair_candidate(home: Path) -> ArchitecturePassResu
     )
 
 
+def validate_phase2_agentic_budget_gate(home: Path) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository documents",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = str(receipt["graph"]["graph_id"])
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector", limit=1
+    )[0]
+    reserved = runtime.agentic.reserve_node_budget(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        request={"tokens": 100, "seconds": 1, "calls": 1, "cost_usd": 0.0},
+        limit={"max_tokens": 150, "max_seconds": 10, "max_calls": 1, "max_cost_usd": 0.0},
+        reason="architecture validation bounded read-only node budget",
+    )
+    blocked = runtime.agentic.reserve_node_budget(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        request={"tokens": 75, "seconds": 1, "calls": 1, "cost_usd": 0.0},
+        limit={"max_tokens": 150, "max_seconds": 10, "max_calls": 1, "max_cost_usd": 0.0},
+        reason="architecture validation over-budget node attempt",
+    )
+    graph = runtime.agentic.load_graph(graph_id)
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "agentic_tasks"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN (
+                'agentic_node_budget_reserved',
+                'agentic_node_budget_blocked'
+            )
+            """
+        )
+    }
+    if (
+        reserved["status"] != "RESERVED"
+        or blocked["status"] != "BLOCKED"
+        or "tokens" not in blocked["exceeded"]
+        or "calls" not in blocked["exceeded"]
+        or graph.nodes[lease.node_id].status.value != "LEASED"
+        or panel is None
+        or panel["status"]["budget_gate_v1"]["receipt_count"] != 2
+        or {"agentic_node_budget_reserved", "agentic_node_budget_blocked"}
+        - event_types
+    ):
+        return ArchitecturePassResult(
+            "P46",
+            "BLOCKED",
+            [graph_id],
+            ["agentic budget gate validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P46",
+        "ADMIT_SHADOW_ONLY",
+        [
+            graph_id,
+            lease.lease_id,
+            str(reserved["budget_id"]),
+            str(blocked["budget_id"]),
+            *sorted(event_types),
+        ],
+        [
+            "Agentic node budget gates reserve and block bounded usage through EvidenceLedger and Owner Console without provider calls, tool execution, or node state mutation",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:
