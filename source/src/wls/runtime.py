@@ -428,11 +428,12 @@ class LivingSystem:
                 "lease_id": lease_id,
                 "worker_id": lease_row["worker_id"],
                 "mode": "agentic_node_shadow_binding",
+                "node_acceptance": list(node.acceptance),
             },
             purpose=f"Bind agentic node '{node.title}' to canonical Action",
             expected_result="policy decision and evidence receipt are recorded",
             risk=node.risk,
-            acceptance=list(node.acceptance),
+            acceptance=["output ok is true"],
             idempotency_key=digest_json(
                 {
                     "kind": "agentic_node_action_binding",
@@ -544,6 +545,105 @@ class LivingSystem:
             )
             self.ledger.append("agentic_node_action_bound", binding, connection)
         return binding
+
+    def execute_bound_agentic_node_action(self, binding_id: str) -> dict[str, Any]:
+        binding_row = self.db.query_one(
+            "SELECT * FROM agentic_node_action_bindings WHERE binding_id=?",
+            (binding_id,),
+        )
+        if binding_row is None:
+            raise KeyError(f"unknown agentic node action binding: {binding_id}")
+        if binding_row["status"] != "PLANNED":
+            raise PermissionError(
+                f"agentic node action binding is not executable: {binding_row['status']}"
+            )
+        action_row = self.db.query_one(
+            "SELECT * FROM actions WHERE action_id=?", (binding_row["action_id"],)
+        )
+        if action_row is None:
+            raise KeyError(f"missing bound action: {binding_row['action_id']}")
+        action = self._action_from_row(action_row)
+        side_effect_class = self.tools.get(action.tool).side_effect_class
+        decision = self.policy.decide(action, approval_valid=False)
+        if action.risk is not RiskLevel.READ or side_effect_class != "none":
+            raise PermissionError("only READ/no-side-effect bound node actions execute")
+        if action.tool != "noop":
+            raise PermissionError("only shadow noop bound node actions execute in V1")
+        if not decision.allowed:
+            with self.db.transaction() as connection:
+                connection.execute(
+                    """
+                    UPDATE agentic_node_action_bindings
+                    SET status=?
+                    WHERE binding_id=?
+                    """,
+                    (
+                        "WAITING_APPROVAL"
+                        if decision.requires_approval
+                        else "REJECTED",
+                        binding_id,
+                    ),
+                )
+                self.ledger.append(
+                    "agentic_node_action_execution_blocked",
+                    {
+                        "binding_id": binding_id,
+                        "action_id": action.action_id,
+                        "reason": decision.reason,
+                    },
+                    connection,
+                )
+            raise PermissionError(decision.reason)
+        result = self._execute_action(action)
+        if result.get("success") is True:
+            completion = self.agentic.complete_node(
+                str(binding_row["graph_id"]),
+                str(binding_row["node_id"]),
+                lease_id=str(binding_row["lease_id"]),
+                result={
+                    "action_id": action.action_id,
+                    "binding_id": binding_id,
+                    "execution_status": result.get("status"),
+                    "output": result.get("output", {}),
+                },
+            )
+            status = "SUCCEEDED"
+        else:
+            completion = self.agentic.fail_node(
+                str(binding_row["graph_id"]),
+                str(binding_row["node_id"]),
+                lease_id=str(binding_row["lease_id"]),
+                error=str(result.get("error") or result.get("reason") or "action failed"),
+            )
+            status = "FAILED"
+        receipt = {
+            "binding_id": binding_id,
+            "graph_id": binding_row["graph_id"],
+            "node_id": binding_row["node_id"],
+            "lease_id": binding_row["lease_id"],
+            "plan_id": binding_row["plan_id"],
+            "action_id": action.action_id,
+            "status": status,
+            "action_result": result,
+            "node_update": completion,
+            "direct_tool_execution": True,
+            "execution_scope": "READ/no-side-effect shadow node action",
+            "claim_ceiling": (
+                "preflighted READ/no-side-effect bound node action only; no external "
+                "worker execution, write action, approval consumption, or live deployment"
+            ),
+        }
+        with self.db.transaction() as connection:
+            connection.execute(
+                """
+                UPDATE agentic_node_action_bindings
+                SET status=?
+                WHERE binding_id=?
+                """,
+                (status, binding_id),
+            )
+            self.ledger.append("agentic_node_action_executed", receipt, connection)
+        return receipt
 
     def learning_epoch_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         receipts = self.db.get_runtime("learning_epoch_receipts", [])

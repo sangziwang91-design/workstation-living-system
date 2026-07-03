@@ -313,6 +313,75 @@ def test_agentic_node_action_binding_preserves_owner_gate_for_high_risk(
     assert action["status"] == "WAITING_APPROVAL"
 
 
+def test_living_system_executes_bound_readonly_agentic_node_action(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector"
+    )[0]
+    binding = runtime.bind_agentic_node_to_action(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+    )
+
+    execution = runtime.execute_bound_agentic_node_action(binding["binding_id"])
+
+    assert execution["status"] == "SUCCEEDED"
+    assert execution["execution_scope"] == "READ/no-side-effect shadow node action"
+    graph = runtime.agentic.load_graph(graph_id)
+    assert graph.nodes[lease.node_id].status is TaskNodeStatus.SUCCEEDED
+    binding_row = runtime.db.query_one(
+        "SELECT status FROM agentic_node_action_bindings WHERE binding_id=?",
+        (binding["binding_id"],),
+    )
+    assert binding_row["status"] == "SUCCEEDED"
+
+
+def test_bound_agentic_node_action_execution_rejects_owner_gated_binding(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Publish release to an external system",
+        acceptance=["owner approval is present"],
+        evidence_required=["approval receipt"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    plan_lease = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="owner-gated-executor-shadow"
+    )[0]
+    runtime.agentic.complete_node(
+        graph_id,
+        plan_lease.node_id,
+        lease_id=plan_lease.lease_id,
+        result={"ok": True},
+    )
+    execute_lease = runtime.agentic.acquire_ready_leases(
+        graph_id,
+        worker_id="owner-gated-executor-shadow",
+        owner_authorized_node_ids={"execute"},
+    )[0]
+    binding = runtime.bind_agentic_node_to_action(
+        graph_id,
+        execute_lease.node_id,
+        lease_id=execute_lease.lease_id,
+    )
+
+    with pytest.raises(PermissionError, match="not executable"):
+        runtime.execute_bound_agentic_node_action(binding["binding_id"])
+
+    graph = runtime.agentic.load_graph(graph_id)
+    assert graph.nodes[execute_lease.node_id].status is TaskNodeStatus.LEASED
+
+
 def test_failure_attribution_classifies_policy_and_environment(
     tmp_path: Path,
 ) -> None:

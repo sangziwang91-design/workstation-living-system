@@ -98,12 +98,15 @@ runtime:
 - L10: failed node attempts receive deterministic first-pass attribution as
   LOCAL, UPSTREAM, STRUCTURAL, POLICY, or ENVIRONMENT and are persisted as
   evidence-linked receipts.
+- L11: bound READ/no-side-effect node actions can execute through the canonical
+  action path and feed success/failure back into the task graph without external
+  worker delegation, writes, approval consumption, or live deployment.
 
 ## Next Batches
 
 Recommended next increments:
 
-1. Read-only node execution receipt: execute only preflighted READ/no-side-effect
-   node actions and feed results back to graph completion.
-2. Offspring birth contract: only after the parent harness can evaluate bounded
+1. Offspring birth contract: only after the parent harness can evaluate bounded
    task graphs without second authority drift.
+2. Harness epoch audit: prove no-second-authority, no-live-write, owner-gate,
+   and evidence-retention invariants across P42-P45 receipts.
