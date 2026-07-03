@@ -47,7 +47,7 @@ Mainstream Agent capabilities are required organs, not decorative add-ons:
 - planning remains `Planner` owned and evidence-bound;
 - tool use remains `Policy -> Approval -> Executor -> Receipt`;
 - file, browser, desktop, code, scheduler, MCP, A2A, multimodal, UI, WeChat,
-  and workbench paths are organs fitted to existing authorities;
+  voice, and workbench paths are organs fitted to existing authorities;
 - external models and workers may propose or execute bounded work, but they do
   not own WLS identity, truth, memory, goal completion, or Skill promotion.
 
@@ -241,6 +241,11 @@ fields such as `memory_id`/`active`.
   `ADMIT_LOW_RISK_PREPARATION_ONLY` with `FUNCTIONAL_RUNTIME_ONLY` as the
   allowed conclusion, preserving no second authority, no Skill promotion, no
   live deployment, and no external writes.
+- P31 is a shadow-level runtime admission for voice transcript ingress. The
+  runtime can queue an already-transcribed local utterance as a canonical
+  `channel:voice` Event with receipt evidence and Owner Console visibility,
+  while explicitly performing no audio capture, speech-to-text, Goal creation,
+  Action creation, planning, or tool execution.
 
 ## Projection Rule
 

@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
+import hashlib
 import importlib
 import json
 import os
@@ -272,6 +273,12 @@ class LivingSystem:
             return []
         return receipts[: max(0, int(limit))]
 
+    def voice_transcript_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("voice_transcript_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
     def provider_route_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         receipts = self.db.get_runtime("provider_route_receipts", [])
         if not isinstance(receipts, list):
@@ -461,6 +468,66 @@ class LivingSystem:
         with self.db.transaction() as connection:
             self.db.set_runtime("capability_epoch_audit_receipts", updated, connection)
             self.ledger.append("capability_epoch_audited", receipt, connection)
+        return receipt
+
+    def intake_voice_transcript(
+        self,
+        *,
+        transcript_id: str,
+        speaker_id: str,
+        transcript: str,
+        locale: str = "und",
+        confidence: float | None = None,
+        source: str = "local_transcript",
+    ) -> dict[str, Any]:
+        if not transcript_id.strip():
+            raise ValueError("transcript_id is required")
+        if not transcript.strip():
+            raise ValueError("voice transcript cannot be empty")
+        if confidence is not None and not 0.0 <= confidence <= 1.0:
+            raise ValueError("voice transcript confidence must be within [0, 1]")
+        message = ChannelMessage(
+            channel="voice",
+            sender_id=speaker_id,
+            content=transcript,
+            message_id=transcript_id,
+            metadata={
+                "locale": locale,
+                "confidence": confidence,
+                "source": source,
+                "audio_captured": False,
+                "stt_executed": False,
+            },
+        )
+        event_id, inserted = self.channel_gateway.submit(message, self.events)
+        receipt = {
+            "receipt_type": "VOICE_TRANSCRIPT_INGRESS",
+            "status": "QUEUED_EVENT_ONLY",
+            "transcript_id": transcript_id,
+            "event_id": event_id,
+            "inserted": inserted,
+            "source": source,
+            "locale": locale,
+            "confidence": confidence,
+            "content_sha256": hashlib.sha256(transcript.encode("utf-8")).hexdigest(),
+            "audio_captured": False,
+            "stt_executed": False,
+            "creates_goal": False,
+            "creates_action": False,
+            "direct_tool_execution": False,
+            "writes_canonical_state": False,
+            "allowed_next_authority": "EventStore",
+            "claim_ceiling": "voice transcript queued as channel Event only; no audio capture, STT, planning, or action execution",
+            "created_at": utc_now(),
+        }
+        current = self.voice_transcript_receipts(limit=100)
+        updated = [
+            receipt,
+            *[row for row in current if row.get("transcript_id") != transcript_id],
+        ][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("voice_transcript_receipts", updated, connection)
+            self.ledger.append("voice_transcript_queued", receipt, connection)
         return receipt
 
     def record_provider_route_receipt(self, *, reason: str) -> dict[str, Any]:
@@ -1929,6 +1996,7 @@ class LivingSystem:
             "scheduled_event_receipts": self.scheduled_event_receipts(),
             "external_handoff_receipts": self.external_handoff_receipts(),
             "approval_channel_receipts": self.approval_channel_receipts(),
+            "voice_transcript_receipts": self.voice_transcript_receipts(),
             "provider_route_receipts": self.provider_route_receipts(),
             "skill_candidate_receipts": self.skill_candidate_receipts(),
             "learning_epoch_receipts": self.learning_epoch_receipts(),

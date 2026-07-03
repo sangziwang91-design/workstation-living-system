@@ -39,6 +39,7 @@ class OwnerConsoleProductProjection:
         "approval_channels",
         "scheduled_events",
         "external_handoffs",
+        "voice_ingress",
         "task_previews",
         "execution_preflight",
         "execution_receipts",
@@ -62,6 +63,7 @@ class OwnerConsoleProductProjection:
             self._approval_channels_panel(status),
             self._scheduled_events_panel(status),
             self._external_handoffs_panel(status),
+            self._voice_ingress_panel(status),
             self._task_previews_panel(status),
             self._execution_preflight_panel(status),
             self._execution_receipts_panel(status),
@@ -213,6 +215,23 @@ class OwnerConsoleProductProjection:
                 "authority_transfer_allowed": False,
                 "creates_action": False,
                 "creates_goal": False,
+            },
+        }
+
+    @staticmethod
+    def _voice_ingress_panel(status: dict[str, Any]) -> dict[str, Any]:
+        receipts = status.get("voice_transcript_receipts", [])
+        return {
+            "panel_id": "voice_ingress",
+            "title": "Voice Ingress",
+            "status": {
+                "receipt_count": len(receipts) if isinstance(receipts, list) else 0,
+                "items": receipts if isinstance(receipts, list) else [],
+                "creates_goal": False,
+                "creates_action": False,
+                "audio_captured": False,
+                "stt_executed": False,
+                "allowed_next_authority": "EventStore",
             },
         }
 

@@ -33,6 +33,7 @@ from wls.architecture_validation import (
     validate_phase2_learning_epoch_review_receipts,
     validate_phase2_typed_readonly_organ_profiles,
     validate_phase2_wechat_approval_channel_receipts,
+    validate_phase2_voice_transcript_ingress_receipts,
     validate_p01_registry,
     validate_runtime_approval_receipts,
     validate_runtime_event_ingress,
@@ -233,6 +234,55 @@ def test_living_system_intakes_scheduled_event_with_receipt_only(
     )
     assert panel["status"]["receipt_count"] == 1
     assert panel["status"]["creates_goal"] is False
+
+
+def test_living_system_intakes_voice_transcript_as_event_only(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    before = {
+        name: runtime.db.query_one(f"SELECT COUNT(*) AS count FROM {name}")["count"]
+        for name in ("goals", "plans", "actions")
+    }
+    receipt = runtime.intake_voice_transcript(
+        transcript_id="voice-1",
+        speaker_id="owner",
+        transcript="status check from local voice transcript",
+        locale="en-US",
+        confidence=0.9,
+    )
+    after = {
+        name: runtime.db.query_one(f"SELECT COUNT(*) AS count FROM {name}")["count"]
+        for name in ("goals", "plans", "actions")
+    }
+    event = runtime.db.query_one(
+        "SELECT event_type,source,payload_json FROM events WHERE event_id=?",
+        (receipt["event_id"],),
+    )
+    assert receipt["status"] == "QUEUED_EVENT_ONLY"
+    assert receipt["audio_captured"] is False
+    assert receipt["stt_executed"] is False
+    assert receipt["creates_goal"] is False
+    assert receipt["creates_action"] is False
+    assert receipt["direct_tool_execution"] is False
+    assert before == after
+    assert event is not None
+    assert event["event_type"] == "channel.message"
+    assert event["source"] == "channel:voice"
+    panel = next(
+        panel
+        for panel in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if panel["panel_id"] == "voice_ingress"
+    )
+    assert panel["status"]["receipt_count"] == 1
+    assert panel["status"]["audio_captured"] is False
+    assert panel["status"]["stt_executed"] is False
+    with pytest.raises(ValueError, match="cannot be empty"):
+        runtime.intake_voice_transcript(
+            transcript_id="voice-empty",
+            speaker_id="owner",
+            transcript=" ",
+        )
 
 
 def test_provider_router_enforces_local_first_and_cost() -> None:
@@ -605,6 +655,7 @@ def test_owner_console_product_projection_and_wechat_digest_are_read_only(
         "approval_channels",
         "scheduled_events",
         "external_handoffs",
+        "voice_ingress",
         "task_previews",
         "execution_preflight",
         "execution_receipts",
@@ -1532,6 +1583,17 @@ def test_architecture_validation_checks_capability_epoch_audit(
     assert result.pass_id == "P30"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) == 3
+
+
+def test_architecture_validation_checks_voice_transcript_ingress(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_voice_transcript_ingress_receipts(
+        tmp_path / "voice-transcript-validation-home"
+    )
+    assert result.pass_id == "P31"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) == 2
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

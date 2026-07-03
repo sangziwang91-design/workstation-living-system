@@ -2132,6 +2132,89 @@ def validate_phase2_capability_epoch_audit_receipts(
     )
 
 
+def validate_phase2_voice_transcript_ingress_receipts(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    before_goals = runtime.db.query_one("SELECT COUNT(*) AS count FROM goals")
+    before_plans = runtime.db.query_one("SELECT COUNT(*) AS count FROM plans")
+    before_actions = runtime.db.query_one("SELECT COUNT(*) AS count FROM actions")
+    receipt = runtime.intake_voice_transcript(
+        transcript_id="phase2-voice-1",
+        speaker_id="owner",
+        transcript="status check from local voice transcript",
+        locale="en-US",
+        confidence=0.91,
+        source="architecture_validation_fixture",
+    )
+    after_goals = runtime.db.query_one("SELECT COUNT(*) AS count FROM goals")
+    after_plans = runtime.db.query_one("SELECT COUNT(*) AS count FROM plans")
+    after_actions = runtime.db.query_one("SELECT COUNT(*) AS count FROM actions")
+    event = runtime.db.query_one(
+        "SELECT event_type,source,payload_json FROM events WHERE event_id=?",
+        (receipt["event_id"],),
+    )
+    evidence = runtime.db.query_all(
+        """
+        SELECT event_type,evidence_id FROM evidence
+        WHERE event_type='voice_transcript_queued'
+        ORDER BY seq DESC LIMIT 1
+        """
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "voice_ingress"
+        ),
+        None,
+    )
+    if (
+        receipt.get("status") != "QUEUED_EVENT_ONLY"
+        or receipt.get("audio_captured")
+        or receipt.get("stt_executed")
+        or receipt.get("creates_goal")
+        or receipt.get("creates_action")
+        or receipt.get("direct_tool_execution")
+        or receipt.get("writes_canonical_state")
+        or before_goals is None
+        or after_goals is None
+        or before_goals["count"] != after_goals["count"]
+        or before_plans is None
+        or after_plans is None
+        or before_plans["count"] != after_plans["count"]
+        or before_actions is None
+        or after_actions is None
+        or before_actions["count"] != after_actions["count"]
+        or event is None
+        or event["event_type"] != "channel.message"
+        or event["source"] != "channel:voice"
+        or not evidence
+        or panel is None
+        or panel["status"]["receipt_count"] != 1
+        or panel["status"]["creates_goal"]
+        or panel["status"]["creates_action"]
+        or panel["status"]["audio_captured"]
+        or panel["status"]["stt_executed"]
+    ):
+        return ArchitecturePassResult(
+            "P31",
+            "BLOCKED",
+            [str(receipt)],
+            ["voice transcript ingress receipt validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P31",
+        "ADMIT_SHADOW_ONLY",
+        [str(receipt["event_id"]), str(evidence[0]["evidence_id"])],
+        [
+            "Voice transcript ingress queues an already-transcribed local utterance as a canonical channel Event with evidence and Owner Console visibility, without audio capture, STT, Goals, Plans, Actions, or tool execution",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:
