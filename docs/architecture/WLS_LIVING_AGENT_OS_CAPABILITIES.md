@@ -266,6 +266,11 @@ fields such as `memory_id`/`active`.
   with evidence and Owner Console visibility, while explicitly performing no
   network fetch, file materialization, external write, Goal creation, planning
   execution, or Action execution.
+- P36 is a shadow-level runtime admission for local document ingress. The
+  runtime can queue an existing local document or PDF asset as a canonical
+  `channel:document` Event with hash evidence and Owner Console visibility,
+  while explicitly performing no text extraction, OCR, vector indexing,
+  external upload, Goal creation, planning execution, or Action execution.
 
 ## Projection Rule
 

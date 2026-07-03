@@ -44,6 +44,7 @@ class OwnerConsoleProductProjection:
         "screen_snapshots",
         "browser_form_drafts",
         "download_quarantine",
+        "document_ingress",
         "task_previews",
         "execution_preflight",
         "execution_receipts",
@@ -72,6 +73,7 @@ class OwnerConsoleProductProjection:
             self._screen_snapshots_panel(status),
             self._browser_form_drafts_panel(status),
             self._download_quarantine_panel(status),
+            self._document_ingress_panel(status),
             self._task_previews_panel(status),
             self._execution_preflight_panel(status),
             self._execution_receipts_panel(status),
@@ -304,6 +306,22 @@ class OwnerConsoleProductProjection:
                 "file_materialized": False,
                 "external_write_executed": False,
                 "approval_required_for_fetch": True,
+            },
+        }
+
+    @staticmethod
+    def _document_ingress_panel(status: dict[str, Any]) -> dict[str, Any]:
+        receipts = status.get("document_ingress_receipts", [])
+        return {
+            "panel_id": "document_ingress",
+            "title": "Document Ingress",
+            "status": {
+                "receipt_count": len(receipts) if isinstance(receipts, list) else 0,
+                "items": receipts if isinstance(receipts, list) else [],
+                "text_extracted": False,
+                "ocr_executed": False,
+                "vector_indexed": False,
+                "external_upload_executed": False,
             },
         }
 

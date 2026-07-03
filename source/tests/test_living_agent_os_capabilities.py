@@ -14,6 +14,7 @@ from wls.architecture_validation import (
     validate_phase2_browser_form_draft_receipts,
     validate_coding_worktree_candidate,
     validate_phase2_download_quarantine_draft_receipts,
+    validate_phase2_document_ingress_receipts,
     validate_external_memory_projection,
     validate_mcp_a2a_candidates,
     validate_phase2_capability_epoch_audit_receipts,
@@ -481,6 +482,58 @@ def test_living_system_drafts_download_quarantine_without_fetch(
         )
 
 
+def test_living_system_intakes_document_asset_as_event_only(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    document = tmp_path / "sample.pdf"
+    document.write_bytes(b"%PDF-1.4\nWLS document fixture\n")
+    before = {
+        name: runtime.db.query_one(f"SELECT COUNT(*) AS count FROM {name}")["count"]
+        for name in ("goals", "plans", "actions")
+    }
+    receipt = runtime.intake_document_asset(
+        document_id="document-1",
+        path=document,
+        source="pytest_fixture",
+        purpose="unit test document ingress",
+    )
+    after = {
+        name: runtime.db.query_one(f"SELECT COUNT(*) AS count FROM {name}")["count"]
+        for name in ("goals", "plans", "actions")
+    }
+    event = runtime.db.query_one(
+        "SELECT event_type,source,payload_json FROM events WHERE event_id=?",
+        (receipt["event_id"],),
+    )
+    assert receipt["status"] == "QUEUED_EVENT_ONLY"
+    assert receipt["mime_type"] == "application/pdf"
+    assert receipt["text_extracted"] is False
+    assert receipt["ocr_executed"] is False
+    assert receipt["vector_indexed"] is False
+    assert receipt["external_upload_executed"] is False
+    assert receipt["creates_goal"] is False
+    assert receipt["creates_action"] is False
+    assert receipt["direct_tool_execution"] is False
+    assert before == after
+    assert event is not None
+    assert event["event_type"] == "channel.message"
+    assert event["source"] == "channel:document"
+    panel = next(
+        panel
+        for panel in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if panel["panel_id"] == "document_ingress"
+    )
+    assert panel["status"]["receipt_count"] == 1
+    assert panel["status"]["text_extracted"] is False
+    assert panel["status"]["vector_indexed"] is False
+    with pytest.raises(ValueError, match="existing file"):
+        runtime.intake_document_asset(
+            document_id="document-missing",
+            path=tmp_path / "missing.pdf",
+        )
+
+
 def test_provider_router_enforces_local_first_and_cost() -> None:
     router = ProviderRouter(
         [
@@ -856,6 +909,7 @@ def test_owner_console_product_projection_and_wechat_digest_are_read_only(
         "screen_snapshots",
         "browser_form_drafts",
         "download_quarantine",
+        "document_ingress",
         "task_previews",
         "execution_preflight",
         "execution_receipts",
@@ -1836,6 +1890,17 @@ def test_architecture_validation_checks_download_quarantine_draft(
         tmp_path / "download-quarantine-validation-home"
     )
     assert result.pass_id == "P35"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) == 2
+
+
+def test_architecture_validation_checks_document_ingress(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_document_ingress_receipts(
+        tmp_path / "document-ingress-validation-home"
+    )
+    assert result.pass_id == "P36"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) == 2
 

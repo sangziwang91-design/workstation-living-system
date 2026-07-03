@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 import hashlib
 import importlib
 import json
+import mimetypes
 import os
 import signal
 import time
@@ -299,6 +300,12 @@ class LivingSystem:
 
     def download_quarantine_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         receipts = self.db.get_runtime("download_quarantine_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
+    def document_ingress_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("document_ingress_receipts", [])
         if not isinstance(receipts, list):
             return []
         return receipts[: max(0, int(limit))]
@@ -803,6 +810,78 @@ class LivingSystem:
         with self.db.transaction() as connection:
             self.db.set_runtime("download_quarantine_receipts", updated, connection)
             self.ledger.append("download_quarantine_drafted", receipt, connection)
+        return receipt
+
+    def intake_document_asset(
+        self,
+        *,
+        document_id: str,
+        path: str | Path,
+        source: str = "local_document",
+        purpose: str = "document context",
+        max_bytes: int = 25 * 1024 * 1024,
+    ) -> dict[str, Any]:
+        if not document_id.strip():
+            raise ValueError("document_id is required")
+        document_path = Path(path).expanduser().resolve()
+        if not document_path.is_file():
+            raise ValueError("document ingress requires an existing file")
+        stat = document_path.stat()
+        if stat.st_size > max_bytes:
+            raise ValueError("document exceeds max_bytes")
+        data = document_path.read_bytes()
+        content_sha256 = hashlib.sha256(data).hexdigest()
+        mime_type, encoding = mimetypes.guess_type(document_path.name)
+        message = ChannelMessage(
+            channel="document",
+            sender_id="local_host",
+            content=f"document asset {document_id}",
+            message_id=document_id,
+            metadata={
+                "path": str(document_path),
+                "sha256": content_sha256,
+                "size_bytes": len(data),
+                "mime_type": mime_type or "application/octet-stream",
+                "encoding": encoding,
+                "source": source,
+                "purpose": purpose,
+                "text_extracted": False,
+                "vector_indexed": False,
+            },
+        )
+        event_id, inserted = self.channel_gateway.submit(message, self.events)
+        receipt = {
+            "receipt_type": "DOCUMENT_INGRESS",
+            "status": "QUEUED_EVENT_ONLY",
+            "document_id": document_id,
+            "event_id": event_id,
+            "inserted": inserted,
+            "path": str(document_path),
+            "name": document_path.name,
+            "size_bytes": len(data),
+            "sha256": content_sha256,
+            "mime_type": mime_type or "application/octet-stream",
+            "encoding": encoding,
+            "source": source,
+            "purpose": purpose,
+            "text_extracted": False,
+            "ocr_executed": False,
+            "vector_indexed": False,
+            "external_upload_executed": False,
+            "creates_goal": False,
+            "creates_action": False,
+            "direct_tool_execution": False,
+            "claim_ceiling": "document asset queued as local Event only; no parsing, OCR, vector index, upload, planning, or action execution",
+            "created_at": utc_now(),
+        }
+        current = self.document_ingress_receipts(limit=100)
+        updated = [
+            receipt,
+            *[row for row in current if row.get("document_id") != document_id],
+        ][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("document_ingress_receipts", updated, connection)
+            self.ledger.append("document_asset_queued", receipt, connection)
         return receipt
 
     def record_provider_route_receipt(self, *, reason: str) -> dict[str, Any]:
@@ -2276,6 +2355,7 @@ class LivingSystem:
             "screen_snapshot_receipts": self.screen_snapshot_receipts(),
             "browser_form_draft_receipts": self.browser_form_draft_receipts(),
             "download_quarantine_receipts": self.download_quarantine_receipts(),
+            "document_ingress_receipts": self.document_ingress_receipts(),
             "provider_route_receipts": self.provider_route_receipts(),
             "skill_candidate_receipts": self.skill_candidate_receipts(),
             "learning_epoch_receipts": self.learning_epoch_receipts(),

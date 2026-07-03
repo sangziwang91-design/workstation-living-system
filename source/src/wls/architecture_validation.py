@@ -2560,6 +2560,91 @@ def validate_phase2_download_quarantine_draft_receipts(
     )
 
 
+def validate_phase2_document_ingress_receipts(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    document_path = home / "fixtures" / "phase2-document.pdf"
+    document_path.parent.mkdir(parents=True, exist_ok=True)
+    document_path.write_bytes(b"%PDF-1.4\n% WLS local document fixture\n")
+    before_goals = runtime.db.query_one("SELECT COUNT(*) AS count FROM goals")
+    before_plans = runtime.db.query_one("SELECT COUNT(*) AS count FROM plans")
+    before_actions = runtime.db.query_one("SELECT COUNT(*) AS count FROM actions")
+    receipt = runtime.intake_document_asset(
+        document_id="phase2-document-1",
+        path=document_path,
+        source="architecture_validation_fixture",
+        purpose="architecture validation document ingress",
+    )
+    after_goals = runtime.db.query_one("SELECT COUNT(*) AS count FROM goals")
+    after_plans = runtime.db.query_one("SELECT COUNT(*) AS count FROM plans")
+    after_actions = runtime.db.query_one("SELECT COUNT(*) AS count FROM actions")
+    event = runtime.db.query_one(
+        "SELECT event_type,source,payload_json FROM events WHERE event_id=?",
+        (receipt.get("event_id"),),
+    )
+    evidence = runtime.db.query_all(
+        """
+        SELECT event_type,evidence_id FROM evidence
+        WHERE event_type='document_asset_queued'
+        ORDER BY seq DESC LIMIT 1
+        """
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "document_ingress"
+        ),
+        None,
+    )
+    if (
+        receipt.get("status") != "QUEUED_EVENT_ONLY"
+        or receipt.get("text_extracted")
+        or receipt.get("ocr_executed")
+        or receipt.get("vector_indexed")
+        or receipt.get("external_upload_executed")
+        or receipt.get("creates_goal")
+        or receipt.get("creates_action")
+        or receipt.get("direct_tool_execution")
+        or before_goals is None
+        or after_goals is None
+        or before_goals["count"] != after_goals["count"]
+        or before_plans is None
+        or after_plans is None
+        or before_plans["count"] != after_plans["count"]
+        or before_actions is None
+        or after_actions is None
+        or before_actions["count"] != after_actions["count"]
+        or event is None
+        or event["event_type"] != "channel.message"
+        or event["source"] != "channel:document"
+        or not evidence
+        or panel is None
+        or panel["status"]["receipt_count"] != 1
+        or panel["status"]["text_extracted"]
+        or panel["status"]["ocr_executed"]
+        or panel["status"]["vector_indexed"]
+        or panel["status"]["external_upload_executed"]
+    ):
+        return ArchitecturePassResult(
+            "P36",
+            "BLOCKED",
+            [str(receipt)],
+            ["document ingress receipt validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P36",
+        "ADMIT_SHADOW_ONLY",
+        [str(receipt["event_id"]), str(evidence[0]["evidence_id"])],
+        [
+            "Document ingress queues a local document asset as a canonical Event with hashes and Owner Console visibility, without parsing, OCR, vector indexing, upload, Goals, Plans, Actions, or tool execution",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:
