@@ -28,6 +28,7 @@ from wls.architecture_validation import (
     validate_phase2_readonly_execution_preflight,
     validate_phase2_research_composite_readonly_execution,
     validate_phase2_scheduler_due_event_runtime_intake,
+    validate_phase2_skill_candidate_extraction_receipts,
     validate_phase2_typed_readonly_organ_profiles,
     validate_phase2_wechat_approval_channel_receipts,
     validate_p01_registry,
@@ -609,6 +610,7 @@ def test_owner_console_product_projection_and_wechat_digest_are_read_only(
         "projection_reviews",
         "memory_world",
         "evolution_lab",
+        "skill_candidates",
         "organs",
     } <= set(projection["panel_ids"])
     digest = WeChatW0W1Adapter("W1").console_digest_notification(projection)
@@ -859,6 +861,64 @@ def test_runtime_executes_preflighted_read_only_plan_with_receipts(
         )
     }
     assert {"action_completed", "read_only_plan_executed"} <= event_types
+
+
+def test_runtime_proposes_skill_candidates_from_repeated_readonly_receipts(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    source = tmp_path / "skill-source.txt"
+    source.write_text("repeatable skill evidence", encoding="utf-8")
+    for index in range(3):
+        request_id = f"skill-source-{index}"
+        runtime.intake_read_only_task(
+            ReadOnlyTaskRequest(
+                request_id=request_id,
+                organ_id="file",
+                owner_intent="inspect repeated file evidence for skill candidate",
+                inputs={"path": str(source), "max_bytes": 1024},
+            )
+        )
+        admission = runtime.admit_read_only_plan_preview(request_id)
+        runtime.preflight_read_only_plan(str(admission["plan_id"]))
+        runtime.execute_preflighted_read_only_plan(str(admission["plan_id"]))
+    receipt = runtime.propose_skill_candidates_from_receipts(
+        minimum_repeats=3,
+        reason="unit test skill extraction",
+    )
+    rows = [
+        runtime.db.query_one(
+            "SELECT status,definition_json FROM skills WHERE skill_id=?",
+            (skill_id,),
+        )
+        for skill_id in receipt["created_skill_ids"]
+    ]
+    assert receipt["status"] == "CANDIDATES_PROPOSED"
+    assert receipt["candidate_count"] >= 1
+    assert receipt["candidate_only"] is True
+    assert receipt["promotion_executed"] is False
+    assert receipt["approval_executed"] is False
+    assert receipt["sandbox_executed"] is False
+    assert {row["status"] for row in rows if row is not None} == {"PROPOSED"}
+    assert runtime.skills.active() == []
+    panel = next(
+        panel
+        for panel in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if panel["panel_id"] == "skill_candidates"
+    )
+    assert panel["status"]["receipt_count"] == 1
+    assert panel["status"]["candidate_only"] is True
+    assert panel["status"]["promotion_executed"] is False
+    event_types = {
+        row["event_type"]
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN ('skill_created','skill_candidates_extracted')
+            """
+        )
+    }
+    assert {"skill_created", "skill_candidates_extracted"} <= event_types
 
 
 def test_runtime_projects_read_only_execution_receipt_as_candidate_memory_world(
@@ -1330,6 +1390,17 @@ def test_architecture_validation_checks_provider_route_receipts(
     assert result.pass_id == "P27"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) == 2
+
+
+def test_architecture_validation_checks_skill_candidate_extraction(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_skill_candidate_extraction_receipts(
+        tmp_path / "skill-candidate-validation-home"
+    )
+    assert result.pass_id == "P28"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) >= 3
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

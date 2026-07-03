@@ -46,6 +46,7 @@ class OwnerConsoleProductProjection:
         "projection_reviews",
         "memory_world",
         "evolution_lab",
+        "skill_candidates",
         "organs",
     )
 
@@ -66,6 +67,7 @@ class OwnerConsoleProductProjection:
             self._projection_reviews_panel(status),
             self._memory_world_panel(status),
             self._evolution_panel(status),
+            self._skill_candidates_panel(status),
             self._organs_panel(status),
         ]
         payload: dict[str, Any] = {
@@ -306,6 +308,21 @@ class OwnerConsoleProductProjection:
                 "growth_cycles": status.get("growth_cycles", []),
                 "active_skills": status.get("active_skills", []),
                 "skill_promotion_executed": False,
+            },
+        }
+
+    @staticmethod
+    def _skill_candidates_panel(status: dict[str, Any]) -> dict[str, Any]:
+        receipts = status.get("skill_candidate_receipts", [])
+        return {
+            "panel_id": "skill_candidates",
+            "title": "Skill Candidates",
+            "status": {
+                "receipt_count": len(receipts) if isinstance(receipts, list) else 0,
+                "items": receipts if isinstance(receipts, list) else [],
+                "candidate_only": True,
+                "promotion_executed": False,
+                "promotion_authority": "SkillLibrary with explicit approval",
             },
         }
 

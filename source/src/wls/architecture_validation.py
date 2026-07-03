@@ -1852,6 +1852,99 @@ def validate_phase2_provider_route_runtime_receipts(
     )
 
 
+def validate_phase2_skill_candidate_extraction_receipts(
+    home: Path,
+) -> ArchitecturePassResult:
+    source = home / "skill-source.txt"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text("repeatable read-only skill evidence\n", encoding="utf-8")
+    runtime = LivingSystem(default_config(home / "runtime"))
+    before_active = len(runtime.skills.active())
+    for index in range(3):
+        request_id = f"phase2-skill-source-{index}"
+        runtime.intake_read_only_task(
+            ReadOnlyTaskRequest(
+                request_id=request_id,
+                organ_id="file",
+                owner_intent="inspect repeated local evidence for skill candidate",
+                inputs={"path": str(source), "max_bytes": 1024},
+            )
+        )
+        admission = runtime.admit_read_only_plan_preview(
+            request_id,
+            reason="architecture validation skill candidate source",
+        )
+        runtime.preflight_read_only_plan(str(admission["plan_id"]))
+        runtime.execute_preflighted_read_only_plan(str(admission["plan_id"]))
+    receipt = runtime.propose_skill_candidates_from_receipts(
+        minimum_repeats=3,
+        reason="architecture validation skill extraction",
+    )
+    skill_rows = [
+        row
+        for skill_id in receipt.get("created_skill_ids", [])
+        if (
+            row := runtime.db.query_one(
+                "SELECT skill_id,status,definition_json FROM skills WHERE skill_id=?",
+                (skill_id,),
+            )
+        )
+        is not None
+    ]
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN ('skill_created','skill_candidates_extracted')
+            """
+        )
+    }
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "skill_candidates"
+        ),
+        None,
+    )
+    if (
+        receipt.get("status") != "CANDIDATES_PROPOSED"
+        or receipt.get("candidate_count", 0) < 1
+        or not skill_rows
+        or {str(row["status"]) for row in skill_rows} != {"PROPOSED"}
+        or len(runtime.skills.active()) != before_active
+        or receipt.get("promotion_executed")
+        or receipt.get("approval_executed")
+        or receipt.get("sandbox_executed")
+        or not receipt.get("candidate_only")
+        or {"skill_created", "skill_candidates_extracted"} - event_types
+        or panel is None
+        or panel["status"]["receipt_count"] != 1
+        or not panel["status"]["candidate_only"]
+        or panel["status"]["promotion_executed"]
+    ):
+        return ArchitecturePassResult(
+            "P28",
+            "BLOCKED",
+            [str(receipt)],
+            ["skill candidate extraction receipt validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P28",
+        "ADMIT_SHADOW_ONLY",
+        [
+            *[str(row["skill_id"]) for row in skill_rows],
+            *sorted(event_types),
+        ],
+        [
+            "Repeated successful read-only action receipts can propose Skill candidates with evidence and Owner Console visibility, while remaining PROPOSED and never executing sandbox, approval, promotion, or rollback",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

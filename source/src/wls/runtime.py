@@ -278,6 +278,57 @@ class LivingSystem:
             return []
         return receipts[: max(0, int(limit))]
 
+    def skill_candidate_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("skill_candidate_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
+    def propose_skill_candidates_from_receipts(
+        self, *, minimum_repeats: int = 3, reason: str
+    ) -> dict[str, Any]:
+        created_ids = self.skills.propose_from_action_sequences(
+            minimum_repeats=minimum_repeats
+        )
+        rows = []
+        for skill_id in created_ids:
+            row = self.db.query_one(
+                "SELECT skill_id,name,status,definition_json FROM skills WHERE skill_id=?",
+                (skill_id,),
+            )
+            if row is not None:
+                definition = json.loads(str(row["definition_json"]))
+                rows.append(
+                    {
+                        "skill_id": row["skill_id"],
+                        "name": row["name"],
+                        "status": row["status"],
+                        "risk": definition.get("risk"),
+                        "source_episode_ids": definition.get("source_episode_ids", []),
+                    }
+                )
+        receipt = {
+            "receipt_type": "SKILL_CANDIDATE_EXTRACTION",
+            "status": "CANDIDATES_PROPOSED" if rows else "NO_CANDIDATES",
+            "created_skill_ids": created_ids,
+            "candidate_count": len(rows),
+            "candidates": rows,
+            "minimum_repeats": minimum_repeats,
+            "reason": reason,
+            "promotion_executed": False,
+            "approval_executed": False,
+            "sandbox_executed": False,
+            "candidate_only": True,
+            "claim_ceiling": "proposed skill candidates only; no sandbox, approval, promotion, or rollback",
+            "created_at": utc_now(),
+        }
+        current = self.skill_candidate_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("skill_candidate_receipts", updated, connection)
+            self.ledger.append("skill_candidates_extracted", receipt, connection)
+        return receipt
+
     def record_provider_route_receipt(self, *, reason: str) -> dict[str, Any]:
         route = self.planner.route_summary()
         evidence = route.get("evidence", {})
@@ -1745,6 +1796,7 @@ class LivingSystem:
             "external_handoff_receipts": self.external_handoff_receipts(),
             "approval_channel_receipts": self.approval_channel_receipts(),
             "provider_route_receipts": self.provider_route_receipts(),
+            "skill_candidate_receipts": self.skill_candidate_receipts(),
             "read_only_execution_preflights": self.read_only_execution_preflights(),
             "read_only_execution_receipts": self.read_only_execution_receipts(),
             "read_only_result_projections": self.read_only_result_projections(),

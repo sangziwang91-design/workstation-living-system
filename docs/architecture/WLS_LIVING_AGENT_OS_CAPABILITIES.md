@@ -226,6 +226,11 @@ fields such as `memory_id`/`active`.
   Planner-owned model/provider routing can be recorded as evidence and Owner
   Console projection, preserving local/free/privacy policy evidence without
   making a model call, creating a Plan, or executing a tool.
+- P28 is a shadow-level runtime admission for Skill candidate extraction.
+  Repeated successful read-only action receipts can propose Skill candidates
+  with evidence and Owner Console visibility, while remaining `PROPOSED` and
+  never running sandbox validation, approval, promotion, rollback, or live
+  deployment.
 
 ## Projection Rule
 
