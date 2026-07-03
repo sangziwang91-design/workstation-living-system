@@ -467,6 +467,7 @@ class OwnerConsoleProductProjection:
         workers = status.get("agentic_worker_profile_receipts", [])
         bindings = status.get("agentic_node_action_receipts", [])
         failures = status.get("agentic_failure_attribution_receipts", [])
+        audits = status.get("agentic_harness_epoch_audit_receipts", [])
         return {
             "panel_id": "agentic_tasks",
             "title": "Agentic Tasks",
@@ -491,6 +492,10 @@ class OwnerConsoleProductProjection:
                 "failure_attribution_v1": {
                     "receipt_count": len(failures) if isinstance(failures, list) else 0,
                     "items": failures if isinstance(failures, list) else [],
+                },
+                "harness_epoch_audit": {
+                    "receipt_count": len(audits) if isinstance(audits, list) else 0,
+                    "items": audits if isinstance(audits, list) else [],
                 },
             },
         }

@@ -382,6 +382,68 @@ def test_bound_agentic_node_action_execution_rejects_owner_gated_binding(
     assert graph.nodes[execute_lease.node_id].status is TaskNodeStatus.LEASED
 
 
+def test_agentic_harness_epoch_audit_records_safety_invariants(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    read_receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    read_graph_id = read_receipt["graph"]["graph_id"]
+    read_lease = runtime.agentic.acquire_ready_leases(
+        read_graph_id, worker_id="readonly-inspector"
+    )[0]
+    read_binding = runtime.bind_agentic_node_to_action(
+        read_graph_id,
+        read_lease.node_id,
+        lease_id=read_lease.lease_id,
+    )
+    runtime.execute_bound_agentic_node_action(read_binding["binding_id"])
+
+    risky_receipt = runtime.agentic.admit_and_compile(
+        "Publish release to an external system",
+        acceptance=["owner approval is present"],
+        evidence_required=["approval receipt"],
+    )
+    risky_graph_id = risky_receipt["graph"]["graph_id"]
+    plan_lease = runtime.agentic.acquire_ready_leases(
+        risky_graph_id, worker_id="owner-gated-executor-shadow"
+    )[0]
+    runtime.agentic.complete_node(
+        risky_graph_id,
+        plan_lease.node_id,
+        lease_id=plan_lease.lease_id,
+        result={"ok": True},
+    )
+    execute_lease = runtime.agentic.acquire_ready_leases(
+        risky_graph_id,
+        worker_id="owner-gated-executor-shadow",
+        owner_authorized_node_ids={"execute"},
+    )[0]
+    runtime.bind_agentic_node_to_action(
+        risky_graph_id,
+        execute_lease.node_id,
+        lease_id=execute_lease.lease_id,
+    )
+
+    audit = runtime.record_agentic_harness_epoch_audit(
+        reason="unit test agentic harness epoch audit"
+    )
+
+    assert audit["status"] == "PASS"
+    assert audit["receipt_counts"]["task_graph"] == 2
+    assert audit["receipt_counts"]["node_action_binding"] == 2
+    assert all(audit["invariants"].values())
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+    assert panel["status"]["harness_epoch_audit"]["receipt_count"] == 1
+
+
 def test_failure_attribution_classifies_policy_and_environment(
     tmp_path: Path,
 ) -> None:

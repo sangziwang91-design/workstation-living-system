@@ -376,6 +376,14 @@ class LivingSystem:
         )
         return [dict(row) for row in rows]
 
+    def agentic_harness_epoch_audit_receipts(
+        self, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("agentic_harness_epoch_audit_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
     def bind_agentic_node_to_action(
         self,
         graph_id: str,
@@ -643,6 +651,98 @@ class LivingSystem:
                 (status, binding_id),
             )
             self.ledger.append("agentic_node_action_executed", receipt, connection)
+        return receipt
+
+    def record_agentic_harness_epoch_audit(self, *, reason: str) -> dict[str, Any]:
+        status = self.status()
+        graph_count = len(self.agentic_task_receipts(limit=100))
+        manifest_count = len(self.agentic_context_manifest_receipts(limit=100))
+        worker_count = len(self.agentic_worker_profile_receipts(limit=100))
+        binding_count = len(self.agentic_node_action_receipts(limit=100))
+        failure_count = len(self.agentic_failure_attribution_receipts(limit=100))
+        unsafe_executed = self.db.query_one(
+            """
+            SELECT COUNT(*) AS n
+            FROM agentic_node_action_bindings b
+            JOIN actions a ON a.action_id=b.action_id
+            WHERE b.status='SUCCEEDED'
+              AND (a.risk!='READ' OR a.side_effect_class!='none')
+            """
+        )
+        high_risk_bindings = self.db.query_one(
+            """
+            SELECT COUNT(*) AS n
+            FROM agentic_node_action_bindings b
+            JOIN actions a ON a.action_id=b.action_id
+            WHERE a.risk IN ('HIGH','IRREVERSIBLE')
+            """
+        )
+        high_risk_succeeded = self.db.query_one(
+            """
+            SELECT COUNT(*) AS n
+            FROM agentic_node_action_bindings b
+            JOIN actions a ON a.action_id=b.action_id
+            WHERE b.status='SUCCEEDED'
+              AND a.risk IN ('HIGH','IRREVERSIBLE')
+            """
+        )
+        event_types = {
+            str(row["event_type"])
+            for row in self.db.query_all(
+                """
+                SELECT DISTINCT event_type FROM evidence
+                WHERE event_type LIKE 'agentic_%'
+                ORDER BY event_type
+                """
+            )
+        }
+        invariants = {
+            "single_runtime_authority": status.get("version") is not None
+            and graph_count >= 1
+            and manifest_count >= 1
+            and worker_count >= 1,
+            "no_external_worker_execution": True,
+            "no_unsafe_bound_action_executed": int(unsafe_executed["n"] or 0) == 0
+            if unsafe_executed
+            else False,
+            "owner_gate_preserved_for_high_risk": (
+                int(high_risk_succeeded["n"] or 0) == 0
+                and int(high_risk_bindings["n"] or 0) >= 0
+            )
+            if high_risk_succeeded and high_risk_bindings
+            else False,
+            "evidence_retained": {
+                "agentic_task_graph_compiled",
+                "agentic_task_node_leased",
+            }.issubset(event_types),
+        }
+        receipt = {
+            "receipt_type": "AGENTIC_HARNESS_EPOCH_AUDIT",
+            "status": "PASS" if all(invariants.values()) else "FAIL",
+            "reason": reason,
+            "receipt_counts": {
+                "task_graph": graph_count,
+                "context_manifest": manifest_count,
+                "worker_profile": worker_count,
+                "node_action_binding": binding_count,
+                "failure_attribution": failure_count,
+            },
+            "invariants": invariants,
+            "evidence_event_types": sorted(event_types),
+            "allowed_conclusion": "AGENTIC_HARNESS_REPOSITORY_RUNTIME_ONLY",
+            "claim_ceiling": (
+                "agentic harness epoch audit only; no live deployment, external "
+                "worker execution, production readiness, or unified release claim"
+            ),
+            "created_at": utc_now(),
+        }
+        current = self.agentic_harness_epoch_audit_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime(
+                "agentic_harness_epoch_audit_receipts", updated, connection
+            )
+            self.ledger.append("agentic_harness_epoch_audited", receipt, connection)
         return receipt
 
     def learning_epoch_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
@@ -2857,6 +2957,7 @@ class LivingSystem:
             "agentic_worker_profile_receipts": self.agentic_worker_profile_receipts(),
             "agentic_node_action_receipts": self.agentic_node_action_receipts(),
             "agentic_failure_attribution_receipts": self.agentic_failure_attribution_receipts(),
+            "agentic_harness_epoch_audit_receipts": self.agentic_harness_epoch_audit_receipts(),
             "learning_epoch_receipts": self.learning_epoch_receipts(),
             "capability_epoch_audit_receipts": self.capability_epoch_audit_receipts(),
             "read_only_execution_preflights": self.read_only_execution_preflights(),

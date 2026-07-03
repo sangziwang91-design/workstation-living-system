@@ -101,6 +101,9 @@ runtime:
 - L11: bound READ/no-side-effect node actions can execute through the canonical
   action path and feed success/failure back into the task graph without external
   worker delegation, writes, approval consumption, or live deployment.
+- L12: Harness Epoch Audit records no-second-authority, no-external-worker,
+  no-unsafe-bound-action, owner-gate, and evidence-retention invariants as a
+  repository runtime receipt.
 
 ## Next Batches
 
@@ -108,5 +111,5 @@ Recommended next increments:
 
 1. Offspring birth contract: only after the parent harness can evaluate bounded
    task graphs without second authority drift.
-2. Harness epoch audit: prove no-second-authority, no-live-write, owner-gate,
-   and evidence-retention invariants across P42-P45 receipts.
+2. Single-software convergence audit: identify branch-only scaffolding and
+   remaining live-tail tests required before unified WLS packaging.
