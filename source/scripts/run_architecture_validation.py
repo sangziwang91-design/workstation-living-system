@@ -48,6 +48,7 @@ from wls.architecture_validation import (  # noqa: E402
     validate_phase2_document_projection_review,
     validate_phase2_document_skill_candidate_receipts,
     validate_phase2_document_skill_sandbox_receipts,
+    validate_phase2_agentic_acceptance_trace,
     validate_phase2_agentic_task_harness,
     validate_p01_registry,
     validate_runtime_approval_receipts,
@@ -57,6 +58,7 @@ from wls.architecture_validation import (  # noqa: E402
 )
 
 PASS_CONTRACTS: dict[str, str] = {}
+SELECTIVE_VALIDATION_PASSES = {"P01", "P42", "P43"}
 
 
 def _selected(selected: set[str] | None, pass_id: str) -> bool:
@@ -64,11 +66,11 @@ def _selected(selected: set[str] | None, pass_id: str) -> bool:
 
 
 def _run_selected_validation(selected: set[str]) -> dict[str, object]:
-    unknown = selected - {"P01", "P42"}
+    unknown = selected - SELECTIVE_VALIDATION_PASSES
     if unknown:
         raise ValueError(
             "selective architecture validation currently supports only "
-            f"P01 and P42, got {sorted(unknown)}"
+            f"{sorted(SELECTIVE_VALIDATION_PASSES)}, got {sorted(unknown)}"
         )
     results: list[ArchitecturePassResult] = []
     with tempfile.TemporaryDirectory(prefix="wls-architecture-validation-") as temp:
@@ -79,6 +81,12 @@ def _run_selected_validation(selected: set[str]) -> dict[str, object]:
             results.append(
                 validate_phase2_agentic_task_harness(
                     temp_path / "phase2-agentic-task-harness-home"
+                )
+            )
+        if _selected(selected, "P43"):
+            results.append(
+                validate_phase2_agentic_acceptance_trace(
+                    temp_path / "phase2-agentic-acceptance-trace-home"
                 )
             )
     return {
@@ -253,6 +261,11 @@ def run_validation(selected: set[str] | None = None) -> dict[str, object]:
                 temp_path / "phase2-agentic-task-harness-home"
             )
         )
+        results.append(
+            validate_phase2_agentic_acceptance_trace(
+                temp_path / "phase2-agentic-acceptance-trace-home"
+            )
+        )
     for pass_id, note in PASS_CONTRACTS.items():
         results.append(
             ArchitecturePassResult(
@@ -276,7 +289,7 @@ def main(argv: list[str] | None = None) -> int:
         "--only",
         action="append",
         dest="only",
-        help="Run one validation pass only. Currently supports P01 and P42.",
+        help="Run one validation pass only. Currently supports P01, P42, and P43.",
     )
     args = parser.parse_args(argv)
     selected = {item.upper() for item in args.only} if args.only else None
