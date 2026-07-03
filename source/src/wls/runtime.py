@@ -685,6 +685,9 @@ class LivingSystem:
             self.agentic_acceptance_trace_receipts(limit=100)
         )
         mailbox_count = len(self.agentic_mailbox_receipts(limit=100))
+        repair_candidate_count = len(
+            self.agentic_repair_candidate_receipts(limit=100)
+        )
         unsafe_executed = self.db.query_one(
             """
             SELECT COUNT(*) AS n
@@ -751,6 +754,13 @@ class LivingSystem:
                     "agentic_result_envelope_imported",
                 }.issubset(event_types)
             ),
+            "failed_nodes_have_repair_candidates": (
+                failure_count == 0
+                or (
+                    repair_candidate_count > 0
+                    and "agentic_repair_candidate_proposed" in event_types
+                )
+            ),
         }
         receipt = {
             "receipt_type": "AGENTIC_HARNESS_EPOCH_AUDIT",
@@ -764,6 +774,7 @@ class LivingSystem:
                 "failure_attribution": failure_count,
                 "acceptance_trace": acceptance_trace_count,
                 "file_mailbox": mailbox_count,
+                "repair_candidate": repair_candidate_count,
             },
             "invariants": invariants,
             "evidence_event_types": sorted(event_types),

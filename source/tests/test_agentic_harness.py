@@ -700,6 +700,26 @@ def test_agentic_harness_epoch_audit_records_safety_invariants(
         mailbox_root=mailbox_root,
         message_id="audit-result-1",
     )
+    repair_receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    repair_graph_id = repair_receipt["graph"]["graph_id"]
+    repair_lease = runtime.agentic.acquire_ready_leases(
+        repair_graph_id, worker_id="readonly-inspector"
+    )[0]
+    runtime.agentic.fail_node(
+        repair_graph_id,
+        repair_lease.node_id,
+        lease_id=repair_lease.lease_id,
+        error="fixture validation mismatch: inspection evidence missing",
+    )
+    runtime.agentic.propose_repair_candidate(
+        repair_graph_id,
+        repair_lease.node_id,
+        reason="unit test epoch audit failed node repair candidate",
+    )
 
     risky_receipt = runtime.agentic.admit_and_compile(
         "Publish release to an external system",
@@ -732,10 +752,13 @@ def test_agentic_harness_epoch_audit_records_safety_invariants(
     )
 
     assert audit["status"] == "PASS"
-    assert audit["receipt_counts"]["task_graph"] == 4
+    assert audit["receipt_counts"]["task_graph"] == 5
     assert audit["receipt_counts"]["node_action_binding"] == 2
+    assert audit["receipt_counts"]["failure_attribution"] == 1
     assert audit["receipt_counts"]["acceptance_trace"] == 1
     assert audit["receipt_counts"]["file_mailbox"] == 2
+    assert audit["receipt_counts"]["repair_candidate"] == 1
+    assert audit["invariants"]["failed_nodes_have_repair_candidates"] is True
     assert all(audit["invariants"].values())
     panel = next(
         item
