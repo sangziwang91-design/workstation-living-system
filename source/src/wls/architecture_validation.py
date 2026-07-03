@@ -3057,6 +3057,122 @@ def validate_phase2_document_skill_candidate_receipts(
     )
 
 
+def validate_phase2_document_skill_sandbox_receipts(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    document_path = home / "fixtures" / "phase2-document-sandbox.pdf"
+    document_path.parent.mkdir(parents=True, exist_ok=True)
+    document_path.write_bytes(b"%PDF-1.4\n% WLS document sandbox fixture\n")
+    before_active = len(runtime.skills.active())
+    for index in range(3):
+        document_id = f"phase2-document-sandbox-{index}"
+        request_id = f"phase2-document-sandbox-request-{index}"
+        runtime.intake_document_asset(
+            document_id=document_id,
+            path=document_path,
+            source="architecture_validation_fixture",
+            purpose="architecture validation document sandbox source",
+        )
+        runtime.prepare_document_retrieval_preview(
+            document_id=document_id,
+            request_id=request_id,
+            owner_intent="Repeat local document inspection for Skill sandbox candidate",
+        )
+        admission = runtime.admit_read_only_plan_preview(
+            request_id,
+            reason="architecture validation document sandbox admission",
+        )
+        runtime.preflight_read_only_plan(str(admission["plan_id"]))
+        runtime.execute_preflighted_read_only_plan(str(admission["plan_id"]))
+    candidate_receipt = runtime.propose_skill_candidates_from_receipts(
+        minimum_repeats=3,
+        reason="architecture validation document sandbox extraction",
+    )
+    skill_id = str(candidate_receipt["created_skill_ids"][0])
+    sandbox = runtime.start_skill_sandbox_validation(
+        skill_id=skill_id,
+        reason="architecture validation document sandbox start",
+    )
+    skill = runtime.db.query_one(
+        "SELECT status,definition_json FROM skills WHERE skill_id=?", (skill_id,)
+    )
+    experiment = runtime.db.query_one(
+        "SELECT status,manifest_json,result_json FROM skill_experiments WHERE experiment_id=?",
+        (sandbox["experiment_id"],),
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN (
+                'skill_sandbox_validation_started',
+                'skill_transition',
+                'skill_sandbox_receipt_recorded'
+            )
+            """
+        )
+    }
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "skill_sandbox"
+        ),
+        None,
+    )
+    definition = json.loads(str(skill["definition_json"])) if skill is not None else {}
+    manifest = json.loads(str(experiment["manifest_json"])) if experiment else {}
+    if (
+        sandbox.get("status") != "SANDBOX_STARTED"
+        or sandbox.get("skill_status_before") != "PROPOSED"
+        or sandbox.get("skill_status_after") != "SANDBOXED"
+        or sandbox.get("validation_passed")
+        or sandbox.get("approval_executed")
+        or sandbox.get("promotion_executed")
+        or sandbox.get("deployment_executed")
+        or len(runtime.skills.active()) != before_active
+        or skill is None
+        or skill["status"] != "SANDBOXED"
+        or definition.get("status") != "SANDBOXED"
+        or experiment is None
+        or experiment["status"] != "RUNNING"
+        or experiment["result_json"] is not None
+        or manifest.get("mode") != "sandbox_candidate_only"
+        or manifest.get("promotion_executed")
+        or manifest.get("approval_executed")
+        or not Path(str(sandbox.get("manifest_path", ""))).is_file()
+        or panel is None
+        or panel["status"]["receipt_count"] != 1
+        or not panel["status"]["sandbox_started"]
+        or panel["status"]["validation_passed"]
+        or panel["status"]["promotion_executed"]
+        or {
+            "skill_sandbox_validation_started",
+            "skill_transition",
+            "skill_sandbox_receipt_recorded",
+        }
+        - event_types
+    ):
+        return ArchitecturePassResult(
+            "P41",
+            "BLOCKED",
+            [str(sandbox)],
+            ["document skill sandbox receipt validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P41",
+        "ADMIT_SHADOW_ONLY",
+        [skill_id, str(sandbox["experiment_id"]), *sorted(event_types)],
+        [
+            "Document Skill candidates can enter a SANDBOXED running experiment state with evidence and Owner Console visibility while preserving no validation pass, no approval, no promotion, no active Skill, and no deployment",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

@@ -37,6 +37,7 @@ from .read_only_organs import ReadOnlyTaskReceipt, ReadOnlyTaskRequest
 from .schemas import (
     ActionSpec,
     ActionStatus,
+    CandidateStatus,
     Event,
     EvidenceKind,
     Goal,
@@ -45,6 +46,7 @@ from .schemas import (
     Plan,
     RiskLevel,
     VerificationStatus,
+    digest_json,
     new_id,
     utc_now,
 )
@@ -322,6 +324,12 @@ class LivingSystem:
             return []
         return receipts[: max(0, int(limit))]
 
+    def skill_sandbox_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("skill_sandbox_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
     def learning_epoch_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         receipts = self.db.get_runtime("learning_epoch_receipts", [])
         if not isinstance(receipts, list):
@@ -379,6 +387,117 @@ class LivingSystem:
         with self.db.transaction() as connection:
             self.db.set_runtime("skill_candidate_receipts", updated, connection)
             self.ledger.append("skill_candidates_extracted", receipt, connection)
+        return receipt
+
+    def start_skill_sandbox_validation(
+        self, *, skill_id: str, reason: str
+    ) -> dict[str, Any]:
+        row = self.db.query_one(
+            "SELECT skill_id,version,status,definition_json FROM skills WHERE skill_id=?",
+            (skill_id,),
+        )
+        if row is None:
+            raise KeyError(f"unknown skill: {skill_id}")
+        if str(row["status"]) != CandidateStatus.PROPOSED.value:
+            raise ValueError("skill sandbox validation requires a PROPOSED skill")
+        definition = json.loads(str(row["definition_json"]))
+        experiment_id = new_id("skill_exp")
+        artifact_dir = self.config.sandbox_path / "skill-experiments" / experiment_id
+        artifact_dir.mkdir(parents=True, exist_ok=False)
+        candidate_cases = [
+            {
+                "case_id": f"source-{index + 1}",
+                "source_episode_id": source_id,
+            }
+            for index, source_id in enumerate(
+                definition.get("source_episode_ids", [])
+            )
+        ]
+        manifest = {
+            "experiment_id": experiment_id,
+            "skill_id": skill_id,
+            "skill_version": int(row["version"]),
+            "definition_sha256": digest_json(definition),
+            "reason": reason,
+            "created_at": utc_now(),
+            "mode": "sandbox_candidate_only",
+            "candidate_cases": candidate_cases,
+            "approval_executed": False,
+            "promotion_executed": False,
+            "deployment_executed": False,
+        }
+        baseline = {
+            "source_episode_count": len(definition.get("source_episode_ids", [])),
+            "skill_status_before": row["status"],
+            "risk": definition.get("risk"),
+        }
+        manifest_sha256 = digest_json(manifest)
+        manifest_path = artifact_dir / "manifest.json"
+        manifest_path.write_text(
+            json.dumps(manifest, indent=2, ensure_ascii=False, sort_keys=True),
+            encoding="utf-8",
+        )
+        with self.db.transaction() as connection:
+            connection.execute(
+                """
+                INSERT INTO skill_experiments(
+                    experiment_id,skill_id,skill_version,status,manifest_json,
+                    baseline_json,result_json,artifact_path,started_at,finished_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,NULL)
+                """,
+                (
+                    experiment_id,
+                    skill_id,
+                    int(row["version"]),
+                    "RUNNING",
+                    json.dumps(manifest, ensure_ascii=False, sort_keys=True),
+                    json.dumps(baseline, ensure_ascii=False, sort_keys=True),
+                    None,
+                    str(artifact_dir),
+                    utc_now(),
+                ),
+            )
+            self.ledger.append(
+                "skill_sandbox_validation_started",
+                {
+                    "experiment_id": experiment_id,
+                    "skill_id": skill_id,
+                    "manifest_sha256": manifest_sha256,
+                    "candidate_only": True,
+                },
+                connection,
+            )
+        self.skills.transition(
+            skill_id,
+            CandidateStatus.SANDBOXED,
+            {"experiment_id": experiment_id, "manifest_sha256": manifest_sha256},
+        )
+        receipt = {
+            "receipt_type": "SKILL_SANDBOX_VALIDATION",
+            "status": "SANDBOX_STARTED",
+            "skill_id": skill_id,
+            "experiment_id": experiment_id,
+            "manifest_path": str(manifest_path),
+            "manifest_sha256": manifest_sha256,
+            "candidate_case_count": len(candidate_cases),
+            "skill_status_before": row["status"],
+            "skill_status_after": CandidateStatus.SANDBOXED.value,
+            "candidate_only": True,
+            "validation_passed": False,
+            "approval_executed": False,
+            "promotion_executed": False,
+            "deployment_executed": False,
+            "claim_ceiling": "skill sandbox started only; no validation pass, approval, promotion, active skill, or deployment",
+            "created_at": utc_now(),
+        }
+        current = self.skill_sandbox_receipts(limit=100)
+        updated = [
+            receipt,
+            *[item for item in current if item.get("skill_id") != skill_id],
+        ][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("skill_sandbox_receipts", updated, connection)
+            self.ledger.append("skill_sandbox_receipt_recorded", receipt, connection)
         return receipt
 
     def review_learning_epoch_from_receipts(
@@ -2417,6 +2536,7 @@ class LivingSystem:
             "document_ingress_receipts": self.document_ingress_receipts(),
             "provider_route_receipts": self.provider_route_receipts(),
             "skill_candidate_receipts": self.skill_candidate_receipts(),
+            "skill_sandbox_receipts": self.skill_sandbox_receipts(),
             "learning_epoch_receipts": self.learning_epoch_receipts(),
             "capability_epoch_audit_receipts": self.capability_epoch_audit_receipts(),
             "read_only_execution_preflights": self.read_only_execution_preflights(),

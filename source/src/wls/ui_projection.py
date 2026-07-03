@@ -53,6 +53,7 @@ class OwnerConsoleProductProjection:
         "memory_world",
         "evolution_lab",
         "skill_candidates",
+        "skill_sandbox",
         "learning_epoch",
         "capability_epoch",
         "organs",
@@ -82,6 +83,7 @@ class OwnerConsoleProductProjection:
             self._memory_world_panel(status),
             self._evolution_panel(status),
             self._skill_candidates_panel(status),
+            self._skill_sandbox_panel(status),
             self._learning_epoch_panel(status),
             self._capability_epoch_panel(status),
             self._organs_panel(status),
@@ -436,6 +438,23 @@ class OwnerConsoleProductProjection:
                 "candidate_only": True,
                 "promotion_executed": False,
                 "promotion_authority": "SkillLibrary with explicit approval",
+            },
+        }
+
+    @staticmethod
+    def _skill_sandbox_panel(status: dict[str, Any]) -> dict[str, Any]:
+        receipts = status.get("skill_sandbox_receipts", [])
+        return {
+            "panel_id": "skill_sandbox",
+            "title": "Skill Sandbox",
+            "status": {
+                "receipt_count": len(receipts) if isinstance(receipts, list) else 0,
+                "items": receipts if isinstance(receipts, list) else [],
+                "sandbox_started": bool(receipts) if isinstance(receipts, list) else False,
+                "validation_passed": False,
+                "approval_executed": False,
+                "promotion_executed": False,
+                "deployment_executed": False,
             },
         }
 

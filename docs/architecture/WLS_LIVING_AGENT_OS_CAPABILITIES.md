@@ -290,6 +290,11 @@ fields such as `memory_id`/`active`.
   Skill candidates from `inspect_asset`/`read_file` sequences, while explicitly
   performing no sandbox validation, approval, promotion, active Skill enablement,
   Goal completion, or deployment.
+- P41 is a shadow-level runtime admission for Skill sandbox starts. A
+  `PROPOSED` document Skill candidate may enter a persisted `RUNNING`
+  `skill_experiments` sandbox and transition to `SANDBOXED`, while explicitly
+  performing no validation pass, approval, promotion, active Skill enablement,
+  Goal completion, or deployment.
 
 ## Projection Rule
 

@@ -19,6 +19,7 @@ from wls.architecture_validation import (
     validate_phase2_document_readonly_execution,
     validate_phase2_document_projection_review,
     validate_phase2_document_skill_candidate_receipts,
+    validate_phase2_document_skill_sandbox_receipts,
     validate_external_memory_projection,
     validate_mcp_a2a_candidates,
     validate_phase2_capability_epoch_audit_receipts,
@@ -794,6 +795,93 @@ def test_document_repeated_readonly_execution_proposes_skill_candidate(
     assert panel["status"]["promotion_executed"] is False
 
 
+def test_document_skill_candidate_starts_sandbox_without_promotion(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    document = tmp_path / "sample.pdf"
+    document.write_bytes(b"%PDF-1.4\nWLS document sandbox fixture\n")
+    before_active = len(runtime.skills.active())
+    for index in range(3):
+        document_id = f"document-sandbox-{index}"
+        request_id = f"document-sandbox-request-{index}"
+        runtime.intake_document_asset(
+            document_id=document_id,
+            path=document,
+            source="pytest_fixture",
+            purpose="unit test document sandbox source",
+        )
+        runtime.prepare_document_retrieval_preview(
+            document_id=document_id,
+            request_id=request_id,
+            owner_intent="repeat local document inspection for Skill sandbox",
+        )
+        admission = runtime.admit_read_only_plan_preview(
+            request_id,
+            reason="unit test document sandbox admission",
+        )
+        runtime.preflight_read_only_plan(str(admission["plan_id"]))
+        runtime.execute_preflighted_read_only_plan(str(admission["plan_id"]))
+    candidate = runtime.propose_skill_candidates_from_receipts(
+        minimum_repeats=3,
+        reason="unit test document sandbox extraction",
+    )
+    skill_id = candidate["created_skill_ids"][0]
+    sandbox = runtime.start_skill_sandbox_validation(
+        skill_id=skill_id,
+        reason="unit test sandbox start",
+    )
+    skill = runtime.db.query_one(
+        "SELECT status,definition_json FROM skills WHERE skill_id=?", (skill_id,)
+    )
+    experiment = runtime.db.query_one(
+        "SELECT status,manifest_json,result_json FROM skill_experiments WHERE experiment_id=?",
+        (sandbox["experiment_id"],),
+    )
+    assert sandbox["status"] == "SANDBOX_STARTED"
+    assert sandbox["skill_status_before"] == "PROPOSED"
+    assert sandbox["skill_status_after"] == "SANDBOXED"
+    assert sandbox["candidate_only"] is True
+    assert sandbox["validation_passed"] is False
+    assert sandbox["approval_executed"] is False
+    assert sandbox["promotion_executed"] is False
+    assert sandbox["deployment_executed"] is False
+    assert len(runtime.skills.active()) == before_active
+    assert skill is not None and skill["status"] == "SANDBOXED"
+    assert json.loads(skill["definition_json"])["status"] == "SANDBOXED"
+    assert experiment is not None and experiment["status"] == "RUNNING"
+    assert experiment["result_json"] is None
+    assert json.loads(experiment["manifest_json"])["mode"] == "sandbox_candidate_only"
+    assert Path(sandbox["manifest_path"]).is_file()
+    panel = next(
+        panel
+        for panel in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if panel["panel_id"] == "skill_sandbox"
+    )
+    assert panel["status"]["receipt_count"] == 1
+    assert panel["status"]["sandbox_started"] is True
+    assert panel["status"]["validation_passed"] is False
+    assert panel["status"]["promotion_executed"] is False
+    event_types = {
+        row["event_type"]
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN (
+                'skill_sandbox_validation_started',
+                'skill_transition',
+                'skill_sandbox_receipt_recorded'
+            )
+            """
+        )
+    }
+    assert {
+        "skill_sandbox_validation_started",
+        "skill_transition",
+        "skill_sandbox_receipt_recorded",
+    } <= event_types
+
+
 def test_provider_router_enforces_local_first_and_cost() -> None:
     router = ProviderRouter(
         [
@@ -1178,6 +1266,7 @@ def test_owner_console_product_projection_and_wechat_digest_are_read_only(
         "memory_world",
         "evolution_lab",
         "skill_candidates",
+        "skill_sandbox",
         "learning_epoch",
         "capability_epoch",
         "organs",
@@ -2209,6 +2298,17 @@ def test_architecture_validation_checks_document_skill_candidate(
     assert result.pass_id == "P40"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) >= 3
+
+
+def test_architecture_validation_checks_document_skill_sandbox(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_document_skill_sandbox_receipts(
+        tmp_path / "document-skill-sandbox-validation-home"
+    )
+    assert result.pass_id == "P41"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) >= 4
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:
