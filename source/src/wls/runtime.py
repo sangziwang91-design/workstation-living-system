@@ -54,6 +54,7 @@ from .sleep import SleepConsolidator
 from .stores import EventStore, GoalStore, MemoryStore
 from .temporal_world import TemporalCausalWorld
 from .tools import ToolRegistry
+from .wechat_adapter import WeChatW0W1Adapter
 from .world import WorldModel
 
 
@@ -265,6 +266,60 @@ class LivingSystem:
             return []
         return receipts[: max(0, int(limit))]
 
+    def approval_channel_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("approval_channel_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
+    def draft_wechat_approval_request(self, action_id: str) -> dict[str, Any]:
+        row = self.db.query_one(
+            "SELECT action_id,plan_id,tool,purpose,risk,status FROM actions WHERE action_id=?",
+            (action_id,),
+        )
+        if row is None:
+            raise KeyError(action_id)
+        draft = WeChatW0W1Adapter("W2").approval_request_notification(dict(row))
+        receipt = {
+            "receipt_type": "WECHAT_APPROVAL_REQUEST",
+            **draft,
+            "creates_approval": False,
+            "approval_authority": "ApprovalManager",
+            "claim_ceiling": "draft notification only; no approval issued or action executed",
+        }
+        self._record_approval_channel_receipt("wechat_approval_request_drafted", receipt)
+        return receipt
+
+    def intake_wechat_approval_decision(
+        self,
+        message: ChannelMessage,
+        *,
+        action_id: str,
+        decision: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        event = WeChatW0W1Adapter("W2").approval_decision_event(
+            message, action_id=action_id, decision=decision, reason=reason
+        )
+        event_id, inserted = self.events.add_event(event)
+        receipt = {
+            "receipt_type": "WECHAT_APPROVAL_DECISION_EVENT",
+            "status": "QUEUED_EVENT_ONLY",
+            "event_id": event_id,
+            "inserted": inserted,
+            "action_id": action_id,
+            "decision": decision.upper(),
+            "message_id": message.message_id,
+            "creates_approval": False,
+            "executes_action": False,
+            "direct_tool_execution": False,
+            "allowed_next_authority": "ApprovalManager",
+            "claim_ceiling": "approval decision event only; ApprovalManager must issue exact approval",
+            "created_at": utc_now(),
+        }
+        self._record_approval_channel_receipt("wechat_approval_decision_queued", receipt)
+        return receipt
+
     def admit_mcp_candidate(self, candidate: McpCandidate, *, reason: str) -> dict[str, Any]:
         result = self.mcp_trust.admit(candidate)
         receipt = {
@@ -322,6 +377,15 @@ class LivingSystem:
         updated = [receipt, *current][:100]
         with self.db.transaction() as connection:
             self.db.set_runtime("external_handoff_receipts", updated, connection)
+            self.ledger.append(event_type, receipt, connection)
+
+    def _record_approval_channel_receipt(
+        self, event_type: str, receipt: dict[str, Any]
+    ) -> None:
+        current = self.approval_channel_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("approval_channel_receipts", updated, connection)
             self.ledger.append(event_type, receipt, connection)
 
     def read_only_execution_preflights(self, limit: int = 20) -> list[dict[str, Any]]:
@@ -1625,6 +1689,7 @@ class LivingSystem:
             "read_only_plan_previews": self.read_only_plan_previews(),
             "scheduled_event_receipts": self.scheduled_event_receipts(),
             "external_handoff_receipts": self.external_handoff_receipts(),
+            "approval_channel_receipts": self.approval_channel_receipts(),
             "read_only_execution_preflights": self.read_only_execution_preflights(),
             "read_only_execution_receipts": self.read_only_execution_receipts(),
             "read_only_result_projections": self.read_only_result_projections(),

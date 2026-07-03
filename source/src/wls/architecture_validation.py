@@ -583,6 +583,7 @@ def validate_phase2_owner_surface_and_readonly_organs(
         "attention",
         "goals",
         "actions_approval",
+        "approval_channels",
         "scheduled_events",
         "external_handoffs",
         "task_previews",
@@ -1687,6 +1688,95 @@ def validate_phase2_external_handoff_runtime_receipts(
         ],
         [
             "MCP and A2A external handoffs can be recorded as candidate-only runtime receipts with evidence and Owner Console visibility, without creating actions, goals, canonical memory, or authority transfer",
+        ],
+    )
+
+
+def validate_phase2_wechat_approval_channel_receipts(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home))
+    target = runtime.config.sandbox_path / "wechat-approval.txt"
+    action = _insert_waiting_write_action(runtime, target, "approval candidate")
+    before_approvals = runtime.db.query_one("SELECT COUNT(*) AS count FROM approvals")
+    request_receipt = runtime.draft_wechat_approval_request(action.action_id)
+    decision_receipt = runtime.intake_wechat_approval_decision(
+        ChannelMessage("wechat", "owner", "approve", "wechat-approval-message-1"),
+        action_id=action.action_id,
+        decision="APPROVE",
+        reason="architecture validation queued approval decision",
+    )
+    after_approvals = runtime.db.query_one("SELECT COUNT(*) AS count FROM approvals")
+    action_row = runtime.db.query_one(
+        "SELECT status,approval_id FROM actions WHERE action_id=?", (action.action_id,)
+    )
+    event_row = runtime.db.query_one(
+        "SELECT event_type,source,status FROM events WHERE event_id=?",
+        (decision_receipt["event_id"],),
+    )
+    evidence = runtime.db.query_all(
+        """
+        SELECT event_type,evidence_id FROM evidence
+        WHERE event_type IN (
+            'wechat_approval_request_drafted',
+            'wechat_approval_decision_queued'
+        )
+        ORDER BY seq
+        """
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "approval_channels"
+        ),
+        None,
+    )
+    event_types = {row["event_type"] for row in evidence}
+    if (
+        request_receipt.get("status") != "DRAFT_APPROVAL_REQUEST"
+        or request_receipt.get("creates_approval")
+        or request_receipt.get("direct_tool_execution")
+        or decision_receipt.get("status") != "QUEUED_EVENT_ONLY"
+        or decision_receipt.get("creates_approval")
+        or decision_receipt.get("executes_action")
+        or before_approvals is None
+        or after_approvals is None
+        or before_approvals["count"] != after_approvals["count"]
+        or action_row is None
+        or action_row["status"] != "WAITING_APPROVAL"
+        or action_row["approval_id"] is not None
+        or event_row is None
+        or event_row["event_type"] != "wechat.approval_decision.requested"
+        or event_row["source"] != "channel:wechat"
+        or not {
+            "wechat_approval_request_drafted",
+            "wechat_approval_decision_queued",
+        }
+        <= event_types
+        or panel is None
+        or panel["status"]["receipt_count"] != 2
+        or panel["status"]["channel_executes_actions"]
+        or panel["status"]["channel_issues_approvals"]
+    ):
+        return ArchitecturePassResult(
+            "P26",
+            "BLOCKED",
+            [str(request_receipt), str(decision_receipt)],
+            ["WeChat approval channel receipt validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P26",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(action.action_id),
+            str(decision_receipt["event_id"]),
+            *[str(row["evidence_id"]) for row in evidence[-2:]],
+        ],
+        [
+            "WeChat approval channels can draft approval requests and queue Owner decision Events with evidence and Owner Console visibility, while ApprovalManager remains the only approval authority and no action executes",
         ],
     )
 

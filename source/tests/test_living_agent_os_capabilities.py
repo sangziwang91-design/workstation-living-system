@@ -9,6 +9,7 @@ import pytest
 
 from wls.a2a_adapter import A2AAdapter, ArtifactEnvelope, TaskContract, payload_digest
 from wls.architecture_validation import (
+    _insert_waiting_write_action,
     validate_browser_computer_organs,
     validate_coding_worktree_candidate,
     validate_external_memory_projection,
@@ -27,6 +28,7 @@ from wls.architecture_validation import (
     validate_phase2_research_composite_readonly_execution,
     validate_phase2_scheduler_due_event_runtime_intake,
     validate_phase2_typed_readonly_organ_profiles,
+    validate_phase2_wechat_approval_channel_receipts,
     validate_p01_registry,
     validate_runtime_approval_receipts,
     validate_runtime_event_ingress,
@@ -514,6 +516,44 @@ def test_owner_projection_and_wechat_w0_w1_are_read_only() -> None:
     assert event.source == "channel:wechat"
 
 
+def test_wechat_w2_approval_channel_queues_decision_event_only(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    action = _insert_waiting_write_action(
+        runtime, runtime.config.sandbox_path / "approval.txt", "candidate"
+    )
+    before_approvals = runtime.db.query_one("SELECT COUNT(*) AS count FROM approvals")
+    request = runtime.draft_wechat_approval_request(action.action_id)
+    decision = runtime.intake_wechat_approval_decision(
+        ChannelMessage("wechat", "owner", "approve", "wx-approval-1"),
+        action_id=action.action_id,
+        decision="APPROVE",
+        reason="unit test decision event",
+    )
+    after_approvals = runtime.db.query_one("SELECT COUNT(*) AS count FROM approvals")
+    row = runtime.db.query_one(
+        "SELECT status,approval_id FROM actions WHERE action_id=?", (action.action_id,)
+    )
+    assert request["status"] == "DRAFT_APPROVAL_REQUEST"
+    assert request["creates_approval"] is False
+    assert request["direct_tool_execution"] is False
+    assert decision["status"] == "QUEUED_EVENT_ONLY"
+    assert decision["executes_action"] is False
+    assert before_approvals is not None and after_approvals is not None
+    assert before_approvals["count"] == after_approvals["count"]
+    assert row is not None
+    assert row["status"] == "WAITING_APPROVAL"
+    assert row["approval_id"] is None
+    panel = next(
+        panel
+        for panel in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if panel["panel_id"] == "approval_channels"
+    )
+    assert panel["status"]["receipt_count"] == 2
+    assert panel["status"]["channel_issues_approvals"] is False
+
+
 def test_owner_console_product_projection_and_wechat_digest_are_read_only(
     tmp_path: Path,
 ) -> None:
@@ -527,6 +567,7 @@ def test_owner_console_product_projection_and_wechat_digest_are_read_only(
         "attention",
         "goals",
         "actions_approval",
+        "approval_channels",
         "scheduled_events",
         "external_handoffs",
         "task_previews",
@@ -1233,6 +1274,17 @@ def test_architecture_validation_checks_external_handoff_receipts(
         tmp_path / "external-handoff-validation-home"
     )
     assert result.pass_id == "P25"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) == 4
+
+
+def test_architecture_validation_checks_wechat_approval_channel(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_wechat_approval_channel_receipts(
+        tmp_path / "wechat-approval-validation-home"
+    )
+    assert result.pass_id == "P26"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) == 4
 

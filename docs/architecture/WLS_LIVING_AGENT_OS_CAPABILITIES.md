@@ -218,6 +218,10 @@ fields such as `memory_id`/`active`.
   Reviewed MCP candidates and hashed A2A artifacts can be recorded as
   candidate-only runtime receipts with evidence and Owner Console visibility,
   without creating Actions, Goals, canonical Memory, or authority transfer.
+- P26 is a shadow-level runtime admission for WeChat approval channels.
+  WeChat W2 can draft approval requests and queue Owner decision Events with
+  evidence and Owner Console visibility, while `ApprovalManager` remains the
+  only approval authority and no Action executes from the channel.
 
 ## Projection Rule
 
