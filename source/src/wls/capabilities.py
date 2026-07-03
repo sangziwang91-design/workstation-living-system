@@ -144,6 +144,7 @@ def baseline_registry() -> CapabilityRegistry:
         ("scheduler", "events", CapabilityMode.EVENT_SOURCE),
         ("provider_routing", "planning", CapabilityMode.ADAPTER),
         ("browser_readonly", "tools", CapabilityMode.ADAPTER),
+        ("browser_form_draft", "planning", CapabilityMode.WORKBENCH),
         ("computer_sandbox", "tools", CapabilityMode.ADAPTER),
         ("coding_worktree", "evolution", CapabilityMode.ADAPTER),
         ("external_memory_projection", "memory", CapabilityMode.PROJECTION),

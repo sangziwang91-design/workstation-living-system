@@ -291,6 +291,12 @@ class LivingSystem:
             return []
         return receipts[: max(0, int(limit))]
 
+    def browser_form_draft_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("browser_form_draft_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
     def provider_route_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         receipts = self.db.get_runtime("provider_route_receipts", [])
         if not isinstance(receipts, list):
@@ -660,6 +666,60 @@ class LivingSystem:
         with self.db.transaction() as connection:
             self.db.set_runtime("screen_snapshot_receipts", updated, connection)
             self.ledger.append("screen_snapshot_queued", receipt, connection)
+        return receipt
+
+    def draft_browser_form_submission(
+        self,
+        *,
+        form_id: str,
+        url: str,
+        fields: dict[str, str],
+        purpose: str,
+    ) -> dict[str, Any]:
+        if not form_id.strip():
+            raise ValueError("form_id is required")
+        parsed = urlparse(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("browser form draft requires an http(s) URL")
+        host = parsed.hostname or ""
+        if parsed.scheme != "https" and host not in {"127.0.0.1", "localhost"}:
+            raise PermissionError("browser form draft requires HTTPS or loopback HTTP")
+        if not fields:
+            raise ValueError("browser form draft requires fields")
+        field_names = sorted(fields)
+        field_digest = hashlib.sha256(
+            json.dumps(fields, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+        receipt = {
+            "receipt_type": "BROWSER_FORM_DRAFT",
+            "status": "DRAFT_RECORDED",
+            "form_id": form_id,
+            "url": url,
+            "scheme": parsed.scheme,
+            "host": host,
+            "field_names": field_names,
+            "field_count": len(field_names),
+            "field_digest": field_digest,
+            "purpose": purpose,
+            "browser_opened": False,
+            "form_submitted": False,
+            "network_post_executed": False,
+            "download_executed": False,
+            "creates_goal": False,
+            "creates_action": False,
+            "direct_tool_execution": False,
+            "approval_required_for_submission": True,
+            "claim_ceiling": "browser form draft only; no browser session, POST, submit, download, planning execution, or action execution",
+            "created_at": utc_now(),
+        }
+        current = self.browser_form_draft_receipts(limit=100)
+        updated = [
+            receipt,
+            *[row for row in current if row.get("form_id") != form_id],
+        ][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("browser_form_draft_receipts", updated, connection)
+            self.ledger.append("browser_form_drafted", receipt, connection)
         return receipt
 
     def record_provider_route_receipt(self, *, reason: str) -> dict[str, Any]:
@@ -2131,6 +2191,7 @@ class LivingSystem:
             "voice_transcript_receipts": self.voice_transcript_receipts(),
             "notification_draft_receipts": self.notification_draft_receipts(),
             "screen_snapshot_receipts": self.screen_snapshot_receipts(),
+            "browser_form_draft_receipts": self.browser_form_draft_receipts(),
             "provider_route_receipts": self.provider_route_receipts(),
             "skill_candidate_receipts": self.skill_candidate_receipts(),
             "learning_epoch_receipts": self.learning_epoch_receipts(),

@@ -2379,6 +2379,93 @@ def validate_phase2_screen_snapshot_ingress_receipts(
     )
 
 
+def validate_phase2_browser_form_draft_receipts(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    before_goals = runtime.db.query_one("SELECT COUNT(*) AS count FROM goals")
+    before_plans = runtime.db.query_one("SELECT COUNT(*) AS count FROM plans")
+    before_actions = runtime.db.query_one("SELECT COUNT(*) AS count FROM actions")
+    receipt = runtime.draft_browser_form_submission(
+        form_id="phase2-form-1",
+        url="http://127.0.0.1/form",
+        fields={"query": "local evidence", "mode": "readonly"},
+        purpose="architecture validation browser form draft",
+    )
+    after_goals = runtime.db.query_one("SELECT COUNT(*) AS count FROM goals")
+    after_plans = runtime.db.query_one("SELECT COUNT(*) AS count FROM plans")
+    after_actions = runtime.db.query_one("SELECT COUNT(*) AS count FROM actions")
+    blocked = False
+    try:
+        runtime.draft_browser_form_submission(
+            form_id="phase2-form-blocked",
+            url="http://example.com/form",
+            fields={"query": "unsafe"},
+            purpose="blocked form draft",
+        )
+    except PermissionError:
+        blocked = True
+    evidence = runtime.db.query_all(
+        """
+        SELECT event_type,evidence_id FROM evidence
+        WHERE event_type='browser_form_drafted'
+        ORDER BY seq DESC LIMIT 1
+        """
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "browser_form_drafts"
+        ),
+        None,
+    )
+    if (
+        receipt.get("status") != "DRAFT_RECORDED"
+        or receipt.get("browser_opened")
+        or receipt.get("form_submitted")
+        or receipt.get("network_post_executed")
+        or receipt.get("download_executed")
+        or receipt.get("creates_goal")
+        or receipt.get("creates_action")
+        or receipt.get("direct_tool_execution")
+        or not receipt.get("approval_required_for_submission")
+        or not blocked
+        or before_goals is None
+        or after_goals is None
+        or before_goals["count"] != after_goals["count"]
+        or before_plans is None
+        or after_plans is None
+        or before_plans["count"] != after_plans["count"]
+        or before_actions is None
+        or after_actions is None
+        or before_actions["count"] != after_actions["count"]
+        or not evidence
+        or panel is None
+        or panel["status"]["receipt_count"] != 1
+        or panel["status"]["browser_opened"]
+        or panel["status"]["form_submitted"]
+        or panel["status"]["network_post_executed"]
+        or not panel["status"]["approval_required_for_submission"]
+    ):
+        return ArchitecturePassResult(
+            "P34",
+            "BLOCKED",
+            [str(receipt)],
+            ["browser form draft receipt validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P34",
+        "ADMIT_SHADOW_ONLY",
+        [str(receipt["form_id"]), str(evidence[0]["evidence_id"])],
+        [
+            "Browser form drafting records a policy-bounded form intent with field digest and Owner Console visibility, without opening a browser, submitting, POSTing, downloading, Goals, Plans, Actions, or tool execution",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

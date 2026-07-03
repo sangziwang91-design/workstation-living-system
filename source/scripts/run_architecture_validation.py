@@ -40,6 +40,7 @@ from wls.architecture_validation import (  # noqa: E402
     validate_phase2_voice_transcript_ingress_receipts,
     validate_phase2_local_notification_draft_receipts,
     validate_phase2_screen_snapshot_ingress_receipts,
+    validate_phase2_browser_form_draft_receipts,
     validate_p01_registry,
     validate_runtime_approval_receipts,
     validate_runtime_event_ingress,
@@ -166,6 +167,11 @@ def run_validation() -> dict[str, object]:
         results.append(
             validate_phase2_screen_snapshot_ingress_receipts(
                 temp_path / "phase2-screen-snapshot-home"
+            )
+        )
+        results.append(
+            validate_phase2_browser_form_draft_receipts(
+                temp_path / "phase2-browser-form-home"
             )
         )
     for pass_id, note in PASS_CONTRACTS.items():

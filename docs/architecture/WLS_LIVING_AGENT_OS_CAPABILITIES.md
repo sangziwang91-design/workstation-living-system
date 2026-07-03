@@ -256,6 +256,11 @@ fields such as `memory_id`/`active`.
   `channel:screen` Event with hashes, receipt evidence, and Owner Console
   visibility, while explicitly performing no OCR, UI control, external upload,
   Goal creation, planning, or Action execution.
+- P34 is a shadow-level runtime admission for browser form drafts. The runtime
+  can record a policy-bounded form intent with field names and a field digest,
+  evidence, and Owner Console visibility, while explicitly performing no
+  browser open, form submit, POST, download, Goal creation, planning execution,
+  or Action execution.
 
 ## Projection Rule
 

@@ -42,6 +42,7 @@ class OwnerConsoleProductProjection:
         "voice_ingress",
         "notification_drafts",
         "screen_snapshots",
+        "browser_form_drafts",
         "task_previews",
         "execution_preflight",
         "execution_receipts",
@@ -68,6 +69,7 @@ class OwnerConsoleProductProjection:
             self._voice_ingress_panel(status),
             self._notification_drafts_panel(status),
             self._screen_snapshots_panel(status),
+            self._browser_form_drafts_panel(status),
             self._task_previews_panel(status),
             self._execution_preflight_panel(status),
             self._execution_receipts_panel(status),
@@ -268,6 +270,22 @@ class OwnerConsoleProductProjection:
                 "ui_control_executed": False,
                 "external_upload_executed": False,
                 "allowed_next_authority": "EventStore",
+            },
+        }
+
+    @staticmethod
+    def _browser_form_drafts_panel(status: dict[str, Any]) -> dict[str, Any]:
+        receipts = status.get("browser_form_draft_receipts", [])
+        return {
+            "panel_id": "browser_form_drafts",
+            "title": "Browser Form Drafts",
+            "status": {
+                "receipt_count": len(receipts) if isinstance(receipts, list) else 0,
+                "items": receipts if isinstance(receipts, list) else [],
+                "browser_opened": False,
+                "form_submitted": False,
+                "network_post_executed": False,
+                "approval_required_for_submission": True,
             },
         }
 

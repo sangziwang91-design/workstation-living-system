@@ -11,6 +11,7 @@ from wls.a2a_adapter import A2AAdapter, ArtifactEnvelope, TaskContract, payload_
 from wls.architecture_validation import (
     _insert_waiting_write_action,
     validate_browser_computer_organs,
+    validate_phase2_browser_form_draft_receipts,
     validate_coding_worktree_candidate,
     validate_external_memory_projection,
     validate_mcp_a2a_candidates,
@@ -383,6 +384,50 @@ def test_living_system_intakes_screen_snapshot_as_event_only(
         runtime.intake_screen_snapshot_asset(
             snapshot_id="screen-missing",
             path=tmp_path / "missing.png",
+        )
+
+
+def test_living_system_drafts_browser_form_without_submission(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    before = {
+        name: runtime.db.query_one(f"SELECT COUNT(*) AS count FROM {name}")["count"]
+        for name in ("goals", "plans", "actions")
+    }
+    receipt = runtime.draft_browser_form_submission(
+        form_id="form-1",
+        url="http://127.0.0.1/form",
+        fields={"query": "local evidence", "mode": "readonly"},
+        purpose="unit test browser form draft",
+    )
+    after = {
+        name: runtime.db.query_one(f"SELECT COUNT(*) AS count FROM {name}")["count"]
+        for name in ("goals", "plans", "actions")
+    }
+    assert receipt["status"] == "DRAFT_RECORDED"
+    assert receipt["field_names"] == ["mode", "query"]
+    assert receipt["browser_opened"] is False
+    assert receipt["form_submitted"] is False
+    assert receipt["network_post_executed"] is False
+    assert receipt["creates_goal"] is False
+    assert receipt["creates_action"] is False
+    assert receipt["approval_required_for_submission"] is True
+    assert before == after
+    panel = next(
+        panel
+        for panel in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if panel["panel_id"] == "browser_form_drafts"
+    )
+    assert panel["status"]["receipt_count"] == 1
+    assert panel["status"]["browser_opened"] is False
+    assert panel["status"]["form_submitted"] is False
+    with pytest.raises(PermissionError, match="HTTPS or loopback"):
+        runtime.draft_browser_form_submission(
+            form_id="form-bad",
+            url="http://example.com/form",
+            fields={"query": "bad"},
+            purpose="bad form",
         )
 
 
@@ -759,6 +804,7 @@ def test_owner_console_product_projection_and_wechat_digest_are_read_only(
         "voice_ingress",
         "notification_drafts",
         "screen_snapshots",
+        "browser_form_drafts",
         "task_previews",
         "execution_preflight",
         "execution_receipts",
@@ -1717,6 +1763,17 @@ def test_architecture_validation_checks_screen_snapshot_ingress(
         tmp_path / "screen-snapshot-validation-home"
     )
     assert result.pass_id == "P33"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) == 2
+
+
+def test_architecture_validation_checks_browser_form_draft(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_browser_form_draft_receipts(
+        tmp_path / "browser-form-validation-home"
+    )
+    assert result.pass_id == "P34"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) == 2
 
