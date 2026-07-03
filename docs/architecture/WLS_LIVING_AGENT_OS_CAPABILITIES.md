@@ -47,7 +47,7 @@ Mainstream Agent capabilities are required organs, not decorative add-ons:
 - planning remains `Planner` owned and evidence-bound;
 - tool use remains `Policy -> Approval -> Executor -> Receipt`;
 - file, browser, desktop, code, scheduler, MCP, A2A, multimodal, UI, WeChat,
-  voice, and workbench paths are organs fitted to existing authorities;
+  voice, screen, and workbench paths are organs fitted to existing authorities;
 - external models and workers may propose or execute bounded work, but they do
   not own WLS identity, truth, memory, goal completion, or Skill promotion.
 
@@ -251,6 +251,11 @@ fields such as `memory_id`/`active`.
   notification with receipt evidence and Owner Console visibility, while
   explicitly performing no external send, TTS, audio playback, Goal creation,
   planning, or Action execution.
+- P33 is a shadow-level runtime admission for screen snapshot ingress. The
+  runtime can queue an existing local screenshot asset as a canonical
+  `channel:screen` Event with hashes, receipt evidence, and Owner Console
+  visibility, while explicitly performing no OCR, UI control, external upload,
+  Goal creation, planning, or Action execution.
 
 ## Projection Rule
 

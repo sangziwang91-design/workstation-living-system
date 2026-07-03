@@ -152,6 +152,7 @@ def baseline_registry() -> CapabilityRegistry:
         ("owner_console", "evidence", CapabilityMode.PROJECTION),
         ("wechat_w0_w1", "events", CapabilityMode.ADAPTER),
         ("voice_transcript_ingress", "events", CapabilityMode.ADAPTER),
+        ("screen_snapshot_ingress", "events", CapabilityMode.ADAPTER),
         ("read_only_task_organs", "planning", CapabilityMode.WORKBENCH),
         ("workbench_templates", "planning", CapabilityMode.WORKBENCH),
     ]:

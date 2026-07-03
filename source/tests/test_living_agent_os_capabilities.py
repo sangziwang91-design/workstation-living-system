@@ -32,6 +32,7 @@ from wls.architecture_validation import (
     validate_phase2_skill_candidate_extraction_receipts,
     validate_phase2_learning_epoch_review_receipts,
     validate_phase2_local_notification_draft_receipts,
+    validate_phase2_screen_snapshot_ingress_receipts,
     validate_phase2_typed_readonly_organ_profiles,
     validate_phase2_wechat_approval_channel_receipts,
     validate_phase2_voice_transcript_ingress_receipts,
@@ -332,6 +333,56 @@ def test_living_system_drafts_local_notification_without_delivery(
             channel="external_sms",
             purpose="bad channel",
             body="no",
+        )
+
+
+def test_living_system_intakes_screen_snapshot_as_event_only(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    snapshot = tmp_path / "screen.png"
+    snapshot.write_bytes(b"\x89PNG\r\n\x1a\nWLS-SCREEN")
+    before = {
+        name: runtime.db.query_one(f"SELECT COUNT(*) AS count FROM {name}")["count"]
+        for name in ("goals", "plans", "actions")
+    }
+    receipt = runtime.intake_screen_snapshot_asset(
+        snapshot_id="screen-1",
+        path=snapshot,
+        source="pytest_fixture",
+        purpose="unit test screen context",
+    )
+    after = {
+        name: runtime.db.query_one(f"SELECT COUNT(*) AS count FROM {name}")["count"]
+        for name in ("goals", "plans", "actions")
+    }
+    event = runtime.db.query_one(
+        "SELECT event_type,source,payload_json FROM events WHERE event_id=?",
+        (receipt["event_id"],),
+    )
+    assert receipt["status"] == "QUEUED_EVENT_ONLY"
+    assert receipt["ocr_executed"] is False
+    assert receipt["ui_control_executed"] is False
+    assert receipt["external_upload_executed"] is False
+    assert receipt["creates_goal"] is False
+    assert receipt["creates_action"] is False
+    assert receipt["direct_tool_execution"] is False
+    assert before == after
+    assert event is not None
+    assert event["event_type"] == "channel.message"
+    assert event["source"] == "channel:screen"
+    panel = next(
+        panel
+        for panel in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if panel["panel_id"] == "screen_snapshots"
+    )
+    assert panel["status"]["receipt_count"] == 1
+    assert panel["status"]["ocr_executed"] is False
+    assert panel["status"]["ui_control_executed"] is False
+    with pytest.raises(ValueError, match="existing file"):
+        runtime.intake_screen_snapshot_asset(
+            snapshot_id="screen-missing",
+            path=tmp_path / "missing.png",
         )
 
 
@@ -707,6 +758,7 @@ def test_owner_console_product_projection_and_wechat_digest_are_read_only(
         "external_handoffs",
         "voice_ingress",
         "notification_drafts",
+        "screen_snapshots",
         "task_previews",
         "execution_preflight",
         "execution_receipts",
@@ -1654,6 +1706,17 @@ def test_architecture_validation_checks_local_notification_draft(
         tmp_path / "local-notification-validation-home"
     )
     assert result.pass_id == "P32"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) == 2
+
+
+def test_architecture_validation_checks_screen_snapshot_ingress(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_screen_snapshot_ingress_receipts(
+        tmp_path / "screen-snapshot-validation-home"
+    )
+    assert result.pass_id == "P33"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) == 2
 

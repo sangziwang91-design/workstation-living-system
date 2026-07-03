@@ -285,6 +285,12 @@ class LivingSystem:
             return []
         return receipts[: max(0, int(limit))]
 
+    def screen_snapshot_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("screen_snapshot_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
     def provider_route_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         receipts = self.db.get_runtime("provider_route_receipts", [])
         if not isinstance(receipts, list):
@@ -593,6 +599,67 @@ class LivingSystem:
         with self.db.transaction() as connection:
             self.db.set_runtime("notification_draft_receipts", updated, connection)
             self.ledger.append("local_notification_drafted", receipt, connection)
+        return receipt
+
+    def intake_screen_snapshot_asset(
+        self,
+        *,
+        snapshot_id: str,
+        path: str | Path,
+        source: str = "local_screen_capture",
+        purpose: str = "screen context",
+    ) -> dict[str, Any]:
+        if not snapshot_id.strip():
+            raise ValueError("snapshot_id is required")
+        snapshot_path = Path(path).expanduser().resolve()
+        if not snapshot_path.is_file():
+            raise ValueError("screen snapshot requires an existing file")
+        data = snapshot_path.read_bytes()
+        content_sha256 = hashlib.sha256(data).hexdigest()
+        message = ChannelMessage(
+            channel="screen",
+            sender_id="local_host",
+            content=f"screen snapshot asset {snapshot_id}",
+            message_id=snapshot_id,
+            metadata={
+                "path": str(snapshot_path),
+                "sha256": content_sha256,
+                "size_bytes": len(data),
+                "source": source,
+                "purpose": purpose,
+                "ocr_executed": False,
+                "ui_control_executed": False,
+            },
+        )
+        event_id, inserted = self.channel_gateway.submit(message, self.events)
+        receipt = {
+            "receipt_type": "SCREEN_SNAPSHOT_INGRESS",
+            "status": "QUEUED_EVENT_ONLY",
+            "snapshot_id": snapshot_id,
+            "event_id": event_id,
+            "inserted": inserted,
+            "path": str(snapshot_path),
+            "size_bytes": len(data),
+            "sha256": content_sha256,
+            "source": source,
+            "purpose": purpose,
+            "ocr_executed": False,
+            "ui_control_executed": False,
+            "external_upload_executed": False,
+            "creates_goal": False,
+            "creates_action": False,
+            "direct_tool_execution": False,
+            "claim_ceiling": "screen snapshot queued as local asset Event only; no OCR, UI control, upload, planning, or action execution",
+            "created_at": utc_now(),
+        }
+        current = self.screen_snapshot_receipts(limit=100)
+        updated = [
+            receipt,
+            *[row for row in current if row.get("snapshot_id") != snapshot_id],
+        ][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("screen_snapshot_receipts", updated, connection)
+            self.ledger.append("screen_snapshot_queued", receipt, connection)
         return receipt
 
     def record_provider_route_receipt(self, *, reason: str) -> dict[str, Any]:
@@ -2063,6 +2130,7 @@ class LivingSystem:
             "approval_channel_receipts": self.approval_channel_receipts(),
             "voice_transcript_receipts": self.voice_transcript_receipts(),
             "notification_draft_receipts": self.notification_draft_receipts(),
+            "screen_snapshot_receipts": self.screen_snapshot_receipts(),
             "provider_route_receipts": self.provider_route_receipts(),
             "skill_candidate_receipts": self.skill_candidate_receipts(),
             "learning_epoch_receipts": self.learning_epoch_receipts(),

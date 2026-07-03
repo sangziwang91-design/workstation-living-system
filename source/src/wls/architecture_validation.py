@@ -2296,6 +2296,89 @@ def validate_phase2_local_notification_draft_receipts(
     )
 
 
+def validate_phase2_screen_snapshot_ingress_receipts(
+    home: Path,
+) -> ArchitecturePassResult:
+    snapshot = home / "screen.png"
+    snapshot.parent.mkdir(parents=True, exist_ok=True)
+    snapshot.write_bytes(b"\x89PNG\r\n\x1a\nWLS-SCREEN")
+    runtime = LivingSystem(default_config(home / "runtime"))
+    before_goals = runtime.db.query_one("SELECT COUNT(*) AS count FROM goals")
+    before_plans = runtime.db.query_one("SELECT COUNT(*) AS count FROM plans")
+    before_actions = runtime.db.query_one("SELECT COUNT(*) AS count FROM actions")
+    receipt = runtime.intake_screen_snapshot_asset(
+        snapshot_id="phase2-screen-1",
+        path=snapshot,
+        source="architecture_validation_fixture",
+        purpose="screen context fixture",
+    )
+    after_goals = runtime.db.query_one("SELECT COUNT(*) AS count FROM goals")
+    after_plans = runtime.db.query_one("SELECT COUNT(*) AS count FROM plans")
+    after_actions = runtime.db.query_one("SELECT COUNT(*) AS count FROM actions")
+    event = runtime.db.query_one(
+        "SELECT event_type,source,payload_json FROM events WHERE event_id=?",
+        (receipt["event_id"],),
+    )
+    evidence = runtime.db.query_all(
+        """
+        SELECT event_type,evidence_id FROM evidence
+        WHERE event_type='screen_snapshot_queued'
+        ORDER BY seq DESC LIMIT 1
+        """
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "screen_snapshots"
+        ),
+        None,
+    )
+    if (
+        receipt.get("status") != "QUEUED_EVENT_ONLY"
+        or receipt.get("ocr_executed")
+        or receipt.get("ui_control_executed")
+        or receipt.get("external_upload_executed")
+        or receipt.get("creates_goal")
+        or receipt.get("creates_action")
+        or receipt.get("direct_tool_execution")
+        or before_goals is None
+        or after_goals is None
+        or before_goals["count"] != after_goals["count"]
+        or before_plans is None
+        or after_plans is None
+        or before_plans["count"] != after_plans["count"]
+        or before_actions is None
+        or after_actions is None
+        or before_actions["count"] != after_actions["count"]
+        or event is None
+        or event["event_type"] != "channel.message"
+        or event["source"] != "channel:screen"
+        or not evidence
+        or panel is None
+        or panel["status"]["receipt_count"] != 1
+        or panel["status"]["ocr_executed"]
+        or panel["status"]["ui_control_executed"]
+        or panel["status"]["external_upload_executed"]
+    ):
+        return ArchitecturePassResult(
+            "P33",
+            "BLOCKED",
+            [str(receipt)],
+            ["screen snapshot ingress receipt validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P33",
+        "ADMIT_SHADOW_ONLY",
+        [str(receipt["event_id"]), str(evidence[0]["evidence_id"])],
+        [
+            "Screen snapshot ingress queues a local screenshot asset as a canonical channel Event with evidence and Owner Console visibility, without OCR, UI control, upload, Goals, Plans, Actions, or tool execution",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:
