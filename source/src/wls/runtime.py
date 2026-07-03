@@ -673,6 +673,9 @@ class LivingSystem:
         worker_count = len(self.agentic_worker_profile_receipts(limit=100))
         binding_count = len(self.agentic_node_action_receipts(limit=100))
         failure_count = len(self.agentic_failure_attribution_receipts(limit=100))
+        acceptance_trace_count = len(
+            self.agentic_acceptance_trace_receipts(limit=100)
+        )
         unsafe_executed = self.db.query_one(
             """
             SELECT COUNT(*) AS n
@@ -728,6 +731,10 @@ class LivingSystem:
                 "agentic_task_graph_compiled",
                 "agentic_task_node_leased",
             }.issubset(event_types),
+            "acceptance_trace_retained": (
+                acceptance_trace_count > 0
+                and "agentic_task_node_acceptance_evaluated" in event_types
+            ),
         }
         receipt = {
             "receipt_type": "AGENTIC_HARNESS_EPOCH_AUDIT",
@@ -739,6 +746,7 @@ class LivingSystem:
                 "worker_profile": worker_count,
                 "node_action_binding": binding_count,
                 "failure_attribution": failure_count,
+                "acceptance_trace": acceptance_trace_count,
             },
             "invariants": invariants,
             "evidence_event_types": sorted(event_types),
@@ -782,6 +790,9 @@ class LivingSystem:
             "agentic_node_action": len(self.agentic_node_action_receipts(100)),
             "agentic_failure_attribution": len(
                 self.agentic_failure_attribution_receipts(100)
+            ),
+            "agentic_acceptance_trace": len(
+                self.agentic_acceptance_trace_receipts(100)
             ),
             "read_only_execution": len(self.read_only_execution_receipts(100)),
             "skill_candidate": len(self.skill_candidate_receipts(100)),

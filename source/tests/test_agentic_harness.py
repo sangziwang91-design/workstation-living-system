@@ -494,6 +494,33 @@ def test_agentic_harness_epoch_audit_records_safety_invariants(
         lease_id=read_lease.lease_id,
     )
     runtime.execute_bound_agentic_node_action(read_binding["binding_id"])
+    trace_receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    trace_graph_id = trace_receipt["graph"]["graph_id"]
+    trace_lease = runtime.agentic.acquire_ready_leases(
+        trace_graph_id, worker_id="readonly-inspector"
+    )[0]
+    runtime.agentic.complete_node_with_acceptance(
+        trace_graph_id,
+        trace_lease.node_id,
+        lease_id=trace_lease.lease_id,
+        result={
+            "status": "SUCCEEDED",
+            "summary": "inspection result is recorded",
+            "evidence": ["agentic_task_graph_compiled"],
+        },
+        acceptance_checks=[
+            {"check_id": "status", "type": "result_status"},
+            {
+                "check_id": "evidence",
+                "type": "evidence_min",
+                "config": {"minimum": 1},
+            },
+        ],
+    )
 
     risky_receipt = runtime.agentic.admit_and_compile(
         "Publish release to an external system",
@@ -526,8 +553,9 @@ def test_agentic_harness_epoch_audit_records_safety_invariants(
     )
 
     assert audit["status"] == "PASS"
-    assert audit["receipt_counts"]["task_graph"] == 2
+    assert audit["receipt_counts"]["task_graph"] == 3
     assert audit["receipt_counts"]["node_action_binding"] == 2
+    assert audit["receipt_counts"]["acceptance_trace"] == 1
     assert all(audit["invariants"].values())
     panel = next(
         item
@@ -541,6 +569,26 @@ def test_single_software_convergence_audit_records_remaining_tail_gaps(
     tmp_path: Path,
 ) -> None:
     runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt_for_trace = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt_for_trace["graph"]["graph_id"]
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector"
+    )[0]
+    runtime.agentic.complete_node_with_acceptance(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        result={
+            "status": "SUCCEEDED",
+            "summary": "inspection result is recorded",
+            "evidence": ["agentic_task_graph_compiled"],
+        },
+        acceptance_checks=[{"check_id": "status", "type": "result_status"}],
+    )
     runtime.record_agentic_harness_epoch_audit(
         reason="seed convergence audit with harness epoch receipt"
     )
@@ -560,6 +608,7 @@ def test_single_software_convergence_audit_records_remaining_tail_gaps(
     ]
     assert receipt["invariants"]["branch_is_not_final_state"] is True
     assert receipt["invariants"]["single_living_system_authority"] is True
+    assert receipt["receipt_counts"]["agentic_acceptance_trace"] == 1
     assert "candidate branch not yet packaged" in receipt["blocking_gaps"][0]
     panel = next(
         item
