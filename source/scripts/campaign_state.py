@@ -55,10 +55,12 @@ def validate_campaign_spec(spec: dict[str, Any]) -> list[str]:
     rounds = spec.get("rounds")
     if not isinstance(rounds, list):
         raise ValueError("campaign spec must contain rounds[]")
-    expected = [f"R{index:02d}" for index in range(1, 31)]
     actual = [item.get("round_id") for item in rounds if isinstance(item, dict)]
+    expected = [f"R{index:02d}" for index in range(1, len(actual) + 1)]
     if actual != expected:
-        raise ValueError(f"round sequence must be R01..R30, got {actual}")
+        raise ValueError(f"round sequence must be contiguous from R01, got {actual}")
+    if len(actual) < 30:
+        raise ValueError(f"campaign spec must preserve at least R01..R30, got {actual}")
     required = {
         "round_id",
         "title",

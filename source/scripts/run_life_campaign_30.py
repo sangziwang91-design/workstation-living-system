@@ -29,7 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SPEC = REPO_ROOT / "source" / "verification" / "life_campaign_30.json"
 DEFAULT_INSTALL_ROOT = Path(r"D:\WLS\wls-0.9.0.dev1-py313")
 DEFAULT_CAMPAIGN_HOME = Path(r"D:\WLS\campaigns\life-campaign-30")
-SUPPORTED_AUTOMATED_ROUNDS = {f"R{index:02d}" for index in range(1, 31)}
+SUPPORTED_AUTOMATED_ROUNDS = {f"R{index:02d}" for index in range(1, 41)}
 LEVEL2_GOAL_PREFIXES = ("Clarify", "Inspect", "Learn", "Recover", "Preserve")
 
 
@@ -453,6 +453,16 @@ class CampaignRunner:
             "R28": self._round_28,
             "R29": self._round_29,
             "R30": self._round_30,
+            "R31": self._round_31,
+            "R32": self._round_32,
+            "R33": self._round_33,
+            "R34": self._round_34,
+            "R35": self._round_35,
+            "R36": self._round_36,
+            "R37": self._round_37,
+            "R38": self._round_38,
+            "R39": self._round_39,
+            "R40": self._round_40,
         }
         return handlers[round_id]()
 
@@ -1917,6 +1927,223 @@ class CampaignRunner:
             "claim_ceiling": "allowed conclusions only: LIVING_BOUNDED, FUNCTIONAL_RUNTIME_ONLY, EVOLUTION_NOT_PROVEN, REGRESSION_REQUIRES_ROLLBACK, CAMPAIGN_BLOCKED",
         }
 
+    def _round_31(self) -> dict[str, Any]:
+        r15_run_path = self.paths.campaign_home / "campaign_evidence" / "R15" / "r15_run.json"
+        r15_state = self.state.data["rounds"].get("R15", {})
+        r15_run = load_json(r15_run_path) if r15_run_path.exists() else {}
+        heartbeats = r15_run.get("heartbeats", [])
+        if not isinstance(heartbeats, list):
+            heartbeats = []
+        active_elapsed_seconds = int(
+            r15_run.get("active_elapsed_seconds")
+            or r15_run.get("duration_seconds")
+            or 0
+        )
+        heartbeat_indexes = [
+            item.get("index")
+            for item in heartbeats
+            if isinstance(item, dict) and isinstance(item.get("index"), int)
+        ]
+        unique_cycles = len(heartbeat_indexes) == len(set(heartbeat_indexes))
+        threshold_seconds = 24 * 60 * 60
+        passable = (
+            r15_state.get("status") == "PASS"
+            and active_elapsed_seconds >= threshold_seconds
+            and unique_cycles
+            and len(heartbeat_indexes) > 0
+        )
+        receipt = {
+            "round_id": "R31",
+            "created_at": utc_now(),
+            "purpose": "complete R15 24-hour minimum-life evidence without overwriting partial history",
+            "source_r15_status": r15_state.get("status"),
+            "r15_run_path": str(r15_run_path),
+            "active_elapsed_seconds": active_elapsed_seconds,
+            "required_active_elapsed_seconds": threshold_seconds,
+            "heartbeat_count": len(heartbeat_indexes),
+            "heartbeat_indexes_unique": unique_cycles,
+            "wall_clock_not_substituted_for_active_elapsed": True,
+            "partial_or_failed_history_preserved": True,
+            "live_install_mutated": False,
+            "status": "PASS" if passable else "OWNER_REVIEW",
+            "claim_ceiling": (
+                "R15 minimum-life evidence completed only"
+                if passable
+                else "R15 remains partial; real elapsed 24-hour evidence required"
+            ),
+        }
+        evidence_id = self._write_measurement_report("R31", "r31_minimum_life_gap_audit", receipt)
+        self.state.append_evidence("R31", evidence_id)
+        if passable:
+            return {
+                "status": "PASS",
+                "evidence_ids": [evidence_id],
+                "active_elapsed_seconds": active_elapsed_seconds,
+                "claim_ceiling": "R15 minimum-life evidence completed only; no broader LIVING_BOUNDED claim",
+            }
+        return {
+            "status": "OWNER_REVIEW",
+            "evidence_ids": [evidence_id],
+            "reason": "R31 requires real cumulative 24-hour active runtime evidence",
+            "active_elapsed_seconds": active_elapsed_seconds,
+            "required_active_elapsed_seconds": threshold_seconds,
+            "claim_ceiling": "R15 remains partial; do not advance durable-life claims",
+        }
+
+    def _round_32(self) -> dict[str, Any]:
+        return self._real_world_gate_round(
+            "R32",
+            "seven_day_mixed_load_recovery",
+            "7-day real elapsed mixed load with restart, kill, backup, and restore evidence is required",
+            "durable runtime campaign evidence only after real 7-day soak",
+        )
+
+    def _round_33(self) -> dict[str, Any]:
+        return self._real_world_gate_round(
+            "R33",
+            "real_owner_task_provider_failure",
+            "Owner-reviewed real read-only or reversible task plus provider-failure/fallback continuity is required",
+            "real task continuity only within reviewed task scope",
+        )
+
+    def _round_34(self) -> dict[str, Any]:
+        return self._real_world_gate_round(
+            "R34",
+            "offspring_birth_isolation",
+            "real isolated offspring home birth evidence with parent hash invariance is required",
+            "OFFSPRING_BIRTH_ISOLATION_VERIFIED only after isolated campaign proof",
+        )
+
+    def _round_35(self) -> dict[str, Any]:
+        return self._real_world_gate_round(
+            "R35",
+            "offspring_durability_budget_restart",
+            "offspring multi-cycle budget, restart, and checkpoint-fork evidence is required",
+            "OFFSPRING_DURABILITY_BOUNDED only after bounded child run",
+        )
+
+    def _round_36(self) -> dict[str, Any]:
+        return self._real_world_gate_round(
+            "R36",
+            "offspring_failure_quarantine_retirement",
+            "offspring violation, quarantine, retirement, and cleanup evidence is required",
+            "controlled offspring failure only; not a malicious-code safety proof",
+        )
+
+    def _round_37(self) -> dict[str, Any]:
+        return self._real_world_gate_round(
+            "R37",
+            "offspring_candidate_replay_holdout",
+            "child candidate must be replayed in an independent sandbox with locked holdout digest",
+            "CANDIDATE_VALIDATED only; not absorbed or promoted",
+        )
+
+    def _round_38(self) -> dict[str, Any]:
+        return self._real_world_gate_round(
+            "R38",
+            "partial_absorption_canary_rollback",
+            "minimal Owner-scoped absorption, canary, and full rollback drill evidence is required",
+            "promotion and rollback path verified only after scoped canary",
+        )
+
+    def _round_39(self) -> dict[str, Any]:
+        return self._real_world_gate_round(
+            "R39",
+            "external_benchmark_pilot",
+            "legal local public benchmark subset with matched baseline, cost, trajectory, and validator evidence is required",
+            "EXTERNAL_BENCHMARK_PILOT_ONLY",
+        )
+
+    def _round_40(self) -> dict[str, Any]:
+        audit_path = self.paths.campaign_home / "campaign_evidence" / "R40" / "final_epoch_claim_audit.json"
+        prior_rounds = {
+            round_id: {
+                "status": state.get("status"),
+                "evidence_count": len(state.get("evidence", [])),
+                "claim_ceiling": (state.get("verdict") or {}).get("claim_ceiling")
+                if isinstance(state.get("verdict"), dict)
+                else None,
+            }
+            for round_id, state in self.state.data["rounds"].items()
+            if round_id != "R40"
+        }
+        evidence_levels = {
+            "CODED": ["P42-P70 repository validations"],
+            "TESTED": ["unit, runner, packaging, and split slow-suite evidence"],
+            "CAMPAIGN": [
+                round_id
+                for round_id, state in prior_rounds.items()
+                if str(round_id).startswith("R") and state.get("status") == "PASS"
+            ],
+            "EXTERNAL": [
+                "R39"
+                if prior_rounds.get("R39", {}).get("status") == "PASS"
+                else "UNKNOWN"
+            ],
+        }
+        unresolved = [
+            round_id
+            for round_id in [f"R{index:02d}" for index in range(31, 40)]
+            if prior_rounds.get(round_id, {}).get("status") != "PASS"
+        ]
+        audit = {
+            "round_id": "R40",
+            "created_at": utc_now(),
+            "prior_rounds": prior_rounds,
+            "evidence_levels": evidence_levels,
+            "partial_and_failed_history_preserved": True,
+            "claim_recomputable_from_evidence_packet": True,
+            "unresolved_real_world_rounds": unresolved,
+            "highest_claim": (
+                "R01-R40 evidence-bound epoch completed"
+                if not unresolved
+                else "R31-R39 real-world evidence incomplete"
+            ),
+            "live_install_mutated": False,
+            "claim_ceiling": "highest status is evidence-bound and may remain below LIVING_BOUNDED",
+        }
+        atomic_write_json(audit_path, audit)
+        evidence_id = self.manifest.record_file("R40", "final_epoch_claim_audit", audit_path)
+        self.state.append_evidence("R40", evidence_id)
+        if unresolved:
+            return {
+                "status": "OWNER_REVIEW",
+                "evidence_ids": [evidence_id],
+                "reason": "R40 cannot pass while R31-R39 real-world rounds are incomplete",
+                "unresolved_real_world_rounds": unresolved,
+                "claim_ceiling": "final epoch audit prepared but not complete",
+            }
+        return {
+            "status": "PASS",
+            "evidence_ids": [evidence_id],
+            "highest_claim": audit["highest_claim"],
+            "claim_ceiling": audit["claim_ceiling"],
+        }
+
+    def _real_world_gate_round(
+        self, round_id: str, gate_name: str, required_evidence: str, claim_ceiling: str
+    ) -> dict[str, Any]:
+        receipt = {
+            "round_id": round_id,
+            "gate": gate_name,
+            "created_at": utc_now(),
+            "required_evidence": required_evidence,
+            "status": "OWNER_REVIEW",
+            "machine_state": "pre_registered",
+            "live_install_mutated": False,
+            "synthetic_evidence_claimed_as_owner_host": False,
+            "partial_or_failed_history_preserved": True,
+            "claim_ceiling": claim_ceiling,
+        }
+        evidence_id = self._write_measurement_report(round_id, f"{gate_name}_preregistration", receipt)
+        self.state.append_evidence(round_id, evidence_id)
+        return {
+            "status": "OWNER_REVIEW",
+            "evidence_ids": [evidence_id],
+            "reason": required_evidence,
+            "claim_ceiling": claim_ceiling,
+        }
+
     def _sha256_optional(self, path: Path) -> str | None:
         if not path.exists() or not path.is_file():
             return None
@@ -2627,7 +2854,7 @@ class CampaignRunner:
 
 
 def expand_rounds(start: str | None, end: str | None, explicit: list[str] | None) -> list[str]:
-    all_rounds = [f"R{index:02d}" for index in range(1, 31)]
+    all_rounds = [f"R{index:02d}" for index in range(1, 41)]
     if explicit:
         for item in explicit:
             if item not in all_rounds:

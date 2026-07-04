@@ -272,17 +272,21 @@ def _make_fake_install(tmp_path: Path) -> tuple[CampaignPaths, Path]:
     return paths, live_home / "config.json"
 
 
-def test_campaign_spec_has_required_30_round_shape() -> None:
+def test_campaign_spec_preserves_30_round_base_and_adds_r31_to_r40() -> None:
     spec = load_json(REPO_ROOT / "source" / "verification" / "life_campaign_30.json")
     round_ids = validate_campaign_spec(spec)
     assert round_ids[0] == "R01"
-    assert round_ids[-1] == "R30"
-    assert len(round_ids) == 30
+    assert round_ids[29] == "R30"
+    assert round_ids[-1] == "R40"
+    assert len(round_ids) == 40
     assert spec["rounds"][0]["title"] == "Owner-host campaign baseline lock"
+    assert spec["rounds"][30]["title"] == "Complete 24-hour minimum life evidence"
+    assert spec["rounds"][-1]["title"] == "Final epoch audit and claim ceiling"
 
 
 def test_expand_rounds_is_contiguous_and_rejects_reverse() -> None:
     assert expand_rounds("R02", "R04", None) == ["R02", "R03", "R04"]
+    assert expand_rounds("R39", "R40", None) == ["R39", "R40"]
     with pytest.raises(ValueError):
         expand_rounds("R04", "R02", None)
 
@@ -951,6 +955,90 @@ def test_r26_to_r30_generate_phase1_epoch_audit(
         record["label"] == "epoch_audit_post_pass" and record["round_id"] == "R30"
         for record in manifest["records"]
     )
+
+
+def test_r31_blocks_without_real_24_hour_active_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner, paths = _prepared_r30_runner(tmp_path, monkeypatch)
+    result = runner.run(["R31"])
+    assert result["results"][0]["status"] == "OWNER_REVIEW"
+    assert result["results"][0]["required_active_elapsed_seconds"] == 86400
+    state = load_json(paths.campaign_home / "campaign_state.json")
+    assert state["rounds"]["R31"]["status"] == "OWNER_REVIEW"
+    assert state["rounds"]["R32"]["status"] == "BLOCKED"
+    audit = load_json(
+        paths.campaign_home
+        / "campaign_evidence"
+        / "R31"
+        / "r31_minimum_life_gap_audit.json"
+    )
+    assert audit["source_r15_status"] == "OWNER_REVIEW"
+    assert audit["partial_or_failed_history_preserved"] is True
+    assert audit["live_install_mutated"] is False
+
+
+def test_r31_passes_only_with_prior_r15_pass_and_active_elapsed_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner, paths = _prepared_r30_runner(tmp_path, monkeypatch)
+    runner.state.mark_pass(
+        "R15",
+        {"status": "PASS", "claim_ceiling": "test full 24-hour R15 evidence"},
+    )
+    run_path = paths.campaign_home / "campaign_evidence" / "R15" / "r15_run.json"
+    run_path.parent.mkdir(parents=True, exist_ok=True)
+    run_path.write_text(
+        json.dumps(
+            {
+                "active_elapsed_seconds": 86400,
+                "duration_seconds": 86400,
+                "heartbeats": [{"index": 1}, {"index": 2}, {"index": 3}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    result = runner.run(["R31"])
+    assert result["results"][0]["status"] == "PASS"
+    audit = load_json(
+        paths.campaign_home
+        / "campaign_evidence"
+        / "R31"
+        / "r31_minimum_life_gap_audit.json"
+    )
+    assert audit["status"] == "PASS"
+    assert audit["heartbeat_indexes_unique"] is True
+
+
+def test_r40_final_audit_requires_r31_to_r39_pass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner, paths = _prepared_r30_runner(tmp_path, monkeypatch)
+    for index in range(31, 40):
+        runner.state.mark_pass(
+            f"R{index:02d}",
+            {"status": "PASS", "claim_ceiling": f"test R{index:02d} evidence"},
+        )
+    result = runner.run(["R40"])
+    assert result["results"][0]["status"] == "PASS"
+    audit = load_json(
+        paths.campaign_home
+        / "campaign_evidence"
+        / "R40"
+        / "final_epoch_claim_audit.json"
+    )
+    assert audit["unresolved_real_world_rounds"] == []
+    assert audit["partial_and_failed_history_preserved"] is True
+    assert audit["claim_recomputable_from_evidence_packet"] is True
+    assert audit["live_install_mutated"] is False
+
+
+def _prepared_r30_runner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[CampaignRunner, CampaignPaths]:
+    runner, paths = _prepared_r25_runner(tmp_path, monkeypatch)
+    runner.run(["R26", "R27", "R28", "R29", "R30"])
+    return runner, paths
 
 
 def _prepared_r25_runner(

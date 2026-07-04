@@ -270,3 +270,24 @@ Epoch Audit conclusion of FUNCTIONAL_RUNTIME_ONLY.
 
 It does not prove `LIVING_BOUNDED` until a real full-duration R15 run and later
 longitudinal evidence are completed.
+
+## R31-R40 Extension
+
+`life_campaign_30.json` now preserves the original R01-R30 base campaign and
+adds R31-R40 as a longitudinal proof extension. The campaign id remains stable
+because the extension is evidence-bound continuation work, not a new authority.
+
+R31 audits whether R15 has real cumulative 24-hour active runtime evidence. If
+R15 is still partial, R31 records `r31_minimum_life_gap_audit.json` and enters
+`OWNER_REVIEW`; it must not synthesize elapsed time or overwrite the partial
+R15 record.
+
+R32-R39 are real-world gates for seven-day soak, real Owner task continuity,
+offspring birth/durability/failure, candidate replay, canary rollback, and an
+external benchmark pilot. They preregister the required evidence and stop at
+`OWNER_REVIEW` until the corresponding real elapsed time, Owner input, or
+external benchmark data exists.
+
+R40 is the final epoch claim audit. It can pass only after R31-R39 are all
+evidence-backed `PASS`; otherwise it remains an incomplete audit and the claim
+ceiling stays below any full living-system declaration.
