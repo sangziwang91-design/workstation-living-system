@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+import hashlib
 import json
 import threading
 
@@ -4544,6 +4545,124 @@ def validate_phase2_agentic_lease_fencing_reconciliation(
         ],
         [
             "Agentic lease fencing quarantines late stale-worker results after recovery without completing the node or granting worker authority",
+        ],
+    )
+
+
+def validate_phase2_agentic_artifact_finalize_acceptance(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    mailbox_root = home / "mailbox"
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect finalized mailbox artifact",
+        acceptance=["finalized artifact digest is accepted"],
+        evidence_required=["agentic_mailbox_artifact_finalized"],
+    )
+    graph_id = str(receipt["graph"]["graph_id"])
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id,
+        worker_id="readonly-inspector",
+    )[0]
+    exported = runtime.agentic.export_node_task_envelope(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        mailbox_root=mailbox_root,
+        recipient="validation-artifact-worker",
+    )
+    mailbox = AgenticFileMailbox(mailbox_root)
+    task = mailbox.read_task(str(exported["message_id"]))
+    artifact_id = "validation-artifact"
+    chunks = [b"WLS finalized ", b"artifact evidence\n"]
+    expected_sha256 = hashlib.sha256(b"".join(chunks)).hexdigest()
+    for index, chunk in enumerate(chunks):
+        mailbox.write_artifact_chunk(artifact_id, index, chunk)
+    finalized = runtime.agentic.finalize_mailbox_artifact(
+        mailbox_root=mailbox_root,
+        artifact_id=artifact_id,
+        chunk_count=len(chunks),
+        expected_sha256=expected_sha256,
+        reason="architecture validation finalized artifact",
+    )
+    result = ResultEnvelope.create(
+        message_id="validation-artifact-result",
+        in_reply_to=task.message_id,
+        graph_id=graph_id,
+        node_id=lease.node_id,
+        lease_id=lease.lease_id,
+        sender="validation-artifact-worker",
+        recipient="LivingSystem.AgenticHarness",
+        status="SUCCEEDED",
+        payload={
+            "summary": "finalized artifact result",
+            "artifact_id": artifact_id,
+            "artifact_sha256": expected_sha256,
+            "lease_fencing_token": task.payload["lease_fencing_token"],
+        },
+    )
+    mailbox.write_result(result)
+    imported = runtime.agentic.import_node_result_envelope(
+        mailbox_root=mailbox_root,
+        message_id=result.message_id,
+        acceptance_checks=[
+            {
+                "check_id": "finalized-artifact-sha256",
+                "type": "artifact_sha256",
+                "config": {
+                    "path": f"{artifact_id}.bin",
+                    "sha256": expected_sha256,
+                },
+                "critical": True,
+            }
+        ],
+        artifact_root=mailbox_root / "artifacts",
+    )
+    graph = runtime.agentic.load_graph(graph_id)
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN (
+                'agentic_mailbox_artifact_finalized',
+                'agentic_result_envelope_imported',
+                'agentic_task_node_acceptance_evaluated',
+                'agentic_task_node_completed'
+            )
+            """
+        )
+    }
+    if (
+        finalized["sha256"] != expected_sha256
+        or finalized["completion_attempted"] is not False
+        or imported["completion"]["acceptance_report"]["passed"] is not True
+        or graph.nodes[lease.node_id].status is not TaskNodeStatus.SUCCEEDED
+        or {
+            "agentic_mailbox_artifact_finalized",
+            "agentic_result_envelope_imported",
+            "agentic_task_node_acceptance_evaluated",
+            "agentic_task_node_completed",
+        }
+        - event_types
+    ):
+        return ArchitecturePassResult(
+            "P56",
+            "BLOCKED",
+            [graph_id, str(imported)],
+            ["agentic artifact finalize acceptance validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P56",
+        "ADMIT_SHADOW_ONLY",
+        [
+            graph_id,
+            artifact_id,
+            expected_sha256,
+            *sorted(event_types),
+        ],
+        [
+            "Agentic mailbox artifact chunks finalize to a digest-checked artifact before canonical acceptance consumes the worker result",
         ],
     )
 

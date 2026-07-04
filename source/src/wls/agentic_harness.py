@@ -367,7 +367,8 @@ class AgenticHarness:
             WHERE event_type IN (
                 'agentic_task_envelope_exported',
                 'agentic_result_envelope_imported',
-                'agentic_result_envelope_quarantined'
+                'agentic_result_envelope_quarantined',
+                'agentic_mailbox_artifact_finalized'
             )
             ORDER BY seq DESC
             LIMIT ?
@@ -1199,6 +1200,42 @@ class AgenticHarness:
         }
         self.ledger.append("agentic_result_envelope_imported", imported_receipt)
         return imported_receipt
+
+    def finalize_mailbox_artifact(
+        self,
+        *,
+        mailbox_root: Path | str,
+        artifact_id: str,
+        chunk_count: int,
+        expected_sha256: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("artifact finalization reason is required")
+        mailbox = AgenticFileMailbox(mailbox_root)
+        manifest = mailbox.finalize_artifact(
+            artifact_id,
+            chunk_count=chunk_count,
+            expected_sha256=expected_sha256,
+        )
+        receipt = {
+            "receipt_type": "AGENTIC_MAILBOX_ARTIFACT_FINALIZED",
+            "artifact_id": artifact_id,
+            "chunk_count": chunk_count,
+            "sha256": manifest["sha256"],
+            "path": manifest["path"],
+            "manifest_path": manifest["manifest_path"],
+            "reason": reason,
+            "completion_attempted": False,
+            "canonical_completion_authority": "LivingSystem.AgenticHarness",
+            "claim_ceiling": (
+                "mailbox artifact finalization receipt only; no node completion, "
+                "worker result acceptance, tool execution, or external authority "
+                "is inferred"
+            ),
+        }
+        self.ledger.append("agentic_mailbox_artifact_finalized", receipt)
+        return receipt
 
     def _previous_result_envelope_receipt(
         self, message_id: str

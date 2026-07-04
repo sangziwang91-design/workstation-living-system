@@ -356,6 +356,9 @@ fields such as `memory_id`/`active`.
   Task envelopes carry a lease fencing token, and late stale-worker results are
   quarantined before completion after lease recovery or re-dispatch, preserving
   canonical DAG ownership.
+- P56 is a shadow-level runtime admission for finalized mailbox artifacts.
+  Artifact chunks are assembled only when the final digest matches, and canonical
+  node completion still requires the normal result import and acceptance checks.
 
 ## Projection Rule
 

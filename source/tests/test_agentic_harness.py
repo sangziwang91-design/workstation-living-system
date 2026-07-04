@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -1100,6 +1101,103 @@ def test_agentic_file_mailbox_quarantines_late_stale_lease_result(
     assert new_lease.node_id == old_lease.node_id
     assert graph.nodes[old_lease.node_id].status is TaskNodeStatus.LEASED
     assert graph.nodes[old_lease.node_id].lease_id == new_lease.lease_id
+
+
+def test_agentic_mailbox_artifact_finalize_then_acceptance(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    mailbox_root = tmp_path / "mailbox"
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect finalized mailbox artifact",
+        acceptance=["finalized artifact digest is accepted"],
+        evidence_required=["agentic_mailbox_artifact_finalized"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id,
+        worker_id="readonly-inspector",
+    )[0]
+    exported = runtime.agentic.export_node_task_envelope(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        mailbox_root=mailbox_root,
+        recipient="pytest-artifact-worker",
+    )
+    mailbox = AgenticFileMailbox(mailbox_root)
+    task = mailbox.read_task(exported["message_id"])
+    artifact_id = "pytest-artifact"
+    chunks = [b"pytest finalized ", b"artifact evidence\n"]
+    expected_sha256 = hashlib.sha256(b"".join(chunks)).hexdigest()
+    for index, chunk in enumerate(chunks):
+        mailbox.write_artifact_chunk(artifact_id, index, chunk)
+    finalized = runtime.agentic.finalize_mailbox_artifact(
+        mailbox_root=mailbox_root,
+        artifact_id=artifact_id,
+        chunk_count=len(chunks),
+        expected_sha256=expected_sha256,
+        reason="unit test finalized artifact",
+    )
+    result = ResultEnvelope.create(
+        message_id="artifact-result-1",
+        in_reply_to=task.message_id,
+        graph_id=graph_id,
+        node_id=lease.node_id,
+        lease_id=lease.lease_id,
+        sender="pytest-artifact-worker",
+        recipient="LivingSystem.AgenticHarness",
+        status="SUCCEEDED",
+        payload={
+            "summary": "finalized artifact result",
+            "artifact_id": artifact_id,
+            "lease_fencing_token": task.payload["lease_fencing_token"],
+        },
+    )
+    mailbox.write_result(result)
+    imported = runtime.agentic.import_node_result_envelope(
+        mailbox_root=mailbox_root,
+        message_id=result.message_id,
+        acceptance_checks=[
+            {
+                "check_id": "artifact-sha256",
+                "type": "artifact_sha256",
+                "config": {"path": f"{artifact_id}.bin", "sha256": expected_sha256},
+                "critical": True,
+            }
+        ],
+        artifact_root=mailbox_root / "artifacts",
+    )
+
+    graph = runtime.agentic.load_graph(graph_id)
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+    assert finalized["sha256"] == expected_sha256
+    assert finalized["completion_attempted"] is False
+    assert (mailbox_root / "artifacts" / f"{artifact_id}.bin").is_file()
+    assert imported["completion"]["acceptance_report"]["passed"] is True
+    assert graph.nodes[lease.node_id].status is TaskNodeStatus.SUCCEEDED
+    assert panel["status"]["file_mailbox_v1"]["receipt_count"] == 3
+
+
+def test_agentic_mailbox_artifact_finalize_rejects_digest_mismatch(
+    tmp_path: Path,
+) -> None:
+    mailbox = AgenticFileMailbox(tmp_path / "mailbox")
+    artifact_id = "bad-artifact"
+    mailbox.write_artifact_chunk(artifact_id, 0, b"wrong")
+
+    with pytest.raises(ValueError, match="artifact digest mismatch"):
+        mailbox.finalize_artifact(
+            artifact_id,
+            chunk_count=1,
+            expected_sha256=hashlib.sha256(b"right").hexdigest(),
+        )
+
+    assert not (tmp_path / "mailbox" / "artifacts" / f"{artifact_id}.bin").exists()
 
 
 def test_bound_agentic_node_action_execution_rejects_owner_gated_binding(

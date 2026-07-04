@@ -26,6 +26,7 @@ from wls.architecture_validation import (
     validate_phase2_agentic_budget_gate,
     validate_phase2_agentic_benchmark_scorecard,
     validate_phase2_agentic_checkpoint_resume,
+    validate_phase2_agentic_artifact_finalize_acceptance,
     validate_phase2_agentic_lease_fencing_reconciliation,
     validate_phase2_agentic_retry_gate,
     validate_phase2_agentic_replan_candidate,
@@ -2476,6 +2477,17 @@ def test_architecture_validation_checks_agentic_lease_fencing_reconciliation(
         tmp_path / "agentic-lease-fencing-validation-home"
     )
     assert result.pass_id == "P55"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) >= 5
+
+
+def test_architecture_validation_checks_agentic_artifact_finalize_acceptance(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_agentic_artifact_finalize_acceptance(
+        tmp_path / "agentic-artifact-finalize-validation-home"
+    )
+    assert result.pass_id == "P56"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) >= 5
 
