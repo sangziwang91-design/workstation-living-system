@@ -377,6 +377,7 @@ def test_agentic_node_acceptance_trace_completes_only_when_checks_pass(
             "summary": "inspection result is recorded",
             "evidence": ["agentic_task_graph_compiled"],
             "payload": {"ok": True, "artifact": "summary.txt"},
+            "metrics": {"source_count": 2},
         },
         acceptance_checks=[
             {"check_id": "status", "type": "result_status"},
@@ -389,6 +390,11 @@ def test_agentic_node_acceptance_trace_completes_only_when_checks_pass(
                 "check_id": "artifact",
                 "type": "artifact_exists",
                 "config": {"path": "summary.txt"},
+            },
+            {
+                "check_id": "metric",
+                "type": "metric_range",
+                "config": {"name": "source_count", "min": 1, "max": 3},
             },
         ],
         artifact_root=artifact_root,
@@ -406,6 +412,44 @@ def test_agentic_node_acceptance_trace_completes_only_when_checks_pass(
         if item["panel_id"] == "agentic_tasks"
     )
     assert panel["status"]["acceptance_trace_v1"]["receipt_count"] == 1
+
+
+def test_agentic_acceptance_metric_range_failure_is_visible(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector"
+    )[0]
+
+    completion = runtime.agentic.complete_node_with_acceptance(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        result={
+            "status": "SUCCEEDED",
+            "summary": "inspection result is recorded",
+            "evidence": ["agentic_task_graph_compiled"],
+            "metrics": {"source_count": 0},
+        },
+        acceptance_checks=[
+            {
+                "check_id": "metric",
+                "type": "metric_range",
+                "config": {"name": "source_count", "min": 1},
+            },
+        ],
+    )
+
+    assert completion["acceptance_report"]["passed"] is False
+    assert completion["acceptance_report"]["critical_failures"] == ["metric"]
+    assert "source_count=0.0" in completion["acceptance_report"]["checks"][0]["detail"]
 
 
 def test_agentic_node_acceptance_failure_blocks_dependents(

@@ -108,6 +108,9 @@ Execution tracing is fitted as an EvidenceLedger-owned projection candidate.
 harness receipts, and future replay review, but emitted trace events are
 explicitly `trace_candidate_only`. They are not canonical evidence until the
 existing `EvidenceLedger` records them.
+Agentic acceptance checks now include bounded metric ranges in addition to
+status, evidence count, JSON key, regex, and artifact checks; failures remain
+visible deterministic acceptance failures, never implicit passes.
 
 Loop control is fitted as a Planner-owned decision candidate. `LoopController`
 turns explicit iteration budgets, observed gain, failures, cost, elapsed time,

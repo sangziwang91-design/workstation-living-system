@@ -1684,6 +1684,15 @@ class AgenticHarness:
             keys = [str(item) for item in config.get("keys", [])]
             missing = [key for key in keys if key not in payload]
             return not missing, f"missing={missing}"
+        if check_type == "metric_range":
+            metrics = result.get("metrics")
+            if not isinstance(metrics, dict):
+                raise ValueError("metric_range requires result.metrics")
+            name = str(config["name"])
+            value = float(metrics[name])
+            lower = float(config.get("min", float("-inf")))
+            upper = float(config.get("max", float("inf")))
+            return lower <= value <= upper, f"{name}={value} range=[{lower},{upper}]"
         if check_type == "regex":
             pattern = str(config["pattern"])
             field = str(config.get("field", "summary"))
