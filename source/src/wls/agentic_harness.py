@@ -1056,6 +1056,12 @@ class AgenticHarness:
                     "risk": node.risk.value,
                     "conflict_domain": node.conflict_domain,
                     "worker_id": lease["worker_id"],
+                    "lease_fencing_token": self._lease_fencing_token(
+                        graph_id=graph_id,
+                        node_id=node_id,
+                        lease_id=lease_id,
+                    ),
+                    "lease_generation": lease_id,
                     "canonical_completion_authority": "LivingSystem.AgenticHarness",
                 },
             )
@@ -1096,7 +1102,7 @@ class AgenticHarness:
             if previous_digest and previous_digest != envelope.payload_digest:
                 reason = "message_id_digest_conflict"
             rejected_path = mailbox.reject(message_id, result=True)
-            receipt = {
+            receipt: dict[str, Any] = {
                 "receipt_type": "AGENTIC_RESULT_ENVELOPE_QUARANTINED",
                 "graph_id": envelope.graph_id,
                 "node_id": envelope.node_id,
@@ -1112,6 +1118,31 @@ class AgenticHarness:
                 "canonical_completion_authority": "LivingSystem.AgenticHarness",
                 "claim_ceiling": (
                     "duplicate or conflicting result envelope quarantined only; "
+                    "no node completion, failure transition, retry, or worker "
+                    "authority is inferred"
+                ),
+            }
+            self.ledger.append("agentic_result_envelope_quarantined", receipt)
+            return receipt
+        fencing = self._result_fencing_violation(envelope)
+        if fencing is not None:
+            rejected_path = mailbox.reject(message_id, result=True)
+            receipt = {
+                "receipt_type": "AGENTIC_RESULT_ENVELOPE_QUARANTINED",
+                "graph_id": envelope.graph_id,
+                "node_id": envelope.node_id,
+                "lease_id": envelope.lease_id,
+                "message_id": envelope.message_id,
+                "in_reply_to": envelope.in_reply_to,
+                "status": envelope.status.upper(),
+                "payload_digest": envelope.payload_digest,
+                "rejected_path": str(rejected_path),
+                "reason": fencing["reason"],
+                "fencing": fencing,
+                "completion_attempted": False,
+                "canonical_completion_authority": "LivingSystem.AgenticHarness",
+                "claim_ceiling": (
+                    "late or stale worker result quarantined by lease fencing only; "
                     "no node completion, failure transition, retry, or worker "
                     "authority is inferred"
                 ),
@@ -1189,6 +1220,84 @@ class AgenticHarness:
             return None
         payload = json.loads(str(row["payload_json"]))
         return payload if isinstance(payload, dict) else None
+
+    def _result_fencing_violation(self, envelope: Any) -> dict[str, Any] | None:
+        lease = self.db.query_one(
+            """
+            SELECT lease_id,graph_id,node_id,worker_id,status,acquired_at,expires_at,released_at
+            FROM agentic_node_leases
+            WHERE graph_id=? AND node_id=? AND lease_id=?
+            LIMIT 1
+            """,
+            (envelope.graph_id, envelope.node_id, envelope.lease_id),
+        )
+        if lease is None:
+            return {
+                "reason": "unknown_lease",
+                "expected_fencing_token": self._lease_fencing_token(
+                    graph_id=envelope.graph_id,
+                    node_id=envelope.node_id,
+                    lease_id=envelope.lease_id,
+                ),
+                "received_fencing_token": envelope.payload.get("lease_fencing_token"),
+            }
+        graph = self.load_graph(envelope.graph_id)
+        node = graph.nodes.get(envelope.node_id)
+        expected_token = self._lease_fencing_token(
+            graph_id=envelope.graph_id,
+            node_id=envelope.node_id,
+            lease_id=envelope.lease_id,
+        )
+        received_token = envelope.payload.get("lease_fencing_token")
+        if received_token is not None and received_token != expected_token:
+            return {
+                "reason": "fencing_token_mismatch",
+                "lease_status": lease["status"],
+                "worker_id": lease["worker_id"],
+                "expected_fencing_token": expected_token,
+                "received_fencing_token": received_token,
+            }
+        if str(lease["status"]) != "ACTIVE":
+            return {
+                "reason": "inactive_lease",
+                "lease_status": lease["status"],
+                "worker_id": lease["worker_id"],
+                "released_at": lease["released_at"],
+                "expected_fencing_token": expected_token,
+                "received_fencing_token": received_token,
+            }
+        if node is None:
+            return {
+                "reason": "unknown_node",
+                "lease_status": lease["status"],
+                "worker_id": lease["worker_id"],
+                "expected_fencing_token": expected_token,
+                "received_fencing_token": received_token,
+            }
+        if node.status is not TaskNodeStatus.LEASED or node.lease_id != envelope.lease_id:
+            return {
+                "reason": "node_not_owned_by_lease",
+                "lease_status": lease["status"],
+                "worker_id": lease["worker_id"],
+                "node_status": node.status.value,
+                "node_lease_id": node.lease_id,
+                "expected_fencing_token": expected_token,
+                "received_fencing_token": received_token,
+            }
+        return None
+
+    @staticmethod
+    def _lease_fencing_token(
+        *, graph_id: str, node_id: str, lease_id: str
+    ) -> str:
+        return digest_json(
+            {
+                "graph_id": graph_id,
+                "node_id": node_id,
+                "lease_id": lease_id,
+                "authority": "LivingSystem.AgenticHarness",
+            }
+        )
 
     def _latest_failure_attribution(
         self, graph_id: str, node_id: str

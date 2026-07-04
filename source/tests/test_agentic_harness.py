@@ -1017,6 +1017,91 @@ def test_agentic_file_mailbox_quarantines_duplicate_result_replay(
     assert panel["status"]["file_mailbox_v1"]["receipt_count"] == 3
 
 
+def test_agentic_file_mailbox_quarantines_late_stale_lease_result(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    mailbox_root = tmp_path / "mailbox"
+    worker = WorkerProfile(
+        worker_id="pytest-fenced-worker",
+        worker_type="LOCAL_SHADOW",
+        label="Pytest fenced worker",
+        allowed_domains=["RESEARCH", "MIXED", "CODE"],
+        max_risk=RiskLevel.READ,
+    )
+    runtime.agentic.worker_registry.register_profile(
+        worker,
+        reason="unit test fenced worker registration",
+    )
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect stale lease fencing",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    old_lease = runtime.agentic.acquire_ready_leases(
+        graph_id,
+        worker_id=worker.worker_id,
+        ttl_seconds=30,
+    )[0]
+    exported = runtime.agentic.export_node_task_envelope(
+        graph_id,
+        old_lease.node_id,
+        lease_id=old_lease.lease_id,
+        mailbox_root=mailbox_root,
+        recipient=worker.worker_id,
+    )
+    mailbox = AgenticFileMailbox(mailbox_root)
+    task = mailbox.read_task(exported["message_id"])
+    runtime.agentic.worker_registry.mark_stale_workers(
+        stale_before=(datetime.now(UTC) + timedelta(seconds=1)).isoformat(),
+        reason="unit test stale worker before late result",
+    )
+    runtime.agentic.worker_registry.record_heartbeat(
+        "readonly-inspector",
+        details={"phase": "unit-test-fencing-reacquire-worker-active"},
+    )
+    runtime.agentic.recover_stale_worker_leases(
+        graph_id,
+        worker_id=worker.worker_id,
+        reason="unit test stale lease fencing recovery",
+    )
+    new_lease = runtime.agentic.acquire_ready_leases(
+        graph_id,
+        worker_id="readonly-inspector",
+    )[0]
+    late_result = ResultEnvelope.create(
+        message_id="late-result-1",
+        in_reply_to=task.message_id,
+        graph_id=graph_id,
+        node_id=old_lease.node_id,
+        lease_id=old_lease.lease_id,
+        sender=worker.worker_id,
+        recipient="LivingSystem.AgenticHarness",
+        status="SUCCEEDED",
+        payload={
+            "summary": "late stale worker result",
+            "lease_fencing_token": task.payload["lease_fencing_token"],
+        },
+    )
+    mailbox.write_result(late_result)
+    quarantined = runtime.agentic.import_node_result_envelope(
+        mailbox_root=mailbox_root,
+        message_id=late_result.message_id,
+    )
+
+    graph = runtime.agentic.load_graph(graph_id)
+    assert quarantined["receipt_type"] == "AGENTIC_RESULT_ENVELOPE_QUARANTINED"
+    assert quarantined["reason"] == "inactive_lease"
+    assert quarantined["completion_attempted"] is False
+    assert quarantined["fencing"]["worker_id"] == worker.worker_id
+    assert not (mailbox_root / "results" / "late-result-1.json").exists()
+    assert (mailbox_root / "rejected" / "late-result-1.json").exists()
+    assert new_lease.node_id == old_lease.node_id
+    assert graph.nodes[old_lease.node_id].status is TaskNodeStatus.LEASED
+    assert graph.nodes[old_lease.node_id].lease_id == new_lease.lease_id
+
+
 def test_bound_agentic_node_action_execution_rejects_owner_gated_binding(
     tmp_path: Path,
 ) -> None:

@@ -352,6 +352,10 @@ fields such as `memory_id`/`active`.
   and candidate arbitration. Active compatible workers can be recommended with
   card digests and rejection reasons, while no lease, worker execution, or
   delegated completion authority is created.
+- P55 is a shadow-level runtime admission for lease fencing reconciliation.
+  Task envelopes carry a lease fencing token, and late stale-worker results are
+  quarantined before completion after lease recovery or re-dispatch, preserving
+  canonical DAG ownership.
 
 ## Projection Rule
 

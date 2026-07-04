@@ -54,6 +54,7 @@ from wls.architecture_validation import (  # noqa: E402
     validate_phase2_agentic_budget_gate,
     validate_phase2_agentic_benchmark_scorecard,
     validate_phase2_agentic_checkpoint_resume,
+    validate_phase2_agentic_lease_fencing_reconciliation,
     validate_phase2_agentic_retry_gate,
     validate_phase2_agentic_replan_candidate,
     validate_phase2_agentic_result_replay_quarantine,
@@ -84,6 +85,7 @@ SELECTIVE_VALIDATION_PASSES = {
     "P52",
     "P53",
     "P54",
+    "P55",
 }
 
 
@@ -179,6 +181,12 @@ def _run_selected_validation(selected: set[str]) -> dict[str, object]:
             results.append(
                 validate_phase2_agentic_worker_capability_arbitration(
                     temp_path / "phase2-agentic-worker-capability-arbitration-home"
+                )
+            )
+        if _selected(selected, "P55"):
+            results.append(
+                validate_phase2_agentic_lease_fencing_reconciliation(
+                    temp_path / "phase2-agentic-lease-fencing-home"
                 )
             )
     return {
@@ -413,6 +421,11 @@ def run_validation(selected: set[str] | None = None) -> dict[str, object]:
                 temp_path / "phase2-agentic-worker-capability-arbitration-home"
             )
         )
+        results.append(
+            validate_phase2_agentic_lease_fencing_reconciliation(
+                temp_path / "phase2-agentic-lease-fencing-home"
+            )
+        )
     for pass_id, note in PASS_CONTRACTS.items():
         results.append(
             ArchitecturePassResult(
@@ -436,7 +449,7 @@ def main(argv: list[str] | None = None) -> int:
         "--only",
         action="append",
         dest="only",
-        help="Run one validation pass only. Currently supports P01, P42, P43, P44, P45, P46, P47, P48, P49, P50, P51, P52, P53, and P54.",
+        help="Run one validation pass only. Currently supports P01, P42, P43, P44, P45, P46, P47, P48, P49, P50, P51, P52, P53, P54, and P55.",
     )
     args = parser.parse_args(argv)
     selected = {item.upper() for item in args.only} if args.only else None

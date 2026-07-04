@@ -4419,6 +4419,135 @@ def validate_phase2_agentic_worker_capability_arbitration(
     )
 
 
+def validate_phase2_agentic_lease_fencing_reconciliation(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    mailbox_root = home / "mailbox"
+    worker = WorkerProfile(
+        worker_id="validation-fenced-worker",
+        worker_type="LOCAL_SHADOW",
+        label="Validation fenced worker",
+        allowed_domains=["RESEARCH", "MIXED", "CODE"],
+        max_risk=RiskLevel.READ,
+        metadata={"validation": "lease fencing"},
+    )
+    runtime.agentic.worker_registry.register_profile(
+        worker,
+        reason="architecture validation fenced worker registration",
+    )
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect stale lease fencing",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = str(receipt["graph"]["graph_id"])
+    old_lease = runtime.agentic.acquire_ready_leases(
+        graph_id,
+        worker_id=worker.worker_id,
+        ttl_seconds=30,
+    )[0]
+    exported = runtime.agentic.export_node_task_envelope(
+        graph_id,
+        old_lease.node_id,
+        lease_id=old_lease.lease_id,
+        mailbox_root=mailbox_root,
+        recipient=worker.worker_id,
+    )
+    mailbox = AgenticFileMailbox(mailbox_root)
+    task = mailbox.read_task(str(exported["message_id"]))
+    runtime.agentic.worker_registry.mark_stale_workers(
+        stale_before=(datetime.now(UTC) + timedelta(seconds=1)).isoformat(),
+        reason="architecture validation stale worker before fencing",
+    )
+    runtime.agentic.worker_registry.record_heartbeat(
+        "readonly-inspector",
+        details={"phase": "validation-fencing-reacquire-worker-active"},
+    )
+    recovery = runtime.agentic.recover_stale_worker_leases(
+        graph_id,
+        worker_id=worker.worker_id,
+        reason="architecture validation stale lease fencing recovery",
+    )
+    new_lease = runtime.agentic.acquire_ready_leases(
+        graph_id,
+        worker_id="readonly-inspector",
+    )[0]
+    late_result = ResultEnvelope.create(
+        message_id="validation-late-result",
+        in_reply_to=task.message_id,
+        graph_id=graph_id,
+        node_id=old_lease.node_id,
+        lease_id=old_lease.lease_id,
+        sender=worker.worker_id,
+        recipient="LivingSystem.AgenticHarness",
+        status="SUCCEEDED",
+        payload={
+            "summary": "late stale worker result",
+            "lease_fencing_token": task.payload["lease_fencing_token"],
+        },
+    )
+    mailbox.write_result(late_result)
+    quarantined = runtime.agentic.import_node_result_envelope(
+        mailbox_root=mailbox_root,
+        message_id=late_result.message_id,
+    )
+    graph = runtime.agentic.load_graph(graph_id)
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN (
+                'agentic_result_envelope_quarantined',
+                'agentic_stale_worker_leases_recovered',
+                'agentic_task_node_completed',
+                'agentic_task_node_leased'
+            )
+            """
+        )
+    }
+    rejected_path = mailbox_root / "rejected" / f"{late_result.message_id}.json"
+    if (
+        recovery["recovered_lease_count"] != 1
+        or new_lease.node_id != old_lease.node_id
+        or new_lease.lease_id == old_lease.lease_id
+        or quarantined.get("receipt_type") != "AGENTIC_RESULT_ENVELOPE_QUARANTINED"
+        or quarantined.get("reason") != "inactive_lease"
+        or quarantined.get("completion_attempted") is not False
+        or not rejected_path.exists()
+        or graph.nodes[old_lease.node_id].status is not TaskNodeStatus.LEASED
+        or graph.nodes[old_lease.node_id].lease_id != new_lease.lease_id
+        or "agentic_task_node_completed" in event_types
+        or {
+            "agentic_result_envelope_quarantined",
+            "agentic_stale_worker_leases_recovered",
+            "agentic_task_node_leased",
+        }
+        - event_types
+    ):
+        return ArchitecturePassResult(
+            "P55",
+            "BLOCKED",
+            [graph_id, str(quarantined)],
+            ["agentic lease fencing reconciliation validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P55",
+        "ADMIT_SHADOW_ONLY",
+        [
+            graph_id,
+            old_lease.lease_id,
+            new_lease.lease_id,
+            str(rejected_path),
+            *sorted(event_types),
+        ],
+        [
+            "Agentic lease fencing quarantines late stale-worker results after recovery without completing the node or granting worker authority",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:
