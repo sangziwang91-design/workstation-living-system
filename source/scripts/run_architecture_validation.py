@@ -64,6 +64,7 @@ from wls.architecture_validation import (  # noqa: E402
     validate_phase2_agentic_worker_lease_recovery,
     validate_phase2_agentic_worker_lifecycle,
     validate_phase2_agentic_task_harness,
+    validate_phase2_sandbox_adapter_contract,
     validate_p01_registry,
     validate_runtime_approval_receipts,
     validate_runtime_event_ingress,
@@ -90,6 +91,7 @@ SELECTIVE_VALIDATION_PASSES = {
     "P55",
     "P56",
     "P57",
+    "P58",
 }
 
 
@@ -203,6 +205,12 @@ def _run_selected_validation(selected: set[str]) -> dict[str, object]:
             results.append(
                 validate_phase2_agentic_worker_trust_quarantine(
                     temp_path / "phase2-agentic-worker-trust-home"
+                )
+            )
+        if _selected(selected, "P58"):
+            results.append(
+                validate_phase2_sandbox_adapter_contract(
+                    temp_path / "phase2-sandbox-adapter-home"
                 )
             )
     return {
@@ -452,6 +460,11 @@ def run_validation(selected: set[str] | None = None) -> dict[str, object]:
                 temp_path / "phase2-agentic-worker-trust-home"
             )
         )
+        results.append(
+            validate_phase2_sandbox_adapter_contract(
+                temp_path / "phase2-sandbox-adapter-home"
+            )
+        )
     for pass_id, note in PASS_CONTRACTS.items():
         results.append(
             ArchitecturePassResult(
@@ -475,7 +488,7 @@ def main(argv: list[str] | None = None) -> int:
         "--only",
         action="append",
         dest="only",
-        help="Run one validation pass only. Currently supports P01, P42, P43, P44, P45, P46, P47, P48, P49, P50, P51, P52, P53, P54, P55, P56, and P57.",
+        help="Run one validation pass only. Currently supports P01, P42, P43, P44, P45, P46, P47, P48, P49, P50, P51, P52, P53, P54, P55, P56, P57, and P58.",
     )
     args = parser.parse_args(argv)
     selected = {item.upper() for item in args.only} if args.only else None

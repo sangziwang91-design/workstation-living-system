@@ -362,6 +362,10 @@ fields such as `memory_id`/`active`.
 - P57 is a shadow-level runtime admission for evidence-derived worker trust.
   Quarantined stale results can disable future leases for a worker through a
   trust review receipt, without using worker self-report or promoting trust.
+- P58 is a shadow-level runtime admission for the SandboxAdapter contract.
+  A local fixture sandbox records environment and contract digests, denies
+  network and secret access by default, verifies destroy, and does not imply
+  remote execution or canonical task completion.
 
 ## Projection Rule
 

@@ -4815,6 +4815,79 @@ def validate_phase2_agentic_worker_trust_quarantine(
     )
 
 
+def validate_phase2_sandbox_adapter_contract(home: Path) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    receipt = runtime.run_sandbox_adapter_probe(
+        adapter_id="validation-local-fixture",
+        tool="write_file",
+        arguments={
+            "path": "outputs/probe.txt",
+            "content": "P58 sandbox adapter probe\n",
+        },
+        purpose="architecture validation sandbox adapter write probe",
+        allowed_tools=["write_file"],
+        reason="architecture validation sandbox adapter contract",
+        network_enabled=False,
+        secret_injection="none",
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "sandbox_adapters"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type='sandbox_adapter_probe_recorded'
+            """
+        )
+    }
+    contract = receipt["contract"]
+    if (
+        receipt["receipt_type"] != "SANDBOX_ADAPTER_PROBE"
+        or receipt["passed"] is not True
+        or receipt["network_enabled"] is not False
+        or receipt["secret_injection"] != "none"
+        or receipt["remote_execution"] is not False
+        or receipt["destroy"]["destroy_verified"] is not True
+        or receipt["destroy"]["exists_after_destroy"] is not False
+        or contract["network_enabled"] is not False
+        or contract["secret_injection"] != "none"
+        or not contract.get("environment_digest")
+        or not contract.get("contract_digest")
+        or panel is None
+        or panel["status"]["receipt_count"] < 1
+        or panel["status"]["network_access"] is not False
+        or "sandbox_adapter_probe_recorded" not in event_types
+    ):
+        return ArchitecturePassResult(
+            "P58",
+            "BLOCKED",
+            [str(receipt)],
+            ["sandbox adapter contract validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P58",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(receipt["probe_id"]),
+            str(contract["environment_digest"]),
+            str(receipt["destroy"]["tree_digest_before_destroy"]),
+            *sorted(event_types),
+        ],
+        [
+            "Sandbox adapter contract records local fixture environment, network and secret denial, path-scoped execution, and destroy verification without remote execution or delegated authority",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

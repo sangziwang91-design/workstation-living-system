@@ -36,6 +36,7 @@ from wls.architecture_validation import (
     validate_phase2_agentic_worker_lease_recovery,
     validate_phase2_agentic_worker_lifecycle,
     validate_phase2_agentic_task_harness,
+    validate_phase2_sandbox_adapter_contract,
     validate_external_memory_projection,
     validate_mcp_a2a_candidates,
     validate_phase2_capability_epoch_audit_receipts,
@@ -2502,6 +2503,47 @@ def test_architecture_validation_checks_agentic_worker_trust_quarantine(
     assert result.pass_id == "P57"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) >= 5
+
+
+def test_architecture_validation_checks_sandbox_adapter_contract(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_sandbox_adapter_contract(
+        tmp_path / "sandbox-adapter-validation-home"
+    )
+    assert result.pass_id == "P58"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) >= 4
+
+
+def test_sandbox_adapter_probe_records_destroyed_local_fixture(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt = runtime.run_sandbox_adapter_probe(
+        adapter_id="pytest-local-fixture",
+        tool="write_file",
+        arguments={"path": "outputs/probe.txt", "content": "sandbox probe\n"},
+        purpose="unit test sandbox adapter probe",
+        allowed_tools=["write_file"],
+        reason="unit test sandbox adapter contract",
+        network_enabled=False,
+        secret_injection="none",
+    )
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "sandbox_adapters"
+    )
+    assert receipt["passed"] is True
+    assert receipt["remote_execution"] is False
+    assert receipt["network_enabled"] is False
+    assert receipt["secret_injection"] == "none"
+    assert receipt["destroy"]["destroy_verified"] is True
+    assert receipt["destroy"]["exists_after_destroy"] is False
+    assert receipt["contract"]["environment_digest"]
+    assert panel["status"]["receipt_count"] == 1
+    assert panel["status"]["secret_access"] is False
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

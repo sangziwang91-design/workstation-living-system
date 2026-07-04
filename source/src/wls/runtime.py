@@ -55,6 +55,7 @@ from .self_model import SelfModel
 from .sensors import build_sensor
 from .scheduler import EventScheduler, ScheduledEvent
 from .skills import SkillLibrary
+from .sandbox_adapter import SandboxAdapter, SandboxContract
 from .sleep import SleepConsolidator
 from .stores import EventStore, GoalStore, MemoryStore
 from .temporal_world import TemporalCausalWorld
@@ -328,6 +329,12 @@ class LivingSystem:
 
     def skill_sandbox_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         receipts = self.db.get_runtime("skill_sandbox_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
+    def sandbox_adapter_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("sandbox_adapter_receipts", [])
         if not isinstance(receipts, list):
             return []
         return receipts[: max(0, int(limit))]
@@ -985,6 +992,7 @@ class LivingSystem:
             "read_only_execution": len(self.read_only_execution_receipts(100)),
             "skill_candidate": len(self.skill_candidate_receipts(100)),
             "skill_sandbox": len(self.skill_sandbox_receipts(100)),
+            "sandbox_adapter": len(self.sandbox_adapter_receipts(100)),
         }
         branch_only_scaffolding = [
             {
@@ -1220,6 +1228,51 @@ class LivingSystem:
         with self.db.transaction() as connection:
             self.db.set_runtime("skill_sandbox_receipts", updated, connection)
             self.ledger.append("skill_sandbox_receipt_recorded", receipt, connection)
+        return receipt
+
+    def run_sandbox_adapter_probe(
+        self,
+        *,
+        adapter_id: str,
+        tool: str,
+        arguments: dict[str, Any],
+        purpose: str,
+        allowed_tools: list[str],
+        reason: str,
+        network_enabled: bool = False,
+        secret_injection: str = "none",
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("sandbox adapter probe reason is required")
+        probe_id = new_id("sandbox_probe")
+        sandbox_root = self.config.sandbox_path / "sandbox-adapters" / probe_id
+        contract = SandboxContract(
+            adapter_id=adapter_id,
+            sandbox_root=str(sandbox_root),
+            allowed_tools=list(allowed_tools),
+            network_enabled=network_enabled,
+            secret_injection=secret_injection,
+        )
+        adapter = SandboxAdapter(contract)
+        receipt = adapter.run_probe(
+            tool=tool,
+            arguments=arguments,
+            purpose=purpose,
+            risk=RiskLevel.READ,
+        )
+        receipt.update(
+            {
+                "receipt_type": "SANDBOX_ADAPTER_PROBE",
+                "probe_id": probe_id,
+                "reason": reason,
+                "created_at": utc_now(),
+            }
+        )
+        current = self.sandbox_adapter_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("sandbox_adapter_receipts", updated, connection)
+            self.ledger.append("sandbox_adapter_probe_recorded", receipt, connection)
         return receipt
 
     def review_learning_epoch_from_receipts(
@@ -3259,6 +3312,7 @@ class LivingSystem:
             "provider_route_receipts": self.provider_route_receipts(),
             "skill_candidate_receipts": self.skill_candidate_receipts(),
             "skill_sandbox_receipts": self.skill_sandbox_receipts(),
+            "sandbox_adapter_receipts": self.sandbox_adapter_receipts(),
             "agentic_task_receipts": self.agentic_task_receipts(),
             "agentic_context_manifest_receipts": self.agentic_context_manifest_receipts(),
             "agentic_worker_profile_receipts": self.agentic_worker_profile_receipts(),

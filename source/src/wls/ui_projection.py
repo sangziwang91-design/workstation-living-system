@@ -54,6 +54,7 @@ class OwnerConsoleProductProjection:
         "evolution_lab",
         "skill_candidates",
         "skill_sandbox",
+        "sandbox_adapters",
         "agentic_tasks",
         "learning_epoch",
         "capability_epoch",
@@ -85,6 +86,7 @@ class OwnerConsoleProductProjection:
             self._evolution_panel(status),
             self._skill_candidates_panel(status),
             self._skill_sandbox_panel(status),
+            self._sandbox_adapters_panel(status),
             self._agentic_tasks_panel(status),
             self._learning_epoch_panel(status),
             self._capability_epoch_panel(status),
@@ -457,6 +459,23 @@ class OwnerConsoleProductProjection:
                 "approval_executed": False,
                 "promotion_executed": False,
                 "deployment_executed": False,
+            },
+        }
+
+    @staticmethod
+    def _sandbox_adapters_panel(status: dict[str, Any]) -> dict[str, Any]:
+        receipts = status.get("sandbox_adapter_receipts", [])
+        return {
+            "panel_id": "sandbox_adapters",
+            "title": "Sandbox Adapters",
+            "status": {
+                "receipt_count": len(receipts) if isinstance(receipts, list) else 0,
+                "items": receipts if isinstance(receipts, list) else [],
+                "local_fixture_only": True,
+                "remote_execution": False,
+                "secret_access": False,
+                "network_access": False,
+                "canonical_authority": "LivingSystem",
             },
         }
 
