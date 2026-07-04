@@ -653,6 +653,48 @@ def test_agentic_retry_gate_requires_repair_candidate_and_prepares_new_lease(
     assert panel["status"]["retry_gate_v1"]["receipt_count"] == 1
 
 
+def test_agentic_replan_candidate_preserves_failed_graph_state(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector"
+    )[0]
+    runtime.agentic.fail_node(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        error="fixture validation mismatch: inspection evidence missing",
+    )
+    before = runtime.agentic.load_graph(graph_id).snapshot()["graph_digest"]
+
+    replan = runtime.agentic.propose_replan_candidate(
+        graph_id,
+        trigger_node_id=lease.node_id,
+        reason="unit test replan candidate",
+    )
+
+    graph = runtime.agentic.load_graph(graph_id)
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+    assert replan["graph_revision"]["can_revise"] is True
+    assert replan["state_mutated"] is False
+    assert replan["graph_changed"] is False
+    assert replan["problem_nodes"][0]["node_id"] == lease.node_id
+    assert graph.snapshot()["graph_digest"] == before
+    assert graph.nodes[lease.node_id].status is TaskNodeStatus.FAILED
+    assert panel["status"]["replan_candidates_v1"]["receipt_count"] == 1
+
+
 def test_agentic_file_mailbox_handoff_imports_through_canonical_harness(
     tmp_path: Path,
 ) -> None:

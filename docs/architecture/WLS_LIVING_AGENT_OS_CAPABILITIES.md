@@ -331,6 +331,11 @@ fields such as `memory_id`/`active`.
   node with a repair-candidate receipt and remaining attempt budget can be
   returned to READY and leased again, while executing no retry, unblocking no
   downstream nodes, and inferring no repair success or task completion.
+- P50 is a shadow-level runtime admission for agentic replan candidates.
+  Failed or blocked graph state can produce a bounded graph-revision proposal
+  with revision-budget evidence and Owner Console visibility, while mutating no
+  graph, executing no retry, and inferring no downstream unblock or task
+  completion.
 
 ## Projection Rule
 

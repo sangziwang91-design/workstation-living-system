@@ -3916,6 +3916,86 @@ def validate_phase2_agentic_retry_gate(home: Path) -> ArchitecturePassResult:
     )
 
 
+def validate_phase2_agentic_replan_candidate(home: Path) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository documents",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = str(receipt["graph"]["graph_id"])
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector", limit=1
+    )[0]
+    runtime.agentic.fail_node(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        error="fixture validation mismatch: inspection evidence missing",
+    )
+    before = runtime.agentic.load_graph(graph_id).snapshot()["graph_digest"]
+    replan = runtime.agentic.propose_replan_candidate(
+        graph_id,
+        trigger_node_id=lease.node_id,
+        reason="architecture validation failed graph needs replan candidate",
+    )
+    after_graph = runtime.agentic.load_graph(graph_id)
+    after = after_graph.snapshot()["graph_digest"]
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "agentic_tasks"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN (
+                'agentic_task_node_failed',
+                'agentic_replan_candidate_proposed'
+            )
+            """
+        )
+    }
+    if (
+        replan["state_mutated"]
+        or replan["graph_changed"]
+        or not replan["graph_revision"]["can_revise"]
+        or not replan["problem_nodes"]
+        or before != after
+        or after_graph.nodes[lease.node_id].status.value != "FAILED"
+        or panel is None
+        or panel["status"]["replan_candidates_v1"]["receipt_count"] != 1
+        or {"agentic_task_node_failed", "agentic_replan_candidate_proposed"}
+        - event_types
+    ):
+        return ArchitecturePassResult(
+            "P50",
+            "BLOCKED",
+            [graph_id],
+            ["agentic replan candidate validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P50",
+        "ADMIT_SHADOW_ONLY",
+        [
+            graph_id,
+            lease.lease_id,
+            str(replan["replan_id"]),
+            *sorted(event_types),
+        ],
+        [
+            "Agentic replan candidates describe bounded graph revision options from failed graph state without mutating the graph or inferring task completion",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

@@ -472,6 +472,88 @@ class AgenticHarness:
                 receipts.append({**payload, "created_at": row["created_at"]})
         return receipts
 
+    def replan_candidate_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        rows = self.db.query_all(
+            """
+            SELECT payload_json,created_at FROM evidence
+            WHERE event_type='agentic_replan_candidate_proposed'
+            ORDER BY seq DESC
+            LIMIT ?
+            """,
+            (max(0, int(limit)),),
+        )
+        receipts: list[dict[str, Any]] = []
+        for row in rows:
+            payload = json.loads(str(row["payload_json"]))
+            if isinstance(payload, dict):
+                receipts.append({**payload, "created_at": row["created_at"]})
+        return receipts
+
+    def propose_replan_candidate(
+        self,
+        graph_id: str,
+        *,
+        reason: str,
+        trigger_node_id: str | None = None,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("replan candidate reason is required")
+        graph = self.load_graph(graph_id)
+        if trigger_node_id is not None and trigger_node_id not in graph.nodes:
+            raise KeyError(f"unknown task node: {trigger_node_id}")
+        problem_nodes = [
+            node
+            for node in graph.nodes.values()
+            if node.status in {TaskNodeStatus.FAILED, TaskNodeStatus.BLOCKED}
+        ]
+        if not problem_nodes:
+            raise ValueError("replan candidate requires failed or blocked graph state")
+        if trigger_node_id is not None:
+            problem_nodes = [
+                node for node in problem_nodes if node.node_id == trigger_node_id
+            ] or problem_nodes
+        can_revise = graph.revision_count < graph.max_revisions
+        proposed_changes = [
+            {
+                "node_id": node.node_id,
+                "current_status": node.status.value,
+                "proposal": "prepare_alternative_readonly_node_or_contract_revision",
+                "executes_now": False,
+            }
+            for node in problem_nodes
+        ]
+        payload = {
+            "replan_id": new_id("replan"),
+            "graph_id": graph_id,
+            "reason": reason,
+            "trigger_node_id": trigger_node_id,
+            "graph_revision": {
+                "revision_count": graph.revision_count,
+                "max_revisions": graph.max_revisions,
+                "can_revise": can_revise,
+            },
+            "problem_nodes": [
+                {
+                    "node_id": node.node_id,
+                    "status": node.status.value,
+                    "error": node.error,
+                    "attempts": node.attempts,
+                    "max_attempts": node.max_attempts,
+                }
+                for node in problem_nodes
+            ],
+            "proposed_changes": proposed_changes,
+            "state_mutated": False,
+            "graph_changed": False,
+            "direct_execution": False,
+            "claim_ceiling": (
+                "replan candidate receipt only; no graph mutation, retry execution, "
+                "worker result, downstream unblock, or task completion is inferred"
+            ),
+        }
+        self.ledger.append("agentic_replan_candidate_proposed", payload)
+        return payload
+
     def prepare_node_retry(
         self,
         graph_id: str,
