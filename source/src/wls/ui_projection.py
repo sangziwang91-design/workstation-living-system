@@ -1231,6 +1231,7 @@ class OwnerConsoleProductProjection:
     def _capability_epoch_panel(status: dict[str, Any]) -> dict[str, Any]:
         receipts = status.get("capability_epoch_audit_receipts", [])
         convergence = status.get("single_software_convergence_receipts", [])
+        final_delivery = status.get("final_delivery_audit_receipts", [])
         return {
             "panel_id": "capability_epoch",
             "title": "Capability Epoch",
@@ -1242,6 +1243,15 @@ class OwnerConsoleProductProjection:
                     if isinstance(convergence, list)
                     else 0,
                     "items": convergence if isinstance(convergence, list) else [],
+                },
+                "final_delivery_audit": {
+                    "receipt_count": len(final_delivery)
+                    if isinstance(final_delivery, list)
+                    else 0,
+                    "items": final_delivery if isinstance(final_delivery, list) else [],
+                    "default_read_only": True,
+                    "dangerous_actions_require_approval": True,
+                    "live_install_modified": False,
                 },
                 "allowed_conclusion": "FUNCTIONAL_RUNTIME_ONLY",
                 "live_deployment_executed": False,

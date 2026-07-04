@@ -1301,6 +1301,97 @@ class LivingSystem:
             return []
         return receipts[: max(0, int(limit))]
 
+    def final_delivery_audit_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("final_delivery_audit_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
+    def record_final_delivery_audit(
+        self,
+        *,
+        console_trace: list[dict[str, Any]],
+        installer_recovery: dict[str, Any],
+        claim_ledger: list[dict[str, Any]],
+        reason: str,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("final delivery audit reason is required")
+        trace_failures = [
+            item
+            for item in console_trace
+            if not (
+                item.get("input")
+                and item.get("tool")
+                and item.get("receipt")
+                and item.get("approval") is not None
+                and item.get("artifact")
+            )
+        ]
+        install_phases = ["preflight", "backup", "apply", "verify", "rollback", "uninstall"]
+        install_failures = [
+            phase
+            for phase in install_phases
+            if installer_recovery.get(phase, {}).get("passed") is not True
+        ]
+        allowed_evidence_levels = {"CODED", "TESTED", "CAMPAIGN", "EXTERNAL"}
+        level_order = {"CODED": 0, "TESTED": 1, "CAMPAIGN": 2, "EXTERNAL": 3}
+        max_claim_level = str(installer_recovery.get("max_claim_level", "TESTED"))
+        claim_failures = []
+        for claim in claim_ledger:
+            evidence_level = str(claim.get("evidence_level", ""))
+            claim_level = str(claim.get("claim_level", ""))
+            if (
+                evidence_level not in allowed_evidence_levels
+                or claim_level not in allowed_evidence_levels
+                or level_order[claim_level] > level_order[evidence_level]
+                or level_order[claim_level] > level_order.get(max_claim_level, 1)
+            ):
+                claim_failures.append(claim)
+        ui_unknown = any(item.get("coverage") == "UNKNOWN" for item in console_trace)
+        passed = not trace_failures and not install_failures and not claim_failures and not ui_unknown
+        receipt = {
+            "receipt_type": "FINAL_DELIVERY_AUDIT",
+            "status": "DELIVERY_AUDIT_PASSED" if passed else "DELIVERY_AUDIT_BLOCKED",
+            "audit_id": new_id("final_delivery_audit"),
+            "reason": reason,
+            "console_convergence": {
+                "trace_count": len(console_trace),
+                "trace_failures": trace_failures,
+                "ui_unknown": ui_unknown,
+                "default_read_only": True,
+                "dangerous_actions_require_approval": True,
+            },
+            "installer_recovery": {
+                "phases": installer_recovery,
+                "required_phases": install_phases,
+                "failed_phases": install_failures,
+                "reversible": not install_failures,
+            },
+            "claim_ledger": {
+                "entries": claim_ledger,
+                "allowed_levels": sorted(allowed_evidence_levels),
+                "max_claim_level": max_claim_level,
+                "claim_failures": claim_failures,
+            },
+            "canonical_state_mutated": False,
+            "live_install_modified": False,
+            "publish_executed": False,
+            "claim_ceiling": (
+                "final delivery audit receipt only; repository-scoped traceability, "
+                "recovery, and claim-ledger checks do not prove live deployment or "
+                "external product readiness"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.final_delivery_audit_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("final_delivery_audit_receipts", updated, connection)
+            self.ledger.append("final_delivery_audit_recorded", receipt, connection)
+        return receipt
+
     def record_transfer_efficiency_audit(
         self,
         *,
@@ -4128,6 +4219,7 @@ class LivingSystem:
             "holdout_epoch_receipts": self.holdout_epoch_receipts(),
             "promotion_bundle_receipts": self.promotion_bundle_receipts(),
             "transfer_audit_receipts": self.transfer_audit_receipts(),
+            "final_delivery_audit_receipts": self.final_delivery_audit_receipts(),
             "read_only_execution_preflights": self.read_only_execution_preflights(),
             "read_only_execution_receipts": self.read_only_execution_receipts(),
             "read_only_result_projections": self.read_only_result_projections(),

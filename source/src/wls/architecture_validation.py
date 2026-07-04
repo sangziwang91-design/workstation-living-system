@@ -6084,6 +6084,128 @@ def validate_phase2_transfer_efficiency_audit(
     )
 
 
+def validate_phase2_final_delivery_audit(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    console_trace = [
+        {
+            "result_id": "task-graph-result",
+            "input": "Owner task event",
+            "tool": "AgenticHarness",
+            "receipt": "agentic_task_node_completed",
+            "approval": "not_required_read_only",
+            "artifact": "graph-result.json",
+            "coverage": "TESTED",
+        },
+        {
+            "result_id": "offspring-result",
+            "input": "Offspring mailbox envelope",
+            "tool": "OffspringRegistry",
+            "receipt": "offspring_mailbox_envelope_received",
+            "approval": "candidate_only",
+            "artifact": "offspring-envelope.json",
+            "coverage": "TESTED",
+        },
+    ]
+    installer_recovery = {
+        "max_claim_level": "TESTED",
+        "preflight": {"passed": True, "artifact": "preflight.json"},
+        "backup": {"passed": True, "artifact": "backup.json"},
+        "apply": {"passed": True, "artifact": "apply.json"},
+        "verify": {"passed": True, "artifact": "verify.json"},
+        "rollback": {"passed": True, "artifact": "rollback.json"},
+        "uninstall": {"passed": True, "artifact": "uninstall.json"},
+    }
+    claim_ledger = [
+        {
+            "claim_id": "repo-ui-runtime",
+            "claim": "Owner Console repository runtime is coded and tested",
+            "evidence_level": "TESTED",
+            "claim_level": "TESTED",
+        },
+        {
+            "claim_id": "live-deployment",
+            "claim": "No live deployment is claimed before R40/external evidence",
+            "evidence_level": "CODED",
+            "claim_level": "CODED",
+        },
+    ]
+    passed = runtime.record_final_delivery_audit(
+        console_trace=console_trace,
+        installer_recovery=installer_recovery,
+        claim_ledger=claim_ledger,
+        reason="architecture validation final delivery audit",
+    )
+    bad_claim = runtime.record_final_delivery_audit(
+        console_trace=console_trace,
+        installer_recovery=installer_recovery,
+        claim_ledger=[
+            {
+                "claim_id": "external-product-ready",
+                "claim": "Externally product ready",
+                "evidence_level": "TESTED",
+                "claim_level": "EXTERNAL",
+            }
+        ],
+        reason="architecture validation claim ceiling block",
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "capability_epoch"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type='final_delivery_audit_recorded'
+            """
+        )
+    }
+    if (
+        passed["status"] != "DELIVERY_AUDIT_PASSED"
+        or passed["console_convergence"]["trace_failures"]
+        or passed["console_convergence"]["ui_unknown"] is not False
+        or passed["installer_recovery"]["reversible"] is not True
+        or passed["claim_ledger"]["claim_failures"]
+        or passed["live_install_modified"] is not False
+        or bad_claim["status"] != "DELIVERY_AUDIT_BLOCKED"
+        or not bad_claim["claim_ledger"]["claim_failures"]
+        or panel is None
+        or panel["status"]["final_delivery_audit"]["receipt_count"] != 2
+        or panel["status"]["final_delivery_audit"]["live_install_modified"] is not False
+        or event_types != {"final_delivery_audit_recorded"}
+    ):
+        return ArchitecturePassResult(
+            "P70",
+            "BLOCKED",
+            [str(passed), str(bad_claim)],
+            ["final delivery audit validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P70",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(passed["audit_id"]),
+            str(bad_claim["audit_id"]),
+            "console_traceability_passed",
+            "installer_recovery_reversible",
+            "claim_ceiling_blocked",
+            "final_delivery_audit_recorded",
+        ],
+        [
+            "Final delivery audit records Owner Console traceability, reversible installer/recovery phases, and claim-ledger ceilings without modifying live installation or claiming external readiness",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

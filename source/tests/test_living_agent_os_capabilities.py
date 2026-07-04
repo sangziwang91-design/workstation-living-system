@@ -51,6 +51,7 @@ from wls.architecture_validation import (
     validate_phase2_coding_candidate_readonly_execution,
     validate_phase2_browser_readonly_runtime_execution,
     validate_phase2_external_handoff_runtime_receipts,
+    validate_phase2_final_delivery_audit,
     validate_phase2_holdout_epoch_immutability,
     validate_phase2_multimodal_asset_readonly_execution,
     validate_phase2_owner_surface_and_readonly_organs,
@@ -3403,6 +3404,84 @@ def test_transfer_audit_rejects_best_only_and_inefficient_candidates(
     assert efficiency_reject["owner_exception_required"] is True
     assert efficiency_reject["promotion_executed"] is False
     assert len(runtime.status()["transfer_audit_receipts"]) == 2
+
+
+def test_architecture_validation_checks_final_delivery_audit(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_final_delivery_audit(
+        tmp_path / "final-delivery-validation-home"
+    )
+    assert result.pass_id == "P70"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) >= 6
+
+
+def test_final_delivery_audit_blocks_claims_above_evidence(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    console_trace = [
+        {
+            "result_id": "task-graph-result",
+            "input": "Owner task event",
+            "tool": "AgenticHarness",
+            "receipt": "agentic_task_node_completed",
+            "approval": "not_required_read_only",
+            "artifact": "graph-result.json",
+            "coverage": "TESTED",
+        }
+    ]
+    installer_recovery = {
+        "max_claim_level": "TESTED",
+        "preflight": {"passed": True, "artifact": "preflight.json"},
+        "backup": {"passed": True, "artifact": "backup.json"},
+        "apply": {"passed": True, "artifact": "apply.json"},
+        "verify": {"passed": True, "artifact": "verify.json"},
+        "rollback": {"passed": True, "artifact": "rollback.json"},
+        "uninstall": {"passed": True, "artifact": "uninstall.json"},
+    }
+    passed = runtime.record_final_delivery_audit(
+        console_trace=console_trace,
+        installer_recovery=installer_recovery,
+        claim_ledger=[
+            {
+                "claim_id": "repo-ui-runtime",
+                "claim": "Owner Console repository runtime is coded and tested",
+                "evidence_level": "TESTED",
+                "claim_level": "TESTED",
+            }
+        ],
+        reason="unit test final delivery audit",
+    )
+    blocked = runtime.record_final_delivery_audit(
+        console_trace=console_trace,
+        installer_recovery=installer_recovery,
+        claim_ledger=[
+            {
+                "claim_id": "external-product-ready",
+                "claim": "Externally product ready",
+                "evidence_level": "TESTED",
+                "claim_level": "EXTERNAL",
+            }
+        ],
+        reason="unit test claim ceiling block",
+    )
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "capability_epoch"
+    )
+
+    assert passed["status"] == "DELIVERY_AUDIT_PASSED"
+    assert passed["console_convergence"]["trace_failures"] == []
+    assert passed["installer_recovery"]["reversible"] is True
+    assert passed["claim_ledger"]["claim_failures"] == []
+    assert passed["live_install_modified"] is False
+    assert blocked["status"] == "DELIVERY_AUDIT_BLOCKED"
+    assert blocked["claim_ledger"]["claim_failures"]
+    assert panel["status"]["final_delivery_audit"]["receipt_count"] == 2
+    assert panel["status"]["final_delivery_audit"]["live_install_modified"] is False
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

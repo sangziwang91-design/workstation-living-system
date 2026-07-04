@@ -435,6 +435,13 @@ fields such as `memory_id`/`active`.
   efficiency degradation can reject an otherwise successful candidate. The
   audit produces a decision receipt only; no partial promotion, Owner exception,
   approval, or canonical mutation is inferred.
+- P70 is a shadow-level runtime admission for final delivery audit receipts.
+  Owner Console result rows must trace back to input, tool, receipt, approval,
+  and artifact references; installer/recovery evidence must cover preflight,
+  backup, apply, verify, rollback, and uninstall phases; and the claim ledger
+  separates `CODED`, `TESTED`, `CAMPAIGN`, and `EXTERNAL` evidence levels.
+  Claims above their evidence level are blocked, UI `UNKNOWN` coverage blocks
+  delivery, and the audit mutates no live installation or public release state.
 
 ## Projection Rule
 
