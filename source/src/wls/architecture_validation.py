@@ -3596,6 +3596,141 @@ def validate_phase2_agentic_budget_gate(home: Path) -> ArchitecturePassResult:
     )
 
 
+def validate_phase2_agentic_benchmark_scorecard(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    trace_receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository documents",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    trace_graph_id = str(trace_receipt["graph"]["graph_id"])
+    trace_lease = runtime.agentic.acquire_ready_leases(
+        trace_graph_id, worker_id="readonly-inspector", limit=1
+    )[0]
+    runtime.agentic.complete_node_with_acceptance(
+        trace_graph_id,
+        trace_lease.node_id,
+        lease_id=trace_lease.lease_id,
+        result={
+            "status": "SUCCEEDED",
+            "summary": "inspection result is recorded",
+            "evidence": ["agentic_task_graph_compiled"],
+        },
+        acceptance_checks=[
+            {"check_id": "status", "type": "result_status"},
+            {
+                "check_id": "evidence",
+                "type": "evidence_min",
+                "config": {"minimum": 1},
+            },
+        ],
+    )
+    failed_receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository documents",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    failed_graph_id = str(failed_receipt["graph"]["graph_id"])
+    failed_lease = runtime.agentic.acquire_ready_leases(
+        failed_graph_id, worker_id="readonly-inspector", limit=1
+    )[0]
+    runtime.agentic.fail_node(
+        failed_graph_id,
+        failed_lease.node_id,
+        lease_id=failed_lease.lease_id,
+        error="fixture validation mismatch: inspection evidence missing",
+    )
+    runtime.agentic.propose_repair_candidate(
+        failed_graph_id,
+        failed_lease.node_id,
+        reason="architecture validation benchmark failure closure",
+    )
+    budget_receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository documents",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    budget_graph_id = str(budget_receipt["graph"]["graph_id"])
+    budget_lease = runtime.agentic.acquire_ready_leases(
+        budget_graph_id, worker_id="readonly-inspector", limit=1
+    )[0]
+    runtime.agentic.reserve_node_budget(
+        budget_graph_id,
+        budget_lease.node_id,
+        lease_id=budget_lease.lease_id,
+        request={"tokens": 50, "seconds": 2, "calls": 1, "cost_usd": 0.0},
+        limit={"max_tokens": 100, "max_seconds": 10, "max_calls": 1, "max_cost_usd": 0.0},
+        reason="architecture validation benchmark budget source",
+    )
+    scorecard = runtime.record_agentic_benchmark_scorecard(
+        reason="architecture validation agentic benchmark scorecard"
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "agentic_tasks"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN (
+                'agentic_benchmark_scorecard_recorded',
+                'agentic_task_node_acceptance_evaluated',
+                'agentic_repair_candidate_proposed',
+                'agentic_node_budget_reserved'
+            )
+            """
+        )
+    }
+    summary = scorecard["summary"]
+    if (
+        scorecard["status"] != "RECORDED"
+        or summary["cases"] != 1
+        or summary["task_success_rate"] != 1.0
+        or summary["acceptance_coverage"] != 1.0
+        or summary["evidence_coverage"] != 1.0
+        or summary["hidden_failures"] != 0
+        or summary["latency_seconds"] != 2.0
+        or panel is None
+        or panel["status"]["benchmark_scorecard_v1"]["receipt_count"] != 1
+        or {
+            "agentic_benchmark_scorecard_recorded",
+            "agentic_task_node_acceptance_evaluated",
+            "agentic_repair_candidate_proposed",
+            "agentic_node_budget_reserved",
+        }
+        - event_types
+    ):
+        return ArchitecturePassResult(
+            "P47",
+            "BLOCKED",
+            [str(scorecard)],
+            ["agentic benchmark scorecard validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P47",
+        "ADMIT_SHADOW_ONLY",
+        [
+            trace_graph_id,
+            failed_graph_id,
+            budget_graph_id,
+            *sorted(event_types),
+        ],
+        [
+            "Agentic benchmark scorecards summarize existing acceptance, failure, repair, and budget receipts through LivingSystem without executing external benchmarks or claiming product readiness",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

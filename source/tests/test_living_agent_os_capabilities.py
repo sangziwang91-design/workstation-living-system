@@ -24,6 +24,7 @@ from wls.architecture_validation import (
     validate_phase2_agentic_file_mailbox_handoff,
     validate_phase2_agentic_repair_candidate,
     validate_phase2_agentic_budget_gate,
+    validate_phase2_agentic_benchmark_scorecard,
     validate_phase2_agentic_task_harness,
     validate_external_memory_projection,
     validate_mcp_a2a_candidates,
@@ -2370,6 +2371,17 @@ def test_architecture_validation_checks_agentic_budget_gate(
     assert result.pass_id == "P46"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) >= 5
+
+
+def test_architecture_validation_checks_agentic_benchmark_scorecard(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_agentic_benchmark_scorecard(
+        tmp_path / "agentic-benchmark-scorecard-validation-home"
+    )
+    assert result.pass_id == "P47"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) >= 4
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

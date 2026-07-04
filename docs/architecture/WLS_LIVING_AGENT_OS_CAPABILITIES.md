@@ -317,6 +317,11 @@ fields such as `memory_id`/`active`.
   node can reserve or be blocked by bounded cost, token, time, and call limits
   with EvidenceLedger and Owner Console receipts, while performing no provider
   call, tool execution, retry, approval, or node completion.
+- P47 is a shadow-level runtime admission for agentic benchmark scorecards.
+  Existing acceptance, failure, repair-candidate, and budget receipts can be
+  summarized into task-success, acceptance-coverage, evidence-coverage,
+  hidden-failure, cost, and latency metrics visible in Owner Console, while
+  executing no external benchmark suite and proving no product readiness.
 
 ## Projection Rule
 

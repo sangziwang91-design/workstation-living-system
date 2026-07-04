@@ -400,6 +400,14 @@ class LivingSystem:
             return []
         return receipts[: max(0, int(limit))]
 
+    def agentic_benchmark_scorecard_receipts(
+        self, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("agentic_benchmark_scorecard_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
     def single_software_convergence_receipts(
         self, limit: int = 20
     ) -> list[dict[str, Any]]:
@@ -797,6 +805,97 @@ class LivingSystem:
             self.ledger.append("agentic_harness_epoch_audited", receipt, connection)
         return receipt
 
+    def record_agentic_benchmark_scorecard(self, *, reason: str) -> dict[str, Any]:
+        acceptance_traces = self.agentic_acceptance_trace_receipts(limit=100)
+        failures = self.agentic_failure_attribution_receipts(limit=100)
+        repair_candidates = self.agentic_repair_candidate_receipts(limit=100)
+        budget_receipts = self.agentic_budget_receipts(limit=100)
+        cases = len(acceptance_traces)
+        succeeded = sum(
+            1
+            for item in acceptance_traces
+            if item.get("acceptance_report", {}).get("passed") is True
+        )
+        acceptance_total = sum(
+            int(item.get("acceptance_report", {}).get("check_count", 0))
+            for item in acceptance_traces
+        )
+        acceptance_passed = 0
+        evidence_required = 0
+        evidence_present = 0
+        for item in acceptance_traces:
+            report = item.get("acceptance_report", {})
+            checks = report.get("checks", []) if isinstance(report, dict) else []
+            if not isinstance(checks, list):
+                continue
+            for check in checks:
+                if not isinstance(check, dict):
+                    continue
+                if check.get("passed") is True:
+                    acceptance_passed += 1
+                if check.get("type") == "evidence_min":
+                    evidence_required += 1
+                    if check.get("passed") is True:
+                        evidence_present += 1
+        reserved_budgets = [
+            item for item in budget_receipts if item.get("status") == "RESERVED"
+        ]
+        cost = sum(
+            float(item.get("request", {}).get("cost_usd", 0.0))
+            for item in reserved_budgets
+            if isinstance(item.get("request"), dict)
+        )
+        latency_seconds = sum(
+            float(item.get("request", {}).get("seconds", 0.0))
+            for item in reserved_budgets
+            if isinstance(item.get("request"), dict)
+        )
+        hidden_failures = max(0, len(failures) - len(repair_candidates))
+        summary = {
+            "cases": cases,
+            "task_success_rate": succeeded / cases if cases else 0.0,
+            "acceptance_coverage": acceptance_passed / acceptance_total
+            if acceptance_total
+            else 0.0,
+            "evidence_coverage": evidence_present / evidence_required
+            if evidence_required
+            else 0.0,
+            "hidden_failures": hidden_failures,
+            "owner_correction_minutes": 0.0,
+            "cost": cost,
+            "latency_seconds": latency_seconds,
+        }
+        receipt = {
+            "receipt_type": "AGENTIC_BENCHMARK_SCORECARD",
+            "status": "RECORDED",
+            "reason": reason,
+            "summary": summary,
+            "source_receipt_counts": {
+                "acceptance_trace": len(acceptance_traces),
+                "failure_attribution": len(failures),
+                "repair_candidate": len(repair_candidates),
+                "budget": len(budget_receipts),
+            },
+            "hidden_failure_policy": (
+                "failure attributions without repair-candidate receipts count as hidden failures"
+            ),
+            "direct_execution": False,
+            "claim_ceiling": (
+                "benchmark scorecard over existing WLS receipts only; no external "
+                "benchmark suite, live task quality, provider performance, or product "
+                "readiness is proven"
+            ),
+            "created_at": utc_now(),
+        }
+        current = self.agentic_benchmark_scorecard_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime(
+                "agentic_benchmark_scorecard_receipts", updated, connection
+            )
+            self.ledger.append("agentic_benchmark_scorecard_recorded", receipt, connection)
+        return receipt
+
     def record_single_software_convergence_audit(
         self,
         *,
@@ -830,6 +929,9 @@ class LivingSystem:
                 self.agentic_repair_candidate_receipts(100)
             ),
             "agentic_budget": len(self.agentic_budget_receipts(100)),
+            "agentic_benchmark_scorecard": len(
+                self.agentic_benchmark_scorecard_receipts(100)
+            ),
             "read_only_execution": len(self.read_only_execution_receipts(100)),
             "skill_candidate": len(self.skill_candidate_receipts(100)),
             "skill_sandbox": len(self.skill_sandbox_receipts(100)),
@@ -3116,6 +3218,7 @@ class LivingSystem:
             "agentic_mailbox_receipts": self.agentic_mailbox_receipts(),
             "agentic_repair_candidate_receipts": self.agentic_repair_candidate_receipts(),
             "agentic_budget_receipts": self.agentic_budget_receipts(),
+            "agentic_benchmark_scorecard_receipts": self.agentic_benchmark_scorecard_receipts(),
             "agentic_harness_epoch_audit_receipts": self.agentic_harness_epoch_audit_receipts(),
             "single_software_convergence_receipts": self.single_software_convergence_receipts(),
             "learning_epoch_receipts": self.learning_epoch_receipts(),
