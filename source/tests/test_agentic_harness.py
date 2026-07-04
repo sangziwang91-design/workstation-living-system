@@ -1200,6 +1200,106 @@ def test_agentic_mailbox_artifact_finalize_rejects_digest_mismatch(
     assert not (tmp_path / "mailbox" / "artifacts" / f"{artifact_id}.bin").exists()
 
 
+def test_agentic_worker_trust_review_quarantines_protocol_violator(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    mailbox_root = tmp_path / "mailbox"
+    worker = WorkerProfile(
+        worker_id="pytest-trust-worker",
+        worker_type="LOCAL_SHADOW",
+        label="Pytest trust worker",
+        allowed_domains=["RESEARCH", "MIXED", "CODE"],
+        max_risk=RiskLevel.READ,
+    )
+    runtime.agentic.worker_registry.register_profile(
+        worker,
+        reason="unit test trust worker registration",
+    )
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect worker trust quarantine",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_worker_trust_reviewed"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    old_lease = runtime.agentic.acquire_ready_leases(
+        graph_id,
+        worker_id=worker.worker_id,
+        ttl_seconds=30,
+    )[0]
+    exported = runtime.agentic.export_node_task_envelope(
+        graph_id,
+        old_lease.node_id,
+        lease_id=old_lease.lease_id,
+        mailbox_root=mailbox_root,
+        recipient=worker.worker_id,
+    )
+    mailbox = AgenticFileMailbox(mailbox_root)
+    task = mailbox.read_task(exported["message_id"])
+    runtime.agentic.worker_registry.mark_stale_workers(
+        stale_before=(datetime.now(UTC) + timedelta(seconds=1)).isoformat(),
+        reason="unit test trust worker stale",
+    )
+    runtime.agentic.worker_registry.record_heartbeat(
+        "readonly-inspector",
+        details={"phase": "unit-test-trust-reacquire-worker-active"},
+    )
+    runtime.agentic.recover_stale_worker_leases(
+        graph_id,
+        worker_id=worker.worker_id,
+        reason="unit test trust recovery",
+    )
+    runtime.agentic.acquire_ready_leases(
+        graph_id,
+        worker_id="readonly-inspector",
+    )
+    late_result = ResultEnvelope.create(
+        message_id="trust-late-result-1",
+        in_reply_to=task.message_id,
+        graph_id=graph_id,
+        node_id=old_lease.node_id,
+        lease_id=old_lease.lease_id,
+        sender=worker.worker_id,
+        recipient="LivingSystem.AgenticHarness",
+        status="SUCCEEDED",
+        payload={
+            "summary": "late trust review result",
+            "lease_fencing_token": task.payload["lease_fencing_token"],
+        },
+    )
+    mailbox.write_result(late_result)
+    runtime.agentic.import_node_result_envelope(
+        mailbox_root=mailbox_root,
+        message_id=late_result.message_id,
+    )
+    trust = runtime.agentic.worker_registry.review_worker_trust(
+        worker.worker_id,
+        reason="unit test trust quarantine review",
+    )
+
+    blocked_receipt = runtime.agentic.admit_and_compile(
+        "Inspect disabled worker lease block",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    with pytest.raises(PermissionError, match="inactive worker"):
+        runtime.agentic.acquire_ready_leases(
+            blocked_receipt["graph"]["graph_id"],
+            worker_id=worker.worker_id,
+        )
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+    assert trust["trust_state"] == "QUARANTINED"
+    assert trust["status_after_review"] == "DISABLED"
+    assert trust["quarantine_count"] >= 1
+    assert trust["self_report_used"] is False
+    assert panel["status"]["worker_trust_v1"]["receipt_count"] == 1
+    assert panel["status"]["worker_trust_v1"]["promotion_allowed"] is False
+
+
 def test_bound_agentic_node_action_execution_rejects_owner_gated_binding(
     tmp_path: Path,
 ) -> None:

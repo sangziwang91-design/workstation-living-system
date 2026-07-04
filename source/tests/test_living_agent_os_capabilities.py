@@ -31,6 +31,7 @@ from wls.architecture_validation import (
     validate_phase2_agentic_retry_gate,
     validate_phase2_agentic_replan_candidate,
     validate_phase2_agentic_result_replay_quarantine,
+    validate_phase2_agentic_worker_trust_quarantine,
     validate_phase2_agentic_worker_capability_arbitration,
     validate_phase2_agentic_worker_lease_recovery,
     validate_phase2_agentic_worker_lifecycle,
@@ -2488,6 +2489,17 @@ def test_architecture_validation_checks_agentic_artifact_finalize_acceptance(
         tmp_path / "agentic-artifact-finalize-validation-home"
     )
     assert result.pass_id == "P56"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) >= 5
+
+
+def test_architecture_validation_checks_agentic_worker_trust_quarantine(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_agentic_worker_trust_quarantine(
+        tmp_path / "agentic-worker-trust-validation-home"
+    )
+    assert result.pass_id == "P57"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) >= 5
 

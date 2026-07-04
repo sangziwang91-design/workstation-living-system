@@ -4667,6 +4667,154 @@ def validate_phase2_agentic_artifact_finalize_acceptance(
     )
 
 
+def validate_phase2_agentic_worker_trust_quarantine(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    mailbox_root = home / "mailbox"
+    worker = WorkerProfile(
+        worker_id="validation-trust-worker",
+        worker_type="LOCAL_SHADOW",
+        label="Validation trust worker",
+        allowed_domains=["RESEARCH", "MIXED", "CODE"],
+        max_risk=RiskLevel.READ,
+        metadata={"validation": "worker trust"},
+    )
+    runtime.agentic.worker_registry.register_profile(
+        worker,
+        reason="architecture validation trust worker registration",
+    )
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect worker trust quarantine",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_worker_trust_reviewed"],
+    )
+    graph_id = str(receipt["graph"]["graph_id"])
+    old_lease = runtime.agentic.acquire_ready_leases(
+        graph_id,
+        worker_id=worker.worker_id,
+        ttl_seconds=30,
+    )[0]
+    exported = runtime.agentic.export_node_task_envelope(
+        graph_id,
+        old_lease.node_id,
+        lease_id=old_lease.lease_id,
+        mailbox_root=mailbox_root,
+        recipient=worker.worker_id,
+    )
+    mailbox = AgenticFileMailbox(mailbox_root)
+    task = mailbox.read_task(str(exported["message_id"]))
+    runtime.agentic.worker_registry.mark_stale_workers(
+        stale_before=(datetime.now(UTC) + timedelta(seconds=1)).isoformat(),
+        reason="architecture validation trust worker stale",
+    )
+    runtime.agentic.worker_registry.record_heartbeat(
+        "readonly-inspector",
+        details={"phase": "validation-trust-reacquire-worker-active"},
+    )
+    runtime.agentic.recover_stale_worker_leases(
+        graph_id,
+        worker_id=worker.worker_id,
+        reason="architecture validation trust recovery",
+    )
+    runtime.agentic.acquire_ready_leases(
+        graph_id,
+        worker_id="readonly-inspector",
+    )[0]
+    late_result = ResultEnvelope.create(
+        message_id="validation-trust-late-result",
+        in_reply_to=task.message_id,
+        graph_id=graph_id,
+        node_id=old_lease.node_id,
+        lease_id=old_lease.lease_id,
+        sender=worker.worker_id,
+        recipient="LivingSystem.AgenticHarness",
+        status="SUCCEEDED",
+        payload={
+            "summary": "late trust review result",
+            "lease_fencing_token": task.payload["lease_fencing_token"],
+        },
+    )
+    mailbox.write_result(late_result)
+    quarantined = runtime.agentic.import_node_result_envelope(
+        mailbox_root=mailbox_root,
+        message_id=late_result.message_id,
+    )
+    trust = runtime.agentic.worker_registry.review_worker_trust(
+        worker.worker_id,
+        reason="architecture validation trust quarantine review",
+    )
+    blocked = False
+    new_receipt = runtime.agentic.admit_and_compile(
+        "Inspect disabled worker lease block",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    try:
+        runtime.agentic.acquire_ready_leases(
+            str(new_receipt["graph"]["graph_id"]),
+            worker_id=worker.worker_id,
+        )
+    except PermissionError:
+        blocked = True
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "agentic_tasks"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN (
+                'agentic_result_envelope_quarantined',
+                'agentic_worker_trust_reviewed'
+            )
+            """
+        )
+    }
+    if (
+        quarantined.get("receipt_type") != "AGENTIC_RESULT_ENVELOPE_QUARANTINED"
+        or trust["trust_state"] != "QUARANTINED"
+        or trust["status_after_review"] != "DISABLED"
+        or trust["quarantine_count"] < 1
+        or trust["self_report_used"] is not False
+        or not blocked
+        or panel is None
+        or panel["status"]["worker_trust_v1"]["receipt_count"] < 1
+        or {
+            "agentic_result_envelope_quarantined",
+            "agentic_worker_trust_reviewed",
+        }
+        - event_types
+    ):
+        return ArchitecturePassResult(
+            "P57",
+            "BLOCKED",
+            [graph_id, str(trust)],
+            ["agentic worker trust quarantine validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P57",
+        "ADMIT_SHADOW_ONLY",
+        [
+            graph_id,
+            worker.worker_id,
+            str(trust["review_id"]),
+            *sorted(event_types),
+        ],
+        [
+            "Agentic worker trust review derives quarantine from canonical evidence and disables future leases without using worker self-report",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

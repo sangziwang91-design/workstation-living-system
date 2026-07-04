@@ -451,6 +451,107 @@ class WorkerRegistry:
                 receipts.append({**payload, "created_at": row["created_at"]})
         return receipts
 
+    def review_worker_trust(
+        self,
+        worker_id: str,
+        *,
+        reason: str,
+        connection: Any | None = None,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("worker trust review reason is required")
+        if connection is None:
+            with self.db.transaction() as active_connection:
+                return self.review_worker_trust(
+                    worker_id,
+                    reason=reason,
+                    connection=active_connection,
+                )
+        row = connection.execute(
+            """
+            SELECT status,profile_json FROM agentic_worker_profiles
+            WHERE worker_id=?
+            """,
+            (worker_id,),
+        ).fetchone()
+        if row is None:
+            raise PermissionError(f"unknown worker profile: {worker_id}")
+        quarantine_rows = connection.execute(
+            """
+            SELECT payload_json,created_at FROM evidence
+            WHERE event_type='agentic_result_envelope_quarantined'
+              AND (
+                json_extract(payload_json, '$.fencing.worker_id')=?
+                OR json_extract(payload_json, '$.worker_id')=?
+                OR json_extract(payload_json, '$.sender')=?
+              )
+            ORDER BY seq DESC
+            """,
+            (worker_id, worker_id, worker_id),
+        ).fetchall()
+        import_rows = connection.execute(
+            """
+            SELECT payload_json,created_at FROM evidence
+            WHERE event_type='agentic_result_envelope_imported'
+              AND json_extract(payload_json, '$.completion.worker_id')=?
+            ORDER BY seq DESC
+            """,
+            (worker_id,),
+        ).fetchall()
+        quarantine_count = len(quarantine_rows)
+        accepted_count = len(import_rows)
+        trust_state = "QUARANTINED" if quarantine_count else "OBSERVED"
+        if trust_state == "QUARANTINED" and str(row["status"]) != "DISABLED":
+            connection.execute(
+                """
+                UPDATE agentic_worker_profiles
+                SET status='DISABLED',updated_at=?
+                WHERE worker_id=?
+                """,
+                (utc_now(), worker_id),
+            )
+        receipt = {
+            "review_id": new_id("worker_trust"),
+            "worker_id": worker_id,
+            "reason": reason,
+            "previous_status": row["status"],
+            "trust_state": trust_state,
+            "quarantine_count": quarantine_count,
+            "accepted_result_count": accepted_count,
+            "status_after_review": "DISABLED"
+            if trust_state == "QUARANTINED"
+            else row["status"],
+            "sample_quarantines": [
+                json.loads(str(item["payload_json"])) for item in quarantine_rows[:3]
+            ],
+            "self_report_used": False,
+            "direct_execution": False,
+            "claim_ceiling": (
+                "worker trust review receipt only; trust state is derived from "
+                "canonical evidence and disables future leases when quarantined, "
+                "but no worker result, task completion, or promotion is inferred"
+            ),
+        }
+        self.ledger.append("agentic_worker_trust_reviewed", receipt, connection)
+        return receipt
+
+    def trust_receipts(self, *, limit: int = 20) -> list[dict[str, Any]]:
+        rows = self.db.query_all(
+            """
+            SELECT payload_json,created_at FROM evidence
+            WHERE event_type='agentic_worker_trust_reviewed'
+            ORDER BY seq DESC
+            LIMIT ?
+            """,
+            (max(0, int(limit)),),
+        )
+        receipts: list[dict[str, Any]] = []
+        for row in rows:
+            payload = json.loads(str(row["payload_json"]))
+            if isinstance(payload, dict):
+                receipts.append({**payload, "created_at": row["created_at"]})
+        return receipts
+
     def lifecycle_receipts(self, *, limit: int = 20) -> list[dict[str, Any]]:
         rows = self.db.query_all(
             """

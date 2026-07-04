@@ -359,6 +359,9 @@ fields such as `memory_id`/`active`.
 - P56 is a shadow-level runtime admission for finalized mailbox artifacts.
   Artifact chunks are assembled only when the final digest matches, and canonical
   node completion still requires the normal result import and acceptance checks.
+- P57 is a shadow-level runtime admission for evidence-derived worker trust.
+  Quarantined stale results can disable future leases for a worker through a
+  trust review receipt, without using worker self-report or promoting trust.
 
 ## Projection Rule
 
