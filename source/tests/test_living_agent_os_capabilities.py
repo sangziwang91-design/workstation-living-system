@@ -42,6 +42,7 @@ from wls.architecture_validation import (
     validate_phase2_offspring_checkpoint_fork,
     validate_phase2_offspring_isolated_state_budget,
     validate_phase2_offspring_mailbox_envelope,
+    validate_phase2_offspring_retirement_cleanup,
     validate_phase2_offspring_retirement_tombstone,
     validate_phase2_sandbox_adapter_contract,
     validate_external_memory_projection,
@@ -2989,6 +2990,97 @@ def test_offspring_mailbox_quarantines_unknown_and_damaged_envelopes(
     assert panel["status"]["mailbox"]["receipt_count"] == 4
     assert panel["status"]["mailbox"]["unknown_schema_quarantine"] is True
     assert panel["status"]["mailbox"]["completion_authority_transferred"] is False
+
+
+def test_architecture_validation_checks_offspring_retirement_cleanup(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_offspring_retirement_cleanup(
+        tmp_path / "offspring-cleanup-validation-home"
+    )
+    assert result.pass_id == "P65"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) >= 5
+
+
+def test_offspring_retirement_cleanup_preserves_evidence_and_removes_residuals(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    birth = runtime.draft_offspring_birth_contract(
+        parent_head="unit-test-head",
+        mission="read-only child candidate for cleanup",
+        budget={"time": 2, "calls": 2, "tokens": 10, "writes": 0},
+        inheritance_manifest={
+            "allow": ["readonly_profile"],
+            "deny": ["secrets", "private_memory", "parent_database_write"],
+        },
+        termination_conditions=["retired", "cleanup verified"],
+        reason="unit test offspring birth contract for cleanup",
+    )
+    state = runtime.initialize_offspring_isolated_state(
+        offspring_id=str(birth["offspring_id"]),
+        reason="unit test offspring isolated state for cleanup",
+    )
+    child_home = Path(str(state["child_home"]))
+    for relative in (
+        Path("secrets") / "token.txt",
+        Path("leases") / "lease.json",
+        Path("sandbox") / "mount.tmp",
+        Path("tmp_credentials") / "cred.txt",
+    ):
+        target = child_home / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("disposable residual\n", encoding="utf-8")
+    runtime.reserve_offspring_budget(
+        offspring_id=str(birth["offspring_id"]),
+        request={"time": 1, "calls": 1, "tokens": 1, "writes": 0},
+        reason="unit test pre-retirement budget receipt",
+    )
+    runtime.retire_offspring_candidate(
+        offspring_id=str(birth["offspring_id"]),
+        reason="unit test retire for cleanup",
+        outcome_summary={
+            "completed_readonly_tasks": 0,
+            "failures": 0,
+            "capabilities_proposed": 0,
+        },
+    )
+    cleanup = runtime.verify_offspring_retirement_cleanup(
+        offspring_id=str(birth["offspring_id"]),
+        reason="unit test retirement cleanup",
+    )
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "offspring"
+    )
+
+    with pytest.raises(PermissionError):
+        runtime.reserve_offspring_budget(
+            offspring_id=str(birth["offspring_id"]),
+            request={"time": 1},
+            reason="unit test post-retirement budget block",
+        )
+    evidence_bundle = json.loads(
+        Path(str(cleanup["evidence_bundle_path"])).read_text(encoding="utf-8")
+    )
+    assert cleanup["status"] == "CLEANUP_VERIFIED"
+    assert cleanup["task_assignment_allowed"] is False
+    assert cleanup["budget_reservation_allowed"] is False
+    assert cleanup["cleanup_verification"]["owner_review_required"] is False
+    assert cleanup["cleanup_verification"]["secret_residual"] is False
+    assert cleanup["cleanup_verification"]["lease_residual"] is False
+    assert cleanup["cleanup_verification"]["mount_residual"] is False
+    assert not (child_home / "secrets").exists()
+    assert not (child_home / "leases").exists()
+    assert not (child_home / "sandbox").exists()
+    assert not (child_home / "tmp_credentials").exists()
+    assert evidence_bundle["lineage"]["offspring_id"] == birth["offspring_id"]
+    assert evidence_bundle["budget"]["ledger"]["budget"]["time"] == 2
+    assert evidence_bundle["retirement"]["terminal_state"] == "RETIRED_CANDIDATE"
+    assert panel["status"]["retirement_cleanup"]["receipt_count"] == 1
+    assert panel["status"]["retirement_cleanup"]["task_assignment_allowed"] is False
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

@@ -350,6 +350,11 @@ class LivingSystem:
     def offspring_retirement_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         return self.offspring.retirement_receipts(limit=limit)
 
+    def offspring_retirement_cleanup_receipts(
+        self, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        return self.offspring.retirement_cleanup_receipts(limit=limit)
+
     def offspring_budget_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         return self.offspring.budget_receipts(limit=limit)
 
@@ -1016,6 +1021,9 @@ class LivingSystem:
             "offspring_birth": len(self.offspring_birth_receipts(100)),
             "offspring_state": len(self.offspring_state_receipts(100)),
             "offspring_retirement": len(self.offspring_retirement_receipts(100)),
+            "offspring_retirement_cleanup": len(
+                self.offspring_retirement_cleanup_receipts(100)
+            ),
             "offspring_budget": len(self.offspring_budget_receipts(100)),
             "offspring_checkpoint": len(self.offspring_checkpoint_receipts(100)),
             "offspring_mailbox": len(self.offspring_mailbox_receipts(100)),
@@ -1127,6 +1135,19 @@ class LivingSystem:
             reason=reason,
             outcome_summary=outcome_summary,
             absorption_requested=absorption_requested,
+        )
+
+    def verify_offspring_retirement_cleanup(
+        self,
+        *,
+        offspring_id: str,
+        reason: str,
+        retention_policy: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self.offspring.verify_retirement_cleanup(
+            offspring_id=offspring_id,
+            reason=reason,
+            retention_policy=retention_policy,
         )
 
     def reserve_offspring_budget(
@@ -3498,6 +3519,9 @@ class LivingSystem:
             "offspring_birth_receipts": self.offspring_birth_receipts(),
             "offspring_state_receipts": self.offspring_state_receipts(),
             "offspring_retirement_receipts": self.offspring_retirement_receipts(),
+            "offspring_retirement_cleanup_receipts": (
+                self.offspring_retirement_cleanup_receipts()
+            ),
             "offspring_budget_receipts": self.offspring_budget_receipts(),
             "offspring_checkpoint_receipts": self.offspring_checkpoint_receipts(),
             "offspring_mailbox_receipts": self.offspring_mailbox_receipts(),

@@ -398,6 +398,13 @@ fields such as `memory_id`/`active`.
   damaged digests are quarantined, artifacts remain traceable to child
   evidence, and the parent retains all validation, approval, Goal, Skill,
   completion, merge, deployment, and absorption authority.
+- P65 is a shadow-level runtime admission for offspring retirement cleanup.
+  Retired candidates can produce a retention manifest and evidence bundle that
+  preserves minimum lineage, budget, results, rejections, and tombstone data
+  while reclaiming disposable child resources such as secrets, leases, sandbox
+  mounts, and temporary credentials. A retired candidate cannot reserve more
+  budget or receive task authority, and cleanup never imports capability,
+  promotes Skill, merges code, deploys, or creates a second authority.
 
 ## Projection Rule
 

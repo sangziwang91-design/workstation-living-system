@@ -72,6 +72,12 @@ class OffspringRegistry:
             return []
         return receipts[: max(0, int(limit))]
 
+    def retirement_cleanup_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("offspring_retirement_cleanup_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
     def budget_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         receipts = self.db.get_runtime("offspring_budget_receipts", [])
         if not isinstance(receipts, list):
@@ -321,6 +327,113 @@ class OffspringRegistry:
             self.ledger.append("offspring_candidate_retired", receipt, connection)
         return receipt
 
+    def verify_retirement_cleanup(
+        self,
+        *,
+        offspring_id: str,
+        reason: str,
+        retention_policy: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("offspring retirement cleanup reason is required")
+        state_receipt = self._require_state_receipt(offspring_id)
+        retirement_receipt = self._find_retirement_receipt(offspring_id)
+        if retirement_receipt is None:
+            raise PermissionError("offspring must be retired before cleanup verification")
+        child_home = Path(str(state_receipt["child_home"])).expanduser().resolve()
+        cleanup = self._cleanup_child_resources(child_home)
+        residual = self._scan_child_residuals(child_home)
+        evidence_bundle = {
+            "offspring_id": offspring_id,
+            "lineage": self._lineage_for(offspring_id),
+            "budget": self._budget_for(offspring_id),
+            "results": self._mailbox_results_for(offspring_id),
+            "rejections": self._mailbox_rejections_for(offspring_id),
+            "retirement": retirement_receipt["retirement"],
+            "created_at": utc_now(),
+        }
+        evidence_bundle["evidence_bundle_digest"] = digest_json(evidence_bundle)
+        retention = {
+            "retention_id": new_id("offspring_retention"),
+            "offspring_id": offspring_id,
+            "state_machine": {
+                "terminal_states": [
+                    "RETIRED_CANDIDATE",
+                    "FAILED_CANDIDATE",
+                    "ARCHIVED_CANDIDATE",
+                    "DESTROYED_RESOURCES",
+                ],
+                "current_state": "DESTROYED_RESOURCES",
+                "evidence_retained": True,
+                "task_assignment_allowed": False,
+                "budget_reservation_allowed": False,
+            },
+            "policy": retention_policy
+            or {
+                "retain_lineage": True,
+                "retain_budget": True,
+                "retain_results": True,
+                "retain_rejections": True,
+                "delete_runtime_resources": True,
+            },
+            "evidence_bundle_digest": evidence_bundle["evidence_bundle_digest"],
+            "created_at": utc_now(),
+        }
+        state_dir = child_home / "state"
+        bundle_path = state_dir / "retirement_evidence_bundle.json"
+        retention_path = state_dir / "retention_manifest.json"
+        cleanup_path = state_dir / "gc_verification.json"
+        self._write_json(bundle_path, evidence_bundle)
+        self._write_json(retention_path, retention)
+        verification = {
+            "cleanup": cleanup,
+            "residual": residual,
+            "process_residual": False,
+            "secret_residual": bool(residual["secret_paths"]),
+            "mount_residual": bool(residual["mount_paths"]),
+            "lease_residual": bool(residual["lease_paths"]),
+            "owner_review_required": bool(
+                residual["secret_paths"]
+                or residual["mount_paths"]
+                or residual["lease_paths"]
+            ),
+        }
+        self._write_json(cleanup_path, verification)
+        receipt = {
+            "receipt_type": "OFFSPRING_RETIREMENT_CLEANUP_VERIFIED",
+            "status": "CLEANUP_VERIFIED"
+            if not verification["owner_review_required"]
+            else "OWNER_REVIEW_REQUIRED",
+            "offspring_id": offspring_id,
+            "reason": reason,
+            "child_home": str(child_home),
+            "retention_manifest_path": str(retention_path),
+            "evidence_bundle_path": str(bundle_path),
+            "gc_verification_path": str(cleanup_path),
+            "retention_manifest": retention,
+            "evidence_bundle_digest": evidence_bundle["evidence_bundle_digest"],
+            "cleanup_verification": verification,
+            "task_assignment_allowed": False,
+            "budget_reservation_allowed": False,
+            "parent_db_write_allowed": False,
+            "second_authority_created": False,
+            "claim_ceiling": (
+                "offspring retirement cleanup verification only; evidence is "
+                "retained and runtime resources are reclaimed without absorption, "
+                "promotion, merge, deployment, or second authority"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.retirement_cleanup_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime(
+                "offspring_retirement_cleanup_receipts", updated, connection
+            )
+            self.ledger.append("offspring_retirement_cleanup_verified", receipt, connection)
+        return receipt
+
     def reserve_budget(
         self,
         *,
@@ -332,6 +445,8 @@ class OffspringRegistry:
     ) -> dict[str, Any]:
         if not reason.strip():
             raise ValueError("offspring budget reservation reason is required")
+        if self._find_retirement_receipt(offspring_id) is not None:
+            raise PermissionError("retired offspring cannot reserve budget")
         state_receipt = self._require_state_receipt(offspring_id)
         requested = self._normalize_budget(request)
         ledger_path = Path(str(state_receipt["budget_ledger_path"]))
@@ -609,6 +724,8 @@ class OffspringRegistry:
             raise ValueError("task_id and attempt_id are required")
         if not sender.strip() or not recipient.strip() or not reason.strip():
             raise ValueError("sender, recipient, and reason are required")
+        if self._find_retirement_receipt(offspring_id) is not None:
+            raise PermissionError("retired offspring cannot receive mailbox tasks")
         state_receipt = self._require_state_receipt(offspring_id)
         trace = self._mailbox_artifact_trace(artifact_refs, child_evidence)
         envelope = {
@@ -815,6 +932,12 @@ class OffspringRegistry:
                 return receipt
         return None
 
+    def _find_retirement_receipt(self, offspring_id: str) -> dict[str, Any] | None:
+        for receipt in self.retirement_receipts(limit=100):
+            if receipt.get("offspring_id") == offspring_id:
+                return receipt
+        return None
+
     def _require_state_receipt(self, offspring_id: str) -> dict[str, Any]:
         if not offspring_id.strip():
             raise ValueError("offspring_id is required")
@@ -849,6 +972,108 @@ class OffspringRegistry:
         with self.db.transaction() as connection:
             self.db.set_runtime("offspring_mailbox_receipts", updated, connection)
             self.ledger.append(event_type, receipt, connection)
+
+    def _lineage_for(self, offspring_id: str) -> dict[str, Any]:
+        birth = self._find_birth_receipt(offspring_id) or {}
+        return {
+            "offspring_id": offspring_id,
+            "parent_id": birth.get("parent_id"),
+            "parent_head": birth.get("parent_head"),
+            "contract_digest": birth.get("contract", {}).get("contract_digest"),
+            "forks": [
+                {
+                    "fork_id": receipt.get("fork_id"),
+                    "parent_checkpoint_id": receipt.get("parent_checkpoint_id"),
+                    "child_offspring_id": receipt.get("child_offspring_id"),
+                }
+                for receipt in self.checkpoint_receipts(limit=100)
+                if receipt.get("parent_offspring_id") == offspring_id
+                or receipt.get("child_offspring_id") == offspring_id
+            ],
+        }
+
+    def _budget_for(self, offspring_id: str) -> dict[str, Any]:
+        state = self._find_state_receipt(offspring_id) or {}
+        budget_path = state.get("budget_ledger_path")
+        ledger = {}
+        if budget_path:
+            path = Path(str(budget_path))
+            if path.is_file():
+                ledger = self._read_json(path)
+        return {
+            "ledger": ledger,
+            "receipts": [
+                receipt
+                for receipt in self.budget_receipts(limit=100)
+                if receipt.get("offspring_id") == offspring_id
+            ],
+        }
+
+    def _mailbox_results_for(self, offspring_id: str) -> list[dict[str, Any]]:
+        return [
+            receipt
+            for receipt in self.mailbox_receipts(limit=100)
+            if receipt.get("offspring_id") == offspring_id
+            and receipt.get("status") == "CANDIDATE_RECEIVED"
+        ]
+
+    def _mailbox_rejections_for(self, offspring_id: str) -> list[dict[str, Any]]:
+        return [
+            receipt
+            for receipt in self.mailbox_receipts(limit=100)
+            if receipt.get("offspring_id") == offspring_id
+            and receipt.get("status") == "QUARANTINED"
+        ]
+
+    def _cleanup_child_resources(self, child_home: Path) -> dict[str, Any]:
+        child_home = child_home.resolve()
+        targets = ["secrets", "leases", "sandbox", "tmp_credentials"]
+        removed = []
+        for name in targets:
+            path = (child_home / name).resolve()
+            if child_home not in path.parents:
+                raise ValueError("offspring cleanup path escape")
+            if path.is_dir():
+                for item in sorted(path.rglob("*"), reverse=True):
+                    if item.is_file() or item.is_symlink():
+                        item.unlink()
+                    elif item.is_dir():
+                        item.rmdir()
+                path.rmdir()
+                removed.append(name)
+            elif path.is_file():
+                path.unlink()
+                removed.append(name)
+        return {
+            "removed_targets": removed,
+            "resource_cleanup_scopes": targets,
+            "child_home": str(child_home),
+        }
+
+    def _scan_child_residuals(self, child_home: Path) -> dict[str, list[str]]:
+        child_home = child_home.resolve()
+        secret_paths: list[str] = []
+        lease_paths: list[str] = []
+        mount_paths: list[str] = []
+        for path in child_home.rglob("*"):
+            if not path.exists():
+                continue
+            resolved = path.resolve()
+            if child_home not in resolved.parents and resolved != child_home:
+                continue
+            relative = str(resolved.relative_to(child_home)).replace("\\", "/")
+            lowered = relative.lower()
+            if any(part in lowered.split("/") for part in {"secrets", "tmp_credentials"}):
+                secret_paths.append(relative)
+            if any(part in lowered.split("/") for part in {"leases"}):
+                lease_paths.append(relative)
+            if any(part in lowered.split("/") for part in {"mounts", "sandbox"}):
+                mount_paths.append(relative)
+        return {
+            "secret_paths": sorted(secret_paths),
+            "lease_paths": sorted(lease_paths),
+            "mount_paths": sorted(mount_paths),
+        }
 
     def _quarantine_mailbox_envelope(
         self,

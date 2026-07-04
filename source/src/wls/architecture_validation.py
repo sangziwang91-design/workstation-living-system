@@ -5539,6 +5539,131 @@ def validate_phase2_offspring_mailbox_envelope(
     )
 
 
+def validate_phase2_offspring_retirement_cleanup(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    birth = runtime.draft_offspring_birth_contract(
+        parent_head="architecture-validation-head",
+        mission="bounded read-only offspring cleanup candidate",
+        budget={"time": 2, "calls": 2, "tokens": 10, "writes": 0},
+        inheritance_manifest={
+            "allow": ["readonly_profile"],
+            "deny": ["secrets", "private_memory", "parent_database_write"],
+        },
+        termination_conditions=["retired", "cleanup verified"],
+        reason="architecture validation offspring birth contract for cleanup",
+    )
+    state = runtime.initialize_offspring_isolated_state(
+        offspring_id=str(birth["offspring_id"]),
+        reason="architecture validation offspring isolated state for cleanup",
+    )
+    child_home = Path(str(state["child_home"]))
+    for relative in (
+        Path("secrets") / "token.txt",
+        Path("leases") / "lease.json",
+        Path("sandbox") / "mount.tmp",
+        Path("tmp_credentials") / "cred.txt",
+    ):
+        target = child_home / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("disposable residual\n", encoding="utf-8")
+    runtime.reserve_offspring_budget(
+        offspring_id=str(birth["offspring_id"]),
+        request={"time": 1, "calls": 1, "tokens": 1, "writes": 0},
+        reason="architecture validation pre-retirement budget receipt",
+    )
+    retired = runtime.retire_offspring_candidate(
+        offspring_id=str(birth["offspring_id"]),
+        reason="architecture validation retire for cleanup",
+        outcome_summary={
+            "completed_readonly_tasks": 0,
+            "failures": 0,
+            "capabilities_proposed": 0,
+        },
+    )
+    cleanup = runtime.verify_offspring_retirement_cleanup(
+        offspring_id=str(birth["offspring_id"]),
+        reason="architecture validation retirement cleanup",
+    )
+    budget_blocked = False
+    try:
+        runtime.reserve_offspring_budget(
+            offspring_id=str(birth["offspring_id"]),
+            request={"time": 1},
+            reason="architecture validation post-retirement budget block",
+        )
+    except PermissionError:
+        budget_blocked = True
+    evidence_bundle_path = Path(str(cleanup["evidence_bundle_path"]))
+    retention_path = Path(str(cleanup["retention_manifest_path"]))
+    gc_path = Path(str(cleanup["gc_verification_path"]))
+    evidence_bundle = json.loads(evidence_bundle_path.read_text(encoding="utf-8"))
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "offspring"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN (
+                'offspring_candidate_retired',
+                'offspring_retirement_cleanup_verified'
+            )
+            """
+        )
+    }
+    if (
+        retired["status"] != "RETIRED_CANDIDATE"
+        or cleanup["status"] != "CLEANUP_VERIFIED"
+        or cleanup["task_assignment_allowed"] is not False
+        or cleanup["budget_reservation_allowed"] is not False
+        or cleanup["cleanup_verification"]["owner_review_required"] is not False
+        or cleanup["cleanup_verification"]["secret_residual"] is not False
+        or cleanup["cleanup_verification"]["lease_residual"] is not False
+        or cleanup["cleanup_verification"]["mount_residual"] is not False
+        or not budget_blocked
+        or not evidence_bundle_path.is_file()
+        or not retention_path.is_file()
+        or not gc_path.is_file()
+        or evidence_bundle["lineage"]["offspring_id"] != birth["offspring_id"]
+        or not evidence_bundle["budget"]["ledger"]
+        or not evidence_bundle["retirement"]
+        or panel is None
+        or panel["status"]["retirement_cleanup"]["receipt_count"] != 1
+        or panel["status"]["retirement_cleanup"]["task_assignment_allowed"] is not False
+        or {"offspring_candidate_retired", "offspring_retirement_cleanup_verified"}
+        - event_types
+    ):
+        return ArchitecturePassResult(
+            "P65",
+            "BLOCKED",
+            [str(retired), str(cleanup), str(evidence_bundle)],
+            ["offspring retirement cleanup validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P65",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(cleanup["retention_manifest"]["retention_id"]),
+            str(cleanup["evidence_bundle_digest"]),
+            *cleanup["cleanup_verification"]["cleanup"]["removed_targets"],
+            *sorted(event_types),
+        ],
+        [
+            "Offspring retirement cleanup preserves a verifiable evidence bundle, removes disposable resource scopes, and blocks retired candidates from receiving new budget or task authority",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

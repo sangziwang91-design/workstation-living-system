@@ -966,6 +966,9 @@ class OwnerConsoleProductProjection:
         birth_receipts = status.get("offspring_birth_receipts", [])
         state_receipts = status.get("offspring_state_receipts", [])
         retirement_receipts = status.get("offspring_retirement_receipts", [])
+        retirement_cleanup_receipts = status.get(
+            "offspring_retirement_cleanup_receipts", []
+        )
         budget_receipts = status.get("offspring_budget_receipts", [])
         checkpoint_receipts = status.get("offspring_checkpoint_receipts", [])
         mailbox_receipts = status.get("offspring_mailbox_receipts", [])
@@ -992,6 +995,17 @@ class OwnerConsoleProductProjection:
                     "items": retirement_receipts
                     if isinstance(retirement_receipts, list)
                     else [],
+                },
+                "retirement_cleanup": {
+                    "receipt_count": len(retirement_cleanup_receipts)
+                    if isinstance(retirement_cleanup_receipts, list)
+                    else 0,
+                    "items": retirement_cleanup_receipts
+                    if isinstance(retirement_cleanup_receipts, list)
+                    else [],
+                    "evidence_retained": True,
+                    "task_assignment_allowed": False,
+                    "resource_cleanup_verified": True,
                 },
                 "budget": {
                     "receipt_count": len(budget_receipts)
