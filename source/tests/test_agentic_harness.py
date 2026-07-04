@@ -820,6 +820,58 @@ def test_agentic_worker_lease_recovery_returns_stale_worker_node_to_ready(
     assert panel["status"]["worker_lease_recovery_v1"]["retry_execution"] is False
 
 
+def test_agentic_worker_capability_arbitration_does_not_create_lease(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect worker capability card routing",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    graph = runtime.agentic.load_graph(graph_id)
+    node = graph.ready_frontier()[0]
+    runtime.agentic.worker_registry.register_profile(
+        WorkerProfile(
+            worker_id="pytest-incompatible-worker",
+            worker_type="LOCAL_SHADOW",
+            label="Pytest incompatible worker",
+            allowed_domains=["CODE"],
+            max_risk=RiskLevel.READ,
+            metadata={"version": "pytest-1", "auth_scheme": "none"},
+        ),
+        status="STALE",
+        reason="unit test incompatible worker card",
+    )
+
+    arbitration = runtime.agentic.propose_worker_candidates(
+        graph_id,
+        node.node_id,
+        reason="unit test worker capability arbitration",
+    )
+
+    after = runtime.agentic.load_graph(graph_id)
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+    assert arbitration["eligible_count"] >= 1
+    assert arbitration["rejected_count"] >= 1
+    assert arbitration["recommended_worker_id"] is not None
+    assert arbitration["lease_created"] is False
+    assert arbitration["selection_executed"] is False
+    assert (
+        arbitration["eligible_workers"][0]["card"]["schema_version"]
+        == "wls.worker_card.v1"
+    )
+    assert arbitration["eligible_workers"][0]["card"]["secret_material_present"] is False
+    assert after.nodes[node.node_id].status is TaskNodeStatus.READY
+    assert panel["status"]["worker_arbitration_v1"]["receipt_count"] == 1
+    assert panel["status"]["worker_arbitration_v1"]["worker_execution"] is False
+
+
 def test_agentic_file_mailbox_handoff_imports_through_canonical_harness(
     tmp_path: Path,
 ) -> None:

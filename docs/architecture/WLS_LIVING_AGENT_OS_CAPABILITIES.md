@@ -348,6 +348,10 @@ fields such as `memory_id`/`active`.
   worker recovery. Active leases can record heartbeat evidence and stale-worker
   leases can return to READY for canonical reacquisition, while no retry,
   worker success, or task completion is inferred.
+- P54 is a shadow-level runtime admission for Worker Registry capability cards
+  and candidate arbitration. Active compatible workers can be recommended with
+  card digests and rejection reasons, while no lease, worker execution, or
+  delegated completion authority is created.
 
 ## Projection Rule
 

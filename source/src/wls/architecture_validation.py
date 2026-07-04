@@ -4326,6 +4326,99 @@ def validate_phase2_agentic_worker_lease_recovery(
     )
 
 
+def validate_phase2_agentic_worker_capability_arbitration(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect worker capability card routing",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = str(receipt["graph"]["graph_id"])
+    graph = runtime.agentic.load_graph(graph_id)
+    node = graph.ready_frontier()[0]
+    incompatible = WorkerProfile(
+        worker_id="validation-incompatible-worker",
+        worker_type="LOCAL_SHADOW",
+        label="Validation incompatible worker",
+        allowed_domains=["CODE"],
+        max_risk=RiskLevel.READ,
+        metadata={"version": "validation-1", "auth_scheme": "none"},
+    )
+    runtime.agentic.worker_registry.register_profile(
+        incompatible,
+        status="STALE",
+        reason="architecture validation incompatible worker card",
+    )
+    arbitration = runtime.agentic.propose_worker_candidates(
+        graph_id,
+        node.node_id,
+        reason="architecture validation worker capability arbitration",
+    )
+    after = runtime.agentic.load_graph(graph_id)
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "agentic_tasks"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN (
+                'agentic_worker_candidate_arbitrated',
+                'agentic_worker_profile_registered'
+            )
+            """
+        )
+    }
+    eligible = arbitration.get("eligible_workers", [])
+    first_card = eligible[0]["card"] if eligible else {}
+    if (
+        arbitration["eligible_count"] < 1
+        or arbitration["rejected_count"] < 1
+        or arbitration["recommended_worker_id"] is None
+        or arbitration["lease_created"] is not False
+        or arbitration["selection_executed"] is not False
+        or first_card.get("schema_version") != "wls.worker_card.v1"
+        or first_card.get("secret_material_present") is not False
+        or after.nodes[node.node_id].status is not TaskNodeStatus.READY
+        or panel is None
+        or panel["status"]["worker_arbitration_v1"]["receipt_count"] < 1
+        or {
+            "agentic_worker_candidate_arbitrated",
+            "agentic_worker_profile_registered",
+        }
+        - event_types
+    ):
+        return ArchitecturePassResult(
+            "P54",
+            "BLOCKED",
+            [graph_id, str(arbitration)],
+            ["agentic worker capability arbitration validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P54",
+        "ADMIT_SHADOW_ONLY",
+        [
+            graph_id,
+            node.node_id,
+            str(arbitration["recommended_worker_id"]),
+            *sorted(event_types),
+        ],
+        [
+            "Agentic worker capability cards and candidate arbitration select compatible active workers without creating leases, executing workers, or delegating canonical authority",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

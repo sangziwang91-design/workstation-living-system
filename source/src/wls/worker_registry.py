@@ -44,6 +44,26 @@ class WorkerProfile:
         )
         return data
 
+    def capability_card(self) -> dict[str, Any]:
+        payload = self.to_dict()
+        return {
+            "schema_version": "wls.worker_card.v1",
+            "worker_id": self.worker_id,
+            "worker_type": self.worker_type,
+            "label": self.label,
+            "allowed_domains": list(self.allowed_domains),
+            "max_risk": self.max_risk.value,
+            "external_tools_enabled": self.external_tools_enabled,
+            "writes_enabled": self.writes_enabled,
+            "auth_scheme": str(self.metadata.get("auth_scheme", "none")),
+            "sandbox": dict(self.metadata.get("sandbox", {})),
+            "version": str(self.metadata.get("version", "unversioned")),
+            "metadata_digest": digest_json(self.metadata),
+            "profile_digest": payload["profile_digest"],
+            "secret_material_present": False,
+            "canonical_completion_authority": "LivingSystem.AgenticHarness",
+        }
+
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> WorkerProfile:
         data = dict(payload)
@@ -234,6 +254,97 @@ class WorkerRegistry:
         self.ledger.append("agentic_worker_profile_assigned", assignment, connection)
         return assignment
 
+    def propose_candidates_for_node(
+        self,
+        *,
+        graph: TaskGraph,
+        node: TaskNode,
+        reason: str,
+        connection: Any,
+        limit: int = 5,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("worker candidate arbitration reason is required")
+        if limit < 1:
+            raise ValueError("worker candidate arbitration limit must be >= 1")
+        domain = str(node.metadata.get("domain", "MIXED")).upper()
+        rows = connection.execute(
+            """
+            SELECT worker_id,profile_json,status,updated_at
+            FROM agentic_worker_profiles
+            ORDER BY worker_id ASC
+            """
+        ).fetchall()
+        eligible: list[dict[str, Any]] = []
+        rejected: list[dict[str, Any]] = []
+        for row in rows:
+            profile = WorkerProfile.from_dict(json.loads(str(row["profile_json"])))
+            status = str(row["status"])
+            card = profile.capability_card()
+            reasons: list[str] = []
+            if status != "ACTIVE":
+                reasons.append(f"status={status}")
+            if domain not in profile.allowed_domains:
+                reasons.append(f"domain_not_allowed={domain}")
+            risk_headroom = _RISK_ORDER[profile.max_risk] - _RISK_ORDER[node.risk]
+            if risk_headroom < 0:
+                reasons.append(
+                    f"max_risk={profile.max_risk.value}<node_risk={node.risk.value}"
+                )
+            candidate = {
+                "worker_id": profile.worker_id,
+                "worker_type": profile.worker_type,
+                "label": profile.label,
+                "status": status,
+                "card": card,
+                "card_digest": digest_json(card),
+                "domain": domain,
+                "node_risk": node.risk.value,
+                "max_risk": profile.max_risk.value,
+                "risk_headroom": risk_headroom,
+                "external_tools_enabled": profile.external_tools_enabled,
+                "writes_enabled": profile.writes_enabled,
+                "updated_at": row["updated_at"],
+            }
+            if reasons:
+                rejected.append({**candidate, "reasons": reasons})
+            else:
+                eligible.append(candidate)
+        eligible.sort(
+            key=lambda item: (
+                int(item["risk_headroom"]),
+                bool(item["writes_enabled"]),
+                bool(item["external_tools_enabled"]),
+                str(item["worker_id"]),
+            )
+        )
+        receipt = {
+            "arbitration_id": new_id("worker_arbitration"),
+            "graph_id": graph.graph_id,
+            "node_id": node.node_id,
+            "reason": reason,
+            "domain": domain,
+            "node_risk": node.risk.value,
+            "eligible_count": len(eligible),
+            "rejected_count": len(rejected),
+            "recommended_worker_id": eligible[0]["worker_id"] if eligible else None,
+            "eligible_workers": eligible[:limit],
+            "rejected_workers": rejected[:limit],
+            "selection_executed": False,
+            "lease_created": False,
+            "direct_execution": False,
+            "claim_ceiling": (
+                "worker capability card arbitration receipt only; no lease creation, "
+                "worker execution, external authority, or delegated planning is inferred"
+            ),
+        }
+        self.ledger.append(
+            "agentic_worker_candidate_arbitrated",
+            receipt,
+            connection,
+        )
+        return receipt
+
     def record_heartbeat(
         self,
         worker_id: str,
@@ -322,6 +433,23 @@ class WorkerRegistry:
             }
             self.ledger.append("agentic_worker_lifecycle_marked_stale", receipt, connection)
             return receipt
+
+    def arbitration_receipts(self, *, limit: int = 20) -> list[dict[str, Any]]:
+        rows = self.db.query_all(
+            """
+            SELECT payload_json,created_at FROM evidence
+            WHERE event_type='agentic_worker_candidate_arbitrated'
+            ORDER BY seq DESC
+            LIMIT ?
+            """,
+            (max(0, int(limit)),),
+        )
+        receipts: list[dict[str, Any]] = []
+        for row in rows:
+            payload = json.loads(str(row["payload_json"]))
+            if isinstance(payload, dict):
+                receipts.append({**payload, "created_at": row["created_at"]})
+        return receipts
 
     def lifecycle_receipts(self, *, limit: int = 20) -> list[dict[str, Any]]:
         rows = self.db.query_all(

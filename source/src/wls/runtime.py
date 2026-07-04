@@ -407,6 +407,11 @@ class LivingSystem:
     ) -> list[dict[str, Any]]:
         return self.agentic.worker_lease_recovery_receipts(limit=limit)
 
+    def agentic_worker_arbitration_receipts(
+        self, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        return self.agentic.worker_arbitration_receipts(limit=limit)
+
     def agentic_retry_gate_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         return self.agentic.retry_gate_receipts(limit=limit)
 
@@ -960,6 +965,9 @@ class LivingSystem:
             ),
             "agentic_worker_lease_recovery": len(
                 self.agentic_worker_lease_recovery_receipts(100)
+            ),
+            "agentic_worker_arbitration": len(
+                self.agentic_worker_arbitration_receipts(100)
             ),
             "agentic_retry_gate": len(self.agentic_retry_gate_receipts(100)),
             "agentic_replan_candidate": len(
@@ -3257,6 +3265,7 @@ class LivingSystem:
             "agentic_budget_receipts": self.agentic_budget_receipts(),
             "agentic_checkpoint_resume_receipts": self.agentic_checkpoint_resume_receipts(),
             "agentic_worker_lease_recovery_receipts": self.agentic_worker_lease_recovery_receipts(),
+            "agentic_worker_arbitration_receipts": self.agentic_worker_arbitration_receipts(),
             "agentic_retry_gate_receipts": self.agentic_retry_gate_receipts(),
             "agentic_replan_candidate_receipts": self.agentic_replan_candidate_receipts(),
             "agentic_benchmark_scorecard_receipts": self.agentic_benchmark_scorecard_receipts(),

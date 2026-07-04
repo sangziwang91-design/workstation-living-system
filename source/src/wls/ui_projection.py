@@ -476,6 +476,7 @@ class OwnerConsoleProductProjection:
         worker_lease_recovery = status.get(
             "agentic_worker_lease_recovery_receipts", []
         )
+        worker_arbitration = status.get("agentic_worker_arbitration_receipts", [])
         retry_gates = status.get("agentic_retry_gate_receipts", [])
         replan_candidates = status.get("agentic_replan_candidate_receipts", [])
         scorecards = status.get("agentic_benchmark_scorecard_receipts", [])
@@ -562,6 +563,17 @@ class OwnerConsoleProductProjection:
                     else [],
                     "retry_execution": False,
                     "worker_execution": False,
+                },
+                "worker_arbitration_v1": {
+                    "receipt_count": len(worker_arbitration)
+                    if isinstance(worker_arbitration, list)
+                    else 0,
+                    "items": worker_arbitration
+                    if isinstance(worker_arbitration, list)
+                    else [],
+                    "lease_created": False,
+                    "worker_execution": False,
+                    "second_authority_created": False,
                 },
                 "retry_gate_v1": {
                     "receipt_count": len(retry_gates)

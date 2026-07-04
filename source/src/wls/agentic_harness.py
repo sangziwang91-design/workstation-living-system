@@ -482,6 +482,9 @@ class AgenticHarness:
                 )
         return receipts
 
+    def worker_arbitration_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        return self.worker_registry.arbitration_receipts(limit=limit)
+
     def retry_gate_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         rows = self.db.query_all(
             """
@@ -880,6 +883,30 @@ class AgenticHarness:
                 connection,
             )
             return payload
+
+    def propose_worker_candidates(
+        self,
+        graph_id: str,
+        node_id: str,
+        *,
+        reason: str,
+        limit: int = 5,
+    ) -> dict[str, Any]:
+        with self.db.transaction() as connection:
+            self.worker_registry.ensure_defaults(connection=connection)
+            graph = self._load_graph_for_update(graph_id, connection)
+            if node_id not in graph.nodes:
+                raise KeyError(f"unknown task node: {node_id}")
+            node = graph.nodes[node_id]
+            if node.status is not TaskNodeStatus.READY:
+                raise ValueError("worker candidate arbitration requires a READY node")
+            return self.worker_registry.propose_candidates_for_node(
+                graph=graph,
+                node=node,
+                reason=reason,
+                connection=connection,
+                limit=limit,
+            )
 
     def reserve_node_budget(
         self,
