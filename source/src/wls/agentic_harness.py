@@ -455,6 +455,79 @@ class AgenticHarness:
                 )
         return receipts
 
+    def retry_gate_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        rows = self.db.query_all(
+            """
+            SELECT payload_json,created_at FROM evidence
+            WHERE event_type='agentic_node_retry_prepared'
+            ORDER BY seq DESC
+            LIMIT ?
+            """,
+            (max(0, int(limit)),),
+        )
+        receipts: list[dict[str, Any]] = []
+        for row in rows:
+            payload = json.loads(str(row["payload_json"]))
+            if isinstance(payload, dict):
+                receipts.append({**payload, "created_at": row["created_at"]})
+        return receipts
+
+    def prepare_node_retry(
+        self,
+        graph_id: str,
+        node_id: str,
+        *,
+        reason: str,
+        repair_id: str | None = None,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("retry preparation reason is required")
+        repair = self._latest_repair_candidate(graph_id, node_id, repair_id=repair_id)
+        if repair is None:
+            raise ValueError("node retry preparation requires a repair candidate")
+        with self.db.transaction() as connection:
+            graph = self._load_graph_for_update(graph_id, connection)
+            if node_id not in graph.nodes:
+                raise KeyError(f"unknown task node: {node_id}")
+            node = graph.nodes[node_id]
+            if node.status is not TaskNodeStatus.FAILED:
+                raise ValueError("retry preparation requires a FAILED node")
+            if node.attempts >= node.max_attempts:
+                raise ValueError("retry preparation blocked by attempt budget")
+            previous = {
+                "status": node.status.value,
+                "error": node.error,
+                "attempts": node.attempts,
+                "max_attempts": node.max_attempts,
+                "lease_id": node.lease_id,
+            }
+            graph.transition(node_id, TaskNodeStatus.READY)
+            graph.nodes[node_id].lease_id = None
+            graph.nodes[node_id].worker_id = None
+            graph.nodes[node_id].error = None
+            self._persist_graph(graph, connection)
+            payload = {
+                "retry_id": new_id("retry"),
+                "graph_id": graph_id,
+                "node_id": node_id,
+                "reason": reason,
+                "repair_id": repair["repair_id"],
+                "previous": previous,
+                "new_status": graph.nodes[node_id].status.value,
+                "attempts_remaining": graph.nodes[node_id].max_attempts
+                - graph.nodes[node_id].attempts,
+                "downstream_unblocked": False,
+                "retry_executed": False,
+                "direct_execution": False,
+                "claim_ceiling": (
+                    "retry preparation receipt only; no worker retry, downstream "
+                    "unblock, repair success, acceptance pass, or task completion "
+                    "is inferred"
+                ),
+            }
+            self.ledger.append("agentic_node_retry_prepared", payload, connection)
+            return payload
+
     def record_graph_checkpoint(self, graph_id: str, *, reason: str) -> dict[str, Any]:
         if not reason.strip():
             raise ValueError("checkpoint reason is required")
@@ -836,6 +909,28 @@ class AgenticHarness:
                 and payload.get("node_id") == node_id
             ):
                 return {**payload, "created_at": row["created_at"]}
+        return None
+
+    def _latest_repair_candidate(
+        self, graph_id: str, node_id: str, *, repair_id: str | None = None
+    ) -> dict[str, Any] | None:
+        rows = self.db.query_all(
+            """
+            SELECT payload_json,created_at FROM evidence
+            WHERE event_type='agentic_repair_candidate_proposed'
+            ORDER BY seq DESC
+            LIMIT 100
+            """
+        )
+        for row in rows:
+            payload = json.loads(str(row["payload_json"]))
+            if not isinstance(payload, dict):
+                continue
+            if payload.get("graph_id") != graph_id or payload.get("node_id") != node_id:
+                continue
+            if repair_id is not None and payload.get("repair_id") != repair_id:
+                continue
+            return {**payload, "created_at": row["created_at"]}
         return None
 
     @staticmethod

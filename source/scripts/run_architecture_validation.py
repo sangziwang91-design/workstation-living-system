@@ -54,6 +54,7 @@ from wls.architecture_validation import (  # noqa: E402
     validate_phase2_agentic_budget_gate,
     validate_phase2_agentic_benchmark_scorecard,
     validate_phase2_agentic_checkpoint_resume,
+    validate_phase2_agentic_retry_gate,
     validate_phase2_agentic_task_harness,
     validate_p01_registry,
     validate_runtime_approval_receipts,
@@ -72,6 +73,7 @@ SELECTIVE_VALIDATION_PASSES = {
     "P46",
     "P47",
     "P48",
+    "P49",
 }
 
 
@@ -131,6 +133,12 @@ def _run_selected_validation(selected: set[str]) -> dict[str, object]:
             results.append(
                 validate_phase2_agentic_checkpoint_resume(
                     temp_path / "phase2-agentic-checkpoint-resume-home"
+                )
+            )
+        if _selected(selected, "P49"):
+            results.append(
+                validate_phase2_agentic_retry_gate(
+                    temp_path / "phase2-agentic-retry-gate-home"
                 )
             )
     return {
@@ -335,6 +343,11 @@ def run_validation(selected: set[str] | None = None) -> dict[str, object]:
                 temp_path / "phase2-agentic-checkpoint-resume-home"
             )
         )
+        results.append(
+            validate_phase2_agentic_retry_gate(
+                temp_path / "phase2-agentic-retry-gate-home"
+            )
+        )
     for pass_id, note in PASS_CONTRACTS.items():
         results.append(
             ArchitecturePassResult(
@@ -358,7 +371,7 @@ def main(argv: list[str] | None = None) -> int:
         "--only",
         action="append",
         dest="only",
-        help="Run one validation pass only. Currently supports P01, P42, P43, P44, P45, P46, P47, and P48.",
+        help="Run one validation pass only. Currently supports P01, P42, P43, P44, P45, P46, P47, P48, and P49.",
     )
     args = parser.parse_args(argv)
     selected = {item.upper() for item in args.only} if args.only else None

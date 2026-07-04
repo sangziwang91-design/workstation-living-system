@@ -596,6 +596,63 @@ def test_agentic_checkpoint_resume_releases_expired_lease_after_restart(
     assert panel["status"]["checkpoint_resume_v1"]["retry_execution"] is False
 
 
+def test_agentic_retry_gate_requires_repair_candidate_and_prepares_new_lease(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector"
+    )[0]
+    runtime.agentic.fail_node(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        error="fixture validation mismatch: inspection evidence missing",
+    )
+    with pytest.raises(ValueError, match="repair candidate"):
+        runtime.agentic.prepare_node_retry(
+            graph_id,
+            lease.node_id,
+            reason="unit test retry without repair candidate",
+        )
+    repair = runtime.agentic.propose_repair_candidate(
+        graph_id,
+        lease.node_id,
+        reason="unit test retry repair candidate",
+    )
+
+    retry = runtime.agentic.prepare_node_retry(
+        graph_id,
+        lease.node_id,
+        repair_id=repair["repair_id"],
+        reason="unit test prepare retry",
+    )
+    reacquired = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector"
+    )
+
+    graph = runtime.agentic.load_graph(graph_id)
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+    assert retry["new_status"] == "READY"
+    assert retry["attempts_remaining"] == 1
+    assert retry["retry_executed"] is False
+    assert retry["downstream_unblocked"] is False
+    assert reacquired[0].node_id == lease.node_id
+    assert reacquired[0].lease_id != lease.lease_id
+    assert graph.nodes[lease.node_id].status is TaskNodeStatus.LEASED
+    assert panel["status"]["retry_gate_v1"]["receipt_count"] == 1
+
+
 def test_agentic_file_mailbox_handoff_imports_through_canonical_harness(
     tmp_path: Path,
 ) -> None:

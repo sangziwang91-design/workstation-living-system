@@ -3821,6 +3821,101 @@ def validate_phase2_agentic_checkpoint_resume(home: Path) -> ArchitecturePassRes
     )
 
 
+def validate_phase2_agentic_retry_gate(home: Path) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository documents",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = str(receipt["graph"]["graph_id"])
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector", limit=1
+    )[0]
+    runtime.agentic.fail_node(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        error="fixture validation mismatch: inspection evidence missing",
+    )
+    repair = runtime.agentic.propose_repair_candidate(
+        graph_id,
+        lease.node_id,
+        reason="architecture validation retry repair candidate",
+    )
+    retry = runtime.agentic.prepare_node_retry(
+        graph_id,
+        lease.node_id,
+        repair_id=str(repair["repair_id"]),
+        reason="architecture validation prepare local retry",
+    )
+    reacquired = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector", limit=1
+    )
+    graph = runtime.agentic.load_graph(graph_id)
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "agentic_tasks"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN (
+                'agentic_task_node_failed',
+                'agentic_repair_candidate_proposed',
+                'agentic_node_retry_prepared',
+                'agentic_task_node_leased'
+            )
+            """
+        )
+    }
+    if (
+        retry["new_status"] != "READY"
+        or retry["retry_executed"]
+        or retry["downstream_unblocked"]
+        or not reacquired
+        or reacquired[0].node_id != lease.node_id
+        or graph.nodes[lease.node_id].status.value != "LEASED"
+        or panel is None
+        or panel["status"]["retry_gate_v1"]["receipt_count"] != 1
+        or {
+            "agentic_task_node_failed",
+            "agentic_repair_candidate_proposed",
+            "agentic_node_retry_prepared",
+            "agentic_task_node_leased",
+        }
+        - event_types
+    ):
+        return ArchitecturePassResult(
+            "P49",
+            "BLOCKED",
+            [graph_id],
+            ["agentic retry gate validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P49",
+        "ADMIT_SHADOW_ONLY",
+        [
+            graph_id,
+            lease.lease_id,
+            reacquired[0].lease_id,
+            str(retry["retry_id"]),
+            *sorted(event_types),
+        ],
+        [
+            "Agentic retry gates can return a failed node with a repair candidate to READY and allow a new lease without executing the retry or inferring repair success",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

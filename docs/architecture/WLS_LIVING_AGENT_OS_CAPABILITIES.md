@@ -327,6 +327,10 @@ fields such as `memory_id`/`active`.
   leases can be resumed back to READY and reacquired by a restarted canonical
   harness, while inferring no worker result, retry execution, repair success,
   or task completion.
+- P49 is a shadow-level runtime admission for agentic retry gates. A failed
+  node with a repair-candidate receipt and remaining attempt budget can be
+  returned to READY and leased again, while executing no retry, unblocking no
+  downstream nodes, and inferring no repair success or task completion.
 
 ## Projection Rule
 

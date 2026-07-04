@@ -26,6 +26,7 @@ from wls.architecture_validation import (
     validate_phase2_agentic_budget_gate,
     validate_phase2_agentic_benchmark_scorecard,
     validate_phase2_agentic_checkpoint_resume,
+    validate_phase2_agentic_retry_gate,
     validate_phase2_agentic_task_harness,
     validate_external_memory_projection,
     validate_mcp_a2a_candidates,
@@ -2394,6 +2395,17 @@ def test_architecture_validation_checks_agentic_checkpoint_resume(
     assert result.pass_id == "P48"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) >= 5
+
+
+def test_architecture_validation_checks_agentic_retry_gate(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_agentic_retry_gate(
+        tmp_path / "agentic-retry-gate-validation-home"
+    )
+    assert result.pass_id == "P49"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) >= 6
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:
