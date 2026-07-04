@@ -336,6 +336,10 @@ fields such as `memory_id`/`active`.
   with revision-budget evidence and Owner Console visibility, while mutating no
   graph, executing no retry, and inferring no downstream unblock or task
   completion.
+- P51 is a shadow-level runtime admission for agentic worker lifecycle. Worker
+  profiles can be registered, heartbeat receipts recorded, and stale workers
+  marked so they cannot receive new leases, while no worker execution,
+  delegated authority, or external memory/goal ownership is inferred.
 
 ## Projection Rule
 

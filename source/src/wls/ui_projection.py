@@ -465,6 +465,7 @@ class OwnerConsoleProductProjection:
         receipts = status.get("agentic_task_receipts", [])
         manifests = status.get("agentic_context_manifest_receipts", [])
         workers = status.get("agentic_worker_profile_receipts", [])
+        worker_lifecycle = status.get("agentic_worker_lifecycle_receipts", [])
         bindings = status.get("agentic_node_action_receipts", [])
         failures = status.get("agentic_failure_attribution_receipts", [])
         acceptance_traces = status.get("agentic_acceptance_trace_receipts", [])
@@ -492,6 +493,16 @@ class OwnerConsoleProductProjection:
                 "worker_registry_v1": {
                     "receipt_count": len(workers) if isinstance(workers, list) else 0,
                     "items": workers if isinstance(workers, list) else [],
+                },
+                "worker_lifecycle_v1": {
+                    "receipt_count": len(worker_lifecycle)
+                    if isinstance(worker_lifecycle, list)
+                    else 0,
+                    "items": worker_lifecycle
+                    if isinstance(worker_lifecycle, list)
+                    else [],
+                    "external_authority": False,
+                    "worker_execution": False,
                 },
                 "policy_bound_actions": {
                     "receipt_count": len(bindings) if isinstance(bindings, list) else 0,

@@ -29,6 +29,7 @@ from .scheduler import ScheduledEvent
 from .schemas import ActionSpec, ActionStatus, Plan, RiskLevel, utc_now
 from .ui_projection import OwnerConsoleProductProjection
 from .wechat_adapter import WeChatW0W1Adapter
+from .worker_registry import WorkerProfile
 from .workbench import WorkbenchTemplate
 
 
@@ -3992,6 +3993,110 @@ def validate_phase2_agentic_replan_candidate(home: Path) -> ArchitecturePassResu
         ],
         [
             "Agentic replan candidates describe bounded graph revision options from failed graph state without mutating the graph or inferring task completion",
+        ],
+    )
+
+
+def validate_phase2_agentic_worker_lifecycle(home: Path) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    worker = WorkerProfile(
+        worker_id="validation-stale-worker",
+        worker_type="LOCAL_SHADOW",
+        label="Validation stale worker",
+        allowed_domains=["RESEARCH", "MIXED", "CODE"],
+        max_risk=RiskLevel.READ,
+        metadata={"validation": "worker lifecycle"},
+    )
+    registered = runtime.agentic.worker_registry.register_profile(
+        worker,
+        reason="architecture validation worker lifecycle registration",
+    )
+    heartbeat = runtime.agentic.worker_registry.record_heartbeat(
+        worker.worker_id,
+        details={"phase": "validation-heartbeat"},
+    )
+    stale_cutoff = (datetime.now(UTC) + timedelta(seconds=1)).isoformat()
+    stale = runtime.agentic.worker_registry.mark_stale_workers(
+        stale_before=stale_cutoff,
+        reason="architecture validation stale worker cutoff",
+    )
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository documents",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = str(receipt["graph"]["graph_id"])
+    stale_blocked = False
+    try:
+        runtime.agentic.acquire_ready_leases(
+            graph_id,
+            worker_id=worker.worker_id,
+            limit=1,
+        )
+    except PermissionError:
+        stale_blocked = True
+    default_lease = runtime.agentic.acquire_ready_leases(
+        graph_id,
+        worker_id="readonly-inspector",
+        limit=1,
+    )[0]
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "agentic_tasks"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN (
+                'agentic_worker_profile_registered',
+                'agentic_worker_heartbeat_recorded',
+                'agentic_worker_lifecycle_marked_stale',
+                'agentic_task_node_leased'
+            )
+            """
+        )
+    }
+    if (
+        registered["worker_id"] != worker.worker_id
+        or heartbeat["status"] != "ACTIVE"
+        or stale["stale_count"] < 1
+        or not stale_blocked
+        or default_lease.worker_id != "readonly-inspector"
+        or panel is None
+        or panel["status"]["worker_lifecycle_v1"]["receipt_count"] < 3
+        or {
+            "agentic_worker_profile_registered",
+            "agentic_worker_heartbeat_recorded",
+            "agentic_worker_lifecycle_marked_stale",
+            "agentic_task_node_leased",
+        }
+        - event_types
+    ):
+        return ArchitecturePassResult(
+            "P51",
+            "BLOCKED",
+            [graph_id, str(stale)],
+            ["agentic worker lifecycle validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P51",
+        "ADMIT_SHADOW_ONLY",
+        [
+            graph_id,
+            worker.worker_id,
+            default_lease.lease_id,
+            *sorted(event_types),
+        ],
+        [
+            "Agentic worker lifecycle records registration, heartbeat, stale marking, and stale-worker lease rejection while preserving LivingSystem as the only authority",
         ],
     )
 

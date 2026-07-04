@@ -16,6 +16,7 @@ from wls.schemas import MemoryItem, RiskLevel, TaskNodeStatus
 from wls.task_admission import TaskAdmissionClassifier
 from wls.task_graph import TaskGraph, TaskNode
 from wls.ui_projection import OwnerConsoleProductProjection
+from wls.worker_registry import WorkerProfile
 
 
 def _harness(tmp_path: Path) -> AgenticHarness:
@@ -693,6 +694,61 @@ def test_agentic_replan_candidate_preserves_failed_graph_state(
     assert graph.snapshot()["graph_digest"] == before
     assert graph.nodes[lease.node_id].status is TaskNodeStatus.FAILED
     assert panel["status"]["replan_candidates_v1"]["receipt_count"] == 1
+
+
+def test_agentic_worker_lifecycle_marks_stale_worker_and_blocks_lease(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    worker = WorkerProfile(
+        worker_id="pytest-stale-worker",
+        worker_type="LOCAL_SHADOW",
+        label="Pytest stale worker",
+        allowed_domains=["RESEARCH", "MIXED", "CODE"],
+        max_risk=RiskLevel.READ,
+    )
+    registered = runtime.agentic.worker_registry.register_profile(
+        worker,
+        reason="unit test worker registration",
+    )
+    heartbeat = runtime.agentic.worker_registry.record_heartbeat(
+        worker.worker_id,
+        details={"phase": "unit-test"},
+    )
+    stale_cutoff = (datetime.now(UTC) + timedelta(seconds=1)).isoformat()
+    stale = runtime.agentic.worker_registry.mark_stale_workers(
+        stale_before=stale_cutoff,
+        reason="unit test stale cutoff",
+    )
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+
+    with pytest.raises(PermissionError, match="inactive worker"):
+        runtime.agentic.acquire_ready_leases(
+            graph_id,
+            worker_id=worker.worker_id,
+        )
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id,
+        worker_id="readonly-inspector",
+    )[0]
+
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+    assert registered["worker_id"] == worker.worker_id
+    assert heartbeat["status"] == "ACTIVE"
+    assert stale["stale_count"] == 1
+    assert stale["stale_workers"][0]["worker_id"] == worker.worker_id
+    assert lease.worker_id == "readonly-inspector"
+    assert panel["status"]["worker_lifecycle_v1"]["receipt_count"] == 3
+    assert panel["status"]["worker_lifecycle_v1"]["worker_execution"] is False
 
 
 def test_agentic_file_mailbox_handoff_imports_through_canonical_harness(

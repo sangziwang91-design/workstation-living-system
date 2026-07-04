@@ -125,6 +125,57 @@ class WorkerRegistry:
         )
         return inserted
 
+    def register_profile(
+        self,
+        profile: WorkerProfile,
+        *,
+        connection: Any | None = None,
+        status: str = "ACTIVE",
+        reason: str = "agentic worker profile registration",
+    ) -> dict[str, Any]:
+        if status not in {"ACTIVE", "STALE", "DISABLED"}:
+            raise ValueError("worker profile status must be ACTIVE, STALE, or DISABLED")
+        if connection is None:
+            with self.db.transaction() as active_connection:
+                return self.register_profile(
+                    profile,
+                    connection=active_connection,
+                    status=status,
+                    reason=reason,
+                )
+        payload = profile.to_dict()
+        now = utc_now()
+        connection.execute(
+            """
+            INSERT INTO agentic_worker_profiles(
+                worker_id,profile_json,status,registered_at,updated_at
+            ) VALUES (?,?,?,?,?)
+            ON CONFLICT(worker_id) DO UPDATE SET
+                profile_json=excluded.profile_json,
+                status=excluded.status,
+                updated_at=excluded.updated_at
+            """,
+            (
+                profile.worker_id,
+                json.dumps(payload, ensure_ascii=False, sort_keys=True),
+                status,
+                now,
+                now,
+            ),
+        )
+        receipt = {
+            "worker_id": profile.worker_id,
+            "status": status,
+            "profile_digest": payload["profile_digest"],
+            "reason": reason,
+            "claim_ceiling": (
+                "worker profile registration only; no worker execution, "
+                "external authority, or delegated memory/goal ownership"
+            ),
+        }
+        self.ledger.append("agentic_worker_profile_registered", receipt, connection)
+        return receipt
+
     def profile(self, worker_id: str, *, connection: Any | None = None) -> WorkerProfile:
         query = (
             "SELECT profile_json FROM agentic_worker_profiles "
@@ -182,6 +233,122 @@ class WorkerRegistry:
         )
         self.ledger.append("agentic_worker_profile_assigned", assignment, connection)
         return assignment
+
+    def record_heartbeat(
+        self,
+        worker_id: str,
+        *,
+        status: str = "ACTIVE",
+        details: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if status not in {"ACTIVE", "STALE", "DISABLED"}:
+            raise ValueError("worker heartbeat status must be ACTIVE, STALE, or DISABLED")
+        with self.db.transaction() as connection:
+            row = connection.execute(
+                """
+                SELECT profile_json,status FROM agentic_worker_profiles
+                WHERE worker_id=?
+                """,
+                (worker_id,),
+            ).fetchone()
+            if row is None:
+                raise PermissionError(f"unknown worker profile: {worker_id}")
+            heartbeat_at = utc_now()
+            connection.execute(
+                """
+                UPDATE agentic_worker_profiles
+                SET status=?,updated_at=?
+                WHERE worker_id=?
+                """,
+                (status, heartbeat_at, worker_id),
+            )
+            profile = json.loads(str(row["profile_json"]))
+            receipt = {
+                "worker_id": worker_id,
+                "previous_status": row["status"],
+                "status": status,
+                "heartbeat_at": heartbeat_at,
+                "profile_digest": profile.get("profile_digest"),
+                "details": details or {},
+                "claim_ceiling": (
+                    "worker heartbeat receipt only; no task lease, worker execution, "
+                    "or external authority is inferred"
+                ),
+            }
+            self.ledger.append("agentic_worker_heartbeat_recorded", receipt, connection)
+            return receipt
+
+    def mark_stale_workers(self, *, stale_before: str, reason: str) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("stale worker reason is required")
+        with self.db.transaction() as connection:
+            rows = connection.execute(
+                """
+                SELECT worker_id,profile_json,updated_at FROM agentic_worker_profiles
+                WHERE status='ACTIVE' AND updated_at < ?
+                ORDER BY updated_at ASC
+                """,
+                (stale_before,),
+            ).fetchall()
+            stale_workers = []
+            now = utc_now()
+            for row in rows:
+                profile = json.loads(str(row["profile_json"]))
+                connection.execute(
+                    """
+                    UPDATE agentic_worker_profiles
+                    SET status='STALE',updated_at=?
+                    WHERE worker_id=?
+                    """,
+                    (now, row["worker_id"]),
+                )
+                stale_workers.append(
+                    {
+                        "worker_id": row["worker_id"],
+                        "previous_updated_at": row["updated_at"],
+                        "profile_digest": profile.get("profile_digest"),
+                    }
+                )
+            receipt = {
+                "stale_before": stale_before,
+                "reason": reason,
+                "stale_count": len(stale_workers),
+                "stale_workers": stale_workers,
+                "direct_execution": False,
+                "claim_ceiling": (
+                    "worker lifecycle stale marking only; no lease cancellation, "
+                    "worker execution, task retry, or authority transfer is inferred"
+                ),
+            }
+            self.ledger.append("agentic_worker_lifecycle_marked_stale", receipt, connection)
+            return receipt
+
+    def lifecycle_receipts(self, *, limit: int = 20) -> list[dict[str, Any]]:
+        rows = self.db.query_all(
+            """
+            SELECT event_type,payload_json,created_at FROM evidence
+            WHERE event_type IN (
+                'agentic_worker_profile_registered',
+                'agentic_worker_heartbeat_recorded',
+                'agentic_worker_lifecycle_marked_stale'
+            )
+            ORDER BY seq DESC
+            LIMIT ?
+            """,
+            (max(0, int(limit)),),
+        )
+        receipts: list[dict[str, Any]] = []
+        for row in rows:
+            payload = json.loads(str(row["payload_json"]))
+            if isinstance(payload, dict):
+                receipts.append(
+                    {
+                        **payload,
+                        "event_type": row["event_type"],
+                        "created_at": row["created_at"],
+                    }
+                )
+        return receipts
 
     def latest_receipts(self, *, limit: int = 20) -> list[dict[str, Any]]:
         rows = self.db.query_all(

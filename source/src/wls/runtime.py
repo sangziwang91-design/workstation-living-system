@@ -350,6 +350,11 @@ class LivingSystem:
     def agentic_worker_profile_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         return self.agentic.worker_registry.latest_receipts(limit=limit)
 
+    def agentic_worker_lifecycle_receipts(
+        self, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        return self.agentic.worker_registry.lifecycle_receipts(limit=limit)
+
     def agentic_node_action_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         rows = self.db.query_all(
             """
@@ -930,6 +935,9 @@ class LivingSystem:
                 self.agentic_harness_epoch_audit_receipts(100)
             ),
             "agentic_task": len(self.agentic_task_receipts(100)),
+            "agentic_worker_lifecycle": len(
+                self.agentic_worker_lifecycle_receipts(100)
+            ),
             "agentic_node_action": len(self.agentic_node_action_receipts(100)),
             "agentic_failure_attribution": len(
                 self.agentic_failure_attribution_receipts(100)
@@ -3232,6 +3240,7 @@ class LivingSystem:
             "agentic_task_receipts": self.agentic_task_receipts(),
             "agentic_context_manifest_receipts": self.agentic_context_manifest_receipts(),
             "agentic_worker_profile_receipts": self.agentic_worker_profile_receipts(),
+            "agentic_worker_lifecycle_receipts": self.agentic_worker_lifecycle_receipts(),
             "agentic_node_action_receipts": self.agentic_node_action_receipts(),
             "agentic_failure_attribution_receipts": self.agentic_failure_attribution_receipts(),
             "agentic_acceptance_trace_receipts": self.agentic_acceptance_trace_receipts(),
