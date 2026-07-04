@@ -524,6 +524,30 @@
           "test_execution_trace_candidate"
         ],
         "version": "0.1.0"
+      },
+      {
+        "canonical_owner": "planning",
+        "canonical_owner_impl": "wls.planner.Planner",
+        "capability_id": "loop_control_candidate",
+        "declares_authority": false,
+        "dependencies": [],
+        "interfaces": [
+          "loop_control_candidate"
+        ],
+        "mode": "WORKBENCH",
+        "receipts": [
+          "loop_control_candidate_receipt"
+        ],
+        "risk_ceiling": "READ",
+        "rollback": [
+          "disable loop_control_candidate manifest"
+        ],
+        "side_effect_class": "none",
+        "status": "DESIGN_ONLY",
+        "tests": [
+          "test_loop_control_candidate"
+        ],
+        "version": "0.1.0"
       }
     ],
     "summary": {
@@ -532,26 +556,26 @@
         "ADAPTER": 11,
         "EVENT_SOURCE": 1,
         "PROJECTION": 3,
-        "WORKBENCH": 6
+        "WORKBENCH": 7
       },
       "by_owner": {
         "events": 7,
         "evidence": 2,
         "evolution": 1,
         "memory": 1,
-        "planning": 6,
+        "planning": 7,
         "tools": 4
       },
-      "count": 21
+      "count": 22
     }
   },
   "claim_ceiling": "repository inventory only; no live deployment, worker execution, Skill promotion, or longitudinal evidence claim",
-  "inventory_digest": "bc957bdaa2596ef7ecb6fd4ecf395f0fc9f413589baa635f8f51d5311506b7ba",
+  "inventory_digest": "20d10af7c109186f0bf2a7fa10a15d8d21cefbae2218c82259c60a3a8ab530a4",
   "inventory_id": "WLS-CAPABILITY-INVENTORY-DL001",
   "schema_version": 1,
   "source": {
     "branch": "living-agent-os-capabilities-001",
-    "head_before_inventory_write": "14095ce99048556588be463d1cd89b15041b35be",
+    "head_before_inventory_write": "47fc667e20e063e8388f36cec84b07c83f234a77",
     "head_note": "This is the commit used as input when regenerating the inventory; the commit containing current.json will necessarily differ.",
     "repo": "D:\\WLS-Dev\\workstation-living-system-private"
   },
@@ -740,6 +764,7 @@
       "test_keyfiles.py",
       "test_life_campaign_30.py",
       "test_living_agent_os_capabilities.py",
+      "test_loop_control.py",
       "test_memory_ablation.py",
       "test_memory_refutation.py",
       "test_packaging_layout.py",
