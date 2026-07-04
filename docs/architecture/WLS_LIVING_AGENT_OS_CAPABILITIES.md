@@ -391,6 +391,13 @@ fields such as `memory_id`/`active`.
   lineage edges and independent budget ledgers, while no old lease replay,
   child runtime execution, promotion, merge, deployment, absorption, or second
   authority is inferred.
+- P64 is a shadow-level runtime admission for offspring mailbox envelopes.
+  Parent-child candidate communication uses a versioned
+  `offspring-mailbox-v1` envelope with sender, recipient, task, attempt, parts,
+  artifact references, child evidence, and digests. Unknown schema versions and
+  damaged digests are quarantined, artifacts remain traceable to child
+  evidence, and the parent retains all validation, approval, Goal, Skill,
+  completion, merge, deployment, and absorption authority.
 
 ## Projection Rule
 

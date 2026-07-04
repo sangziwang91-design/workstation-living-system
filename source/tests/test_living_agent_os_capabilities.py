@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import hashlib
 import json
 import threading
 
@@ -40,6 +41,7 @@ from wls.architecture_validation import (
     validate_phase2_offspring_budget_no_gain_stop,
     validate_phase2_offspring_checkpoint_fork,
     validate_phase2_offspring_isolated_state_budget,
+    validate_phase2_offspring_mailbox_envelope,
     validate_phase2_offspring_retirement_tombstone,
     validate_phase2_sandbox_adapter_contract,
     validate_external_memory_projection,
@@ -2887,6 +2889,106 @@ def test_offspring_checkpoint_detects_tamper_and_forks_independent_children(
     assert panel["status"]["checkpoint"]["receipt_count"] >= 5
     assert panel["status"]["checkpoint"]["resume_allowed"] is False
     assert panel["status"]["checkpoint"]["lease_replay_allowed"] is False
+
+
+def test_architecture_validation_checks_offspring_mailbox_envelope(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_offspring_mailbox_envelope(
+        tmp_path / "offspring-mailbox-validation-home"
+    )
+    assert result.pass_id == "P64"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) >= 6
+
+
+def test_offspring_mailbox_quarantines_unknown_and_damaged_envelopes(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    birth = runtime.draft_offspring_birth_contract(
+        parent_head="unit-test-head",
+        mission="read-only child candidate for mailbox",
+        budget={"time": 2, "calls": 2, "tokens": 10, "writes": 0},
+        inheritance_manifest={
+            "allow": ["readonly_profile"],
+            "deny": ["secrets", "private_memory", "parent_database_write"],
+        },
+        termination_conditions=["mailbox complete", "budget exhausted"],
+        reason="unit test offspring birth contract for mailbox",
+    )
+    state = runtime.initialize_offspring_isolated_state(
+        offspring_id=str(birth["offspring_id"]),
+        reason="unit test offspring isolated state for mailbox",
+    )
+    artifact_path = Path(str(state["state_root"])) / "artifacts" / "summary.txt"
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    artifact_path.write_text("unit test offspring mailbox artifact\n", encoding="utf-8")
+    artifact_sha = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+    child_evidence = [
+        {
+            "evidence_id": "child-evidence-1",
+            "event_type": "offspring_candidate_observation",
+            "sha256": artifact_sha,
+        }
+    ]
+    draft = runtime.draft_offspring_mailbox_envelope(
+        offspring_id=str(birth["offspring_id"]),
+        task_id="unit-task-1",
+        attempt_id="attempt-1",
+        kind="Artifact",
+        parts=[{"content_type": "text/plain", "body": "candidate result"}],
+        artifact_refs=[
+            {
+                "artifact_id": "summary",
+                "path": str(artifact_path),
+                "sha256": artifact_sha,
+                "child_evidence_id": "child-evidence-1",
+            }
+        ],
+        child_evidence=child_evidence,
+        sender=str(birth["offspring_id"]),
+        recipient="LivingSystem",
+        reason="unit test offspring mailbox draft",
+    )
+    accepted = runtime.receive_offspring_mailbox_envelope(
+        envelope=draft["envelope"],
+        reason="unit test offspring mailbox receive",
+    )
+    unknown = dict(draft["envelope"])
+    unknown["schema_version"] = "offspring-mailbox-v99"
+    unknown_quarantine = runtime.receive_offspring_mailbox_envelope(
+        envelope=unknown,
+        reason="unit test unknown schema quarantine",
+    )
+    damaged = dict(draft["envelope"])
+    damaged["parts"] = [{"content_type": "text/plain", "body": "tampered"}]
+    damaged_quarantine = runtime.receive_offspring_mailbox_envelope(
+        envelope=damaged,
+        reason="unit test damaged digest quarantine",
+    )
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "offspring"
+    )
+
+    assert draft["status"] == "DRAFTED"
+    assert Path(str(draft["envelope_path"])).exists()
+    assert draft["parent_db_write_allowed"] is False
+    assert accepted["status"] == "CANDIDATE_RECEIVED"
+    assert accepted["artifact_trace"]["all_artifacts_linked_to_child_evidence"] is True
+    assert accepted["candidate_only"] is True
+    assert accepted["goal_state_mutated"] is False
+    assert accepted["skill_state_mutated"] is False
+    assert accepted["completion_authority_transferred"] is False
+    assert unknown_quarantine["status"] == "QUARANTINED"
+    assert "unsupported schema" in unknown_quarantine["quarantine_reason"]
+    assert damaged_quarantine["status"] == "QUARANTINED"
+    assert "digest mismatch" in damaged_quarantine["quarantine_reason"]
+    assert panel["status"]["mailbox"]["receipt_count"] == 4
+    assert panel["status"]["mailbox"]["unknown_schema_quarantine"] is True
+    assert panel["status"]["mailbox"]["completion_authority_transferred"] is False
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

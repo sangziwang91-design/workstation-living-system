@@ -356,6 +356,9 @@ class LivingSystem:
     def offspring_checkpoint_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         return self.offspring.checkpoint_receipts(limit=limit)
 
+    def offspring_mailbox_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        return self.offspring.mailbox_receipts(limit=limit)
+
     def agentic_task_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         rows = self.db.query_all(
             """
@@ -1015,6 +1018,7 @@ class LivingSystem:
             "offspring_retirement": len(self.offspring_retirement_receipts(100)),
             "offspring_budget": len(self.offspring_budget_receipts(100)),
             "offspring_checkpoint": len(self.offspring_checkpoint_receipts(100)),
+            "offspring_mailbox": len(self.offspring_mailbox_receipts(100)),
         }
         branch_only_scaffolding = [
             {
@@ -1195,6 +1199,46 @@ class LivingSystem:
             parent_offspring_id=parent_offspring_id,
             parent_checkpoint_id=parent_checkpoint_id,
             mutation_reason=mutation_reason,
+            reason=reason,
+        )
+
+    def draft_offspring_mailbox_envelope(
+        self,
+        *,
+        offspring_id: str,
+        task_id: str,
+        attempt_id: str,
+        kind: str,
+        parts: list[dict[str, Any]],
+        artifact_refs: list[dict[str, Any]],
+        child_evidence: list[dict[str, Any]],
+        sender: str,
+        recipient: str,
+        reason: str,
+        schema_version: str = "offspring-mailbox-v1",
+    ) -> dict[str, Any]:
+        return self.offspring.draft_mailbox_envelope(
+            offspring_id=offspring_id,
+            task_id=task_id,
+            attempt_id=attempt_id,
+            kind=kind,
+            parts=parts,
+            artifact_refs=artifact_refs,
+            child_evidence=child_evidence,
+            sender=sender,
+            recipient=recipient,
+            reason=reason,
+            schema_version=schema_version,
+        )
+
+    def receive_offspring_mailbox_envelope(
+        self,
+        *,
+        envelope: dict[str, Any],
+        reason: str,
+    ) -> dict[str, Any]:
+        return self.offspring.receive_mailbox_envelope(
+            envelope=envelope,
             reason=reason,
         )
 
@@ -3456,6 +3500,7 @@ class LivingSystem:
             "offspring_retirement_receipts": self.offspring_retirement_receipts(),
             "offspring_budget_receipts": self.offspring_budget_receipts(),
             "offspring_checkpoint_receipts": self.offspring_checkpoint_receipts(),
+            "offspring_mailbox_receipts": self.offspring_mailbox_receipts(),
             "agentic_task_receipts": self.agentic_task_receipts(),
             "agentic_context_manifest_receipts": self.agentic_context_manifest_receipts(),
             "agentic_worker_profile_receipts": self.agentic_worker_profile_receipts(),

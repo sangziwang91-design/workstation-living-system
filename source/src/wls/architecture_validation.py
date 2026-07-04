@@ -5406,6 +5406,139 @@ def validate_phase2_offspring_checkpoint_fork(
     )
 
 
+def validate_phase2_offspring_mailbox_envelope(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    birth = runtime.draft_offspring_birth_contract(
+        parent_head="architecture-validation-head",
+        mission="bounded read-only offspring mailbox candidate",
+        budget={"time": 2, "calls": 2, "tokens": 10, "writes": 0},
+        inheritance_manifest={
+            "allow": ["readonly_profile"],
+            "deny": ["secrets", "private_memory", "parent_database_write"],
+        },
+        termination_conditions=["mailbox candidate imported", "budget exhausted"],
+        reason="architecture validation offspring birth contract for mailbox",
+    )
+    state = runtime.initialize_offspring_isolated_state(
+        offspring_id=str(birth["offspring_id"]),
+        reason="architecture validation offspring isolated state for mailbox",
+    )
+    artifact_path = Path(str(state["state_root"])) / "artifacts" / "summary.txt"
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    artifact_path.write_text("offspring mailbox candidate artifact\n", encoding="utf-8")
+    artifact_sha = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+    child_evidence = [
+        {
+            "evidence_id": "child-evidence-1",
+            "event_type": "offspring_candidate_observation",
+            "sha256": artifact_sha,
+        }
+    ]
+    draft = runtime.draft_offspring_mailbox_envelope(
+        offspring_id=str(birth["offspring_id"]),
+        task_id="candidate-task-1",
+        attempt_id="attempt-1",
+        kind="Artifact",
+        parts=[{"content_type": "text/plain", "body": "candidate result"}],
+        artifact_refs=[
+            {
+                "artifact_id": "summary",
+                "path": str(artifact_path),
+                "sha256": artifact_sha,
+                "child_evidence_id": "child-evidence-1",
+            }
+        ],
+        child_evidence=child_evidence,
+        sender=str(birth["offspring_id"]),
+        recipient="LivingSystem",
+        reason="architecture validation offspring mailbox draft",
+    )
+    accepted = runtime.receive_offspring_mailbox_envelope(
+        envelope=draft["envelope"],
+        reason="architecture validation offspring mailbox import",
+    )
+    unknown = dict(draft["envelope"])
+    unknown["schema_version"] = "offspring-mailbox-v99"
+    quarantined = runtime.receive_offspring_mailbox_envelope(
+        envelope=unknown,
+        reason="architecture validation unknown schema quarantine",
+    )
+    damaged = dict(draft["envelope"])
+    damaged["parts"] = [{"content_type": "text/plain", "body": "tampered"}]
+    damaged_quarantine = runtime.receive_offspring_mailbox_envelope(
+        envelope=damaged,
+        reason="architecture validation damaged digest quarantine",
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "offspring"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN (
+                'offspring_mailbox_envelope_drafted',
+                'offspring_mailbox_envelope_received',
+                'offspring_mailbox_envelope_quarantined'
+            )
+            """
+        )
+    }
+    if (
+        draft["status"] != "DRAFTED"
+        or accepted["status"] != "CANDIDATE_RECEIVED"
+        or accepted["artifact_trace"]["all_artifacts_linked_to_child_evidence"]
+        is not True
+        or accepted["parent_db_write_allowed"] is not False
+        or accepted["goal_state_mutated"] is not False
+        or accepted["skill_state_mutated"] is not False
+        or accepted["completion_authority_transferred"] is not False
+        or quarantined["status"] != "QUARANTINED"
+        or "unsupported schema" not in quarantined["quarantine_reason"]
+        or damaged_quarantine["status"] != "QUARANTINED"
+        or "digest mismatch" not in damaged_quarantine["quarantine_reason"]
+        or panel is None
+        or panel["status"]["mailbox"]["receipt_count"] < 4
+        or panel["status"]["mailbox"]["completion_authority_transferred"] is not False
+        or {
+            "offspring_mailbox_envelope_drafted",
+            "offspring_mailbox_envelope_received",
+            "offspring_mailbox_envelope_quarantined",
+        }
+        - event_types
+    ):
+        return ArchitecturePassResult(
+            "P64",
+            "BLOCKED",
+            [str(draft), str(accepted), str(quarantined), str(damaged_quarantine)],
+            ["offspring mailbox envelope validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P64",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(draft["envelope_id"]),
+            str(accepted["envelope_id"]),
+            str(quarantined["quarantine_reason"]),
+            str(damaged_quarantine["quarantine_reason"]),
+            *sorted(event_types),
+        ],
+        [
+            "Offspring mailbox envelope imports candidate artifacts through a versioned schema, quarantines unknown or damaged envelopes, and keeps parent authority over validation and completion",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

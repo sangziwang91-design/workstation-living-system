@@ -84,6 +84,12 @@ class OffspringRegistry:
             return []
         return receipts[: max(0, int(limit))]
 
+    def mailbox_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("offspring_mailbox_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
     def draft_birth_contract(
         self,
         *,
@@ -580,6 +586,184 @@ class OffspringRegistry:
         self._record_checkpoint_receipt(receipt, "offspring_fork_drafted")
         return receipt
 
+    def draft_mailbox_envelope(
+        self,
+        *,
+        offspring_id: str,
+        task_id: str,
+        attempt_id: str,
+        kind: str,
+        parts: list[dict[str, Any]],
+        artifact_refs: list[dict[str, Any]],
+        child_evidence: list[dict[str, Any]],
+        sender: str,
+        recipient: str,
+        reason: str,
+        schema_version: str = "offspring-mailbox-v1",
+    ) -> dict[str, Any]:
+        if schema_version != "offspring-mailbox-v1":
+            raise ValueError("unsupported offspring mailbox schema version")
+        if kind not in {"Card", "Task", "Message", "Artifact"}:
+            raise ValueError("unsupported offspring mailbox kind")
+        if not task_id.strip() or not attempt_id.strip():
+            raise ValueError("task_id and attempt_id are required")
+        if not sender.strip() or not recipient.strip() or not reason.strip():
+            raise ValueError("sender, recipient, and reason are required")
+        state_receipt = self._require_state_receipt(offspring_id)
+        trace = self._mailbox_artifact_trace(artifact_refs, child_evidence)
+        envelope = {
+            "schema_version": schema_version,
+            "envelope_id": new_id("offspring_envelope"),
+            "offspring_id": offspring_id,
+            "sender": sender,
+            "recipient": recipient,
+            "task_id": task_id,
+            "attempt_id": attempt_id,
+            "kind": kind,
+            "parts": parts,
+            "artifact_refs": artifact_refs,
+            "child_evidence": child_evidence,
+            "candidate_only": True,
+            "canonical_completion_claim": False,
+            "created_at": utc_now(),
+        }
+        envelope["digests"] = {
+            "parts_digest": digest_json(parts),
+            "artifact_refs_digest": digest_json(artifact_refs),
+            "child_evidence_digest": digest_json(child_evidence),
+        }
+        envelope["envelope_digest"] = digest_json(envelope)
+        mailbox_root = Path(str(state_receipt["state_root"])) / "mailbox"
+        envelope_path = mailbox_root / "outbox" / f"{envelope['envelope_id']}.json"
+        envelope_path.parent.mkdir(parents=True, exist_ok=True)
+        self._write_json(envelope_path, envelope)
+        receipt = {
+            "receipt_type": "OFFSPRING_MAILBOX_ENVELOPE_DRAFTED",
+            "status": "DRAFTED",
+            "offspring_id": offspring_id,
+            "envelope_id": envelope["envelope_id"],
+            "schema_version": schema_version,
+            "kind": kind,
+            "envelope_path": str(envelope_path),
+            "envelope_digest": envelope["envelope_digest"],
+            "artifact_trace": trace,
+            "parent_db_write_allowed": False,
+            "candidate_only": True,
+            "goal_state_mutated": False,
+            "skill_state_mutated": False,
+            "completion_authority_transferred": False,
+            "second_authority_created": False,
+            "claim_ceiling": (
+                "offspring mailbox envelope draft only; parent must import and "
+                "validate as candidate evidence before any canonical state change"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        self._record_mailbox_receipt(receipt, "offspring_mailbox_envelope_drafted")
+        return {**receipt, "envelope": envelope}
+
+    def receive_mailbox_envelope(
+        self,
+        *,
+        envelope: dict[str, Any],
+        reason: str,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("offspring mailbox receive reason is required")
+        schema_version = str(envelope.get("schema_version", ""))
+        if schema_version != "offspring-mailbox-v1":
+            return self._quarantine_mailbox_envelope(
+                envelope=envelope,
+                reason=reason,
+                quarantine_reason=f"unsupported schema version: {schema_version}",
+            )
+        required = {
+            "envelope_id",
+            "offspring_id",
+            "sender",
+            "recipient",
+            "task_id",
+            "attempt_id",
+            "kind",
+            "parts",
+            "artifact_refs",
+            "child_evidence",
+            "digests",
+            "envelope_digest",
+        }
+        missing = sorted(required - set(envelope))
+        if missing:
+            return self._quarantine_mailbox_envelope(
+                envelope=envelope,
+                reason=reason,
+                quarantine_reason=f"missing required fields: {', '.join(missing)}",
+            )
+        digest_payload = dict(envelope)
+        claimed_digest = str(digest_payload.pop("envelope_digest"))
+        if digest_json(digest_payload) != claimed_digest:
+            return self._quarantine_mailbox_envelope(
+                envelope=envelope,
+                reason=reason,
+                quarantine_reason="envelope digest mismatch",
+            )
+        digests = envelope["digests"]
+        if (
+            digests.get("parts_digest") != digest_json(envelope["parts"])
+            or digests.get("artifact_refs_digest")
+            != digest_json(envelope["artifact_refs"])
+            or digests.get("child_evidence_digest")
+            != digest_json(envelope["child_evidence"])
+        ):
+            return self._quarantine_mailbox_envelope(
+                envelope=envelope,
+                reason=reason,
+                quarantine_reason="component digest mismatch",
+            )
+        if not envelope.get("candidate_only", False):
+            return self._quarantine_mailbox_envelope(
+                envelope=envelope,
+                reason=reason,
+                quarantine_reason="envelope claims non-candidate authority",
+            )
+        if envelope.get("canonical_completion_claim", False):
+            return self._quarantine_mailbox_envelope(
+                envelope=envelope,
+                reason=reason,
+                quarantine_reason="envelope claims canonical completion",
+            )
+        self._require_state_receipt(str(envelope["offspring_id"]))
+        trace = self._mailbox_artifact_trace(
+            list(envelope["artifact_refs"]),
+            list(envelope["child_evidence"]),
+        )
+        receipt = {
+            "receipt_type": "OFFSPRING_MAILBOX_ENVELOPE_RECEIVED",
+            "status": "CANDIDATE_RECEIVED",
+            "offspring_id": envelope["offspring_id"],
+            "envelope_id": envelope["envelope_id"],
+            "schema_version": schema_version,
+            "kind": envelope["kind"],
+            "task_id": envelope["task_id"],
+            "attempt_id": envelope["attempt_id"],
+            "artifact_trace": trace,
+            "parent_validated_digest": claimed_digest,
+            "parent_db_write_allowed": False,
+            "candidate_only": True,
+            "goal_state_mutated": False,
+            "skill_state_mutated": False,
+            "completion_authority_transferred": False,
+            "second_authority_created": False,
+            "claim_ceiling": (
+                "offspring envelope accepted as candidate evidence only; parent "
+                "retains evaluator, approval, goal, skill, and completion authority"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        self._record_mailbox_receipt(receipt, "offspring_mailbox_envelope_received")
+        return receipt
+
     @staticmethod
     def _write_json(path: Path, payload: dict[str, Any]) -> None:
         path.write_text(
@@ -656,6 +840,70 @@ class OffspringRegistry:
         with self.db.transaction() as connection:
             self.db.set_runtime("offspring_checkpoint_receipts", updated, connection)
             self.ledger.append(event_type, receipt, connection)
+
+    def _record_mailbox_receipt(
+        self, receipt: dict[str, Any], event_type: str
+    ) -> None:
+        current = self.mailbox_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("offspring_mailbox_receipts", updated, connection)
+            self.ledger.append(event_type, receipt, connection)
+
+    def _quarantine_mailbox_envelope(
+        self,
+        *,
+        envelope: dict[str, Any],
+        reason: str,
+        quarantine_reason: str,
+    ) -> dict[str, Any]:
+        receipt = {
+            "receipt_type": "OFFSPRING_MAILBOX_ENVELOPE_QUARANTINED",
+            "status": "QUARANTINED",
+            "schema_version": str(envelope.get("schema_version", "")),
+            "envelope_id": str(envelope.get("envelope_id", "")),
+            "offspring_id": str(envelope.get("offspring_id", "")),
+            "reason": reason,
+            "quarantine_reason": quarantine_reason,
+            "envelope_digest": digest_json(envelope),
+            "parent_db_write_allowed": False,
+            "candidate_only": False,
+            "goal_state_mutated": False,
+            "skill_state_mutated": False,
+            "completion_authority_transferred": False,
+            "second_authority_created": False,
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        self._record_mailbox_receipt(receipt, "offspring_mailbox_envelope_quarantined")
+        return receipt
+
+    @staticmethod
+    def _mailbox_artifact_trace(
+        artifact_refs: list[dict[str, Any]],
+        child_evidence: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        evidence_ids = {str(item.get("evidence_id", "")) for item in child_evidence}
+        linked = []
+        missing = []
+        for ref in artifact_refs:
+            evidence_id = str(ref.get("child_evidence_id", ""))
+            item = {
+                "artifact_id": str(ref.get("artifact_id", "")),
+                "sha256": str(ref.get("sha256", "")),
+                "child_evidence_id": evidence_id,
+                "linked": bool(evidence_id and evidence_id in evidence_ids),
+            }
+            linked.append(item)
+            if not item["linked"]:
+                missing.append(item)
+        return {
+            "artifact_count": len(artifact_refs),
+            "child_evidence_count": len(child_evidence),
+            "all_artifacts_linked_to_child_evidence": not missing,
+            "items": linked,
+            "missing": missing,
+        }
 
     @staticmethod
     def _normalize_budget(payload: dict[str, Any]) -> dict[str, float]:
