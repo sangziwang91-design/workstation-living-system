@@ -376,6 +376,10 @@ fields such as `memory_id`/`active`.
   `state/` directory with a state manifest, budget ledger, and non-running
   checkpoint, while no child runtime, parent database mount, task execution,
   absorption, or second authority is inferred.
+- P61 is a shadow-level runtime admission for offspring retirement tombstones.
+  A candidate can be frozen as `RETIRED_CANDIDATE` with an outcome summary
+  before any future absorption gate, while no capability import, promotion,
+  merge, deployment, child runtime execution, or second authority is inferred.
 
 ## Projection Rule
 

@@ -347,6 +347,9 @@ class LivingSystem:
     def offspring_state_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         return self.offspring.state_receipts(limit=limit)
 
+    def offspring_retirement_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        return self.offspring.retirement_receipts(limit=limit)
+
     def agentic_task_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         rows = self.db.query_all(
             """
@@ -1003,6 +1006,7 @@ class LivingSystem:
             "sandbox_adapter": len(self.sandbox_adapter_receipts(100)),
             "offspring_birth": len(self.offspring_birth_receipts(100)),
             "offspring_state": len(self.offspring_state_receipts(100)),
+            "offspring_retirement": len(self.offspring_retirement_receipts(100)),
         }
         branch_only_scaffolding = [
             {
@@ -1096,6 +1100,21 @@ class LivingSystem:
     ) -> dict[str, Any]:
         return self.offspring.initialize_isolated_state(
             offspring_id=offspring_id, reason=reason
+        )
+
+    def retire_offspring_candidate(
+        self,
+        *,
+        offspring_id: str,
+        reason: str,
+        outcome_summary: dict[str, Any],
+        absorption_requested: bool = False,
+    ) -> dict[str, Any]:
+        return self.offspring.retire_candidate(
+            offspring_id=offspring_id,
+            reason=reason,
+            outcome_summary=outcome_summary,
+            absorption_requested=absorption_requested,
         )
 
     def learning_epoch_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
@@ -3353,6 +3372,7 @@ class LivingSystem:
             "sandbox_adapter_receipts": self.sandbox_adapter_receipts(),
             "offspring_birth_receipts": self.offspring_birth_receipts(),
             "offspring_state_receipts": self.offspring_state_receipts(),
+            "offspring_retirement_receipts": self.offspring_retirement_receipts(),
             "agentic_task_receipts": self.agentic_task_receipts(),
             "agentic_context_manifest_receipts": self.agentic_context_manifest_receipts(),
             "agentic_worker_profile_receipts": self.agentic_worker_profile_receipts(),

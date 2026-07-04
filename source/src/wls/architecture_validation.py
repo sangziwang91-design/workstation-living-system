@@ -5074,6 +5074,104 @@ def validate_phase2_offspring_isolated_state_budget(
     )
 
 
+def validate_phase2_offspring_retirement_tombstone(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    birth = runtime.draft_offspring_birth_contract(
+        parent_head="architecture-validation-head",
+        mission="bounded read-only inspection offspring candidate",
+        budget={"cycles": 1, "tokens": 0, "writes": 0},
+        inheritance_manifest={
+            "allow": ["readonly_profile"],
+            "deny": ["secrets", "private_memory", "parent_database_write"],
+        },
+        termination_conditions=["read-only inspection complete"],
+        reason="architecture validation offspring birth contract for retirement",
+    )
+    runtime.initialize_offspring_isolated_state(
+        offspring_id=str(birth["offspring_id"]),
+        reason="architecture validation offspring isolated state for retirement",
+    )
+    receipt = runtime.retire_offspring_candidate(
+        offspring_id=str(birth["offspring_id"]),
+        reason="architecture validation offspring retirement tombstone",
+        outcome_summary={
+            "completed_readonly_tasks": 0,
+            "failures": 0,
+            "capabilities_proposed": 0,
+        },
+    )
+    tombstone_path = Path(str(receipt["tombstone_path"]))
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "offspring"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN (
+                'offspring_birth_contract_drafted',
+                'offspring_isolated_state_initialized',
+                'offspring_candidate_retired'
+            )
+            """
+        )
+    }
+    retirement = receipt["retirement"]
+    if (
+        receipt["receipt_type"] != "OFFSPRING_CANDIDATE_RETIRED"
+        or receipt["status"] != "RETIRED_CANDIDATE"
+        or not tombstone_path.exists()
+        or retirement["terminal_state"] != "RETIRED_CANDIDATE"
+        or retirement["runtime_started"] is not False
+        or retirement["absorption_requested"] is not False
+        or retirement["absorption_allowed"] is not False
+        or retirement["candidate_state_frozen"] is not True
+        or receipt["promotion_allowed"] is not False
+        or receipt["merge_allowed"] is not False
+        or receipt["deployment_allowed"] is not False
+        or receipt["second_authority_created"] is not False
+        or panel is None
+        or panel["status"]["retirement"]["receipt_count"] < 1
+        or panel["status"]["absorption_allowed"] is not False
+        or panel["status"]["second_authority_created"] is not False
+        or {
+            "offspring_birth_contract_drafted",
+            "offspring_isolated_state_initialized",
+            "offspring_candidate_retired",
+        }
+        - event_types
+    ):
+        return ArchitecturePassResult(
+            "P61",
+            "BLOCKED",
+            [str(receipt), str(panel)],
+            ["offspring retirement tombstone validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P61",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(receipt["offspring_id"]),
+            str(retirement["retirement_id"]),
+            str(receipt["receipt_digest"]),
+            *sorted(event_types),
+        ],
+        [
+            "Offspring candidate retirement freezes isolated candidate state with a tombstone before any future absorption gate, without promotion or second authority",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

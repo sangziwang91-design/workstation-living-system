@@ -38,6 +38,7 @@ from wls.architecture_validation import (
     validate_phase2_agentic_task_harness,
     validate_phase2_offspring_birth_contract,
     validate_phase2_offspring_isolated_state_budget,
+    validate_phase2_offspring_retirement_tombstone,
     validate_phase2_sandbox_adapter_contract,
     validate_external_memory_projection,
     validate_mcp_a2a_candidates,
@@ -2653,6 +2654,73 @@ def test_offspring_isolated_state_records_budget_without_runtime_start(
     assert panel["status"]["isolated_state"]["receipt_count"] == 1
     assert panel["status"]["birth_contract_only"] is False
     assert panel["status"]["child_runtime_started"] is False
+    assert panel["status"]["second_authority_created"] is False
+
+
+def test_architecture_validation_checks_offspring_retirement_tombstone(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_offspring_retirement_tombstone(
+        tmp_path / "offspring-retirement-validation-home"
+    )
+    assert result.pass_id == "P61"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) >= 6
+
+
+def test_offspring_retirement_tombstone_blocks_absorption(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    birth = runtime.draft_offspring_birth_contract(
+        parent_head="unit-test-head",
+        mission="read-only child candidate for retirement",
+        budget={"cycles": 1, "tokens": 0, "writes": 0},
+        inheritance_manifest={
+            "allow": ["readonly_profile"],
+            "deny": ["secrets", "private_memory", "parent_database_write"],
+        },
+        termination_conditions=["inspection complete"],
+        reason="unit test offspring birth contract for retirement",
+    )
+    runtime.initialize_offspring_isolated_state(
+        offspring_id=str(birth["offspring_id"]),
+        reason="unit test offspring isolated state for retirement",
+    )
+    with pytest.raises(PermissionError):
+        runtime.retire_offspring_candidate(
+            offspring_id=str(birth["offspring_id"]),
+            reason="unit test absorption attempt",
+            outcome_summary={"completed_readonly_tasks": 0},
+            absorption_requested=True,
+        )
+    receipt = runtime.retire_offspring_candidate(
+        offspring_id=str(birth["offspring_id"]),
+        reason="unit test offspring retirement",
+        outcome_summary={
+            "completed_readonly_tasks": 0,
+            "failures": 0,
+            "capabilities_proposed": 0,
+        },
+    )
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "offspring"
+    )
+
+    assert receipt["receipt_type"] == "OFFSPRING_CANDIDATE_RETIRED"
+    assert receipt["runtime_started"] is False
+    assert receipt["absorption_allowed"] is False
+    assert receipt["promotion_allowed"] is False
+    assert receipt["merge_allowed"] is False
+    assert receipt["deployment_allowed"] is False
+    assert receipt["second_authority_created"] is False
+    assert receipt["retirement"]["terminal_state"] == "RETIRED_CANDIDATE"
+    assert receipt["retirement"]["candidate_state_frozen"] is True
+    assert Path(str(receipt["tombstone_path"])).exists()
+    assert panel["status"]["retirement"]["receipt_count"] == 1
+    assert panel["status"]["absorption_allowed"] is False
     assert panel["status"]["second_authority_created"] is False
 
 

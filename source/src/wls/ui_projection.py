@@ -485,6 +485,7 @@ class OwnerConsoleProductProjection:
     def _offspring_panel(status: dict[str, Any]) -> dict[str, Any]:
         birth_receipts = status.get("offspring_birth_receipts", [])
         state_receipts = status.get("offspring_state_receipts", [])
+        retirement_receipts = status.get("offspring_retirement_receipts", [])
         return {
             "panel_id": "offspring",
             "title": "Offspring",
@@ -501,6 +502,14 @@ class OwnerConsoleProductProjection:
                     if isinstance(state_receipts, list)
                     else [],
                 },
+                "retirement": {
+                    "receipt_count": len(retirement_receipts)
+                    if isinstance(retirement_receipts, list)
+                    else 0,
+                    "items": retirement_receipts
+                    if isinstance(retirement_receipts, list)
+                    else [],
+                },
                 "birth_contract_only": not bool(state_receipts)
                 if isinstance(state_receipts, list)
                 else True,
@@ -508,6 +517,7 @@ class OwnerConsoleProductProjection:
                 "child_runtime_started": False,
                 "parent_write_allowed": False,
                 "second_authority_created": False,
+                "absorption_allowed": False,
                 "canonical_authority": "LivingSystem",
                 "child_authority": "candidate_only",
                 "merge_allowed": False,

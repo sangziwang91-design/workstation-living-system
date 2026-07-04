@@ -65,6 +65,12 @@ class OffspringRegistry:
             return []
         return receipts[: max(0, int(limit))]
 
+    def retirement_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("offspring_retirement_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
     def draft_birth_contract(
         self,
         *,
@@ -225,6 +231,77 @@ class OffspringRegistry:
             self.ledger.append("offspring_isolated_state_initialized", receipt, connection)
         return receipt
 
+    def retire_candidate(
+        self,
+        *,
+        offspring_id: str,
+        reason: str,
+        outcome_summary: dict[str, Any],
+        absorption_requested: bool = False,
+    ) -> dict[str, Any]:
+        if not offspring_id.strip():
+            raise ValueError("offspring_id is required")
+        if not reason.strip():
+            raise ValueError("offspring retirement reason is required")
+        if not isinstance(outcome_summary, dict) or not outcome_summary:
+            raise ValueError("outcome_summary is required")
+        state_receipt = self._find_state_receipt(offspring_id)
+        if state_receipt is None:
+            raise KeyError(f"unknown offspring isolated state: {offspring_id}")
+        if absorption_requested:
+            raise PermissionError(
+                "P61 retirement cannot request absorption or capability import"
+            )
+        child_home = Path(str(state_receipt["child_home"])).expanduser().resolve()
+        retirement = {
+            "retirement_id": new_id("offspring_retirement"),
+            "offspring_id": offspring_id,
+            "parent_id": state_receipt["parent_id"],
+            "reason": reason,
+            "outcome_summary": outcome_summary,
+            "terminal_state": "RETIRED_CANDIDATE",
+            "runtime_started": False,
+            "absorption_requested": False,
+            "absorption_allowed": False,
+            "promotion_allowed": False,
+            "merge_allowed": False,
+            "deployment_allowed": False,
+            "candidate_state_frozen": True,
+            "created_at": utc_now(),
+        }
+        tombstone_path = child_home / "state" / "retirement_tombstone.json"
+        self._write_json(tombstone_path, retirement)
+        receipt = {
+            "receipt_type": "OFFSPRING_CANDIDATE_RETIRED",
+            "status": "RETIRED_CANDIDATE",
+            "offspring_id": offspring_id,
+            "parent_id": state_receipt["parent_id"],
+            "reason": reason,
+            "child_home": str(child_home),
+            "retirement": retirement,
+            "tombstone_path": str(tombstone_path),
+            "runtime_started": False,
+            "absorption_requested": False,
+            "absorption_allowed": False,
+            "promotion_allowed": False,
+            "merge_allowed": False,
+            "deployment_allowed": False,
+            "second_authority_created": False,
+            "claim_ceiling": (
+                "offspring candidate retirement tombstone recorded only; no "
+                "capability absorption, merge, promotion, deployment, child "
+                "runtime execution, or second authority is inferred"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.retirement_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("offspring_retirement_receipts", updated, connection)
+            self.ledger.append("offspring_candidate_retired", receipt, connection)
+        return receipt
+
     @staticmethod
     def _write_json(path: Path, payload: dict[str, Any]) -> None:
         path.write_text(
@@ -259,6 +336,12 @@ class OffspringRegistry:
 
     def _find_birth_receipt(self, offspring_id: str) -> dict[str, Any] | None:
         for receipt in self.latest_receipts(limit=100):
+            if receipt.get("offspring_id") == offspring_id:
+                return receipt
+        return None
+
+    def _find_state_receipt(self, offspring_id: str) -> dict[str, Any] | None:
+        for receipt in self.state_receipts(limit=100):
             if receipt.get("offspring_id") == offspring_id:
                 return receipt
         return None
