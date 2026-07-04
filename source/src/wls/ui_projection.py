@@ -1,8 +1,488 @@
 from __future__ import annotations
 
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Iterable
+import json
 
-from .schemas import digest_json, utc_now
+from .schemas import Goal, RiskLevel, digest_json, utc_now
+
+
+UNKNOWN_ACTION_RESOLUTIONS = {
+    "SUCCEEDED",
+    "FAILED",
+    "CANCELLED",
+    "RETRY_SAFE",
+}
+
+
+def _decode_json(value: Any, default: Any) -> Any:
+    if value is None:
+        return default
+    if isinstance(value, (dict, list)):
+        return value
+    try:
+        return json.loads(str(value))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return default
+
+
+def _row_dict(row: Any) -> dict[str, Any]:
+    return dict(row)
+
+
+def _value(record: Any, key: str, default: Any = None) -> Any:
+    if isinstance(record, dict):
+        return record.get(key, default)
+    try:
+        return record[key]
+    except (KeyError, TypeError, IndexError):
+        return getattr(record, key, default)
+
+
+@dataclass(slots=True)
+class UIProjection:
+    """Loopback UI adapter over canonical WLS state.
+
+    This class owns no durable state. Reads come from canonical tables and writes
+    call existing LivingSystem authorities.
+    """
+
+    runtime: Any
+
+    @property
+    def db(self) -> Any:
+        return self.runtime.db
+
+    def bootstrap(self) -> dict[str, Any]:
+        return {
+            "generated_at": utc_now(),
+            "home": self.home(),
+            "projects": self.projects(),
+            "inbox": self.inbox(),
+            "runs": self.runs(limit=30),
+        }
+
+    def home(self) -> dict[str, Any]:
+        status = self.runtime.status()
+        return {
+            "generated_at": utc_now(),
+            "system": {
+                "version": status.get("version"),
+                "home": status.get("home"),
+                "read_only": bool(status.get("read_only", False)),
+                "paused": bool(status.get("paused", False)),
+                "killed": bool(status.get("killed", False)),
+                "planner_provider": status.get("planner_provider"),
+            },
+            "counts": {
+                "goals": self._status_counts("goals"),
+                "cycles": self._status_counts("cycles"),
+                "actions": self._status_counts("actions"),
+                "events": status.get("event_counts", {}),
+            },
+            "focus": status.get("next_focus", []),
+            "latest_cycle": status.get("latest_cycle"),
+            "pending_action_count": len(status.get("pending_actions", [])),
+            "active_goal_count": len(status.get("active_goals", [])),
+            "integrity_hint": {
+                "authority": "canonical-runtime",
+                "projection_only": True,
+                "state_owner": "LivingSystem",
+            },
+        }
+
+    def projects(self) -> list[dict[str, Any]]:
+        rows = self.db.query_all(
+            """
+            SELECT g.*,
+                   (SELECT COUNT(*) FROM goals child
+                    WHERE child.parent_goal_id=g.goal_id) AS task_count,
+                   (SELECT COUNT(*) FROM goals child
+                    WHERE child.parent_goal_id=g.goal_id
+                      AND child.status IN ('ACTIVE','BLOCKED')
+                   ) AS active_task_count
+            FROM goals g
+            WHERE g.parent_goal_id IS NULL
+            ORDER BY g.priority DESC, g.updated_at DESC
+            """
+        )
+        return [self._goal_view(row, kind="project") for row in rows]
+
+    def tasks(
+        self,
+        *,
+        project_id: str | None = None,
+        limit: int = 250,
+    ) -> list[dict[str, Any]]:
+        parameters: list[Any] = []
+        if project_id:
+            where = "parent_goal_id=?"
+            parameters.append(project_id)
+        else:
+            where = "parent_goal_id IS NOT NULL"
+        parameters.append(max(1, min(1000, int(limit))))
+        rows = self.db.query_all(
+            f"""
+            SELECT * FROM goals
+            WHERE {where}
+            ORDER BY priority DESC, updated_at DESC
+            LIMIT ?
+            """,  # nosec B608 - where is selected from fixed internal strings
+            tuple(parameters),
+        )
+        return [self._goal_view(row, kind="task") for row in rows]
+
+    def project_detail(self, project_id: str) -> dict[str, Any]:
+        row = self.db.query_one("SELECT * FROM goals WHERE goal_id=?", (project_id,))
+        if row is None:
+            raise KeyError(f"project not found: {project_id}")
+        if _value(row, "parent_goal_id") is not None:
+            raise ValueError(f"goal is not a top-level project: {project_id}")
+        project = self._goal_view(row, kind="project")
+        project["tasks"] = self.tasks(project_id=project_id)
+        project["recent_runs"] = self.runs(
+            goal_ids=self._goal_tree_ids(project_id),
+            limit=20,
+        )
+        return project
+
+    def runs(
+        self,
+        *,
+        goal_ids: Iterable[str] | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        normalized_goal_ids = list(dict.fromkeys(str(value) for value in goal_ids or []))
+        parameters: list[Any] = []
+        goal_filter = ""
+        if normalized_goal_ids:
+            placeholders = ",".join("?" for _ in normalized_goal_ids)
+            goal_filter = f"""
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM plans p2
+                    JOIN actions a2 ON a2.plan_id=p2.plan_id
+                    WHERE p2.cycle_id=c.cycle_id
+                      AND a2.goal_id IN ({placeholders})
+                )
+            """  # nosec B608 - placeholders are generated
+            parameters.extend(normalized_goal_ids)
+        parameters.append(max(1, min(500, int(limit))))
+        rows = self.db.query_all(
+            f"""
+            SELECT c.cycle_id,c.started_at,c.finished_at,c.status,c.error,
+                   COUNT(DISTINCT p.plan_id) AS plan_count,
+                   COUNT(a.action_id) AS action_count,
+                   SUM(CASE WHEN a.status='SUCCEEDED' THEN 1 ELSE 0 END) AS succeeded_actions,
+                   SUM(CASE WHEN a.status='FAILED' THEN 1 ELSE 0 END) AS failed_actions,
+                   SUM(CASE WHEN a.status='WAITING_APPROVAL' THEN 1 ELSE 0 END) AS waiting_actions,
+                   SUM(CASE WHEN a.status='APPROVED' THEN 1 ELSE 0 END) AS approved_actions,
+                   SUM(CASE WHEN a.status='UNKNOWN_SIDE_EFFECT' THEN 1 ELSE 0 END) AS unknown_actions
+            FROM cycles c
+            LEFT JOIN plans p ON p.cycle_id=c.cycle_id
+            LEFT JOIN actions a ON a.plan_id=p.plan_id
+            {goal_filter}
+            GROUP BY c.cycle_id
+            ORDER BY c.started_at DESC
+            LIMIT ?
+            """,  # nosec B608 - goal_filter contains generated placeholders only
+            tuple(parameters),
+        )
+        return [
+            {
+                "run_id": row["cycle_id"],
+                "started_at": row["started_at"],
+                "finished_at": row["finished_at"],
+                "status": row["status"],
+                "error": row["error"],
+                "plan_count": int(row["plan_count"] or 0),
+                "action_count": int(row["action_count"] or 0),
+                "succeeded_actions": int(row["succeeded_actions"] or 0),
+                "failed_actions": int(row["failed_actions"] or 0),
+                "waiting_actions": int(row["waiting_actions"] or 0),
+                "approved_actions": int(row["approved_actions"] or 0),
+                "unknown_actions": int(row["unknown_actions"] or 0),
+            }
+            for row in rows
+        ]
+
+    def run_detail(self, run_id: str) -> dict[str, Any]:
+        cycle = self.db.query_one("SELECT * FROM cycles WHERE cycle_id=?", (run_id,))
+        if cycle is None:
+            raise KeyError(f"run not found: {run_id}")
+        plans = self.db.query_all(
+            "SELECT * FROM plans WHERE cycle_id=? ORDER BY created_at ASC",
+            (run_id,),
+        )
+        actions = self.db.query_all(
+            """
+            SELECT a.*,p.cycle_id
+            FROM actions a
+            JOIN plans p ON p.plan_id=a.plan_id
+            WHERE p.cycle_id=?
+            ORDER BY COALESCE(a.started_at,''),a.rowid
+            """,
+            (run_id,),
+        )
+        return {
+            "run_id": run_id,
+            "cycle": self._cycle_view(cycle),
+            "plans": [self._plan_view(row) for row in plans],
+            "actions": [self._action_view(row) for row in actions],
+        }
+
+    def inbox(self) -> dict[str, Any]:
+        action_rows = self.db.query_all(
+            """
+            SELECT action_id,plan_id,goal_id,tool,purpose,expected_result,risk,
+                   status,approval_id,started_at,finished_at,error
+            FROM actions
+            WHERE status IN ('WAITING_APPROVAL','APPROVED','UNKNOWN_SIDE_EFFECT')
+            ORDER BY rowid DESC
+            """
+        )
+        goal_rows = self.db.query_all(
+            """
+            SELECT * FROM goals
+            WHERE status='BLOCKED'
+            ORDER BY priority DESC,updated_at ASC
+            """
+        )
+        items: list[dict[str, Any]] = []
+        for row in action_rows:
+            item = _row_dict(row)
+            status = str(item["status"])
+            item.update(
+                {
+                    "item_id": item["action_id"],
+                    "item_type": "action",
+                    "severity": "critical"
+                    if status == "UNKNOWN_SIDE_EFFECT"
+                    else "attention",
+                    "allowed_operations": self._action_operations(status),
+                }
+            )
+            items.append(item)
+        for row in goal_rows:
+            view = self._goal_view(row, kind="task")
+            view.update(
+                {
+                    "item_id": view["goal_id"],
+                    "item_type": "blocked_goal",
+                    "severity": "attention",
+                    "allowed_operations": [],
+                }
+            )
+            items.append(view)
+        return {"generated_at": utc_now(), "count": len(items), "items": items}
+
+    def library(self, limit: int = 100) -> dict[str, Any]:
+        safe_limit = max(1, min(500, int(limit)))
+        evidence_rows = self.db.query_all(
+            """
+            SELECT seq,evidence_id,event_type,payload_json,created_at,record_hash
+            FROM evidence
+            ORDER BY seq DESC
+            LIMIT ?
+            """,
+            (safe_limit,),
+        )
+        skill_rows = self.db.query_all(
+            """
+            SELECT skill_id,name,version,status,success_rate,use_count,definition_json,
+                   created_at,updated_at
+            FROM skills
+            ORDER BY updated_at DESC
+            LIMIT ?
+            """,
+            (safe_limit,),
+        )
+        return {
+            "generated_at": utc_now(),
+            "evidence": [
+                {
+                    **{
+                        key: value
+                        for key, value in _row_dict(row).items()
+                        if key != "payload_json"
+                    },
+                    "payload": _decode_json(_value(row, "payload_json"), {}),
+                }
+                for row in evidence_rows
+            ],
+            "skills": [
+                {
+                    **{
+                        key: value
+                        for key, value in _row_dict(row).items()
+                        if key != "definition_json"
+                    },
+                    "definition": _decode_json(_value(row, "definition_json"), {}),
+                }
+                for row in skill_rows
+            ],
+        }
+
+    def create_goal(self, payload: dict[str, Any]) -> dict[str, Any]:
+        title = str(payload.get("title", "")).strip()
+        if not title:
+            raise ValueError("title is required")
+        kind = str(payload.get("kind", "task")).strip().lower()
+        if kind not in {"project", "task"}:
+            raise ValueError("kind must be project or task")
+        parent_goal_id = payload.get("project_id")
+        if kind == "project":
+            parent_goal_id = None
+        else:
+            if not parent_goal_id:
+                raise ValueError("project_id is required for a task")
+            parent = self.runtime.goals.get(str(parent_goal_id))
+            if parent is None:
+                raise ValueError("project_id does not identify an existing goal")
+            if _value(parent, "parent_goal_id") is not None:
+                raise ValueError("project_id must identify a top-level project")
+        criteria = payload.get("success_criteria", [])
+        if not isinstance(criteria, list):
+            raise ValueError("success_criteria must be a list")
+        priority = float(payload.get("priority", 0.5))
+        if not 0.0 <= priority <= 1.0:
+            raise ValueError("priority must be within [0, 1]")
+        RiskLevel(str(payload.get("risk", RiskLevel.READ.value)))
+        goal = Goal(
+            title=title,
+            description=str(payload.get("description", "")),
+            priority=priority,
+            success_criteria=[str(item) for item in criteria if str(item).strip()],
+            source="wls-ui",
+            autonomous=False,
+            parent_goal_id=str(parent_goal_id) if parent_goal_id else None,
+        )
+        goal_id = self.runtime.add_goal(goal)
+        return {"goal_id": goal_id, "kind": kind, "created_at": goal.created_at}
+
+    def run_cycle(self) -> dict[str, Any]:
+        return self.runtime.run_cycle()
+
+    def decide_action(
+        self,
+        action_id: str,
+        *,
+        approved: bool,
+        reason: str = "",
+        minutes: int = 30,
+    ) -> dict[str, Any]:
+        self._require_action_status(action_id, {"WAITING_APPROVAL"})
+        approval_id = self.runtime.approvals.issue(
+            action_id,
+            approved,
+            max(1, min(1440, int(minutes))),
+            reason or "owner decision from loopback WLS UI",
+        )
+        return {"action_id": action_id, "approval_id": approval_id, "approved": approved}
+
+    def resume_action(self, action_id: str) -> dict[str, Any]:
+        self._require_action_status(action_id, {"APPROVED"})
+        return self.runtime.resume_action(action_id)
+
+    def resolve_unknown_action(
+        self,
+        action_id: str,
+        *,
+        resolution: str,
+        evidence: dict[str, Any],
+    ) -> dict[str, Any]:
+        normalized = str(resolution).upper()
+        if normalized not in UNKNOWN_ACTION_RESOLUTIONS:
+            raise ValueError("invalid unknown-side-effect resolution")
+        if not isinstance(evidence, dict) or not evidence:
+            raise ValueError("non-empty evidence object is required")
+        self._require_action_status(action_id, {"UNKNOWN_SIDE_EFFECT"})
+        self.runtime.resolve_unknown_action(action_id, normalized, evidence)
+        return {"action_id": action_id, "resolution": normalized, "resolved": True}
+
+    def _require_action_status(self, action_id: str, allowed: set[str]) -> Any:
+        row = self.db.query_one(
+            "SELECT action_id,status FROM actions WHERE action_id=?",
+            (action_id,),
+        )
+        if row is None:
+            raise KeyError(f"action not found: {action_id}")
+        status = str(row["status"])
+        if status not in allowed:
+            expected = ", ".join(sorted(allowed))
+            raise ValueError(f"action status is {status}; expected one of: {expected}")
+        return row
+
+    def _goal_tree_ids(self, root_goal_id: str) -> list[str]:
+        rows = self.db.query_all(
+            """
+            WITH RECURSIVE goal_tree(goal_id) AS (
+                SELECT goal_id FROM goals WHERE goal_id=?
+                UNION
+                SELECT child.goal_id
+                FROM goals child
+                JOIN goal_tree parent ON child.parent_goal_id=parent.goal_id
+            )
+            SELECT goal_id FROM goal_tree
+            """,
+            (root_goal_id,),
+        )
+        return [str(row["goal_id"]) for row in rows]
+
+    def _status_counts(self, table: str) -> dict[str, int]:
+        if table not in {"goals", "cycles", "actions"}:
+            raise ValueError("unsupported status table")
+        rows = self.db.query_all(
+            f"SELECT status,COUNT(*) AS n FROM {table} GROUP BY status"  # nosec B608
+        )
+        return {str(row["status"]): int(row["n"]) for row in rows}
+
+    @staticmethod
+    def _action_operations(status: str) -> list[str]:
+        if status == "WAITING_APPROVAL":
+            return ["approve", "reject"]
+        if status == "APPROVED":
+            return ["resume"]
+        if status == "UNKNOWN_SIDE_EFFECT":
+            return ["resolve"]
+        return []
+
+    @staticmethod
+    def _goal_view(row: Any, *, kind: str) -> dict[str, Any]:
+        data = _row_dict(row)
+        data["success_criteria"] = _decode_json(
+            data.pop("success_criteria_json", "[]"), []
+        )
+        data["kind"] = kind
+        if "task_count" in data:
+            data["task_count"] = int(data["task_count"] or 0)
+        if "active_task_count" in data:
+            data["active_task_count"] = int(data["active_task_count"] or 0)
+        return data
+
+    @staticmethod
+    def _cycle_view(row: Any) -> dict[str, Any]:
+        data = _row_dict(row)
+        data["workspace"] = _decode_json(data.pop("workspace_json", None), None)
+        data["metrics"] = _decode_json(data.pop("metrics_json", None), None)
+        return data
+
+    @staticmethod
+    def _plan_view(row: Any) -> dict[str, Any]:
+        data = _row_dict(row)
+        data["plan"] = _decode_json(data.pop("plan_json", "{}"), {})
+        return data
+
+    @staticmethod
+    def _action_view(row: Any) -> dict[str, Any]:
+        data = _row_dict(row)
+        data["arguments"] = _decode_json(data.pop("arguments_json", "{}"), {})
+        data["acceptance"] = _decode_json(data.pop("acceptance_json", "[]"), [])
+        data["result"] = _decode_json(data.pop("result_json", None), None)
+        data["allowed_operations"] = UIProjection._action_operations(
+            str(data["status"])
+        )
+        return data
 
 
 class OwnerConsoleProjection:

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>WLS Owner Console</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">W</span>
+        <div>
+          <strong>Workstation Living System</strong>
+          <small id="system-caption">Owner Console - canonical projection</small>
+        </div>
+      </div>
+      <button id="new-object" class="command-button" type="button">Create Project / Task</button>
+      <div class="health">
+        <span id="health-dot" class="dot"></span>
+        <span id="health-label">Connecting</span>
+      </div>
+    </header>
+
+    <aside class="sidebar">
+      <nav id="nav">
+        <button data-view="home" class="nav-item active" type="button">Home</button>
+        <button data-view="inbox" class="nav-item" type="button">Inbox <b id="inbox-badge"></b></button>
+        <button data-view="projects" class="nav-item" type="button">Projects</button>
+        <button data-view="runs" class="nav-item" type="button">Runs</button>
+        <button data-view="library" class="nav-item" type="button">Library</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <button id="run-cycle" class="primary-action" type="button">Run One Cycle</button>
+        <small>All writes go through existing Goal, Approval, Action, and Evidence authorities.</small>
+      </div>
+    </aside>
+
+    <main id="main" class="main"></main>
+
+    <aside id="inspector" class="inspector">
+      <div class="inspector-empty">
+        <strong>Select an item</strong>
+        <p>Project, task, run, action, evidence, and skill details appear here.</p>
+      </div>
+    </aside>
+  </div>
+
+  <dialog id="goal-dialog">
+    <form id="goal-form" method="dialog">
+      <div class="dialog-head">
+        <div>
+          <small>Canonical GoalStore</small>
+          <h2>Create Object</h2>
+        </div>
+        <button value="cancel" class="icon-button" aria-label="Close" type="submit">x</button>
+      </div>
+      <label>
+        Type
+        <select name="kind" id="goal-kind">
+          <option value="task">Task</option>
+          <option value="project">Project</option>
+        </select>
+      </label>
+      <label id="project-field">
+        Project
+        <select name="project_id" id="project-select"></select>
+      </label>
+      <label>
+        Title
+        <input name="title" required maxlength="160" autocomplete="off">
+      </label>
+      <label>
+        Description
+        <textarea name="description" rows="4"></textarea>
+      </label>
+      <label>
+        Acceptance Criteria
+        <textarea name="criteria" rows="4"></textarea>
+      </label>
+      <div class="dialog-actions">
+        <button value="cancel" class="secondary-action" type="submit">Cancel</button>
+        <button id="submit-goal" value="default" class="primary-action" type="submit">Write to WLS</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" hidden></div>
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>

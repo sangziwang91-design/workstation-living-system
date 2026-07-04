@@ -313,6 +313,10 @@ class GoalStore:
         )
         return [self._row(row) for row in rows]
 
+    def get(self, goal_id: str) -> Goal | None:
+        row = self.db.query_one("SELECT * FROM goals WHERE goal_id=?", (goal_id,))
+        return self._row(row) if row is not None else None
+
     def update_progress(
         self, goal_id: str, progress: float, status: GoalStatus | None = None
     ) -> None:

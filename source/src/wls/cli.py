@@ -132,6 +132,11 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8765)
 
+    ui = sub.add_parser("ui", help="Run loopback-only Owner Console UI")
+    ui.add_argument("--host", default="127.0.0.1")
+    ui.add_argument("--port", type=int, default=8766)
+    ui.add_argument("--no-browser", action="store_true")
+
     transition = sub.add_parser(
         "candidate", help="Advance a bounded evolution candidate"
     )
@@ -348,6 +353,24 @@ def main(argv: list[str] | None = None) -> int:
                 }
             )
             server.serve_forever()
+        elif args.command == "ui":
+            from .ui_server import WLSUIServer
+
+            ui_server = WLSUIServer(runtime, args.host, args.port)
+            ui_server.build()
+            print_json(
+                {
+                    "url": ui_server.bootstrap_url,
+                    "session_scope": "ephemeral-process-and-browser-tab",
+                    "authority": "canonical LivingSystem",
+                    "projection_only": True,
+                }
+            )
+            if not args.no_browser:
+                import webbrowser
+
+                webbrowser.open(ui_server.bootstrap_url)
+            ui_server.serve_forever()
         elif args.command == "candidate":
             evidence = json.loads(args.evidence)
             if not isinstance(evidence, dict):
