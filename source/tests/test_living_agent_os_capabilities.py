@@ -56,6 +56,7 @@ from wls.architecture_validation import (
     validate_phase2_owner_surface_and_readonly_organs,
     validate_phase2_paired_baseline_candidate_experiment,
     validate_phase2_preflighted_readonly_execution,
+    validate_phase2_promotion_bundle_gate,
     validate_phase2_projection_review_and_rollback,
     validate_phase2_provider_route_runtime_receipts,
     validate_phase2_readonly_result_projection,
@@ -3240,6 +3241,75 @@ def test_holdout_epoch_blocks_threshold_drift_and_requires_rebaseline(
     assert "threshold_digest" in invalid["mismatches"]
     assert invalid["promotion_executed"] is False
     assert len(runtime.status()["holdout_epoch_receipts"]) == 3
+
+
+def test_architecture_validation_checks_promotion_bundle_gate(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_promotion_bundle_gate(
+        tmp_path / "promotion-bundle-validation-home"
+    )
+    assert result.pass_id == "P68"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) >= 7
+
+
+def test_promotion_bundle_requires_owner_scope_and_rollback_assets(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    bundle = runtime.draft_promotion_bundle(
+        capability_ids=["capability.alpha", "capability.beta"],
+        patch={"files": [{"path": "source/src/wls/example.py", "sha256": "patch"}]},
+        skill_refs=["skill-candidate-alpha"],
+        epoch_id="holdout-epoch-fixture",
+        budget={"canary_cycles": 1},
+        limits={"scope": "partial"},
+        rollback_assets={
+            "code": "git-revert-fixture",
+            "db": "sqlite-backup-fixture",
+            "config": "config-copy-fixture",
+            "skill": "skill-state-fixture",
+        },
+        reason="unit test promotion bundle draft",
+    )
+    with pytest.raises(PermissionError):
+        runtime.prepare_promotion_canary(
+            bundle_id=str(bundle["bundle_id"]),
+            scope=["capability.alpha"],
+            reason="unit test unapproved canary",
+        )
+    approval = runtime.bind_owner_promotion_approval(
+        bundle_id=str(bundle["bundle_id"]),
+        bundle_digest=str(bundle["bundle_digest"]),
+        actor="Owner",
+        scope=["capability.alpha"],
+        reason="unit test owner approval binding",
+    )
+    with pytest.raises(PermissionError):
+        runtime.prepare_promotion_canary(
+            bundle_id=str(bundle["bundle_id"]),
+            scope=["capability.alpha", "capability.beta"],
+            reason="unit test oversized canary scope",
+        )
+    canary = runtime.prepare_promotion_canary(
+        bundle_id=str(bundle["bundle_id"]),
+        scope=["capability.alpha"],
+        reason="unit test approved canary",
+    )
+    rollback = runtime.verify_promotion_rollback(
+        bundle_id=str(bundle["bundle_id"]),
+        reason="unit test rollback drill",
+    )
+
+    assert bundle["status"] == "BUNDLE_DRAFTED"
+    assert bundle["canonical_state_mutated"] is False
+    assert approval["scope"] == ["capability.alpha"]
+    assert canary["status"] == "CANARY_PREPARED"
+    assert canary["promotion_executed"] is False
+    assert rollback["status"] == "ROLLBACK_VERIFIED"
+    assert rollback["missing_assets"] == []
+    assert len(runtime.status()["promotion_bundle_receipts"]) == 4
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

@@ -1289,6 +1289,163 @@ class LivingSystem:
             return []
         return receipts[: max(0, int(limit))]
 
+    def promotion_bundle_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("promotion_bundle_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
+    def draft_promotion_bundle(
+        self,
+        *,
+        capability_ids: list[str],
+        patch: dict[str, Any],
+        skill_refs: list[str],
+        epoch_id: str,
+        budget: dict[str, Any],
+        limits: dict[str, Any],
+        rollback_assets: dict[str, Any],
+        reason: str,
+    ) -> dict[str, Any]:
+        if not capability_ids or not reason.strip():
+            raise ValueError("promotion bundle requires capability_ids and reason")
+        bundle = {
+            "bundle_id": new_id("promotion_bundle"),
+            "capability_ids": capability_ids,
+            "patch": patch,
+            "skill_refs": skill_refs,
+            "epoch_id": epoch_id,
+            "budget": budget,
+            "limits": limits,
+            "rollback_assets": rollback_assets,
+            "created_at": utc_now(),
+        }
+        bundle["bundle_digest"] = digest_json(bundle)
+        receipt = {
+            "receipt_type": "PROMOTION_BUNDLE_DRAFTED",
+            "status": "BUNDLE_DRAFTED",
+            "bundle_id": bundle["bundle_id"],
+            "bundle_digest": bundle["bundle_digest"],
+            "bundle": bundle,
+            "reason": reason,
+            "canonical_state_mutated": False,
+            "promotion_executed": False,
+            "partial_absorption_only": True,
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        self._record_promotion_bundle_receipt("promotion_bundle_drafted", receipt)
+        return receipt
+
+    def bind_owner_promotion_approval(
+        self,
+        *,
+        bundle_id: str,
+        bundle_digest: str,
+        actor: str,
+        scope: list[str],
+        reason: str,
+    ) -> dict[str, Any]:
+        bundle = self._find_promotion_bundle(bundle_id)
+        if bundle is None:
+            raise KeyError(f"unknown promotion bundle: {bundle_id}")
+        if bundle.get("bundle_digest") != bundle_digest:
+            raise PermissionError("promotion approval digest mismatch")
+        allowed = set(bundle["bundle"]["capability_ids"])
+        requested = set(scope)
+        if not requested or not requested <= allowed:
+            raise PermissionError("promotion approval scope must be a bundle subset")
+        receipt = {
+            "receipt_type": "PROMOTION_OWNER_APPROVAL_BOUND",
+            "status": "OWNER_APPROVAL_BOUND",
+            "bundle_id": bundle_id,
+            "bundle_digest": bundle_digest,
+            "actor": actor,
+            "scope": sorted(requested),
+            "reason": reason,
+            "approval_bound_at": utc_now(),
+            "canonical_state_mutated": False,
+            "promotion_executed": False,
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        self._record_promotion_bundle_receipt("promotion_owner_approval_bound", receipt)
+        return receipt
+
+    def prepare_promotion_canary(
+        self, *, bundle_id: str, scope: list[str], reason: str
+    ) -> dict[str, Any]:
+        approval = self._find_promotion_approval(bundle_id)
+        if approval is None:
+            raise PermissionError("promotion canary requires owner approval")
+        if not set(scope) <= set(approval["scope"]):
+            raise PermissionError("promotion canary scope exceeds owner approval")
+        receipt = {
+            "receipt_type": "PROMOTION_CANARY_PREPARED",
+            "status": "CANARY_PREPARED",
+            "bundle_id": bundle_id,
+            "scope": scope,
+            "reason": reason,
+            "post_promotion_monitor_required": True,
+            "canonical_state_mutated": False,
+            "promotion_executed": False,
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        self._record_promotion_bundle_receipt("promotion_canary_prepared", receipt)
+        return receipt
+
+    def verify_promotion_rollback(
+        self, *, bundle_id: str, reason: str
+    ) -> dict[str, Any]:
+        bundle = self._find_promotion_bundle(bundle_id)
+        if bundle is None:
+            raise KeyError(f"unknown promotion bundle: {bundle_id}")
+        assets = dict(bundle["bundle"].get("rollback_assets", {}))
+        required = {"code", "db", "config", "skill"}
+        missing = sorted(required - set(assets))
+        receipt = {
+            "receipt_type": "PROMOTION_ROLLBACK_VERIFIED",
+            "status": "ROLLBACK_VERIFIED" if not missing else "ROLLBACK_INCOMPLETE",
+            "bundle_id": bundle_id,
+            "reason": reason,
+            "rollback_assets": assets,
+            "missing_assets": missing,
+            "canonical_state_mutated": False,
+            "promotion_executed": False,
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        self._record_promotion_bundle_receipt("promotion_rollback_verified", receipt)
+        return receipt
+
+    def _record_promotion_bundle_receipt(
+        self, event_type: str, receipt: dict[str, Any]
+    ) -> None:
+        current = self.promotion_bundle_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("promotion_bundle_receipts", updated, connection)
+            self.ledger.append(event_type, receipt, connection)
+
+    def _find_promotion_bundle(self, bundle_id: str) -> dict[str, Any] | None:
+        for receipt in self.promotion_bundle_receipts(limit=100):
+            if (
+                receipt.get("receipt_type") == "PROMOTION_BUNDLE_DRAFTED"
+                and receipt.get("bundle_id") == bundle_id
+            ):
+                return receipt
+        return None
+
+    def _find_promotion_approval(self, bundle_id: str) -> dict[str, Any] | None:
+        for receipt in self.promotion_bundle_receipts(limit=100):
+            if (
+                receipt.get("receipt_type") == "PROMOTION_OWNER_APPROVAL_BOUND"
+                and receipt.get("bundle_id") == bundle_id
+            ):
+                return receipt
+        return None
+
     def freeze_holdout_epoch(
         self,
         *,
@@ -3828,6 +3985,7 @@ class LivingSystem:
             "capability_epoch_audit_receipts": self.capability_epoch_audit_receipts(),
             "paired_experiment_receipts": self.paired_experiment_receipts(),
             "holdout_epoch_receipts": self.holdout_epoch_receipts(),
+            "promotion_bundle_receipts": self.promotion_bundle_receipts(),
             "read_only_execution_preflights": self.read_only_execution_preflights(),
             "read_only_execution_receipts": self.read_only_execution_receipts(),
             "read_only_result_projections": self.read_only_result_projections(),

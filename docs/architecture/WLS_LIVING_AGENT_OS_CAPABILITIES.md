@@ -420,6 +420,13 @@ fields such as `memory_id`/`active`.
   Candidate workspaces receive no holdout write permission, and failed epoch
   checks do not change approval, promotion, Skill, holdout, evaluator, or
   threshold authority.
+- P68 is a shadow-level runtime admission for promotion bundles and rollback
+  gates. A bundle can name selected capabilities, patch evidence, Skill refs,
+  epoch, budget, limits, and rollback assets. Owner approval is bound to the
+  exact bundle digest, actor, time, and approved scope; canary preparation is
+  blocked before approval and cannot exceed that scope. Rollback assets must
+  cover code, database, config, and Skill state before any future promotion,
+  and all P68 receipts leave canonical state unchanged.
 
 ## Projection Rule
 

@@ -5863,6 +5863,116 @@ def validate_phase2_holdout_epoch_immutability(
     )
 
 
+def validate_phase2_promotion_bundle_gate(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    bundle = runtime.draft_promotion_bundle(
+        capability_ids=["capability.alpha", "capability.beta"],
+        patch={"files": [{"path": "source/src/wls/example.py", "sha256": "patch"}]},
+        skill_refs=["skill-candidate-alpha"],
+        epoch_id="holdout-epoch-fixture",
+        budget={"canary_cycles": 1},
+        limits={"scope": "partial"},
+        rollback_assets={
+            "code": "git-revert-fixture",
+            "db": "sqlite-backup-fixture",
+            "config": "config-copy-fixture",
+            "skill": "skill-state-fixture",
+        },
+        reason="architecture validation promotion bundle draft",
+    )
+    unapproved_blocked = False
+    try:
+        runtime.prepare_promotion_canary(
+            bundle_id=str(bundle["bundle_id"]),
+            scope=["capability.alpha"],
+            reason="architecture validation unapproved canary",
+        )
+    except PermissionError:
+        unapproved_blocked = True
+    approval = runtime.bind_owner_promotion_approval(
+        bundle_id=str(bundle["bundle_id"]),
+        bundle_digest=str(bundle["bundle_digest"]),
+        actor="Owner",
+        scope=["capability.alpha"],
+        reason="architecture validation owner approval binding",
+    )
+    over_scope_blocked = False
+    try:
+        runtime.prepare_promotion_canary(
+            bundle_id=str(bundle["bundle_id"]),
+            scope=["capability.alpha", "capability.beta"],
+            reason="architecture validation oversized canary scope",
+        )
+    except PermissionError:
+        over_scope_blocked = True
+    canary = runtime.prepare_promotion_canary(
+        bundle_id=str(bundle["bundle_id"]),
+        scope=["capability.alpha"],
+        reason="architecture validation approved canary",
+    )
+    rollback = runtime.verify_promotion_rollback(
+        bundle_id=str(bundle["bundle_id"]),
+        reason="architecture validation rollback drill",
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN (
+                'promotion_bundle_drafted',
+                'promotion_owner_approval_bound',
+                'promotion_canary_prepared',
+                'promotion_rollback_verified'
+            )
+            """
+        )
+    }
+    receipts = runtime.status()["promotion_bundle_receipts"]
+    if (
+        bundle["status"] != "BUNDLE_DRAFTED"
+        or bundle["canonical_state_mutated"] is not False
+        or not unapproved_blocked
+        or approval["status"] != "OWNER_APPROVAL_BOUND"
+        or approval["scope"] != ["capability.alpha"]
+        or not over_scope_blocked
+        or canary["status"] != "CANARY_PREPARED"
+        or canary["promotion_executed"] is not False
+        or rollback["status"] != "ROLLBACK_VERIFIED"
+        or rollback["missing_assets"]
+        or len(receipts) != 4
+        or event_types
+        != {
+            "promotion_bundle_drafted",
+            "promotion_owner_approval_bound",
+            "promotion_canary_prepared",
+            "promotion_rollback_verified",
+        }
+    ):
+        return ArchitecturePassResult(
+            "P68",
+            "BLOCKED",
+            [str(bundle), str(approval), str(canary), str(rollback)],
+            ["promotion bundle gate validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P68",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(bundle["bundle_id"]),
+            str(bundle["bundle_digest"]),
+            str(approval["receipt_digest"]),
+            str(rollback["receipt_digest"]),
+            *sorted(event_types),
+        ],
+        [
+            "Promotion bundles bind owner approval to bundle digest and exact scope, require rollback assets, and only prepare canaries without mutating canonical state or executing promotion",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:
