@@ -476,6 +476,30 @@
           "test_agentic_task_harness"
         ],
         "version": "0.1.0"
+      },
+      {
+        "canonical_owner": "planning",
+        "canonical_owner_impl": "wls.planner.Planner",
+        "capability_id": "task_route_classifier",
+        "declares_authority": false,
+        "dependencies": [],
+        "interfaces": [
+          "task_route_classifier"
+        ],
+        "mode": "WORKBENCH",
+        "receipts": [
+          "task_route_classifier_receipt"
+        ],
+        "risk_ceiling": "READ",
+        "rollback": [
+          "disable task_route_classifier manifest"
+        ],
+        "side_effect_class": "none",
+        "status": "DESIGN_ONLY",
+        "tests": [
+          "test_task_route_classifier"
+        ],
+        "version": "0.1.0"
       }
     ],
     "summary": {
@@ -484,26 +508,26 @@
         "ADAPTER": 11,
         "EVENT_SOURCE": 1,
         "PROJECTION": 2,
-        "WORKBENCH": 5
+        "WORKBENCH": 6
       },
       "by_owner": {
         "events": 7,
         "evidence": 1,
         "evolution": 1,
         "memory": 1,
-        "planning": 5,
+        "planning": 6,
         "tools": 4
       },
-      "count": 19
+      "count": 20
     }
   },
   "claim_ceiling": "repository inventory only; no live deployment, worker execution, Skill promotion, or longitudinal evidence claim",
-  "inventory_digest": "fd6887c135cd5baeb40ca53f90560d749848d113bb3c58d66862b3eab4b03f4a",
+  "inventory_digest": "9ca73a5ee6a000fa0b09605f8fbe7df22714fc9229a118976748e31cbb6878bc",
   "inventory_id": "WLS-CAPABILITY-INVENTORY-DL001",
   "schema_version": 1,
   "source": {
     "branch": "living-agent-os-capabilities-001",
-    "head_before_inventory_write": "3910b03209f85817c344f252ee8723de0df8321e",
+    "head_before_inventory_write": "00cf90b6e37abc542ea7f1b3fb812fdde4b75ac3",
     "head_note": "This is the commit used as input when regenerating the inventory; the commit containing current.json will necessarily differ.",
     "repo": "D:\\WLS-Dev\\workstation-living-system-private"
   },
@@ -694,6 +718,7 @@
       "test_memory_ablation.py",
       "test_memory_refutation.py",
       "test_packaging_layout.py",
+      "test_task_classifier.py",
       "test_ui_projection.py",
       "test_ui_server.py"
     ]

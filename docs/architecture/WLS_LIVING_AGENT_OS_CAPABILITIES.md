@@ -96,6 +96,13 @@ keeping `Planner` as the only planning authority. `LivingSystem.status()` expose
 that route summary for audit. Remote or paid provider routes are blocked unless
 configuration explicitly satisfies the route policy.
 
+Task route classification is fitted as a Planner-owned workbench organ.
+`TaskClassifier` consumes explicit task facts and returns a route candidate only:
+kind, orchestration mode, roles, worker ceiling, owner-gate requirement, risk,
+and rationale. It is monotonic on risk and cannot lower a Planner or Policy risk
+floor. It does not create Plans, Actions, leases, tool calls, Goals, Memories,
+Skills, or evidence, and it cannot authorize execution.
+
 Approval and tool receipts are fitted through the existing `ApprovalManager`,
 `PolicyEngine`, `ToolRegistry`, and `EvidenceLedger`. Runtime validation prepares
 a reversible sandbox write, issues a signed approval envelope with nonce and
