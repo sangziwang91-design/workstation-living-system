@@ -385,6 +385,12 @@ fields such as `memory_id`/`active`.
   dimensions, block over-grant requests before provider/tool calls, and record
   no-gain stops without task completion, promotion, absorption, or second
   authority.
+- P63 is a shadow-level runtime admission for offspring checkpoint and fork
+  receipts. The parent LivingSystem can record a minimal complete child
+  checkpoint, verify tamper detection, and draft multiple fork candidates with
+  lineage edges and independent budget ledgers, while no old lease replay,
+  child runtime execution, promotion, merge, deployment, absorption, or second
+  authority is inferred.
 
 ## Projection Rule
 

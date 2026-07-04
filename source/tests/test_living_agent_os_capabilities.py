@@ -38,6 +38,7 @@ from wls.architecture_validation import (
     validate_phase2_agentic_task_harness,
     validate_phase2_offspring_birth_contract,
     validate_phase2_offspring_budget_no_gain_stop,
+    validate_phase2_offspring_checkpoint_fork,
     validate_phase2_offspring_isolated_state_budget,
     validate_phase2_offspring_retirement_tombstone,
     validate_phase2_sandbox_adapter_contract,
@@ -2798,6 +2799,94 @@ def test_offspring_budget_blocks_overgrant_and_records_no_gain_stop(
     assert panel["status"]["budget"]["receipt_count"] == 3
     assert panel["status"]["budget"]["aggregate_account"] is True
     assert panel["status"]["budget"]["provider_call_executed"] is False
+
+
+def test_architecture_validation_checks_offspring_checkpoint_fork(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_offspring_checkpoint_fork(
+        tmp_path / "offspring-checkpoint-validation-home"
+    )
+    assert result.pass_id == "P63"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) >= 5
+
+
+def test_offspring_checkpoint_detects_tamper_and_forks_independent_children(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    birth = runtime.draft_offspring_birth_contract(
+        parent_head="unit-test-head",
+        mission="read-only child candidate for checkpoint",
+        budget={"time": 2, "calls": 2, "tokens": 10, "writes": 0},
+        inheritance_manifest={
+            "allow": ["readonly_profile"],
+            "deny": ["secrets", "private_memory", "parent_database_write"],
+        },
+        termination_conditions=["checkpoint complete", "budget exhausted"],
+        reason="unit test offspring birth contract for checkpoint",
+    )
+    state = runtime.initialize_offspring_isolated_state(
+        offspring_id=str(birth["offspring_id"]),
+        reason="unit test offspring isolated state for checkpoint",
+    )
+    checkpoint = runtime.record_offspring_checkpoint(
+        offspring_id=str(birth["offspring_id"]),
+        reason="unit test offspring checkpoint",
+        artifact_manifest={"artifacts": []},
+    )
+    verified = runtime.verify_offspring_checkpoint(
+        offspring_id=str(birth["offspring_id"]),
+        checkpoint_id=str(checkpoint["checkpoint_id"]),
+        reason="unit test offspring checkpoint verify",
+    )
+    Path(str(state["budget_ledger_path"])).write_text(
+        '{"tampered": true}\n',
+        encoding="utf-8",
+    )
+    tampered = runtime.verify_offspring_checkpoint(
+        offspring_id=str(birth["offspring_id"]),
+        checkpoint_id=str(checkpoint["checkpoint_id"]),
+        reason="unit test offspring checkpoint tamper detect",
+    )
+    fork_a = runtime.fork_offspring_candidate(
+        parent_offspring_id=str(birth["offspring_id"]),
+        parent_checkpoint_id=str(checkpoint["checkpoint_id"]),
+        mutation_reason="variant A",
+        reason="unit test offspring fork A",
+    )
+    fork_b = runtime.fork_offspring_candidate(
+        parent_offspring_id=str(birth["offspring_id"]),
+        parent_checkpoint_id=str(checkpoint["checkpoint_id"]),
+        mutation_reason="variant B",
+        reason="unit test offspring fork B",
+    )
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "offspring"
+    )
+
+    assert checkpoint["status"] == "CHECKPOINT_RECORDED"
+    assert checkpoint["checkpoint"]["resume_allowed"] is False
+    assert checkpoint["checkpoint"]["lease_replay_allowed"] is False
+    assert verified["status"] == "VERIFIED"
+    assert verified["mismatches"] == {}
+    assert tampered["status"] == "TAMPERED"
+    assert "budget_ledger.json" in tampered["mismatches"]
+    assert fork_a["status"] == "FORK_DRAFTED"
+    assert fork_b["status"] == "FORK_DRAFTED"
+    assert fork_a["child_offspring_id"] != fork_b["child_offspring_id"]
+    assert fork_a["child_budget_ledger_path"] != fork_b["child_budget_ledger_path"]
+    assert fork_a["lineage_edge"]["from"] == birth["offspring_id"]
+    assert fork_a["lineage_edge"]["checkpoint_id"] == checkpoint["checkpoint_id"]
+    assert fork_a["runtime_started"] is False
+    assert fork_a["parent_db_mount"] is False
+    assert fork_b["second_authority_created"] is False
+    assert panel["status"]["checkpoint"]["receipt_count"] >= 5
+    assert panel["status"]["checkpoint"]["resume_allowed"] is False
+    assert panel["status"]["checkpoint"]["lease_replay_allowed"] is False
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

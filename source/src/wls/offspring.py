@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
+import hashlib
 import json
 
 from .config import RuntimeConfig
@@ -73,6 +74,12 @@ class OffspringRegistry:
 
     def budget_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         receipts = self.db.get_runtime("offspring_budget_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
+    def checkpoint_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("offspring_checkpoint_receipts", [])
         if not isinstance(receipts, list):
             return []
         return receipts[: max(0, int(limit))]
@@ -420,6 +427,159 @@ class OffspringRegistry:
         self._record_budget_receipt(receipt, "offspring_no_gain_stop_reviewed")
         return receipt
 
+    def record_checkpoint(
+        self,
+        *,
+        offspring_id: str,
+        reason: str,
+        artifact_manifest: dict[str, Any] | None = None,
+        parent_checkpoint_id: str | None = None,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("offspring checkpoint reason is required")
+        state_receipt = self._require_state_receipt(offspring_id)
+        state_root = Path(str(state_receipt["state_root"]))
+        checkpoint_id = new_id("offspring_checkpoint")
+        tracked_paths = [
+            Path(str(state_receipt["state_manifest_path"])),
+            Path(str(state_receipt["budget_ledger_path"])),
+            Path(str(state_receipt["checkpoint_path"])),
+        ]
+        file_digests = {
+            path.name: self._file_sha256(path)
+            for path in tracked_paths
+        }
+        checkpoint = {
+            "checkpoint_id": checkpoint_id,
+            "offspring_id": offspring_id,
+            "parent_id": state_receipt["parent_id"],
+            "parent_checkpoint_id": parent_checkpoint_id,
+            "reason": reason,
+            "state_root": str(state_root),
+            "file_digests": file_digests,
+            "artifact_manifest": artifact_manifest or {},
+            "budget_ledger": self._read_json(Path(str(state_receipt["budget_ledger_path"]))),
+            "resume_allowed": False,
+            "lease_replay_allowed": False,
+            "created_at": utc_now(),
+        }
+        checkpoint["checkpoint_digest"] = digest_json(checkpoint)
+        checkpoint_path = state_root / "checkpoints" / f"{checkpoint_id}.json"
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        self._write_json(checkpoint_path, checkpoint)
+        receipt = {
+            "receipt_type": "OFFSPRING_CHECKPOINT_RECORDED",
+            "status": "CHECKPOINT_RECORDED",
+            "offspring_id": offspring_id,
+            "checkpoint_id": checkpoint_id,
+            "parent_checkpoint_id": parent_checkpoint_id,
+            "checkpoint_path": str(checkpoint_path),
+            "checkpoint": checkpoint,
+            "runtime_started": False,
+            "lease_replay_allowed": False,
+            "second_authority_created": False,
+            "claim_ceiling": (
+                "offspring checkpoint manifest only; no resume, fork execution, "
+                "lease replay, child runtime execution, or second authority is inferred"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        self._record_checkpoint_receipt(receipt, "offspring_checkpoint_recorded")
+        return receipt
+
+    def verify_checkpoint(
+        self, *, offspring_id: str, checkpoint_id: str, reason: str
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("offspring checkpoint verification reason is required")
+        checkpoint_receipt = self._find_checkpoint_receipt(offspring_id, checkpoint_id)
+        if checkpoint_receipt is None:
+            raise KeyError(f"unknown offspring checkpoint: {checkpoint_id}")
+        checkpoint = checkpoint_receipt["checkpoint"]
+        mismatches = {}
+        state_root = Path(str(checkpoint["state_root"]))
+        for filename, expected in checkpoint["file_digests"].items():
+            actual = self._file_sha256(state_root / filename)
+            if actual != expected:
+                mismatches[filename] = {"expected": expected, "actual": actual}
+        receipt = {
+            "receipt_type": "OFFSPRING_CHECKPOINT_VERIFIED",
+            "status": "TAMPERED" if mismatches else "VERIFIED",
+            "offspring_id": offspring_id,
+            "checkpoint_id": checkpoint_id,
+            "reason": reason,
+            "mismatches": mismatches,
+            "resume_allowed": False,
+            "lease_replay_allowed": False,
+            "second_authority_created": False,
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        self._record_checkpoint_receipt(receipt, "offspring_checkpoint_verified")
+        return receipt
+
+    def fork_candidate(
+        self,
+        *,
+        parent_offspring_id: str,
+        parent_checkpoint_id: str,
+        mutation_reason: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        if not mutation_reason.strip() or not reason.strip():
+            raise ValueError("fork mutation reason and reason are required")
+        checkpoint_receipt = self._find_checkpoint_receipt(
+            parent_offspring_id, parent_checkpoint_id
+        )
+        if checkpoint_receipt is None:
+            raise KeyError(f"unknown parent checkpoint: {parent_checkpoint_id}")
+        parent_birth = self._find_birth_receipt(parent_offspring_id)
+        if parent_birth is None:
+            raise KeyError(f"unknown parent offspring: {parent_offspring_id}")
+        checkpoint = checkpoint_receipt["checkpoint"]
+        child_birth = self.draft_birth_contract(
+            parent_id=parent_offspring_id,
+            parent_head=parent_checkpoint_id,
+            mission=f"fork candidate: {mutation_reason}",
+            budget=dict(checkpoint["budget_ledger"]["budget"]),
+            inheritance_manifest=dict(parent_birth["contract"]["inheritance_manifest"]),
+            termination_conditions=list(parent_birth["contract"]["termination_conditions"]),
+            reason=reason,
+        )
+        child_state = self.initialize_isolated_state(
+            offspring_id=str(child_birth["offspring_id"]),
+            reason=f"fork isolated state from {parent_checkpoint_id}",
+        )
+        receipt = {
+            "receipt_type": "OFFSPRING_FORK_DRAFTED",
+            "status": "FORK_DRAFTED",
+            "fork_id": new_id("offspring_fork"),
+            "parent_offspring_id": parent_offspring_id,
+            "parent_checkpoint_id": parent_checkpoint_id,
+            "child_offspring_id": child_birth["offspring_id"],
+            "mutation_reason": mutation_reason,
+            "reason": reason,
+            "lineage_edge": {
+                "from": parent_offspring_id,
+                "to": child_birth["offspring_id"],
+                "checkpoint_id": parent_checkpoint_id,
+            },
+            "child_budget_ledger_path": child_state["budget_ledger_path"],
+            "runtime_started": False,
+            "parent_db_mount": False,
+            "second_authority_created": False,
+            "claim_ceiling": (
+                "offspring fork draft only; records lineage and independent "
+                "budget state without child runtime execution, parent DB mount, "
+                "promotion, or second authority"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        self._record_checkpoint_receipt(receipt, "offspring_fork_drafted")
+        return receipt
+
     @staticmethod
     def _write_json(path: Path, payload: dict[str, Any]) -> None:
         path.write_text(
@@ -488,6 +648,15 @@ class OffspringRegistry:
             self.db.set_runtime("offspring_budget_receipts", updated, connection)
             self.ledger.append(event_type, receipt, connection)
 
+    def _record_checkpoint_receipt(
+        self, receipt: dict[str, Any], event_type: str
+    ) -> None:
+        current = self.checkpoint_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("offspring_checkpoint_receipts", updated, connection)
+            self.ledger.append(event_type, receipt, connection)
+
     @staticmethod
     def _normalize_budget(payload: dict[str, Any]) -> dict[str, float]:
         if not isinstance(payload, dict) or not payload:
@@ -509,3 +678,19 @@ class OffspringRegistry:
             if before.get(key, -1.0) >= 0:
                 before[key] = before.get(key, 0.0) + value
         return before
+
+    def _find_checkpoint_receipt(
+        self, offspring_id: str, checkpoint_id: str
+    ) -> dict[str, Any] | None:
+        for receipt in self.checkpoint_receipts(limit=100):
+            if (
+                receipt.get("offspring_id") == offspring_id
+                and receipt.get("checkpoint_id") == checkpoint_id
+                and receipt.get("receipt_type") == "OFFSPRING_CHECKPOINT_RECORDED"
+            ):
+                return receipt
+        return None
+
+    @staticmethod
+    def _file_sha256(path: Path) -> str:
+        return hashlib.sha256(path.read_bytes()).hexdigest()

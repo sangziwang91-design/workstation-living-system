@@ -353,6 +353,9 @@ class LivingSystem:
     def offspring_budget_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         return self.offspring.budget_receipts(limit=limit)
 
+    def offspring_checkpoint_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        return self.offspring.checkpoint_receipts(limit=limit)
+
     def agentic_task_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         rows = self.db.query_all(
             """
@@ -1011,6 +1014,7 @@ class LivingSystem:
             "offspring_state": len(self.offspring_state_receipts(100)),
             "offspring_retirement": len(self.offspring_retirement_receipts(100)),
             "offspring_budget": len(self.offspring_budget_receipts(100)),
+            "offspring_checkpoint": len(self.offspring_checkpoint_receipts(100)),
         }
         branch_only_scaffolding = [
             {
@@ -1154,6 +1158,43 @@ class LivingSystem:
             improvement_delta=improvement_delta,
             consecutive_no_evidence_rounds=consecutive_no_evidence_rounds,
             consecutive_no_improvement_rounds=consecutive_no_improvement_rounds,
+            reason=reason,
+        )
+
+    def record_offspring_checkpoint(
+        self,
+        *,
+        offspring_id: str,
+        reason: str,
+        artifact_manifest: dict[str, Any] | None = None,
+        parent_checkpoint_id: str | None = None,
+    ) -> dict[str, Any]:
+        return self.offspring.record_checkpoint(
+            offspring_id=offspring_id,
+            reason=reason,
+            artifact_manifest=artifact_manifest,
+            parent_checkpoint_id=parent_checkpoint_id,
+        )
+
+    def verify_offspring_checkpoint(
+        self, *, offspring_id: str, checkpoint_id: str, reason: str
+    ) -> dict[str, Any]:
+        return self.offspring.verify_checkpoint(
+            offspring_id=offspring_id, checkpoint_id=checkpoint_id, reason=reason
+        )
+
+    def fork_offspring_candidate(
+        self,
+        *,
+        parent_offspring_id: str,
+        parent_checkpoint_id: str,
+        mutation_reason: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        return self.offspring.fork_candidate(
+            parent_offspring_id=parent_offspring_id,
+            parent_checkpoint_id=parent_checkpoint_id,
+            mutation_reason=mutation_reason,
             reason=reason,
         )
 
@@ -3414,6 +3455,7 @@ class LivingSystem:
             "offspring_state_receipts": self.offspring_state_receipts(),
             "offspring_retirement_receipts": self.offspring_retirement_receipts(),
             "offspring_budget_receipts": self.offspring_budget_receipts(),
+            "offspring_checkpoint_receipts": self.offspring_checkpoint_receipts(),
             "agentic_task_receipts": self.agentic_task_receipts(),
             "agentic_context_manifest_receipts": self.agentic_context_manifest_receipts(),
             "agentic_worker_profile_receipts": self.agentic_worker_profile_receipts(),

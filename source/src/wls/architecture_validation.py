@@ -5290,6 +5290,122 @@ def validate_phase2_offspring_budget_no_gain_stop(
     )
 
 
+def validate_phase2_offspring_checkpoint_fork(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    birth = runtime.draft_offspring_birth_contract(
+        parent_head="architecture-validation-head",
+        mission="bounded read-only inspection offspring candidate",
+        budget={"time": 2, "calls": 2, "tokens": 10, "writes": 0},
+        inheritance_manifest={
+            "allow": ["readonly_profile"],
+            "deny": ["secrets", "private_memory", "parent_database_write"],
+        },
+        termination_conditions=["checkpoint complete", "budget exhausted"],
+        reason="architecture validation offspring birth contract for checkpoint",
+    )
+    runtime.initialize_offspring_isolated_state(
+        offspring_id=str(birth["offspring_id"]),
+        reason="architecture validation offspring isolated state for checkpoint",
+    )
+    checkpoint = runtime.record_offspring_checkpoint(
+        offspring_id=str(birth["offspring_id"]),
+        reason="architecture validation checkpoint",
+        artifact_manifest={"artifacts": []},
+    )
+    verified = runtime.verify_offspring_checkpoint(
+        offspring_id=str(birth["offspring_id"]),
+        checkpoint_id=str(checkpoint["checkpoint_id"]),
+        reason="architecture validation checkpoint verify",
+    )
+    budget_path = Path(str(runtime.offspring.state_receipts(1)[0]["budget_ledger_path"]))
+    budget_path.write_text('{"tampered": true}\n', encoding="utf-8")
+    tampered = runtime.verify_offspring_checkpoint(
+        offspring_id=str(birth["offspring_id"]),
+        checkpoint_id=str(checkpoint["checkpoint_id"]),
+        reason="architecture validation checkpoint tamper detect",
+    )
+    fork_a = runtime.fork_offspring_candidate(
+        parent_offspring_id=str(birth["offspring_id"]),
+        parent_checkpoint_id=str(checkpoint["checkpoint_id"]),
+        mutation_reason="variant A",
+        reason="architecture validation fork A",
+    )
+    fork_b = runtime.fork_offspring_candidate(
+        parent_offspring_id=str(birth["offspring_id"]),
+        parent_checkpoint_id=str(checkpoint["checkpoint_id"]),
+        mutation_reason="variant B",
+        reason="architecture validation fork B",
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "offspring"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN (
+                'offspring_checkpoint_recorded',
+                'offspring_checkpoint_verified',
+                'offspring_fork_drafted'
+            )
+            """
+        )
+    }
+    if (
+        checkpoint["status"] != "CHECKPOINT_RECORDED"
+        or checkpoint["checkpoint"]["lease_replay_allowed"] is not False
+        or verified["status"] != "VERIFIED"
+        or verified["mismatches"]
+        or tampered["status"] != "TAMPERED"
+        or "budget_ledger.json" not in tampered["mismatches"]
+        or fork_a["status"] != "FORK_DRAFTED"
+        or fork_b["status"] != "FORK_DRAFTED"
+        or fork_a["child_offspring_id"] == fork_b["child_offspring_id"]
+        or fork_a["child_budget_ledger_path"] == fork_b["child_budget_ledger_path"]
+        or fork_a["lineage_edge"]["from"] != birth["offspring_id"]
+        or fork_a["runtime_started"] is not False
+        or fork_b["second_authority_created"] is not False
+        or panel is None
+        or panel["status"]["checkpoint"]["receipt_count"] < 5
+        or panel["status"]["checkpoint"]["lease_replay_allowed"] is not False
+        or {
+            "offspring_checkpoint_recorded",
+            "offspring_checkpoint_verified",
+            "offspring_fork_drafted",
+        }
+        - event_types
+    ):
+        return ArchitecturePassResult(
+            "P63",
+            "BLOCKED",
+            [str(checkpoint), str(verified), str(tampered), str(fork_a), str(fork_b)],
+            ["offspring checkpoint/fork validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P63",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(checkpoint["checkpoint_id"]),
+            str(fork_a["fork_id"]),
+            str(fork_b["fork_id"]),
+            *sorted(event_types),
+        ],
+        [
+            "Offspring checkpoint manifests detect tamper and fork two independent candidate states with lineage edges without replaying leases or starting child runtimes",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:
