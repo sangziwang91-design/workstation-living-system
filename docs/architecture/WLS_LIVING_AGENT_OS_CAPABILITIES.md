@@ -340,6 +340,10 @@ fields such as `memory_id`/`active`.
   profiles can be registered, heartbeat receipts recorded, and stale workers
   marked so they cannot receive new leases, while no worker execution,
   delegated authority, or external memory/goal ownership is inferred.
+- P52 is a shadow-level runtime admission for agentic result replay quarantine.
+  Duplicate result envelopes are rejected before any second completion attempt,
+  preserving mailbox evidence without granting external workers completion
+  authority or claiming distributed execution maturity.
 
 ## Projection Rule
 

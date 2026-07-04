@@ -82,3 +82,11 @@ def test_architecture_validation_runner_selects_p51() -> None:
     assert result["task_id"] == "WLS-LIVING-AGENT-OS-CAPABILITIES-001"
     assert [item["pass_id"] for item in result["results"]] == ["P51"]
     assert result["results"][0]["verdict"] == "ADMIT_SHADOW_ONLY"
+
+
+def test_architecture_validation_runner_selects_p52() -> None:
+    result = run_validation({"P52"})
+
+    assert result["task_id"] == "WLS-LIVING-AGENT-OS-CAPABILITIES-001"
+    assert [item["pass_id"] for item in result["results"]] == ["P52"]
+    assert result["results"][0]["verdict"] == "ADMIT_SHADOW_ONLY"

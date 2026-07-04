@@ -56,6 +56,7 @@ from wls.architecture_validation import (  # noqa: E402
     validate_phase2_agentic_checkpoint_resume,
     validate_phase2_agentic_retry_gate,
     validate_phase2_agentic_replan_candidate,
+    validate_phase2_agentic_result_replay_quarantine,
     validate_phase2_agentic_worker_lifecycle,
     validate_phase2_agentic_task_harness,
     validate_p01_registry,
@@ -78,6 +79,7 @@ SELECTIVE_VALIDATION_PASSES = {
     "P49",
     "P50",
     "P51",
+    "P52",
 }
 
 
@@ -155,6 +157,12 @@ def _run_selected_validation(selected: set[str]) -> dict[str, object]:
             results.append(
                 validate_phase2_agentic_worker_lifecycle(
                     temp_path / "phase2-agentic-worker-lifecycle-home"
+                )
+            )
+        if _selected(selected, "P52"):
+            results.append(
+                validate_phase2_agentic_result_replay_quarantine(
+                    temp_path / "phase2-agentic-result-replay-home"
                 )
             )
     return {
@@ -374,6 +382,11 @@ def run_validation(selected: set[str] | None = None) -> dict[str, object]:
                 temp_path / "phase2-agentic-worker-lifecycle-home"
             )
         )
+        results.append(
+            validate_phase2_agentic_result_replay_quarantine(
+                temp_path / "phase2-agentic-result-replay-home"
+            )
+        )
     for pass_id, note in PASS_CONTRACTS.items():
         results.append(
             ArchitecturePassResult(
@@ -397,7 +410,7 @@ def main(argv: list[str] | None = None) -> int:
         "--only",
         action="append",
         dest="only",
-        help="Run one validation pass only. Currently supports P01, P42, P43, P44, P45, P46, P47, P48, P49, P50, and P51.",
+        help="Run one validation pass only. Currently supports P01, P42, P43, P44, P45, P46, P47, P48, P49, P50, P51, and P52.",
     )
     args = parser.parse_args(argv)
     selected = {item.upper() for item in args.only} if args.only else None

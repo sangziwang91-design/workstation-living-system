@@ -4101,6 +4101,113 @@ def validate_phase2_agentic_worker_lifecycle(home: Path) -> ArchitecturePassResu
     )
 
 
+def validate_phase2_agentic_result_replay_quarantine(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    mailbox_root = home / "mailbox"
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect replay-safe worker result",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = str(receipt["graph"]["graph_id"])
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id,
+        worker_id="readonly-inspector",
+    )[0]
+    exported = runtime.agentic.export_node_task_envelope(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        mailbox_root=mailbox_root,
+        recipient="validation-worker",
+    )
+    result = ResultEnvelope.create(
+        message_id="validation-result-replay",
+        in_reply_to=str(exported["message_id"]),
+        graph_id=graph_id,
+        node_id=lease.node_id,
+        lease_id=lease.lease_id,
+        sender="validation-worker",
+        recipient="LivingSystem.AgenticHarness",
+        status="SUCCEEDED",
+        payload={"summary": "first import"},
+    )
+    mailbox = AgenticFileMailbox(mailbox_root)
+    mailbox.write_result(result)
+    imported = runtime.agentic.import_node_result_envelope(
+        mailbox_root=mailbox_root,
+        message_id=result.message_id,
+    )
+    mailbox.write_result(result)
+    quarantined = runtime.agentic.import_node_result_envelope(
+        mailbox_root=mailbox_root,
+        message_id=result.message_id,
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "agentic_tasks"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN (
+                'agentic_task_envelope_exported',
+                'agentic_result_envelope_imported',
+                'agentic_result_envelope_quarantined',
+                'agentic_task_node_completed'
+            )
+            """
+        )
+    }
+    rejected_path = mailbox_root / "rejected" / f"{result.message_id}.json"
+    if (
+        imported.get("receipt_type") != "AGENTIC_RESULT_ENVELOPE_IMPORTED"
+        or quarantined.get("receipt_type")
+        != "AGENTIC_RESULT_ENVELOPE_QUARANTINED"
+        or quarantined.get("completion_attempted") is not False
+        or quarantined.get("reason") != "duplicate_result_replay"
+        or not rejected_path.exists()
+        or panel is None
+        or panel["status"]["file_mailbox_v1"]["receipt_count"] < 3
+        or {
+            "agentic_task_envelope_exported",
+            "agentic_result_envelope_imported",
+            "agentic_result_envelope_quarantined",
+            "agentic_task_node_completed",
+        }
+        - event_types
+    ):
+        return ArchitecturePassResult(
+            "P52",
+            "BLOCKED",
+            [graph_id, str(quarantined)],
+            ["agentic result replay quarantine validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P52",
+        "ADMIT_SHADOW_ONLY",
+        [
+            graph_id,
+            result.message_id,
+            str(rejected_path),
+            *sorted(event_types),
+        ],
+        [
+            "Agentic result replay quarantine rejects duplicate worker result envelopes before a second completion attempt while preserving LivingSystem as canonical completion authority",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

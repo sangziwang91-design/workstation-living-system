@@ -366,7 +366,8 @@ class AgenticHarness:
             SELECT event_type,payload_json,created_at FROM evidence
             WHERE event_type IN (
                 'agentic_task_envelope_exported',
-                'agentic_result_envelope_imported'
+                'agentic_result_envelope_imported',
+                'agentic_result_envelope_quarantined'
             )
             ORDER BY seq DESC
             LIMIT ?
@@ -873,7 +874,7 @@ class AgenticHarness:
                 },
             )
             path = mailbox.write_task(envelope)
-            receipt = {
+            receipt: dict[str, Any] = {
                 "receipt_type": "AGENTIC_TASK_ENVELOPE_EXPORTED",
                 "graph_id": graph_id,
                 "node_id": node_id,
@@ -902,6 +903,35 @@ class AgenticHarness:
     ) -> dict[str, Any]:
         mailbox = AgenticFileMailbox(mailbox_root)
         envelope = mailbox.read_result(message_id)
+        previous = self._previous_result_envelope_receipt(envelope.message_id)
+        if previous is not None:
+            reason = "duplicate_result_replay"
+            previous_digest = str(previous.get("payload_digest") or "")
+            if previous_digest and previous_digest != envelope.payload_digest:
+                reason = "message_id_digest_conflict"
+            rejected_path = mailbox.reject(message_id, result=True)
+            receipt = {
+                "receipt_type": "AGENTIC_RESULT_ENVELOPE_QUARANTINED",
+                "graph_id": envelope.graph_id,
+                "node_id": envelope.node_id,
+                "lease_id": envelope.lease_id,
+                "message_id": envelope.message_id,
+                "in_reply_to": envelope.in_reply_to,
+                "status": envelope.status.upper(),
+                "payload_digest": envelope.payload_digest,
+                "previous_payload_digest": previous_digest or None,
+                "rejected_path": str(rejected_path),
+                "reason": reason,
+                "completion_attempted": False,
+                "canonical_completion_authority": "LivingSystem.AgenticHarness",
+                "claim_ceiling": (
+                    "duplicate or conflicting result envelope quarantined only; "
+                    "no node completion, failure transition, retry, or worker "
+                    "authority is inferred"
+                ),
+            }
+            self.ledger.append("agentic_result_envelope_quarantined", receipt)
+            return receipt
         if envelope.status.upper() == "SUCCEEDED":
             if acceptance_checks:
                 completion = self.complete_node_with_acceptance(
@@ -933,7 +963,7 @@ class AgenticHarness:
                 error=str(envelope.payload.get("error") or envelope.status),
             )
         processed_path = mailbox.mark_processed(message_id, result=True)
-        receipt = {
+        imported_receipt: dict[str, Any] = {
             "receipt_type": "AGENTIC_RESULT_ENVELOPE_IMPORTED",
             "graph_id": envelope.graph_id,
             "node_id": envelope.node_id,
@@ -950,8 +980,29 @@ class AgenticHarness:
                 "no external worker authority, deployment, or goal completion is claimed"
             ),
         }
-        self.ledger.append("agentic_result_envelope_imported", receipt)
-        return receipt
+        self.ledger.append("agentic_result_envelope_imported", imported_receipt)
+        return imported_receipt
+
+    def _previous_result_envelope_receipt(
+        self, message_id: str
+    ) -> dict[str, Any] | None:
+        row = self.db.query_one(
+            """
+            SELECT payload_json FROM evidence
+            WHERE event_type IN (
+                'agentic_result_envelope_imported',
+                'agentic_result_envelope_quarantined'
+            )
+            AND json_extract(payload_json, '$.message_id')=?
+            ORDER BY seq ASC
+            LIMIT 1
+            """,
+            (message_id,),
+        )
+        if row is None:
+            return None
+        payload = json.loads(str(row["payload_json"]))
+        return payload if isinstance(payload, dict) else None
 
     def _latest_failure_attribution(
         self, graph_id: str, node_id: str
