@@ -392,6 +392,11 @@ class LivingSystem:
     def agentic_budget_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         return self.agentic.budget_receipts(limit=limit)
 
+    def agentic_checkpoint_resume_receipts(
+        self, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        return self.agentic.checkpoint_resume_receipts(limit=limit)
+
     def agentic_harness_epoch_audit_receipts(
         self, limit: int = 20
     ) -> list[dict[str, Any]]:
@@ -929,6 +934,9 @@ class LivingSystem:
                 self.agentic_repair_candidate_receipts(100)
             ),
             "agentic_budget": len(self.agentic_budget_receipts(100)),
+            "agentic_checkpoint_resume": len(
+                self.agentic_checkpoint_resume_receipts(100)
+            ),
             "agentic_benchmark_scorecard": len(
                 self.agentic_benchmark_scorecard_receipts(100)
             ),
@@ -3218,6 +3226,7 @@ class LivingSystem:
             "agentic_mailbox_receipts": self.agentic_mailbox_receipts(),
             "agentic_repair_candidate_receipts": self.agentic_repair_candidate_receipts(),
             "agentic_budget_receipts": self.agentic_budget_receipts(),
+            "agentic_checkpoint_resume_receipts": self.agentic_checkpoint_resume_receipts(),
             "agentic_benchmark_scorecard_receipts": self.agentic_benchmark_scorecard_receipts(),
             "agentic_harness_epoch_audit_receipts": self.agentic_harness_epoch_audit_receipts(),
             "single_software_convergence_receipts": self.single_software_convergence_receipts(),

@@ -322,6 +322,11 @@ fields such as `memory_id`/`active`.
   summarized into task-success, acceptance-coverage, evidence-coverage,
   hidden-failure, cost, and latency metrics visible in Owner Console, while
   executing no external benchmark suite and proving no product readiness.
+- P48 is a shadow-level runtime admission for agentic checkpoint/resume.
+  Graph checkpoint receipts preserve node and lease state; expired active
+  leases can be resumed back to READY and reacquired by a restarted canonical
+  harness, while inferring no worker result, retry execution, repair success,
+  or task completion.
 
 ## Projection Rule
 

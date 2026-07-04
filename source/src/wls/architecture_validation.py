@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -8,6 +9,7 @@ import json
 import threading
 
 from .a2a_adapter import A2AAdapter, ArtifactEnvelope, TaskContract, payload_digest
+from .agentic_harness import AgenticHarness
 from .agentic_mailbox import AgenticFileMailbox, ResultEnvelope
 from .browser_adapter import BrowserReadOnlyAdapter, BrowserReadOnlyRequest
 from .capabilities import baseline_registry
@@ -3727,6 +3729,94 @@ def validate_phase2_agentic_benchmark_scorecard(
         ],
         [
             "Agentic benchmark scorecards summarize existing acceptance, failure, repair, and budget receipts through LivingSystem without executing external benchmarks or claiming product readiness",
+        ],
+    )
+
+
+def validate_phase2_agentic_checkpoint_resume(home: Path) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository documents",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = str(receipt["graph"]["graph_id"])
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id,
+        worker_id="readonly-inspector",
+        limit=1,
+        ttl_seconds=1,
+    )[0]
+    checkpoint = runtime.agentic.record_graph_checkpoint(
+        graph_id, reason="architecture validation checkpoint before restart"
+    )
+    resume_at = (datetime.now(UTC) + timedelta(seconds=2)).isoformat()
+    resumed = runtime.agentic.resume_expired_leases(
+        graph_id,
+        reason="architecture validation resume expired node lease",
+        now=resume_at,
+    )
+    restarted = AgenticHarness(runtime.db, runtime.ledger)
+    reacquired = restarted.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector", limit=1
+    )
+    graph = restarted.load_graph(graph_id)
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "agentic_tasks"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN (
+                'agentic_graph_checkpoint_recorded',
+                'agentic_graph_resume_recorded',
+                'agentic_task_node_leased'
+            )
+            """
+        )
+    }
+    if (
+        checkpoint["active_lease_count"] != 1
+        or resumed["resumed_node_count"] != 1
+        or not reacquired
+        or reacquired[0].node_id != lease.node_id
+        or reacquired[0].lease_id == lease.lease_id
+        or graph.nodes[lease.node_id].status.value != "LEASED"
+        or panel is None
+        or panel["status"]["checkpoint_resume_v1"]["receipt_count"] != 2
+        or {
+            "agentic_graph_checkpoint_recorded",
+            "agentic_graph_resume_recorded",
+            "agentic_task_node_leased",
+        }
+        - event_types
+    ):
+        return ArchitecturePassResult(
+            "P48",
+            "BLOCKED",
+            [graph_id],
+            ["agentic checkpoint/resume validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P48",
+        "ADMIT_SHADOW_ONLY",
+        [
+            graph_id,
+            lease.lease_id,
+            reacquired[0].lease_id,
+            *sorted(event_types),
+        ],
+        [
+            "Agentic checkpoint/resume records graph and lease state, expires abandoned leases, and lets a restarted canonical harness reacquire work without inferring worker success or executing retries",
         ],
     )
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -543,6 +544,56 @@ def test_agentic_node_budget_gate_records_reserve_and_block(
     assert len(receipts) == 2
     assert panel["status"]["budget_gate_v1"]["receipt_count"] == 2
     assert panel["status"]["budget_gate_v1"]["provider_calls"] is False
+
+
+def test_agentic_checkpoint_resume_releases_expired_lease_after_restart(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id,
+        worker_id="readonly-inspector",
+        ttl_seconds=1,
+    )[0]
+    checkpoint = runtime.agentic.record_graph_checkpoint(
+        graph_id,
+        reason="unit test checkpoint before restart",
+    )
+    resume_at = (datetime.now(UTC) + timedelta(seconds=2)).isoformat()
+
+    resume = runtime.agentic.resume_expired_leases(
+        graph_id,
+        reason="unit test resume expired lease",
+        now=resume_at,
+    )
+    restarted = AgenticHarness(runtime.db, runtime.ledger)
+    reacquired = restarted.acquire_ready_leases(
+        graph_id,
+        worker_id="readonly-inspector",
+    )
+
+    graph = restarted.load_graph(graph_id)
+    receipts = runtime.status()["agentic_checkpoint_resume_receipts"]
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+    assert checkpoint["active_lease_count"] == 1
+    assert resume["resumed_node_count"] == 1
+    assert resume["resumed_nodes"][0]["expired_lease_id"] == lease.lease_id
+    assert reacquired[0].node_id == lease.node_id
+    assert reacquired[0].lease_id != lease.lease_id
+    assert graph.nodes[lease.node_id].status is TaskNodeStatus.LEASED
+    assert len(receipts) == 2
+    assert panel["status"]["checkpoint_resume_v1"]["receipt_count"] == 2
+    assert panel["status"]["checkpoint_resume_v1"]["retry_execution"] is False
 
 
 def test_agentic_file_mailbox_handoff_imports_through_canonical_harness(

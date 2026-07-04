@@ -471,6 +471,7 @@ class OwnerConsoleProductProjection:
         mailbox = status.get("agentic_mailbox_receipts", [])
         repair_candidates = status.get("agentic_repair_candidate_receipts", [])
         budgets = status.get("agentic_budget_receipts", [])
+        checkpoint_resume = status.get("agentic_checkpoint_resume_receipts", [])
         scorecards = status.get("agentic_benchmark_scorecard_receipts", [])
         audits = status.get("agentic_harness_epoch_audit_receipts", [])
         return {
@@ -525,6 +526,16 @@ class OwnerConsoleProductProjection:
                     "items": budgets if isinstance(budgets, list) else [],
                     "provider_calls": False,
                     "tool_execution": False,
+                },
+                "checkpoint_resume_v1": {
+                    "receipt_count": len(checkpoint_resume)
+                    if isinstance(checkpoint_resume, list)
+                    else 0,
+                    "items": checkpoint_resume
+                    if isinstance(checkpoint_resume, list)
+                    else [],
+                    "retry_execution": False,
+                    "worker_result_inferred": False,
                 },
                 "benchmark_scorecard_v1": {
                     "receipt_count": len(scorecards)

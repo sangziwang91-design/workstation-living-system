@@ -429,6 +429,143 @@ class AgenticHarness:
                 )
         return receipts
 
+    def checkpoint_resume_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        rows = self.db.query_all(
+            """
+            SELECT event_type,payload_json,created_at FROM evidence
+            WHERE event_type IN (
+                'agentic_graph_checkpoint_recorded',
+                'agentic_graph_resume_recorded'
+            )
+            ORDER BY seq DESC
+            LIMIT ?
+            """,
+            (max(0, int(limit)),),
+        )
+        receipts: list[dict[str, Any]] = []
+        for row in rows:
+            payload = json.loads(str(row["payload_json"]))
+            if isinstance(payload, dict):
+                receipts.append(
+                    {
+                        **payload,
+                        "event_type": row["event_type"],
+                        "created_at": row["created_at"],
+                    }
+                )
+        return receipts
+
+    def record_graph_checkpoint(self, graph_id: str, *, reason: str) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("checkpoint reason is required")
+        graph = self.load_graph(graph_id)
+        lease_rows = self.db.query_all(
+            """
+            SELECT lease_id,node_id,worker_id,status,acquired_at,expires_at,released_at
+            FROM agentic_node_leases
+            WHERE graph_id=?
+            ORDER BY acquired_at DESC
+            """,
+            (graph_id,),
+        )
+        node_status_counts: dict[str, int] = {}
+        for node in graph.nodes.values():
+            node_status_counts[node.status.value] = (
+                node_status_counts.get(node.status.value, 0) + 1
+            )
+        payload = {
+            "checkpoint_id": new_id("checkpoint"),
+            "graph_id": graph_id,
+            "reason": reason,
+            "graph_digest": graph.snapshot()["graph_digest"],
+            "node_status_counts": node_status_counts,
+            "lease_count": len(lease_rows),
+            "active_lease_count": sum(
+                1 for row in lease_rows if str(row["status"]) == "ACTIVE"
+            ),
+            "leases": [dict(row) for row in lease_rows[:20]],
+            "direct_execution": False,
+            "claim_ceiling": (
+                "agentic graph checkpoint receipt only; no worker execution, "
+                "retry, repair, owner approval, or task completion is inferred"
+            ),
+        }
+        self.ledger.append("agentic_graph_checkpoint_recorded", payload)
+        return payload
+
+    def resume_expired_leases(
+        self,
+        graph_id: str,
+        *,
+        reason: str,
+        now: str | None = None,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("resume reason is required")
+        resume_at = now or utc_now()
+        with self.db.transaction() as connection:
+            self._expire_leases(connection, resume_at)
+            graph = self._load_graph_for_update(graph_id, connection)
+            active_lease_ids = {
+                str(row["lease_id"])
+                for row in connection.execute(
+                    """
+                    SELECT lease_id FROM agentic_node_leases
+                    WHERE graph_id=? AND status='ACTIVE'
+                    """,
+                    (graph_id,),
+                ).fetchall()
+            }
+            expired_rows = connection.execute(
+                """
+                SELECT lease_id,node_id,worker_id,expires_at,released_at
+                FROM agentic_node_leases
+                WHERE graph_id=? AND status='EXPIRED'
+                ORDER BY expires_at DESC
+                """,
+                (graph_id,),
+            ).fetchall()
+            expired_lease_ids = {str(row["lease_id"]) for row in expired_rows}
+            resumed_nodes: list[dict[str, Any]] = []
+            for node in graph.nodes.values():
+                if node.status is not TaskNodeStatus.LEASED:
+                    continue
+                if not node.lease_id or node.lease_id in active_lease_ids:
+                    continue
+                if node.lease_id not in expired_lease_ids:
+                    continue
+                previous = {
+                    "node_id": node.node_id,
+                    "expired_lease_id": node.lease_id,
+                    "worker_id": node.worker_id,
+                    "attempts": node.attempts,
+                }
+                graph.transition(node.node_id, TaskNodeStatus.READY)
+                graph.nodes[node.node_id].lease_id = None
+                graph.nodes[node.node_id].worker_id = None
+                graph.nodes[node.node_id].error = None
+                resumed_nodes.append(previous)
+            self._persist_graph(graph, connection)
+            payload = {
+                "resume_id": new_id("resume"),
+                "graph_id": graph_id,
+                "reason": reason,
+                "resume_at": resume_at,
+                "expired_lease_count": len(expired_rows),
+                "resumed_node_count": len(resumed_nodes),
+                "resumed_nodes": resumed_nodes,
+                "graph_digest": graph.snapshot()["graph_digest"],
+                "direct_execution": False,
+                "retry_executed": False,
+                "claim_ceiling": (
+                    "expired lease resume receipt only; nodes may return to READY, "
+                    "but no worker result, retry execution, task success, or repair "
+                    "is inferred"
+                ),
+            }
+            self.ledger.append("agentic_graph_resume_recorded", payload, connection)
+            return payload
+
     def reserve_node_budget(
         self,
         graph_id: str,
