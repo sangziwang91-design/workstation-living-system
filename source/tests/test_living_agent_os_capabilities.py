@@ -36,6 +36,7 @@ from wls.architecture_validation import (
     validate_phase2_agentic_worker_lease_recovery,
     validate_phase2_agentic_worker_lifecycle,
     validate_phase2_agentic_task_harness,
+    validate_phase2_offspring_birth_contract,
     validate_phase2_sandbox_adapter_contract,
     validate_external_memory_projection,
     validate_mcp_a2a_candidates,
@@ -2544,6 +2545,56 @@ def test_sandbox_adapter_probe_records_destroyed_local_fixture(
     assert receipt["contract"]["environment_digest"]
     assert panel["status"]["receipt_count"] == 1
     assert panel["status"]["secret_access"] is False
+
+
+def test_architecture_validation_checks_offspring_birth_contract(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_offspring_birth_contract(
+        tmp_path / "offspring-birth-validation-home"
+    )
+    assert result.pass_id == "P59"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) >= 4
+
+
+def test_offspring_birth_contract_preserves_identity_boundary(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt = runtime.draft_offspring_birth_contract(
+        parent_head="unit-test-head",
+        mission="read-only child candidate for inspection",
+        budget={"cycles": 1, "tokens": 0, "writes": 0},
+        inheritance_manifest={
+            "allow": ["readonly_profile"],
+            "deny": ["secrets", "private_memory", "parent_database_write"],
+        },
+        termination_conditions=["inspection complete", "budget exhausted"],
+        reason="unit test offspring birth contract",
+    )
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "offspring"
+    )
+
+    assert receipt["receipt_type"] == "OFFSPRING_BIRTH_CONTRACT_DRAFTED"
+    assert receipt["identity_boundary"]["canonical_authority"] == "LivingSystem"
+    assert receipt["identity_boundary"]["child_authority"] == "candidate_only"
+    assert receipt["identity_boundary"]["parent_write_allowed"] is False
+    assert receipt["identity_boundary"]["child_runtime_started"] is False
+    assert receipt["identity_boundary"]["no_second_living_system"] is True
+    assert receipt["contract"]["permission_scope"]["read_only"] is True
+    assert receipt["contract"]["permission_scope"]["merge_allowed"] is False
+    assert receipt["contract"]["permission_scope"]["deployment_allowed"] is False
+    assert receipt["contract"]["permission_scope"]["skill_promotion_allowed"] is False
+    assert Path(str(receipt["contract_path"])).exists()
+    assert Path(str(receipt["identity_path"])).exists()
+    assert panel["status"]["receipt_count"] == 1
+    assert panel["status"]["second_authority_created"] is False
+    assert panel["status"]["child_runtime_started"] is False
+    assert panel["status"]["canonical_authority"] == "LivingSystem"
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

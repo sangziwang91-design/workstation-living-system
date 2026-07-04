@@ -29,6 +29,7 @@ from .growth_cycle import GrowthCycleManager
 from .learning import LearningSystem
 from .memory_attribution import MemoryAttributionStore
 from .lease import ProcessLease
+from .offspring import OffspringRegistry
 from .planner import Planner
 from .policy import PolicyEngine
 from .relationships import RelationshipMemory
@@ -111,6 +112,7 @@ class LivingSystem:
         self.planner = Planner(config, self.cognition, self.ledger)
         self.growth = GrowthCycleManager(self)
         self.agentic = AgenticHarness(self.db, self.ledger)
+        self.offspring = OffspringRegistry(config, self.db, self.ledger)
         self.capabilities = baseline_registry()
         self.capabilities.assert_no_duplicate_authority()
         self.channel_gateway = ChannelGateway()
@@ -338,6 +340,9 @@ class LivingSystem:
         if not isinstance(receipts, list):
             return []
         return receipts[: max(0, int(limit))]
+
+    def offspring_birth_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        return self.offspring.latest_receipts(limit=limit)
 
     def agentic_task_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         rows = self.db.query_all(
@@ -993,6 +998,7 @@ class LivingSystem:
             "skill_candidate": len(self.skill_candidate_receipts(100)),
             "skill_sandbox": len(self.skill_sandbox_receipts(100)),
             "sandbox_adapter": len(self.sandbox_adapter_receipts(100)),
+            "offspring_birth": len(self.offspring_birth_receipts(100)),
         }
         branch_only_scaffolding = [
             {
@@ -1059,6 +1065,27 @@ class LivingSystem:
                 "single_software_convergence_audited", receipt, connection
             )
         return receipt
+
+    def draft_offspring_birth_contract(
+        self,
+        *,
+        parent_head: str,
+        mission: str,
+        budget: dict[str, Any],
+        inheritance_manifest: dict[str, Any],
+        termination_conditions: list[str],
+        parent_id: str = "WLS-PRIME",
+        reason: str,
+    ) -> dict[str, Any]:
+        return self.offspring.draft_birth_contract(
+            parent_head=parent_head,
+            mission=mission,
+            budget=budget,
+            inheritance_manifest=inheritance_manifest,
+            termination_conditions=termination_conditions,
+            parent_id=parent_id,
+            reason=reason,
+        )
 
     def learning_epoch_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         receipts = self.db.get_runtime("learning_epoch_receipts", [])
@@ -3313,6 +3340,7 @@ class LivingSystem:
             "skill_candidate_receipts": self.skill_candidate_receipts(),
             "skill_sandbox_receipts": self.skill_sandbox_receipts(),
             "sandbox_adapter_receipts": self.sandbox_adapter_receipts(),
+            "offspring_birth_receipts": self.offspring_birth_receipts(),
             "agentic_task_receipts": self.agentic_task_receipts(),
             "agentic_context_manifest_receipts": self.agentic_context_manifest_receipts(),
             "agentic_worker_profile_receipts": self.agentic_worker_profile_receipts(),

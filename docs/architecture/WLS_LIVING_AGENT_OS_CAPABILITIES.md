@@ -366,6 +366,11 @@ fields such as `memory_id`/`active`.
   A local fixture sandbox records environment and contract digests, denies
   network and secret access by default, verifies destroy, and does not imply
   remote execution or canonical task completion.
+- P59 is a shadow-level runtime admission for offspring birth contracts.
+  An isolated candidate home can hold a read-only birth contract, inheritance
+  manifest, termination conditions, and identity boundary receipt, while no
+  child runtime start, parent write, merge, deployment, Skill promotion,
+  external access, or second LivingSystem authority is inferred.
 
 ## Projection Rule
 

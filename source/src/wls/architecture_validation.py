@@ -4888,6 +4888,91 @@ def validate_phase2_sandbox_adapter_contract(home: Path) -> ArchitecturePassResu
     )
 
 
+def validate_phase2_offspring_birth_contract(home: Path) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    receipt = runtime.draft_offspring_birth_contract(
+        parent_head="architecture-validation-head",
+        mission="bounded read-only inspection offspring candidate",
+        budget={"cycles": 1, "tokens": 0, "writes": 0},
+        inheritance_manifest={
+            "allow": ["readonly_profile", "public_schema", "task_contract"],
+            "deny": ["secrets", "private_memory", "parent_database_write"],
+        },
+        termination_conditions=[
+            "one read-only inspection task completes",
+            "budget exhausted",
+            "identity boundary violation detected",
+        ],
+        reason="architecture validation offspring birth contract",
+    )
+    contract_path = Path(str(receipt["contract_path"]))
+    identity_path = Path(str(receipt["identity_path"]))
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "offspring"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type='offspring_birth_contract_drafted'
+            """
+        )
+    }
+    boundary = receipt["identity_boundary"]
+    contract = receipt["contract"]
+    if (
+        receipt["receipt_type"] != "OFFSPRING_BIRTH_CONTRACT_DRAFTED"
+        or receipt["status"] != "BIRTH_CONTRACT_DRAFTED"
+        or not contract_path.exists()
+        or not identity_path.exists()
+        or boundary["canonical_authority"] != "LivingSystem"
+        or boundary["child_authority"] != "candidate_only"
+        or boundary["parent_write_allowed"] is not False
+        or boundary["child_runtime_started"] is not False
+        or boundary["birth_executed"] is not False
+        or boundary["no_second_living_system"] is not True
+        or contract["permission_scope"]["read_only"] is not True
+        or contract["permission_scope"]["parent_write_allowed"] is not False
+        or contract["permission_scope"]["merge_allowed"] is not False
+        or contract["permission_scope"]["deployment_allowed"] is not False
+        or contract["permission_scope"]["skill_promotion_allowed"] is not False
+        or receipt["merge_allowed"] is not False
+        or receipt["deployment_allowed"] is not False
+        or receipt["skill_promotion_allowed"] is not False
+        or panel is None
+        or panel["status"]["receipt_count"] < 1
+        or panel["status"]["second_authority_created"] is not False
+        or "offspring_birth_contract_drafted" not in event_types
+    ):
+        return ArchitecturePassResult(
+            "P59",
+            "BLOCKED",
+            [str(receipt), str(panel)],
+            ["offspring birth contract identity boundary validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P59",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(receipt["offspring_id"]),
+            str(contract["contract_digest"]),
+            str(receipt["receipt_digest"]),
+            *sorted(event_types),
+        ],
+        [
+            "Offspring birth contract is materialized only as an isolated candidate with read-only budget, explicit inheritance limits, termination conditions, and no second authority",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

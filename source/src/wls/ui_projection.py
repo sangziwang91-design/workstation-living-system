@@ -55,6 +55,7 @@ class OwnerConsoleProductProjection:
         "skill_candidates",
         "skill_sandbox",
         "sandbox_adapters",
+        "offspring",
         "agentic_tasks",
         "learning_epoch",
         "capability_epoch",
@@ -87,6 +88,7 @@ class OwnerConsoleProductProjection:
             self._skill_candidates_panel(status),
             self._skill_sandbox_panel(status),
             self._sandbox_adapters_panel(status),
+            self._offspring_panel(status),
             self._agentic_tasks_panel(status),
             self._learning_epoch_panel(status),
             self._capability_epoch_panel(status),
@@ -476,6 +478,27 @@ class OwnerConsoleProductProjection:
                 "secret_access": False,
                 "network_access": False,
                 "canonical_authority": "LivingSystem",
+            },
+        }
+
+    @staticmethod
+    def _offspring_panel(status: dict[str, Any]) -> dict[str, Any]:
+        receipts = status.get("offspring_birth_receipts", [])
+        return {
+            "panel_id": "offspring",
+            "title": "Offspring",
+            "status": {
+                "receipt_count": len(receipts) if isinstance(receipts, list) else 0,
+                "items": receipts if isinstance(receipts, list) else [],
+                "birth_contract_only": True,
+                "child_runtime_started": False,
+                "parent_write_allowed": False,
+                "second_authority_created": False,
+                "canonical_authority": "LivingSystem",
+                "child_authority": "candidate_only",
+                "merge_allowed": False,
+                "deployment_allowed": False,
+                "skill_promotion_allowed": False,
             },
         }
 
