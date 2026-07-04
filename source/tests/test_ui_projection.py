@@ -11,16 +11,21 @@ from wls.ui_projection import UIProjection
 
 
 class MiniDB:
-    def __init__(self) -> None:
+    def __init__(self, *, legacy_evidence: bool = False) -> None:
         self.connection = sqlite3.connect(":memory:", check_same_thread=False)
         self.connection.row_factory = sqlite3.Row
+        evidence_optional = "" if legacy_evidence else ",source_type TEXT,producer TEXT,branch TEXT,commit_sha TEXT"
         self.connection.executescript(
-            """
+            f"""
             CREATE TABLE goals (
                 goal_id TEXT PRIMARY KEY,title TEXT,description TEXT,priority REAL,
                 success_criteria_json TEXT,source TEXT,autonomous INTEGER,
                 parent_goal_id TEXT,deadline TEXT,status TEXT,progress REAL,
-                created_at TEXT,updated_at TEXT
+                created_at TEXT,updated_at TEXT,rationale TEXT,origin TEXT,
+                task_spec_json TEXT,dependencies_json TEXT,progress_evidence_json TEXT,
+                remaining_work_json TEXT,risk TEXT,blocked_reason TEXT,
+                contradiction_reason TEXT,interruption_count INTEGER,recovery_count INTEGER,
+                completed_at TEXT,archived_at TEXT,last_reviewed_at TEXT
             );
             CREATE TABLE cycles (
                 cycle_id TEXT PRIMARY KEY,started_at TEXT,finished_at TEXT,status TEXT,
@@ -40,7 +45,7 @@ class MiniDB:
             CREATE TABLE events (status TEXT);
             CREATE TABLE evidence (
                 seq INTEGER PRIMARY KEY,evidence_id TEXT,event_type TEXT,payload_json TEXT,
-                created_at TEXT,previous_hash TEXT,record_hash TEXT,signature TEXT
+                created_at TEXT,record_hash TEXT{evidence_optional}
             );
             CREATE TABLE skills (
                 skill_id TEXT,name TEXT,version INTEGER,status TEXT,success_rate REAL,
@@ -65,7 +70,7 @@ class GoalFacade:
 
     def add(self, goal: Goal) -> str:
         self.db.connection.execute(
-            "INSERT INTO goals VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO goals VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 goal.goal_id,
                 goal.title,
@@ -80,6 +85,20 @@ class GoalFacade:
                 goal.progress,
                 goal.created_at,
                 goal.updated_at,
+                None,
+                None,
+                "{}",
+                "[]",
+                "[]",
+                "[]",
+                "READ",
+                None,
+                None,
+                0,
+                0,
+                None,
+                None,
+                None,
             ),
         )
         return goal.goal_id
@@ -95,8 +114,8 @@ class ApprovalFacade:
 
 
 class FakeRuntime:
-    def __init__(self) -> None:
-        self.db = MiniDB()
+    def __init__(self, *, legacy_evidence: bool = False) -> None:
+        self.db = MiniDB(legacy_evidence=legacy_evidence)
         self.goals = GoalFacade(self.db)
         self.approvals = ApprovalFacade()
         self.config = SimpleNamespace(secret_path="secret.key")
@@ -200,6 +219,79 @@ def test_projection_maps_top_level_goals_to_projects() -> None:
     assert tasks[0]["parent_goal_id"] == project_id
 
 
+def test_projection_filters_archived_and_explicit_task_rows() -> None:
+    runtime = FakeRuntime()
+    c = runtime.db.connection
+    c.execute(
+        "INSERT INTO goals VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            "archived-project",
+            "Archived",
+            "",
+            0.5,
+            "[]",
+            "fixture",
+            0,
+            None,
+            None,
+            "ACTIVE",
+            0.0,
+            "now",
+            "now",
+            None,
+            None,
+            "{}",
+            "[]",
+            "[]",
+            "[]",
+            "READ",
+            None,
+            None,
+            0,
+            0,
+            None,
+            "now",
+            None,
+        ),
+    )
+    c.execute(
+        "INSERT INTO goals VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            "orphan-task",
+            "Bad historical task",
+            "",
+            0.5,
+            "[]",
+            "fixture",
+            0,
+            None,
+            None,
+            "ACTIVE",
+            0.0,
+            "now",
+            "now",
+            None,
+            None,
+            '{"kind":"task"}',
+            "[]",
+            "[]",
+            "[]",
+            "READ",
+            None,
+            None,
+            0,
+            0,
+            None,
+            None,
+            None,
+        ),
+    )
+
+    assert UIProjection(runtime).projects() == []
+    with pytest.raises(ValueError, match="explicitly tagged as task"):
+        UIProjection(runtime).project_detail("orphan-task")
+
+
 def test_task_requires_project_id() -> None:
     projection = UIProjection(FakeRuntime())
     with pytest.raises(ValueError, match="project_id is required"):
@@ -218,6 +310,48 @@ def test_task_parent_must_be_top_level_project() -> None:
     with pytest.raises(ValueError, match="top-level"):
         projection.create_goal(
             {"kind": "task", "project_id": task_id, "title": "Nested via UI"}
+        )
+
+
+def test_task_parent_cannot_be_explicit_task_row() -> None:
+    runtime = FakeRuntime()
+    c = runtime.db.connection
+    c.execute(
+        "INSERT INTO goals VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            "bad-project",
+            "Bad project",
+            "",
+            0.5,
+            "[]",
+            "fixture",
+            0,
+            None,
+            None,
+            "ACTIVE",
+            0.0,
+            "now",
+            "now",
+            None,
+            None,
+            '{"kind":"task"}',
+            "[]",
+            "[]",
+            "[]",
+            "READ",
+            None,
+            None,
+            0,
+            0,
+            None,
+            None,
+            None,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="explicitly tagged as task"):
+        UIProjection(runtime).create_goal(
+            {"kind": "task", "project_id": "bad-project", "title": "Nested"}
         )
 
 
@@ -261,8 +395,24 @@ def test_library_projects_evidence_and_skills() -> None:
     runtime = FakeRuntime()
     c = runtime.db.connection
     c.execute(
-        "INSERT INTO evidence VALUES (?,?,?,?,?,?,?,?)",
-        ("1", "ev-1", "runtime_initialized", '{"ok": true}', "now", "p", "h", "s"),
+        """
+        INSERT INTO evidence(
+            seq,evidence_id,event_type,payload_json,created_at,record_hash,
+            source_type,producer,branch,commit_sha
+        ) VALUES (?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            "1",
+            "ev-1",
+            "runtime_initialized",
+            '{"ok": true}',
+            "now",
+            "h",
+            "runtime",
+            "pytest",
+            "branch",
+            "commit",
+        ),
     )
     c.execute(
         "INSERT INTO skills VALUES (?,?,?,?,?,?,?,?,?)",
@@ -274,3 +424,20 @@ def test_library_projects_evidence_and_skills() -> None:
     assert library["evidence"][0]["event_type"] == "runtime_initialized"
     assert library["evidence"][0]["payload"]["ok"] is True
     assert library["skills"][0]["name"] == "read"
+
+
+def test_library_accepts_legacy_evidence_schema_without_provenance_columns() -> None:
+    runtime = FakeRuntime(legacy_evidence=True)
+    c = runtime.db.connection
+    c.execute(
+        "INSERT INTO evidence(seq,evidence_id,event_type,payload_json,created_at,record_hash) VALUES (?,?,?,?,?,?)",
+        ("1", "ev-legacy", "runtime_initialized", '{"ok": true}', "now", "h"),
+    )
+
+    evidence = UIProjection(runtime).library()["evidence"][0]
+
+    assert evidence["evidence_id"] == "ev-legacy"
+    assert evidence["source_type"] is None
+    assert evidence["producer"] is None
+    assert evidence["branch"] is None
+    assert evidence["commit_sha"] is None

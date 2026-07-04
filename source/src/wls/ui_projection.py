@@ -96,38 +96,51 @@ class UIProjection:
             """
             SELECT g.*,
                    (SELECT COUNT(*) FROM goals child
-                    WHERE child.parent_goal_id=g.goal_id) AS task_count,
+                    WHERE child.parent_goal_id=g.goal_id
+                      AND child.archived_at IS NULL) AS task_count,
                    (SELECT COUNT(*) FROM goals child
                     WHERE child.parent_goal_id=g.goal_id
-                      AND child.status IN ('ACTIVE','BLOCKED')
+                      AND child.archived_at IS NULL
+                      AND child.status IN ('ACTIVE','DECOMPOSED','IN_PROGRESS','WAITING','BLOCKED')
                    ) AS active_task_count
             FROM goals g
             WHERE g.parent_goal_id IS NULL
+              AND g.archived_at IS NULL
             ORDER BY g.priority DESC, g.updated_at DESC
             """
         )
-        return [self._goal_view(row, kind="project") for row in rows]
+        projects: list[dict[str, Any]] = []
+        for row in rows:
+            view = self._goal_view(row, kind="project")
+            if view["kind"] == "task":
+                continue
+            projects.append(view)
+        return projects
 
     def tasks(
         self,
         *,
         project_id: str | None = None,
+        include_archived: bool = False,
         limit: int = 250,
     ) -> list[dict[str, Any]]:
+        clauses: list[str] = []
         parameters: list[Any] = []
         if project_id:
-            where = "parent_goal_id=?"
+            clauses.append("parent_goal_id=?")
             parameters.append(project_id)
         else:
-            where = "parent_goal_id IS NOT NULL"
+            clauses.append("parent_goal_id IS NOT NULL")
+        if not include_archived:
+            clauses.append("archived_at IS NULL")
         parameters.append(max(1, min(1000, int(limit))))
         rows = self.db.query_all(
             f"""
             SELECT * FROM goals
-            WHERE {where}
+            WHERE {' AND '.join(clauses)}
             ORDER BY priority DESC, updated_at DESC
             LIMIT ?
-            """,  # nosec B608 - where is selected from fixed internal strings
+            """,  # nosec B608 - clauses are selected from fixed internal strings
             tuple(parameters),
         )
         return [self._goal_view(row, kind="task") for row in rows]
@@ -139,7 +152,9 @@ class UIProjection:
         if _value(row, "parent_goal_id") is not None:
             raise ValueError(f"goal is not a top-level project: {project_id}")
         project = self._goal_view(row, kind="project")
-        project["tasks"] = self.tasks(project_id=project_id)
+        if project["kind"] == "task":
+            raise ValueError(f"goal is explicitly tagged as task: {project_id}")
+        project["tasks"] = self.tasks(project_id=project_id, include_archived=True)
         project["recent_runs"] = self.runs(
             goal_ids=self._goal_tree_ids(project_id),
             limit=20,
@@ -244,7 +259,7 @@ class UIProjection:
         goal_rows = self.db.query_all(
             """
             SELECT * FROM goals
-            WHERE status='BLOCKED'
+            WHERE status='BLOCKED' AND archived_at IS NULL
             ORDER BY priority DESC,updated_at ASC
             """
         )
@@ -278,13 +293,28 @@ class UIProjection:
 
     def library(self, limit: int = 100) -> dict[str, Any]:
         safe_limit = max(1, min(500, int(limit)))
+        evidence_columns = self._table_columns("evidence")
+        base_columns = [
+            "seq",
+            "evidence_id",
+            "event_type",
+            "payload_json",
+            "created_at",
+            "record_hash",
+        ]
+        optional_columns = ["source_type", "producer", "branch", "commit_sha"]
+        select_columns = [column for column in base_columns if column in evidence_columns]
+        select_columns.extend(
+            column if column in evidence_columns else f"NULL AS {column}"
+            for column in optional_columns
+        )
         evidence_rows = self.db.query_all(
-            """
-            SELECT seq,evidence_id,event_type,payload_json,created_at,record_hash
+            f"""
+            SELECT {','.join(select_columns)}
             FROM evidence
             ORDER BY seq DESC
             LIMIT ?
-            """,
+            """,  # nosec B608 - column names come from a fixed allowlist
             (safe_limit,),
         )
         skill_rows = self.db.query_all(
@@ -341,6 +371,11 @@ class UIProjection:
                 raise ValueError("project_id does not identify an existing goal")
             if _value(parent, "parent_goal_id") is not None:
                 raise ValueError("project_id must identify a top-level project")
+            parent_spec = _value(parent, "task_spec", None)
+            if parent_spec is None:
+                parent_spec = _decode_json(_value(parent, "task_spec_json", "{}"), {})
+            if isinstance(parent_spec, dict) and parent_spec.get("kind") == "task":
+                raise ValueError("project_id identifies a goal explicitly tagged as task")
         criteria = payload.get("success_criteria", [])
         if not isinstance(criteria, list):
             raise ValueError("success_criteria must be a list")
@@ -437,6 +472,12 @@ class UIProjection:
         )
         return {str(row["status"]): int(row["n"]) for row in rows}
 
+    def _table_columns(self, table: str) -> set[str]:
+        if table not in {"evidence"}:
+            raise ValueError("unsupported table")
+        rows = self.db.query_all(f"PRAGMA table_info({table})")  # nosec B608
+        return {str(row["name"]) for row in rows}
+
     @staticmethod
     def _action_operations(status: str) -> list[str]:
         if status == "WAITING_APPROVAL":
@@ -453,7 +494,10 @@ class UIProjection:
         data["success_criteria"] = _decode_json(
             data.pop("success_criteria_json", "[]"), []
         )
+        task_spec = _decode_json(data.get("task_spec_json"), {})
         data["kind"] = kind
+        if isinstance(task_spec, dict) and task_spec.get("kind") == "task":
+            data["kind"] = "task"
         if "task_count" in data:
             data["task_count"] = int(data["task_count"] or 0)
         if "active_task_count" in data:
