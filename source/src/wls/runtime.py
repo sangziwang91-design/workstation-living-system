@@ -1295,6 +1295,147 @@ class LivingSystem:
             return []
         return receipts[: max(0, int(limit))]
 
+    def transfer_audit_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("transfer_audit_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
+    def record_transfer_efficiency_audit(
+        self,
+        *,
+        capability_id: str,
+        transfer_cases: list[dict[str, Any]],
+        regression_cases: list[dict[str, Any]],
+        efficiency_thresholds: dict[str, Any],
+        reason: str,
+    ) -> dict[str, Any]:
+        if not capability_id.strip() or not reason.strip():
+            raise ValueError("transfer audit requires capability_id and reason")
+        if not transfer_cases:
+            raise ValueError("transfer audit requires transfer cases")
+        if not regression_cases:
+            raise ValueError("transfer audit requires regression cases")
+        max_cost_ratio = float(efficiency_thresholds.get("max_cost_ratio", 1.0))
+        min_success_per_cost = float(
+            efficiency_thresholds.get("min_success_per_cost", 0.0)
+        )
+        transfer_matrix = []
+        transfer_failures = []
+        efficiency_failures = []
+        success_per_cost_values = []
+        cost_ratio_values: list[float] = []
+        for case in transfer_cases:
+            case_id = str(case.get("case_id", ""))
+            baseline_success = float(case.get("baseline_success_rate", 0.0))
+            candidate_success = float(case.get("candidate_success_rate", 0.0))
+            baseline_cost = max(float(case.get("baseline_cost", 0.0)), 0.000001)
+            candidate_cost = max(float(case.get("candidate_cost", 0.0)), 0.000001)
+            cost_ratio = candidate_cost / baseline_cost
+            success_per_cost = candidate_success / candidate_cost
+            cost_ratio_values.append(cost_ratio)
+            success_per_cost_values.append(success_per_cost)
+            transfer_passed = candidate_success >= baseline_success
+            efficient = (
+                cost_ratio <= max_cost_ratio
+                and success_per_cost >= min_success_per_cost
+            )
+            row = {
+                "case_id": case_id,
+                "domain": case.get("domain"),
+                "model": case.get("model"),
+                "environment": case.get("environment"),
+                "baseline_success_rate": baseline_success,
+                "candidate_success_rate": candidate_success,
+                "success_delta": candidate_success - baseline_success,
+                "baseline_cost": baseline_cost,
+                "candidate_cost": candidate_cost,
+                "cost_ratio": cost_ratio,
+                "success_per_cost": success_per_cost,
+                "transfer_passed": transfer_passed,
+                "efficiency_passed": efficient,
+            }
+            transfer_matrix.append(row)
+            if not transfer_passed:
+                transfer_failures.append(row)
+            if not efficient:
+                efficiency_failures.append(row)
+        regression_matrix = []
+        regression_failures = []
+        for case in regression_cases:
+            case_id = str(case.get("case_id", ""))
+            baseline_success = float(case.get("baseline_success_rate", 0.0))
+            candidate_success = float(case.get("candidate_success_rate", 0.0))
+            safety_passed = bool(case.get("safety_passed", True))
+            regression_free = candidate_success >= baseline_success and safety_passed
+            row = {
+                "case_id": case_id,
+                "organ": case.get("organ"),
+                "baseline_success_rate": baseline_success,
+                "candidate_success_rate": candidate_success,
+                "success_delta": candidate_success - baseline_success,
+                "safety_passed": safety_passed,
+                "regression_free": regression_free,
+            }
+            regression_matrix.append(row)
+            if not regression_free:
+                regression_failures.append(row)
+        zero_key_regressions = len(regression_failures) == 0
+        hidden_best_only_result = any(
+            row["transfer_passed"] for row in transfer_matrix
+        ) and bool(transfer_failures)
+        efficiency_summary = {
+            "average_success_per_cost": (
+                sum(success_per_cost_values) / len(success_per_cost_values)
+            ),
+            "max_cost_ratio": max(cost_ratio_values),
+            "thresholds": efficiency_thresholds,
+            "efficiency_failure_count": len(efficiency_failures),
+        }
+        if regression_failures:
+            decision = "REJECT_REGRESSION"
+        elif transfer_failures:
+            decision = "PARTIAL_CANARY_ONLY"
+        elif efficiency_failures:
+            decision = "REJECT_EFFICIENCY"
+        else:
+            decision = "TRANSFER_AUDIT_PASSED"
+        if hidden_best_only_result and decision == "PARTIAL_CANARY_ONLY":
+            owner_exception_required = True
+        else:
+            owner_exception_required = decision.startswith("REJECT")
+        receipt = {
+            "receipt_type": "TRANSFER_REGRESSION_EFFICIENCY_AUDIT",
+            "status": decision,
+            "audit_id": new_id("transfer_audit"),
+            "capability_id": capability_id,
+            "reason": reason,
+            "transfer_matrix": transfer_matrix,
+            "regression_matrix": regression_matrix,
+            "efficiency_summary": efficiency_summary,
+            "transfer_failures": transfer_failures,
+            "regression_failures": regression_failures,
+            "efficiency_failures": efficiency_failures,
+            "zero_key_regressions": zero_key_regressions,
+            "hidden_best_only_result_detected": hidden_best_only_result,
+            "owner_exception_required": owner_exception_required,
+            "promotion_executed": False,
+            "partial_promotion_executed": False,
+            "canonical_state_mutated": False,
+            "claim_ceiling": (
+                "transfer/regression/efficiency audit receipt only; no promotion, "
+                "partial absorption, approval exception, or canonical mutation is inferred"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.transfer_audit_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("transfer_audit_receipts", updated, connection)
+            self.ledger.append("transfer_efficiency_audit_recorded", receipt, connection)
+        return receipt
+
     def draft_promotion_bundle(
         self,
         *,
@@ -3986,6 +4127,7 @@ class LivingSystem:
             "paired_experiment_receipts": self.paired_experiment_receipts(),
             "holdout_epoch_receipts": self.holdout_epoch_receipts(),
             "promotion_bundle_receipts": self.promotion_bundle_receipts(),
+            "transfer_audit_receipts": self.transfer_audit_receipts(),
             "read_only_execution_preflights": self.read_only_execution_preflights(),
             "read_only_execution_receipts": self.read_only_execution_receipts(),
             "read_only_result_projections": self.read_only_result_projections(),

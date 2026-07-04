@@ -427,6 +427,14 @@ fields such as `memory_id`/`active`.
   blocked before approval and cannot exceed that scope. Rollback assets must
   cover code, database, config, and Skill state before any future promotion,
   and all P68 receipts leave canonical state unchanged.
+- P69 is a shadow-level runtime admission for transfer, regression, and
+  efficiency audits. Candidate capability evidence is checked across same-domain
+  holdout, cross-domain transfer, model/environment variants, organ regression
+  rows, and success-per-cost thresholds. Best-only reporting is flagged when
+  any transfer row fails, zero key regression is required for advancement, and
+  efficiency degradation can reject an otherwise successful candidate. The
+  audit produces a decision receipt only; no partial promotion, Owner exception,
+  approval, or canonical mutation is inferred.
 
 ## Projection Rule
 

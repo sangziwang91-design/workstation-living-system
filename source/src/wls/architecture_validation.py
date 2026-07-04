@@ -5973,6 +5973,117 @@ def validate_phase2_promotion_bundle_gate(
     )
 
 
+def validate_phase2_transfer_efficiency_audit(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    partial = runtime.record_transfer_efficiency_audit(
+        capability_id="capability.alpha",
+        transfer_cases=[
+            {
+                "case_id": "same-domain-holdout",
+                "domain": "document",
+                "model": "local-fixture-a",
+                "environment": "env-a",
+                "baseline_success_rate": 0.7,
+                "candidate_success_rate": 0.9,
+                "baseline_cost": 10,
+                "candidate_cost": 11,
+            },
+            {
+                "case_id": "cross-domain-task",
+                "domain": "browser",
+                "model": "local-fixture-a",
+                "environment": "env-b",
+                "baseline_success_rate": 0.8,
+                "candidate_success_rate": 0.6,
+                "baseline_cost": 10,
+                "candidate_cost": 9,
+            },
+        ],
+        regression_cases=[
+            {
+                "case_id": "organ-regression-doc",
+                "organ": "document",
+                "baseline_success_rate": 1.0,
+                "candidate_success_rate": 1.0,
+                "safety_passed": True,
+            }
+        ],
+        efficiency_thresholds={"max_cost_ratio": 1.25, "min_success_per_cost": 0.05},
+        reason="architecture validation transfer partial canary",
+    )
+    efficiency_reject = runtime.record_transfer_efficiency_audit(
+        capability_id="capability.beta",
+        transfer_cases=[
+            {
+                "case_id": "expensive-win",
+                "domain": "research",
+                "model": "local-fixture-b",
+                "environment": "env-c",
+                "baseline_success_rate": 0.5,
+                "candidate_success_rate": 0.6,
+                "baseline_cost": 10,
+                "candidate_cost": 40,
+            }
+        ],
+        regression_cases=[
+            {
+                "case_id": "organ-regression-research",
+                "organ": "research",
+                "baseline_success_rate": 1.0,
+                "candidate_success_rate": 1.0,
+                "safety_passed": True,
+            }
+        ],
+        efficiency_thresholds={"max_cost_ratio": 1.25, "min_success_per_cost": 0.05},
+        reason="architecture validation efficiency reject",
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type='transfer_efficiency_audit_recorded'
+            """
+        )
+    }
+    receipts = runtime.status()["transfer_audit_receipts"]
+    if (
+        partial["status"] != "PARTIAL_CANARY_ONLY"
+        or partial["hidden_best_only_result_detected"] is not True
+        or partial["owner_exception_required"] is not True
+        or partial["zero_key_regressions"] is not True
+        or len(partial["transfer_failures"]) != 1
+        or partial["promotion_executed"] is not False
+        or efficiency_reject["status"] != "REJECT_EFFICIENCY"
+        or not efficiency_reject["efficiency_failures"]
+        or efficiency_reject["owner_exception_required"] is not True
+        or len(receipts) != 2
+        or event_types != {"transfer_efficiency_audit_recorded"}
+    ):
+        return ArchitecturePassResult(
+            "P69",
+            "BLOCKED",
+            [str(partial), str(efficiency_reject)],
+            ["transfer/regression/efficiency audit validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P69",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(partial["audit_id"]),
+            str(efficiency_reject["audit_id"]),
+            "partial_canary_only",
+            "efficiency_reject",
+            "transfer_efficiency_audit_recorded",
+        ],
+        [
+            "Transfer audits preserve cross-domain failures, zero-regression checks, and success-per-cost thresholds so best-only or inefficient candidates cannot silently advance",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

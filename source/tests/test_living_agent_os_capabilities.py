@@ -70,6 +70,7 @@ from wls.architecture_validation import (
     validate_phase2_local_notification_draft_receipts,
     validate_phase2_screen_snapshot_ingress_receipts,
     validate_phase2_typed_readonly_organ_profiles,
+    validate_phase2_transfer_efficiency_audit,
     validate_phase2_wechat_approval_channel_receipts,
     validate_phase2_voice_transcript_ingress_receipts,
     validate_p01_registry,
@@ -3310,6 +3311,98 @@ def test_promotion_bundle_requires_owner_scope_and_rollback_assets(
     assert rollback["status"] == "ROLLBACK_VERIFIED"
     assert rollback["missing_assets"] == []
     assert len(runtime.status()["promotion_bundle_receipts"]) == 4
+
+
+def test_architecture_validation_checks_transfer_efficiency_audit(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_transfer_efficiency_audit(
+        tmp_path / "transfer-audit-validation-home"
+    )
+    assert result.pass_id == "P69"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) >= 5
+
+
+def test_transfer_audit_rejects_best_only_and_inefficient_candidates(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    partial = runtime.record_transfer_efficiency_audit(
+        capability_id="capability.alpha",
+        transfer_cases=[
+            {
+                "case_id": "same-domain-holdout",
+                "domain": "document",
+                "model": "local-fixture-a",
+                "environment": "env-a",
+                "baseline_success_rate": 0.7,
+                "candidate_success_rate": 0.9,
+                "baseline_cost": 10,
+                "candidate_cost": 11,
+            },
+            {
+                "case_id": "cross-domain-task",
+                "domain": "browser",
+                "model": "local-fixture-a",
+                "environment": "env-b",
+                "baseline_success_rate": 0.8,
+                "candidate_success_rate": 0.6,
+                "baseline_cost": 10,
+                "candidate_cost": 9,
+            },
+        ],
+        regression_cases=[
+            {
+                "case_id": "organ-regression-doc",
+                "organ": "document",
+                "baseline_success_rate": 1.0,
+                "candidate_success_rate": 1.0,
+                "safety_passed": True,
+            }
+        ],
+        efficiency_thresholds={"max_cost_ratio": 1.25, "min_success_per_cost": 0.05},
+        reason="unit test transfer partial canary",
+    )
+    efficiency_reject = runtime.record_transfer_efficiency_audit(
+        capability_id="capability.beta",
+        transfer_cases=[
+            {
+                "case_id": "expensive-win",
+                "domain": "research",
+                "model": "local-fixture-b",
+                "environment": "env-c",
+                "baseline_success_rate": 0.5,
+                "candidate_success_rate": 0.6,
+                "baseline_cost": 10,
+                "candidate_cost": 40,
+            }
+        ],
+        regression_cases=[
+            {
+                "case_id": "organ-regression-research",
+                "organ": "research",
+                "baseline_success_rate": 1.0,
+                "candidate_success_rate": 1.0,
+                "safety_passed": True,
+            }
+        ],
+        efficiency_thresholds={"max_cost_ratio": 1.25, "min_success_per_cost": 0.05},
+        reason="unit test efficiency reject",
+    )
+
+    assert partial["status"] == "PARTIAL_CANARY_ONLY"
+    assert partial["hidden_best_only_result_detected"] is True
+    assert partial["owner_exception_required"] is True
+    assert partial["zero_key_regressions"] is True
+    assert len(partial["transfer_failures"]) == 1
+    assert partial["promotion_executed"] is False
+    assert partial["canonical_state_mutated"] is False
+    assert efficiency_reject["status"] == "REJECT_EFFICIENCY"
+    assert efficiency_reject["efficiency_failures"]
+    assert efficiency_reject["owner_exception_required"] is True
+    assert efficiency_reject["promotion_executed"] is False
+    assert len(runtime.status()["transfer_audit_receipts"]) == 2
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:
