@@ -5773,6 +5773,96 @@ def validate_phase2_paired_baseline_candidate_experiment(
     )
 
 
+def validate_phase2_holdout_epoch_immutability(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    evaluator = {"name": "exact-match", "version": "1", "code_digest": "eval-1"}
+    holdout = {
+        "manifest_id": "holdout-a",
+        "cases": [
+            {"case_id": "h1", "fixture_digest": "f1"},
+            {"case_id": "h2", "fixture_digest": "f2"},
+        ],
+    }
+    thresholds = {"min_pass_rate": 1.0}
+    frozen = runtime.freeze_holdout_epoch(
+        evaluator=evaluator,
+        holdout_manifest=holdout,
+        thresholds=thresholds,
+        reason="architecture validation freeze holdout epoch",
+    )
+    passed = runtime.run_holdout_epoch(
+        epoch_id=str(frozen["epoch_id"]),
+        evaluator=evaluator,
+        holdout_manifest=holdout,
+        thresholds=thresholds,
+        candidate_results=[
+            {"case_id": "h1", "passed": True},
+            {"case_id": "h2", "passed": True},
+        ],
+        reason="architecture validation same epoch run",
+    )
+    tampered_thresholds = {"min_pass_rate": 0.5}
+    invalid = runtime.run_holdout_epoch(
+        epoch_id=str(frozen["epoch_id"]),
+        evaluator=evaluator,
+        holdout_manifest=holdout,
+        thresholds=tampered_thresholds,
+        candidate_results=[
+            {"case_id": "h1", "passed": True},
+            {"case_id": "h2", "passed": False},
+        ],
+        reason="architecture validation threshold tamper",
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN (
+                'holdout_epoch_frozen',
+                'holdout_epoch_run_recorded'
+            )
+            """
+        )
+    }
+    receipts = runtime.status()["holdout_epoch_receipts"]
+    if (
+        frozen["status"] != "EPOCH_FROZEN"
+        or frozen["holdout_write_allowed"] is not False
+        or frozen["threshold_mutation_allowed"] is not False
+        or passed["status"] != "HOLDOUT_PASSED"
+        or passed["requires_rebaseline"] is not False
+        or passed["holdout_write_allowed"] is not False
+        or invalid["status"] != "INVALID_EPOCH"
+        or invalid["requires_rebaseline"] is not True
+        or "threshold_digest" not in invalid["mismatches"]
+        or invalid["promotion_executed"] is not False
+        or len(receipts) != 3
+        or event_types != {"holdout_epoch_frozen", "holdout_epoch_run_recorded"}
+    ):
+        return ArchitecturePassResult(
+            "P67",
+            "BLOCKED",
+            [str(frozen), str(passed), str(invalid)],
+            ["holdout epoch immutability validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P67",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(frozen["epoch_id"]),
+            str(frozen["epoch"]["epoch_digest"]),
+            "threshold_digest_mismatch_detected",
+            *sorted(event_types),
+        ],
+        [
+            "Holdout epoch manifests freeze evaluator, holdout, and thresholds; same-epoch reruns are reproducible while threshold drift invalidates the run and requires rebaseline",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

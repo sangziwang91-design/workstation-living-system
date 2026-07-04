@@ -1283,6 +1283,126 @@ class LivingSystem:
             return []
         return receipts[: max(0, int(limit))]
 
+    def holdout_epoch_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("holdout_epoch_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
+    def freeze_holdout_epoch(
+        self,
+        *,
+        evaluator: dict[str, Any],
+        holdout_manifest: dict[str, Any],
+        thresholds: dict[str, Any],
+        reason: str,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("holdout epoch reason is required")
+        epoch = {
+            "epoch_id": new_id("holdout_epoch"),
+            "evaluator": evaluator,
+            "holdout_manifest": holdout_manifest,
+            "thresholds": thresholds,
+            "evaluator_digest": digest_json(evaluator),
+            "holdout_digest": digest_json(holdout_manifest),
+            "threshold_digest": digest_json(thresholds),
+            "candidate_workspace_write_allowed": False,
+            "created_at": utc_now(),
+        }
+        epoch["epoch_digest"] = digest_json(epoch)
+        receipt = {
+            "receipt_type": "HOLDOUT_EPOCH_FROZEN",
+            "status": "EPOCH_FROZEN",
+            "epoch_id": epoch["epoch_id"],
+            "reason": reason,
+            "epoch": epoch,
+            "holdout_write_allowed": False,
+            "threshold_mutation_allowed": False,
+            "evaluator_mutation_allowed": False,
+            "promotion_executed": False,
+            "second_authority_created": False,
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        self._record_holdout_epoch_receipt("holdout_epoch_frozen", receipt)
+        return receipt
+
+    def run_holdout_epoch(
+        self,
+        *,
+        epoch_id: str,
+        evaluator: dict[str, Any],
+        holdout_manifest: dict[str, Any],
+        thresholds: dict[str, Any],
+        candidate_results: list[dict[str, Any]],
+        reason: str,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("holdout run reason is required")
+        frozen = self._find_holdout_epoch(epoch_id)
+        if frozen is None:
+            raise KeyError(f"unknown holdout epoch: {epoch_id}")
+        epoch = frozen["epoch"]
+        observed = {
+            "evaluator_digest": digest_json(evaluator),
+            "holdout_digest": digest_json(holdout_manifest),
+            "threshold_digest": digest_json(thresholds),
+        }
+        mismatches = {
+            key: {"expected": epoch[key], "actual": actual}
+            for key, actual in observed.items()
+            if epoch[key] != actual
+        }
+        pass_count = sum(1 for item in candidate_results if item.get("passed") is True)
+        total = len(candidate_results)
+        pass_rate = pass_count / total if total else 0.0
+        required = float(thresholds.get("min_pass_rate", 1.0))
+        receipt = {
+            "receipt_type": "HOLDOUT_EPOCH_RUN",
+            "status": "INVALID_EPOCH"
+            if mismatches
+            else "HOLDOUT_PASSED"
+            if pass_rate >= required
+            else "HOLDOUT_FAILED",
+            "epoch_id": epoch_id,
+            "reason": reason,
+            "observed_digests": observed,
+            "mismatches": mismatches,
+            "requires_rebaseline": bool(mismatches),
+            "candidate_results": candidate_results,
+            "pass_rate": pass_rate,
+            "required_pass_rate": required,
+            "holdout_write_allowed": False,
+            "threshold_mutated": False,
+            "evaluator_mutated": False,
+            "promotion_executed": False,
+            "approval_executed": False,
+            "second_authority_created": False,
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        self._record_holdout_epoch_receipt("holdout_epoch_run_recorded", receipt)
+        return receipt
+
+    def _record_holdout_epoch_receipt(
+        self, event_type: str, receipt: dict[str, Any]
+    ) -> None:
+        current = self.holdout_epoch_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("holdout_epoch_receipts", updated, connection)
+            self.ledger.append(event_type, receipt, connection)
+
+    def _find_holdout_epoch(self, epoch_id: str) -> dict[str, Any] | None:
+        for receipt in self.holdout_epoch_receipts(limit=100):
+            if (
+                receipt.get("receipt_type") == "HOLDOUT_EPOCH_FROZEN"
+                and receipt.get("epoch_id") == epoch_id
+            ):
+                return receipt
+        return None
+
     def run_paired_candidate_experiment(
         self,
         *,
@@ -3707,6 +3827,7 @@ class LivingSystem:
             "learning_epoch_receipts": self.learning_epoch_receipts(),
             "capability_epoch_audit_receipts": self.capability_epoch_audit_receipts(),
             "paired_experiment_receipts": self.paired_experiment_receipts(),
+            "holdout_epoch_receipts": self.holdout_epoch_receipts(),
             "read_only_execution_preflights": self.read_only_execution_preflights(),
             "read_only_execution_receipts": self.read_only_execution_receipts(),
             "read_only_result_projections": self.read_only_result_projections(),

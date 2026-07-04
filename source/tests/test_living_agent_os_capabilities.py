@@ -51,6 +51,7 @@ from wls.architecture_validation import (
     validate_phase2_coding_candidate_readonly_execution,
     validate_phase2_browser_readonly_runtime_execution,
     validate_phase2_external_handoff_runtime_receipts,
+    validate_phase2_holdout_epoch_immutability,
     validate_phase2_multimodal_asset_readonly_execution,
     validate_phase2_owner_surface_and_readonly_organs,
     validate_phase2_paired_baseline_candidate_experiment,
@@ -3173,6 +3174,72 @@ def test_paired_candidate_experiment_invalidates_condition_drift(
         "invalid_reasons"
     ]
     assert len(runtime.status()["paired_experiment_receipts"]) == 2
+
+
+def test_architecture_validation_checks_holdout_epoch_immutability(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_holdout_epoch_immutability(
+        tmp_path / "holdout-epoch-validation-home"
+    )
+    assert result.pass_id == "P67"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) >= 4
+
+
+def test_holdout_epoch_blocks_threshold_drift_and_requires_rebaseline(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    evaluator = {"name": "exact-match", "version": "1", "code_digest": "eval-1"}
+    holdout = {
+        "manifest_id": "holdout-a",
+        "cases": [
+            {"case_id": "h1", "fixture_digest": "f1"},
+            {"case_id": "h2", "fixture_digest": "f2"},
+        ],
+    }
+    thresholds = {"min_pass_rate": 1.0}
+    frozen = runtime.freeze_holdout_epoch(
+        evaluator=evaluator,
+        holdout_manifest=holdout,
+        thresholds=thresholds,
+        reason="unit test freeze holdout epoch",
+    )
+    passed = runtime.run_holdout_epoch(
+        epoch_id=str(frozen["epoch_id"]),
+        evaluator=evaluator,
+        holdout_manifest=holdout,
+        thresholds=thresholds,
+        candidate_results=[
+            {"case_id": "h1", "passed": True},
+            {"case_id": "h2", "passed": True},
+        ],
+        reason="unit test same epoch run",
+    )
+    invalid = runtime.run_holdout_epoch(
+        epoch_id=str(frozen["epoch_id"]),
+        evaluator=evaluator,
+        holdout_manifest=holdout,
+        thresholds={"min_pass_rate": 0.5},
+        candidate_results=[
+            {"case_id": "h1", "passed": True},
+            {"case_id": "h2", "passed": False},
+        ],
+        reason="unit test threshold tamper",
+    )
+
+    assert frozen["status"] == "EPOCH_FROZEN"
+    assert frozen["holdout_write_allowed"] is False
+    assert frozen["threshold_mutation_allowed"] is False
+    assert passed["status"] == "HOLDOUT_PASSED"
+    assert passed["requires_rebaseline"] is False
+    assert passed["holdout_write_allowed"] is False
+    assert invalid["status"] == "INVALID_EPOCH"
+    assert invalid["requires_rebaseline"] is True
+    assert "threshold_digest" in invalid["mismatches"]
+    assert invalid["promotion_executed"] is False
+    assert len(runtime.status()["holdout_epoch_receipts"]) == 3
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

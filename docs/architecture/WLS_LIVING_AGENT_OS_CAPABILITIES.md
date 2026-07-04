@@ -413,6 +413,13 @@ fields such as `memory_id`/`active`.
   retained, and `CANDIDATE_VALIDATED` still does not imply promotion,
   absorption, approval, Skill advancement, holdout mutation, or threshold
   mutation.
+- P67 is a shadow-level runtime admission for immutable holdout epochs.
+  Evaluator, holdout manifest, and thresholds are frozen with digests and an
+  epoch id before candidate scoring. Same-epoch reruns can be compared, but
+  holdout or threshold drift invalidates the run and requires rebaseline.
+  Candidate workspaces receive no holdout write permission, and failed epoch
+  checks do not change approval, promotion, Skill, holdout, evaluator, or
+  threshold authority.
 
 ## Projection Rule
 

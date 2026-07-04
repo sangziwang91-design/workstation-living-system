@@ -21,6 +21,7 @@ from wls.architecture_validation import (  # noqa: E402
     validate_phase2_coding_candidate_readonly_execution,
     validate_phase2_browser_readonly_runtime_execution,
     validate_phase2_external_handoff_runtime_receipts,
+    validate_phase2_holdout_epoch_immutability,
     validate_phase2_multimodal_asset_readonly_execution,
     validate_phase2_capability_epoch_audit_receipts,
     validate_phase2_owner_surface_and_readonly_organs,
@@ -108,6 +109,7 @@ SELECTIVE_VALIDATION_PASSES = {
     "P64",
     "P65",
     "P66",
+    "P67",
 }
 
 
@@ -275,6 +277,12 @@ def _run_selected_validation(selected: set[str]) -> dict[str, object]:
             results.append(
                 validate_phase2_paired_baseline_candidate_experiment(
                     temp_path / "phase2-paired-experiment-home"
+                )
+            )
+        if _selected(selected, "P67"):
+            results.append(
+                validate_phase2_holdout_epoch_immutability(
+                    temp_path / "phase2-holdout-epoch-home"
                 )
             )
     return {
@@ -569,6 +577,11 @@ def run_validation(selected: set[str] | None = None) -> dict[str, object]:
                 temp_path / "phase2-paired-experiment-home"
             )
         )
+        results.append(
+            validate_phase2_holdout_epoch_immutability(
+                temp_path / "phase2-holdout-epoch-home"
+            )
+        )
     for pass_id, note in PASS_CONTRACTS.items():
         results.append(
             ArchitecturePassResult(
@@ -592,7 +605,7 @@ def main(argv: list[str] | None = None) -> int:
         "--only",
         action="append",
         dest="only",
-        help="Run one validation pass only. Currently supports P01, P42, P43, P44, P45, P46, P47, P48, P49, P50, P51, P52, P53, P54, P55, P56, P57, P58, P59, P60, P61, P62, P63, P64, P65, and P66.",
+        help="Run one validation pass only. Currently supports P01, P42, P43, P44, P45, P46, P47, P48, P49, P50, P51, P52, P53, P54, P55, P56, P57, P58, P59, P60, P61, P62, P63, P64, P65, P66, and P67.",
     )
     args = parser.parse_args(argv)
     selected = {item.upper() for item in args.only} if args.only else None
