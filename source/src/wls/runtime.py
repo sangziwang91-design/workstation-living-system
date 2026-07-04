@@ -350,6 +350,9 @@ class LivingSystem:
     def offspring_retirement_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         return self.offspring.retirement_receipts(limit=limit)
 
+    def offspring_budget_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        return self.offspring.budget_receipts(limit=limit)
+
     def agentic_task_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         rows = self.db.query_all(
             """
@@ -1007,6 +1010,7 @@ class LivingSystem:
             "offspring_birth": len(self.offspring_birth_receipts(100)),
             "offspring_state": len(self.offspring_state_receipts(100)),
             "offspring_retirement": len(self.offspring_retirement_receipts(100)),
+            "offspring_budget": len(self.offspring_budget_receipts(100)),
         }
         branch_only_scaffolding = [
             {
@@ -1115,6 +1119,42 @@ class LivingSystem:
             reason=reason,
             outcome_summary=outcome_summary,
             absorption_requested=absorption_requested,
+        )
+
+    def reserve_offspring_budget(
+        self,
+        *,
+        offspring_id: str,
+        request: dict[str, int | float],
+        reason: str,
+        worker_id: str | None = None,
+        node_id: str | None = None,
+    ) -> dict[str, Any]:
+        return self.offspring.reserve_budget(
+            offspring_id=offspring_id,
+            request=request,
+            reason=reason,
+            worker_id=worker_id,
+            node_id=node_id,
+        )
+
+    def review_offspring_no_gain_stop(
+        self,
+        *,
+        offspring_id: str,
+        evidence_delta: int,
+        improvement_delta: float,
+        consecutive_no_evidence_rounds: int,
+        consecutive_no_improvement_rounds: int,
+        reason: str,
+    ) -> dict[str, Any]:
+        return self.offspring.review_no_gain_stop(
+            offspring_id=offspring_id,
+            evidence_delta=evidence_delta,
+            improvement_delta=improvement_delta,
+            consecutive_no_evidence_rounds=consecutive_no_evidence_rounds,
+            consecutive_no_improvement_rounds=consecutive_no_improvement_rounds,
+            reason=reason,
         )
 
     def learning_epoch_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
@@ -3373,6 +3413,7 @@ class LivingSystem:
             "offspring_birth_receipts": self.offspring_birth_receipts(),
             "offspring_state_receipts": self.offspring_state_receipts(),
             "offspring_retirement_receipts": self.offspring_retirement_receipts(),
+            "offspring_budget_receipts": self.offspring_budget_receipts(),
             "agentic_task_receipts": self.agentic_task_receipts(),
             "agentic_context_manifest_receipts": self.agentic_context_manifest_receipts(),
             "agentic_worker_profile_receipts": self.agentic_worker_profile_receipts(),

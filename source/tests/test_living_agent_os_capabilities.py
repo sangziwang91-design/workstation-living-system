@@ -37,6 +37,7 @@ from wls.architecture_validation import (
     validate_phase2_agentic_worker_lifecycle,
     validate_phase2_agentic_task_harness,
     validate_phase2_offspring_birth_contract,
+    validate_phase2_offspring_budget_no_gain_stop,
     validate_phase2_offspring_isolated_state_budget,
     validate_phase2_offspring_retirement_tombstone,
     validate_phase2_sandbox_adapter_contract,
@@ -2722,6 +2723,81 @@ def test_offspring_retirement_tombstone_blocks_absorption(
     assert panel["status"]["retirement"]["receipt_count"] == 1
     assert panel["status"]["absorption_allowed"] is False
     assert panel["status"]["second_authority_created"] is False
+
+
+def test_architecture_validation_checks_offspring_budget_no_gain_stop(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_offspring_budget_no_gain_stop(
+        tmp_path / "offspring-budget-validation-home"
+    )
+    assert result.pass_id == "P62"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) >= 6
+
+
+def test_offspring_budget_blocks_overgrant_and_records_no_gain_stop(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    birth = runtime.draft_offspring_birth_contract(
+        parent_head="unit-test-head",
+        mission="read-only child candidate for budget",
+        budget={"time": 2, "calls": 2, "tokens": 10, "writes": 0},
+        inheritance_manifest={
+            "allow": ["readonly_profile"],
+            "deny": ["secrets", "private_memory", "parent_database_write"],
+        },
+        termination_conditions=["budget exhausted", "no-gain stop"],
+        reason="unit test offspring birth contract for budget",
+    )
+    runtime.initialize_offspring_isolated_state(
+        offspring_id=str(birth["offspring_id"]),
+        reason="unit test offspring isolated state for budget",
+    )
+    reserved = runtime.reserve_offspring_budget(
+        offspring_id=str(birth["offspring_id"]),
+        request={"time": 1, "calls": 1, "tokens": 5, "writes": 0},
+        reason="unit test offspring budget reservation",
+        worker_id="worker-a",
+        node_id="node-a",
+    )
+    blocked = runtime.reserve_offspring_budget(
+        offspring_id=str(birth["offspring_id"]),
+        request={"time": 2, "calls": 2},
+        reason="unit test offspring budget block",
+        worker_id="worker-b",
+        node_id="node-b",
+    )
+    stop = runtime.review_offspring_no_gain_stop(
+        offspring_id=str(birth["offspring_id"]),
+        evidence_delta=0,
+        improvement_delta=0.0,
+        consecutive_no_evidence_rounds=2,
+        consecutive_no_improvement_rounds=3,
+        reason="unit test no-gain stop",
+    )
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "offspring"
+    )
+
+    assert reserved["status"] == "RESERVED"
+    assert reserved["remaining_before"]["time"] == 2
+    assert reserved["remaining_after"]["time"] == 1
+    assert reserved["provider_call_executed"] is False
+    assert reserved["tool_call_executed"] is False
+    assert blocked["status"] == "BLOCKED"
+    assert "time" in blocked["blocked_dimensions"]
+    assert blocked["provider_call_executed"] is False
+    assert blocked["tool_call_executed"] is False
+    assert stop["status"] == "HARD_STOP_RECORDED"
+    assert stop["hard_stop"] is True
+    assert stop["second_authority_created"] is False
+    assert panel["status"]["budget"]["receipt_count"] == 3
+    assert panel["status"]["budget"]["aggregate_account"] is True
+    assert panel["status"]["budget"]["provider_call_executed"] is False
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

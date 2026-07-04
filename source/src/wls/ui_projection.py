@@ -966,6 +966,7 @@ class OwnerConsoleProductProjection:
         birth_receipts = status.get("offspring_birth_receipts", [])
         state_receipts = status.get("offspring_state_receipts", [])
         retirement_receipts = status.get("offspring_retirement_receipts", [])
+        budget_receipts = status.get("offspring_budget_receipts", [])
         return {
             "panel_id": "offspring",
             "title": "Offspring",
@@ -989,6 +990,15 @@ class OwnerConsoleProductProjection:
                     "items": retirement_receipts
                     if isinstance(retirement_receipts, list)
                     else [],
+                },
+                "budget": {
+                    "receipt_count": len(budget_receipts)
+                    if isinstance(budget_receipts, list)
+                    else 0,
+                    "items": budget_receipts if isinstance(budget_receipts, list) else [],
+                    "provider_call_executed": False,
+                    "tool_call_executed": False,
+                    "aggregate_account": True,
                 },
                 "birth_contract_only": not bool(state_receipts)
                 if isinstance(state_receipts, list)

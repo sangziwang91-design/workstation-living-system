@@ -380,6 +380,11 @@ fields such as `memory_id`/`active`.
   A candidate can be frozen as `RETIRED_CANDIDATE` with an outcome summary
   before any future absorption gate, while no capability import, promotion,
   merge, deployment, child runtime execution, or second authority is inferred.
+- P62 is a shadow-level runtime admission for offspring aggregate budget gates
+  and no-gain hard stops. Parent-owned budget receipts reserve bounded
+  dimensions, block over-grant requests before provider/tool calls, and record
+  no-gain stops without task completion, promotion, absorption, or second
+  authority.
 
 ## Projection Rule
 

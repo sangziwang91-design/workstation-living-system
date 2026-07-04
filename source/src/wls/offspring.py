@@ -71,6 +71,12 @@ class OffspringRegistry:
             return []
         return receipts[: max(0, int(limit))]
 
+    def budget_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("offspring_budget_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
     def draft_birth_contract(
         self,
         *,
@@ -302,12 +308,131 @@ class OffspringRegistry:
             self.ledger.append("offspring_candidate_retired", receipt, connection)
         return receipt
 
+    def reserve_budget(
+        self,
+        *,
+        offspring_id: str,
+        request: dict[str, int | float],
+        reason: str,
+        worker_id: str | None = None,
+        node_id: str | None = None,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("offspring budget reservation reason is required")
+        state_receipt = self._require_state_receipt(offspring_id)
+        requested = self._normalize_budget(request)
+        ledger_path = Path(str(state_receipt["budget_ledger_path"]))
+        budget_ledger = self._read_json(ledger_path)
+        remaining = self._normalize_budget(budget_ledger.get("remaining", {}))
+        used = self._normalize_budget(budget_ledger.get("used", {}))
+        blocked = {
+            key: {"requested": value, "remaining": remaining.get(key, 0.0)}
+            for key, value in requested.items()
+            if remaining.get(key, 0.0) >= 0 and value > remaining.get(key, 0.0)
+        }
+        status = "BLOCKED" if blocked else "RESERVED"
+        if not blocked:
+            for key, value in requested.items():
+                used[key] = used.get(key, 0.0) + value
+                if remaining.get(key, -1.0) >= 0:
+                    remaining[key] = remaining.get(key, 0.0) - value
+            budget_ledger["used"] = used
+            budget_ledger["remaining"] = remaining
+            budget_ledger["updated_at"] = utc_now()
+            self._write_json(ledger_path, budget_ledger)
+        receipt = {
+            "receipt_type": "OFFSPRING_BUDGET_RESERVATION",
+            "status": status,
+            "budget_id": new_id("offspring_budget"),
+            "offspring_id": offspring_id,
+            "parent_id": state_receipt["parent_id"],
+            "worker_id": worker_id,
+            "node_id": node_id,
+            "reason": reason,
+            "requested": requested,
+            "remaining_before": remaining if blocked else self._remaining_before(remaining, requested),
+            "remaining_after": remaining,
+            "blocked_dimensions": blocked,
+            "provider_call_executed": False,
+            "tool_call_executed": False,
+            "parent_write_allowed": False,
+            "second_authority_created": False,
+            "claim_ceiling": (
+                "offspring budget gate receipt only; no provider call, tool "
+                "execution, child runtime execution, parent write, or task "
+                "completion is inferred"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        event_type = (
+            "offspring_budget_blocked"
+            if status == "BLOCKED"
+            else "offspring_budget_reserved"
+        )
+        self._record_budget_receipt(receipt, event_type)
+        return receipt
+
+    def review_no_gain_stop(
+        self,
+        *,
+        offspring_id: str,
+        evidence_delta: int,
+        improvement_delta: float,
+        consecutive_no_evidence_rounds: int,
+        consecutive_no_improvement_rounds: int,
+        reason: str,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("offspring no-gain review reason is required")
+        state_receipt = self._require_state_receipt(offspring_id)
+        should_stop = (
+            evidence_delta <= 0
+            and consecutive_no_evidence_rounds >= 2
+        ) or (
+            improvement_delta <= 0
+            and consecutive_no_improvement_rounds >= 3
+        )
+        receipt = {
+            "receipt_type": "OFFSPRING_NO_GAIN_STOP_REVIEW",
+            "status": "HARD_STOP_RECORDED" if should_stop else "CONTINUE_ALLOWED",
+            "review_id": new_id("offspring_stop"),
+            "offspring_id": offspring_id,
+            "parent_id": state_receipt["parent_id"],
+            "reason": reason,
+            "evidence_delta": evidence_delta,
+            "improvement_delta": improvement_delta,
+            "consecutive_no_evidence_rounds": consecutive_no_evidence_rounds,
+            "consecutive_no_improvement_rounds": consecutive_no_improvement_rounds,
+            "hard_stop": should_stop,
+            "provider_call_executed": False,
+            "tool_call_executed": False,
+            "parent_write_allowed": False,
+            "second_authority_created": False,
+            "claim_ceiling": (
+                "offspring no-gain stop review only; records a hard stop "
+                "decision without provider calls, tool calls, absorption, "
+                "promotion, or second authority"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        self._record_budget_receipt(receipt, "offspring_no_gain_stop_reviewed")
+        return receipt
+
     @staticmethod
     def _write_json(path: Path, payload: dict[str, Any]) -> None:
         path.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
+
+    @staticmethod
+    def _read_json(path: Path) -> dict[str, Any]:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(value, dict):
+            raise ValueError(f"expected JSON object: {path}")
+        return value
 
     @staticmethod
     def _validate_inputs(
@@ -345,3 +470,42 @@ class OffspringRegistry:
             if receipt.get("offspring_id") == offspring_id:
                 return receipt
         return None
+
+    def _require_state_receipt(self, offspring_id: str) -> dict[str, Any]:
+        if not offspring_id.strip():
+            raise ValueError("offspring_id is required")
+        state_receipt = self._find_state_receipt(offspring_id)
+        if state_receipt is None:
+            raise KeyError(f"unknown offspring isolated state: {offspring_id}")
+        return state_receipt
+
+    def _record_budget_receipt(
+        self, receipt: dict[str, Any], event_type: str
+    ) -> None:
+        current = self.budget_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("offspring_budget_receipts", updated, connection)
+            self.ledger.append(event_type, receipt, connection)
+
+    @staticmethod
+    def _normalize_budget(payload: dict[str, Any]) -> dict[str, float]:
+        if not isinstance(payload, dict) or not payload:
+            raise ValueError("budget payload is required")
+        normalized: dict[str, float] = {}
+        for key, value in payload.items():
+            number = float(value)
+            if number < 0 and number != -1:
+                raise ValueError("budget values must be non-negative or -1")
+            normalized[str(key)] = number
+        return normalized
+
+    @staticmethod
+    def _remaining_before(
+        remaining_after: dict[str, float], requested: dict[str, float]
+    ) -> dict[str, float]:
+        before = dict(remaining_after)
+        for key, value in requested.items():
+            if before.get(key, -1.0) >= 0:
+                before[key] = before.get(key, 0.0) + value
+        return before

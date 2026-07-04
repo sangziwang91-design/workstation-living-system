@@ -5172,6 +5172,124 @@ def validate_phase2_offspring_retirement_tombstone(
     )
 
 
+def validate_phase2_offspring_budget_no_gain_stop(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    birth = runtime.draft_offspring_birth_contract(
+        parent_head="architecture-validation-head",
+        mission="bounded read-only inspection offspring candidate",
+        budget={
+            "time": 2,
+            "calls": 2,
+            "tokens": 10,
+            "cost": 0,
+            "disk": 1024,
+            "failures": 1,
+            "writes": 0,
+        },
+        inheritance_manifest={
+            "allow": ["readonly_profile"],
+            "deny": ["secrets", "private_memory", "parent_database_write"],
+        },
+        termination_conditions=["budget exhausted", "no-gain stop"],
+        reason="architecture validation offspring birth contract for budget",
+    )
+    runtime.initialize_offspring_isolated_state(
+        offspring_id=str(birth["offspring_id"]),
+        reason="architecture validation offspring isolated state for budget",
+    )
+    reserved = runtime.reserve_offspring_budget(
+        offspring_id=str(birth["offspring_id"]),
+        request={"time": 1, "calls": 1, "tokens": 5, "writes": 0},
+        reason="architecture validation offspring budget reservation",
+        worker_id="worker-a",
+        node_id="node-a",
+    )
+    blocked = runtime.reserve_offspring_budget(
+        offspring_id=str(birth["offspring_id"]),
+        request={"time": 2, "calls": 2},
+        reason="architecture validation offspring budget block",
+        worker_id="worker-b",
+        node_id="node-b",
+    )
+    stop = runtime.review_offspring_no_gain_stop(
+        offspring_id=str(birth["offspring_id"]),
+        evidence_delta=0,
+        improvement_delta=0.0,
+        consecutive_no_evidence_rounds=2,
+        consecutive_no_improvement_rounds=3,
+        reason="architecture validation no-gain stop",
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "offspring"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN (
+                'offspring_budget_reserved',
+                'offspring_budget_blocked',
+                'offspring_no_gain_stop_reviewed'
+            )
+            """
+        )
+    }
+    if (
+        reserved["status"] != "RESERVED"
+        or reserved["remaining_before"]["time"] != 2
+        or reserved["remaining_after"]["time"] != 1
+        or reserved["provider_call_executed"] is not False
+        or reserved["tool_call_executed"] is not False
+        or blocked["status"] != "BLOCKED"
+        or "time" not in blocked["blocked_dimensions"]
+        or blocked["provider_call_executed"] is not False
+        or blocked["tool_call_executed"] is not False
+        or stop["status"] != "HARD_STOP_RECORDED"
+        or stop["hard_stop"] is not True
+        or stop["provider_call_executed"] is not False
+        or stop["tool_call_executed"] is not False
+        or panel is None
+        or panel["status"]["budget"]["receipt_count"] < 3
+        or panel["status"]["budget"]["provider_call_executed"] is not False
+        or panel["status"]["budget"]["tool_call_executed"] is not False
+        or {
+            "offspring_budget_reserved",
+            "offspring_budget_blocked",
+            "offspring_no_gain_stop_reviewed",
+        }
+        - event_types
+    ):
+        return ArchitecturePassResult(
+            "P62",
+            "BLOCKED",
+            [str(reserved), str(blocked), str(stop), str(panel)],
+            ["offspring budget and no-gain stop validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P62",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(reserved["budget_id"]),
+            str(blocked["budget_id"]),
+            str(stop["review_id"]),
+            *sorted(event_types),
+        ],
+        [
+            "Offspring budget gate reserves aggregate dimensions, blocks over-grant requests before tools/providers, and records hard no-gain stop evidence",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:
