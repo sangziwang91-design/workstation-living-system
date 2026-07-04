@@ -483,14 +483,28 @@ class OwnerConsoleProductProjection:
 
     @staticmethod
     def _offspring_panel(status: dict[str, Any]) -> dict[str, Any]:
-        receipts = status.get("offspring_birth_receipts", [])
+        birth_receipts = status.get("offspring_birth_receipts", [])
+        state_receipts = status.get("offspring_state_receipts", [])
         return {
             "panel_id": "offspring",
             "title": "Offspring",
             "status": {
-                "receipt_count": len(receipts) if isinstance(receipts, list) else 0,
-                "items": receipts if isinstance(receipts, list) else [],
-                "birth_contract_only": True,
+                "receipt_count": len(birth_receipts)
+                if isinstance(birth_receipts, list)
+                else 0,
+                "items": birth_receipts if isinstance(birth_receipts, list) else [],
+                "isolated_state": {
+                    "receipt_count": len(state_receipts)
+                    if isinstance(state_receipts, list)
+                    else 0,
+                    "items": state_receipts
+                    if isinstance(state_receipts, list)
+                    else [],
+                },
+                "birth_contract_only": not bool(state_receipts)
+                if isinstance(state_receipts, list)
+                else True,
+                "candidate_only": True,
                 "child_runtime_started": False,
                 "parent_write_allowed": False,
                 "second_authority_created": False,

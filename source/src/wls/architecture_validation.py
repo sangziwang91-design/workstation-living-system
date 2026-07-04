@@ -4973,6 +4973,107 @@ def validate_phase2_offspring_birth_contract(home: Path) -> ArchitecturePassResu
     )
 
 
+def validate_phase2_offspring_isolated_state_budget(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    birth = runtime.draft_offspring_birth_contract(
+        parent_head="architecture-validation-head",
+        mission="bounded read-only inspection offspring candidate",
+        budget={"cycles": 2, "tokens": 0, "writes": 0},
+        inheritance_manifest={
+            "allow": ["readonly_profile", "task_contract"],
+            "deny": ["secrets", "private_memory", "parent_database_write"],
+        },
+        termination_conditions=[
+            "read-only inspection complete",
+            "budget exhausted",
+            "checkpoint cannot be resumed safely",
+        ],
+        reason="architecture validation offspring birth contract for isolated state",
+    )
+    receipt = runtime.initialize_offspring_isolated_state(
+        offspring_id=str(birth["offspring_id"]),
+        reason="architecture validation offspring isolated state budget",
+    )
+    state_path = Path(str(receipt["state_manifest_path"]))
+    budget_path = Path(str(receipt["budget_ledger_path"]))
+    checkpoint_path = Path(str(receipt["checkpoint_path"]))
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "offspring"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN (
+                'offspring_birth_contract_drafted',
+                'offspring_isolated_state_initialized'
+            )
+            """
+        )
+    }
+    state = receipt["state_manifest"]
+    budget = receipt["budget_ledger"]
+    checkpoint = receipt["checkpoint"]
+    if (
+        receipt["receipt_type"] != "OFFSPRING_ISOLATED_STATE_INITIALIZED"
+        or receipt["status"] != "ISOLATED_STATE_READY"
+        or not state_path.exists()
+        or not budget_path.exists()
+        or not checkpoint_path.exists()
+        or state["canonical_authority"] != "LivingSystem"
+        or state["child_authority"] != "candidate_only"
+        or state["runtime_started"] is not False
+        or state["parent_db_mount"] is not False
+        or state["read_only"] is not True
+        or budget["used"]["cycles"] != 0
+        or budget["remaining"]["cycles"] != 2
+        or budget["remaining"]["writes"] != 0
+        or budget["parent_write_allowed"] is not False
+        or checkpoint["state"] != "CREATED_NOT_RUNNING"
+        or checkpoint["resume_allowed"] is not False
+        or receipt["parent_write_allowed"] is not False
+        or receipt["second_authority_created"] is not False
+        or panel is None
+        or panel["status"]["isolated_state"]["receipt_count"] < 1
+        or panel["status"]["child_runtime_started"] is not False
+        or panel["status"]["candidate_only"] is not True
+        or {
+            "offspring_birth_contract_drafted",
+            "offspring_isolated_state_initialized",
+        }
+        - event_types
+    ):
+        return ArchitecturePassResult(
+            "P60",
+            "BLOCKED",
+            [str(receipt), str(panel)],
+            ["offspring isolated state and budget validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P60",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(receipt["offspring_id"]),
+            str(checkpoint["checkpoint_id"]),
+            str(receipt["receipt_digest"]),
+            *sorted(event_types),
+        ],
+        [
+            "Offspring isolated state initializes a read-only state manifest, budget ledger, and non-resumable checkpoint without starting a child runtime or mounting parent state",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

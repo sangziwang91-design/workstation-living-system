@@ -59,6 +59,12 @@ class OffspringRegistry:
             return []
         return receipts[: max(0, int(limit))]
 
+    def state_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("offspring_state_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
     def draft_birth_contract(
         self,
         *,
@@ -138,6 +144,87 @@ class OffspringRegistry:
             self.ledger.append("offspring_birth_contract_drafted", receipt, connection)
         return receipt
 
+    def initialize_isolated_state(
+        self, *, offspring_id: str, reason: str
+    ) -> dict[str, Any]:
+        if not offspring_id.strip():
+            raise ValueError("offspring_id is required")
+        if not reason.strip():
+            raise ValueError("offspring isolated state reason is required")
+        birth = self._find_birth_receipt(offspring_id)
+        if birth is None:
+            raise KeyError(f"unknown offspring birth contract: {offspring_id}")
+        contract = birth["contract"]
+        child_home = Path(str(birth["child_home"])).expanduser().resolve()
+        state_root = child_home / "state"
+        state_root.mkdir(parents=True, exist_ok=True)
+        budget = dict(contract["budget"])
+        budget_ledger = {
+            "offspring_id": offspring_id,
+            "budget": budget,
+            "used": {key: 0 for key in budget},
+            "remaining": budget,
+            "parent_write_allowed": False,
+            "created_at": utc_now(),
+        }
+        state_manifest = {
+            "offspring_id": offspring_id,
+            "parent_id": birth["parent_id"],
+            "parent_head": birth["parent_head"],
+            "state_root": str(state_root),
+            "birth_contract_digest": contract["contract_digest"],
+            "canonical_authority": "LivingSystem",
+            "child_authority": "candidate_only",
+            "runtime_started": False,
+            "parent_db_mount": False,
+            "read_only": True,
+            "created_at": utc_now(),
+        }
+        checkpoint = {
+            "checkpoint_id": new_id("offspring_checkpoint"),
+            "offspring_id": offspring_id,
+            "state": "CREATED_NOT_RUNNING",
+            "last_completed_task": None,
+            "resume_allowed": False,
+            "retirement_required_before_absorption": True,
+            "created_at": utc_now(),
+        }
+        self._write_json(state_root / "state_manifest.json", state_manifest)
+        self._write_json(state_root / "budget_ledger.json", budget_ledger)
+        self._write_json(state_root / "checkpoint.json", checkpoint)
+        receipt = {
+            "receipt_type": "OFFSPRING_ISOLATED_STATE_INITIALIZED",
+            "status": "ISOLATED_STATE_READY",
+            "offspring_id": offspring_id,
+            "parent_id": birth["parent_id"],
+            "reason": reason,
+            "child_home": str(child_home),
+            "state_root": str(state_root),
+            "state_manifest": state_manifest,
+            "budget_ledger": budget_ledger,
+            "checkpoint": checkpoint,
+            "state_manifest_path": str(state_root / "state_manifest.json"),
+            "budget_ledger_path": str(state_root / "budget_ledger.json"),
+            "checkpoint_path": str(state_root / "checkpoint.json"),
+            "runtime_started": False,
+            "parent_db_mount": False,
+            "parent_write_allowed": False,
+            "second_authority_created": False,
+            "claim_ceiling": (
+                "offspring isolated state and budget ledger initialized only; "
+                "no child runtime start, task execution, parent database mount, "
+                "parent write, absorption, or second authority is inferred"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.state_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("offspring_state_receipts", updated, connection)
+            self.ledger.append("offspring_isolated_state_initialized", receipt, connection)
+        return receipt
+
     @staticmethod
     def _write_json(path: Path, payload: dict[str, Any]) -> None:
         path.write_text(
@@ -169,3 +256,9 @@ class OffspringRegistry:
             raise ValueError("inheritance_manifest is required")
         if not termination_conditions:
             raise ValueError("termination_conditions are required")
+
+    def _find_birth_receipt(self, offspring_id: str) -> dict[str, Any] | None:
+        for receipt in self.latest_receipts(limit=100):
+            if receipt.get("offspring_id") == offspring_id:
+                return receipt
+        return None

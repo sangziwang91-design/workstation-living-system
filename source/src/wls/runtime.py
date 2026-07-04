@@ -344,6 +344,9 @@ class LivingSystem:
     def offspring_birth_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         return self.offspring.latest_receipts(limit=limit)
 
+    def offspring_state_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        return self.offspring.state_receipts(limit=limit)
+
     def agentic_task_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         rows = self.db.query_all(
             """
@@ -999,6 +1002,7 @@ class LivingSystem:
             "skill_sandbox": len(self.skill_sandbox_receipts(100)),
             "sandbox_adapter": len(self.sandbox_adapter_receipts(100)),
             "offspring_birth": len(self.offspring_birth_receipts(100)),
+            "offspring_state": len(self.offspring_state_receipts(100)),
         }
         branch_only_scaffolding = [
             {
@@ -1085,6 +1089,13 @@ class LivingSystem:
             termination_conditions=termination_conditions,
             parent_id=parent_id,
             reason=reason,
+        )
+
+    def initialize_offspring_isolated_state(
+        self, *, offspring_id: str, reason: str
+    ) -> dict[str, Any]:
+        return self.offspring.initialize_isolated_state(
+            offspring_id=offspring_id, reason=reason
         )
 
     def learning_epoch_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
@@ -3341,6 +3352,7 @@ class LivingSystem:
             "skill_sandbox_receipts": self.skill_sandbox_receipts(),
             "sandbox_adapter_receipts": self.sandbox_adapter_receipts(),
             "offspring_birth_receipts": self.offspring_birth_receipts(),
+            "offspring_state_receipts": self.offspring_state_receipts(),
             "agentic_task_receipts": self.agentic_task_receipts(),
             "agentic_context_manifest_receipts": self.agentic_context_manifest_receipts(),
             "agentic_worker_profile_receipts": self.agentic_worker_profile_receipts(),

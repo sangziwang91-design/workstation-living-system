@@ -371,6 +371,11 @@ fields such as `memory_id`/`active`.
   manifest, termination conditions, and identity boundary receipt, while no
   child runtime start, parent write, merge, deployment, Skill promotion,
   external access, or second LivingSystem authority is inferred.
+- P60 is a shadow-level runtime admission for offspring isolated state and
+  budget ledgers. The parent LivingSystem can initialize a child candidate
+  `state/` directory with a state manifest, budget ledger, and non-running
+  checkpoint, while no child runtime, parent database mount, task execution,
+  absorption, or second authority is inferred.
 
 ## Projection Rule
 

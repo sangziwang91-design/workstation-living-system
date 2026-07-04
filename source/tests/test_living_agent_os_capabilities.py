@@ -37,6 +37,7 @@ from wls.architecture_validation import (
     validate_phase2_agentic_worker_lifecycle,
     validate_phase2_agentic_task_harness,
     validate_phase2_offspring_birth_contract,
+    validate_phase2_offspring_isolated_state_budget,
     validate_phase2_sandbox_adapter_contract,
     validate_external_memory_projection,
     validate_mcp_a2a_candidates,
@@ -2595,6 +2596,64 @@ def test_offspring_birth_contract_preserves_identity_boundary(
     assert panel["status"]["second_authority_created"] is False
     assert panel["status"]["child_runtime_started"] is False
     assert panel["status"]["canonical_authority"] == "LivingSystem"
+
+
+def test_architecture_validation_checks_offspring_isolated_state_budget(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_offspring_isolated_state_budget(
+        tmp_path / "offspring-state-validation-home"
+    )
+    assert result.pass_id == "P60"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) >= 5
+
+
+def test_offspring_isolated_state_records_budget_without_runtime_start(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    birth = runtime.draft_offspring_birth_contract(
+        parent_head="unit-test-head",
+        mission="read-only child candidate for isolated state",
+        budget={"cycles": 2, "tokens": 0, "writes": 0},
+        inheritance_manifest={
+            "allow": ["readonly_profile"],
+            "deny": ["secrets", "private_memory", "parent_database_write"],
+        },
+        termination_conditions=["inspection complete", "budget exhausted"],
+        reason="unit test offspring birth contract for state",
+    )
+    receipt = runtime.initialize_offspring_isolated_state(
+        offspring_id=str(birth["offspring_id"]),
+        reason="unit test offspring isolated state",
+    )
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "offspring"
+    )
+
+    assert receipt["receipt_type"] == "OFFSPRING_ISOLATED_STATE_INITIALIZED"
+    assert receipt["runtime_started"] is False
+    assert receipt["parent_db_mount"] is False
+    assert receipt["parent_write_allowed"] is False
+    assert receipt["second_authority_created"] is False
+    assert receipt["state_manifest"]["canonical_authority"] == "LivingSystem"
+    assert receipt["state_manifest"]["child_authority"] == "candidate_only"
+    assert receipt["state_manifest"]["runtime_started"] is False
+    assert receipt["budget_ledger"]["used"]["cycles"] == 0
+    assert receipt["budget_ledger"]["remaining"]["cycles"] == 2
+    assert receipt["budget_ledger"]["remaining"]["writes"] == 0
+    assert receipt["checkpoint"]["state"] == "CREATED_NOT_RUNNING"
+    assert receipt["checkpoint"]["resume_allowed"] is False
+    assert Path(str(receipt["state_manifest_path"])).exists()
+    assert Path(str(receipt["budget_ledger_path"])).exists()
+    assert Path(str(receipt["checkpoint_path"])).exists()
+    assert panel["status"]["isolated_state"]["receipt_count"] == 1
+    assert panel["status"]["birth_contract_only"] is False
+    assert panel["status"]["child_runtime_started"] is False
+    assert panel["status"]["second_authority_created"] is False
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:
