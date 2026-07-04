@@ -548,6 +548,30 @@
           "test_loop_control_candidate"
         ],
         "version": "0.1.0"
+      },
+      {
+        "canonical_owner": "evolution",
+        "canonical_owner_impl": "wls.growth_cycle.GrowthCycleManager",
+        "capability_id": "experiment_decision_candidate",
+        "declares_authority": false,
+        "dependencies": [],
+        "interfaces": [
+          "experiment_decision_candidate"
+        ],
+        "mode": "WORKBENCH",
+        "receipts": [
+          "experiment_decision_candidate_receipt"
+        ],
+        "risk_ceiling": "READ",
+        "rollback": [
+          "disable experiment_decision_candidate manifest"
+        ],
+        "side_effect_class": "none",
+        "status": "DESIGN_ONLY",
+        "tests": [
+          "test_experiment_decision_candidate"
+        ],
+        "version": "0.1.0"
       }
     ],
     "summary": {
@@ -556,26 +580,26 @@
         "ADAPTER": 11,
         "EVENT_SOURCE": 1,
         "PROJECTION": 3,
-        "WORKBENCH": 7
+        "WORKBENCH": 8
       },
       "by_owner": {
         "events": 7,
         "evidence": 2,
-        "evolution": 1,
+        "evolution": 2,
         "memory": 1,
         "planning": 7,
         "tools": 4
       },
-      "count": 22
+      "count": 23
     }
   },
   "claim_ceiling": "repository inventory only; no live deployment, worker execution, Skill promotion, or longitudinal evidence claim",
-  "inventory_digest": "20d10af7c109186f0bf2a7fa10a15d8d21cefbae2218c82259c60a3a8ab530a4",
+  "inventory_digest": "e2ab366b0911ab96876e321513cbfb3ab56d26f9108ce0bea7673d3fb0a91aba",
   "inventory_id": "WLS-CAPABILITY-INVENTORY-DL001",
   "schema_version": 1,
   "source": {
     "branch": "living-agent-os-capabilities-001",
-    "head_before_inventory_write": "47fc667e20e063e8388f36cec84b07c83f234a77",
+    "head_before_inventory_write": "e9cbef92437067169642e2c777f358f3bce9e126",
     "head_note": "This is the commit used as input when regenerating the inventory; the commit containing current.json will necessarily differ.",
     "repo": "D:\\WLS-Dev\\workstation-living-system-private"
   },
@@ -760,6 +784,7 @@
       "test_evolution_chain.py",
       "test_evolution_target_003.py",
       "test_execution_trace.py",
+      "test_experiment_decision.py",
       "test_growth_cycle.py",
       "test_keyfiles.py",
       "test_life_campaign_30.py",

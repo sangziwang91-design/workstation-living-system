@@ -119,6 +119,12 @@ the runtime, reserve budget, mutate leases, create checkpoints, or resume work.
 Those effects remain owned by the existing runtime, agentic harness, offspring,
 lease, and evidence gates.
 
+Experiment decisions are fitted as an Evolution-owned candidate workbench.
+`decide_experiment` compares baseline and candidate metric results against a
+frozen policy digest, evaluator digest, hard gates, minimum gain, crash state,
+and budget counters. A `KEEP` verdict is still only a candidate decision; it
+does not promote a Skill, absorb a candidate, mutate holdouts, or deploy code.
+
 Approval and tool receipts are fitted through the existing `ApprovalManager`,
 `PolicyEngine`, `ToolRegistry`, and `EvidenceLedger`. Runtime validation prepares
 a reversible sandbox write, issues a signed approval envelope with nonce and
