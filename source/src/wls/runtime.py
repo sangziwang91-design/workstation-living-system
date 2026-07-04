@@ -1277,6 +1277,166 @@ class LivingSystem:
             return []
         return receipts[: max(0, int(limit))]
 
+    def paired_experiment_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("paired_experiment_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
+    def run_paired_candidate_experiment(
+        self,
+        *,
+        preregistration: dict[str, Any],
+        baseline: dict[str, Any],
+        candidate: dict[str, Any],
+        cases: list[dict[str, Any]],
+        reason: str,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("paired experiment reason is required")
+        if not baseline:
+            raise ValueError("paired experiment requires a comparable baseline")
+        if not candidate:
+            raise ValueError("paired experiment requires a candidate")
+        if not cases:
+            raise ValueError("paired experiment requires at least one case")
+        experiment_id = new_id("paired_experiment")
+        condition_keys = ["fixture_digest", "environment_digest", "budget", "evaluator_digest"]
+        invalid_reasons: list[str] = []
+        case_results: list[dict[str, Any]] = []
+        baseline_passes = 0
+        candidate_passes = 0
+        baseline_cost = 0.0
+        candidate_cost = 0.0
+        failure_spectrum: dict[str, int] = {}
+        for case in cases:
+            case_id = str(case.get("case_id", ""))
+            baseline_case = dict(case.get("baseline", {}))
+            candidate_case = dict(case.get("candidate", {}))
+            for key in condition_keys:
+                if baseline_case.get(key) != candidate_case.get(key):
+                    invalid_reasons.append(f"{case_id}:{key}")
+            expected = case.get("expected_output")
+            baseline_passed = baseline_case.get("output") == expected
+            candidate_passed = candidate_case.get("output") == expected
+            baseline_passes += int(baseline_passed)
+            candidate_passes += int(candidate_passed)
+            baseline_cost += float(baseline_case.get("cost", 0.0))
+            candidate_cost += float(candidate_case.get("cost", 0.0))
+            for side, passed, sample in (
+                ("baseline", baseline_passed, baseline_case),
+                ("candidate", candidate_passed, candidate_case),
+            ):
+                if not passed:
+                    failure_class = str(sample.get("failure_class", "wrong_output"))
+                    failure_spectrum[f"{side}:{failure_class}"] = (
+                        failure_spectrum.get(f"{side}:{failure_class}", 0) + 1
+                    )
+            case_results.append(
+                {
+                    "case_id": case_id,
+                    "fixture_digest": baseline_case.get("fixture_digest"),
+                    "baseline_passed": baseline_passed,
+                    "candidate_passed": candidate_passed,
+                    "baseline_cost": float(baseline_case.get("cost", 0.0)),
+                    "candidate_cost": float(candidate_case.get("cost", 0.0)),
+                    "negative_sample_retained": not candidate_passed,
+                    "failure_sample_retained": not baseline_passed or not candidate_passed,
+                }
+            )
+        case_count = len(cases)
+        baseline_rate = baseline_passes / case_count
+        candidate_rate = candidate_passes / case_count
+        valid_conditions = not invalid_reasons
+        repetitions = {
+            str(case.get("case_id", "")): sum(
+                1 for item in cases if item.get("case_id") == case.get("case_id")
+            )
+            for case in cases
+        }
+        stability_summary = {
+            "case_count": case_count,
+            "repeated_case_count": sum(1 for count in repetitions.values() if count > 1),
+            "all_cases_repeated": all(count > 1 for count in repetitions.values()),
+            "single_success_claim_rejected": case_count < 2,
+        }
+        candidate_validated = (
+            valid_conditions
+            and candidate_rate > baseline_rate
+            and case_count >= 2
+            and not stability_summary["single_success_claim_rejected"]
+        )
+        report = {
+            "experiment_id": experiment_id,
+            "preregistration": preregistration,
+            "preregistration_digest": digest_json(preregistration),
+            "baseline_digest": digest_json(baseline),
+            "candidate_digest": digest_json(candidate),
+            "candidate_diff_digest": digest_json(candidate.get("diff", {})),
+            "expected_effect": preregistration.get("expected_effect"),
+            "condition_lock": {
+                "model": preregistration.get("model"),
+                "harness": preregistration.get("harness"),
+                "environment": preregistration.get("environment"),
+                "budget": preregistration.get("budget"),
+                "evaluator": preregistration.get("evaluator"),
+            },
+            "case_results": case_results,
+            "completion": {
+                "baseline_success_rate": baseline_rate,
+                "candidate_success_rate": candidate_rate,
+                "delta": candidate_rate - baseline_rate,
+            },
+            "process_quality": {
+                "valid_conditions": valid_conditions,
+                "invalid_reasons": invalid_reasons,
+                "negative_samples_retained": any(
+                    item["negative_sample_retained"] for item in case_results
+                ),
+                "failure_samples_retained": any(
+                    item["failure_sample_retained"] for item in case_results
+                ),
+            },
+            "cost": {
+                "baseline_total": baseline_cost,
+                "candidate_total": candidate_cost,
+                "delta": candidate_cost - baseline_cost,
+            },
+            "failure_spectrum": failure_spectrum,
+            "stability_summary": stability_summary,
+        }
+        receipt = {
+            "receipt_type": "PAIRED_BASELINE_CANDIDATE_EXPERIMENT",
+            "status": "CANDIDATE_VALIDATED"
+            if candidate_validated
+            else "INVALID_CONDITIONS"
+            if not valid_conditions
+            else "CANDIDATE_NOT_VALIDATED",
+            "experiment_id": experiment_id,
+            "reason": reason,
+            "report": report,
+            "candidate_validated": candidate_validated,
+            "promotion_executed": False,
+            "absorption_executed": False,
+            "evaluator_mutated": False,
+            "holdout_mutated": False,
+            "thresholds_mutated": False,
+            "approval_executed": False,
+            "second_authority_created": False,
+            "claim_ceiling": (
+                "paired baseline-candidate experiment receipt only; no promotion, "
+                "absorption, evaluator change, holdout change, or approval is inferred"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.paired_experiment_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("paired_experiment_receipts", updated, connection)
+            self.ledger.append("paired_candidate_experiment_recorded", receipt, connection)
+        return receipt
+
     def propose_skill_candidates_from_receipts(
         self, *, minimum_repeats: int = 3, reason: str
     ) -> dict[str, Any]:
@@ -3546,6 +3706,7 @@ class LivingSystem:
             "single_software_convergence_receipts": self.single_software_convergence_receipts(),
             "learning_epoch_receipts": self.learning_epoch_receipts(),
             "capability_epoch_audit_receipts": self.capability_epoch_audit_receipts(),
+            "paired_experiment_receipts": self.paired_experiment_receipts(),
             "read_only_execution_preflights": self.read_only_execution_preflights(),
             "read_only_execution_receipts": self.read_only_execution_receipts(),
             "read_only_result_projections": self.read_only_result_projections(),

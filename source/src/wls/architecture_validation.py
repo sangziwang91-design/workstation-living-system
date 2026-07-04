@@ -5664,6 +5664,115 @@ def validate_phase2_offspring_retirement_cleanup(
     )
 
 
+def validate_phase2_paired_baseline_candidate_experiment(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    preregistration = {
+        "model": "local-fixture-model",
+        "harness": "paired-fixture-v1",
+        "environment": "repository-test",
+        "budget": {"calls": 2, "tokens": 0},
+        "evaluator": "exact-match-v1",
+        "expected_effect": "candidate fixes repeated fixture output",
+    }
+    baseline = {"name": "baseline", "version": "1", "digest": "baseline-digest"}
+    candidate = {
+        "name": "candidate",
+        "version": "1",
+        "diff": {"rule": "return expected fixture value"},
+    }
+    shared = {
+        "fixture_digest": "fixture-a",
+        "environment_digest": "env-a",
+        "budget": {"calls": 1},
+        "evaluator_digest": "exact-match-v1",
+        "cost": 1,
+    }
+    valid = runtime.run_paired_candidate_experiment(
+        preregistration=preregistration,
+        baseline=baseline,
+        candidate=candidate,
+        cases=[
+            {
+                "case_id": "case-a",
+                "expected_output": "ok",
+                "baseline": {**shared, "output": "fail", "failure_class": "wrong"},
+                "candidate": {**shared, "output": "ok"},
+            },
+            {
+                "case_id": "case-a",
+                "expected_output": "ok",
+                "baseline": {**shared, "output": "fail", "failure_class": "wrong"},
+                "candidate": {**shared, "output": "ok"},
+            },
+        ],
+        reason="architecture validation paired experiment",
+    )
+    invalid = runtime.run_paired_candidate_experiment(
+        preregistration=preregistration,
+        baseline=baseline,
+        candidate=candidate,
+        cases=[
+            {
+                "case_id": "case-invalid",
+                "expected_output": "ok",
+                "baseline": {**shared, "output": "ok"},
+                "candidate": {
+                    **shared,
+                    "environment_digest": "env-drift",
+                    "output": "ok",
+                },
+            }
+        ],
+        reason="architecture validation invalid paired experiment",
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type='paired_candidate_experiment_recorded'
+            """
+        )
+    }
+    receipts = runtime.status()["paired_experiment_receipts"]
+    if (
+        valid["status"] != "CANDIDATE_VALIDATED"
+        or valid["candidate_validated"] is not True
+        or valid["promotion_executed"] is not False
+        or valid["absorption_executed"] is not False
+        or valid["report"]["completion"]["candidate_success_rate"]
+        <= valid["report"]["completion"]["baseline_success_rate"]
+        or valid["report"]["stability_summary"]["repeated_case_count"] != 1
+        or valid["report"]["process_quality"]["failure_samples_retained"] is not True
+        or invalid["status"] != "INVALID_CONDITIONS"
+        or invalid["candidate_validated"] is not False
+        or not invalid["report"]["process_quality"]["invalid_reasons"]
+        or len(receipts) != 2
+        or event_types != {"paired_candidate_experiment_recorded"}
+    ):
+        return ArchitecturePassResult(
+            "P66",
+            "BLOCKED",
+            [str(valid), str(invalid)],
+            ["paired baseline-candidate experiment validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P66",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(valid["experiment_id"]),
+            str(invalid["experiment_id"]),
+            str(valid["report"]["preregistration_digest"]),
+            "paired_candidate_experiment_recorded",
+        ],
+        [
+            "Paired baseline-candidate experiments lock preregistration, baseline, candidate diff, environment, budget, and evaluator conditions; invalid condition drift blocks validation without promotion or absorption",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

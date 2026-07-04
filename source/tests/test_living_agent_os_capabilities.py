@@ -53,6 +53,7 @@ from wls.architecture_validation import (
     validate_phase2_external_handoff_runtime_receipts,
     validate_phase2_multimodal_asset_readonly_execution,
     validate_phase2_owner_surface_and_readonly_organs,
+    validate_phase2_paired_baseline_candidate_experiment,
     validate_phase2_preflighted_readonly_execution,
     validate_phase2_projection_review_and_rollback,
     validate_phase2_provider_route_runtime_receipts,
@@ -3081,6 +3082,97 @@ def test_offspring_retirement_cleanup_preserves_evidence_and_removes_residuals(
     assert evidence_bundle["retirement"]["terminal_state"] == "RETIRED_CANDIDATE"
     assert panel["status"]["retirement_cleanup"]["receipt_count"] == 1
     assert panel["status"]["retirement_cleanup"]["task_assignment_allowed"] is False
+
+
+def test_architecture_validation_checks_paired_baseline_candidate_experiment(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_paired_baseline_candidate_experiment(
+        tmp_path / "paired-experiment-validation-home"
+    )
+    assert result.pass_id == "P66"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) >= 4
+
+
+def test_paired_candidate_experiment_invalidates_condition_drift(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    preregistration = {
+        "model": "local-fixture-model",
+        "harness": "paired-fixture-v1",
+        "environment": "repository-test",
+        "budget": {"calls": 2, "tokens": 0},
+        "evaluator": "exact-match-v1",
+        "expected_effect": "candidate fixes repeated fixture output",
+    }
+    baseline = {"name": "baseline", "version": "1", "digest": "baseline-digest"}
+    candidate = {
+        "name": "candidate",
+        "version": "1",
+        "diff": {"rule": "return expected fixture value"},
+    }
+    shared = {
+        "fixture_digest": "fixture-a",
+        "environment_digest": "env-a",
+        "budget": {"calls": 1},
+        "evaluator_digest": "exact-match-v1",
+        "cost": 1,
+    }
+    valid = runtime.run_paired_candidate_experiment(
+        preregistration=preregistration,
+        baseline=baseline,
+        candidate=candidate,
+        cases=[
+            {
+                "case_id": "case-a",
+                "expected_output": "ok",
+                "baseline": {**shared, "output": "fail", "failure_class": "wrong"},
+                "candidate": {**shared, "output": "ok"},
+            },
+            {
+                "case_id": "case-a",
+                "expected_output": "ok",
+                "baseline": {**shared, "output": "fail", "failure_class": "wrong"},
+                "candidate": {**shared, "output": "ok"},
+            },
+        ],
+        reason="unit test paired experiment",
+    )
+    invalid = runtime.run_paired_candidate_experiment(
+        preregistration=preregistration,
+        baseline=baseline,
+        candidate=candidate,
+        cases=[
+            {
+                "case_id": "case-invalid",
+                "expected_output": "ok",
+                "baseline": {**shared, "output": "ok"},
+                "candidate": {
+                    **shared,
+                    "environment_digest": "env-drift",
+                    "output": "ok",
+                },
+            }
+        ],
+        reason="unit test invalid paired experiment",
+    )
+
+    assert valid["status"] == "CANDIDATE_VALIDATED"
+    assert valid["candidate_validated"] is True
+    assert valid["promotion_executed"] is False
+    assert valid["absorption_executed"] is False
+    assert valid["report"]["completion"]["baseline_success_rate"] == 0.0
+    assert valid["report"]["completion"]["candidate_success_rate"] == 1.0
+    assert valid["report"]["process_quality"]["failure_samples_retained"] is True
+    assert valid["report"]["stability_summary"]["repeated_case_count"] == 1
+    assert invalid["status"] == "INVALID_CONDITIONS"
+    assert invalid["candidate_validated"] is False
+    assert "case-invalid:environment_digest" in invalid["report"]["process_quality"][
+        "invalid_reasons"
+    ]
+    assert len(runtime.status()["paired_experiment_receipts"]) == 2
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

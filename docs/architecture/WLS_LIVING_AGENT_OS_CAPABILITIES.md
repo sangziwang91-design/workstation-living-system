@@ -405,6 +405,14 @@ fields such as `memory_id`/`active`.
   mounts, and temporary credentials. A retired candidate cannot reserve more
   budget or receive task authority, and cleanup never imports capability,
   promotes Skill, merges code, deploys, or creates a second authority.
+- P66 is a shadow-level runtime admission for paired baseline-candidate
+  experiments. A preregistration locks model, harness, environment, budget,
+  evaluator, baseline digest, candidate diff, and expected effect before paired
+  fixture cases are scored. Condition drift makes the experiment invalid,
+  repeated cases produce a stability summary, negative and failure samples are
+  retained, and `CANDIDATE_VALIDATED` still does not imply promotion,
+  absorption, approval, Skill advancement, holdout mutation, or threshold
+  mutation.
 
 ## Projection Rule
 
