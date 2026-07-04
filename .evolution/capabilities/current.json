@@ -1,0 +1,808 @@
+{
+  "authority_model": {
+    "canonical_authorities": {
+      "approval": "wls.approval.ApprovalManager",
+      "events": "wls.stores.EventStore",
+      "evidence": "wls.evidence.EvidenceLedger",
+      "evolution": "wls.growth_cycle.GrowthCycleManager",
+      "goals": "wls.stores.GoalStore",
+      "memory": "wls.stores.MemoryStore",
+      "planning": "wls.planner.Planner",
+      "policy": "wls.policy.PolicyEngine",
+      "process_lease": "wls.lease.ProcessLease",
+      "skills": "wls.skills.SkillLibrary",
+      "subject": "wls.runtime.LivingSystem",
+      "temporal_world": "wls.temporal_world.TemporalCausalWorld",
+      "tools": "wls.tools.ToolRegistry",
+      "world": "wls.world.WorldModel"
+    },
+    "duplicate_authority_allowed": false,
+    "single_subject": "wls.runtime.LivingSystem"
+  },
+  "capability_registry": {
+    "capabilities": [
+      {
+        "canonical_owner": "events",
+        "canonical_owner_impl": "wls.stores.EventStore",
+        "capability_id": "channel_ingress",
+        "declares_authority": false,
+        "dependencies": [],
+        "interfaces": [
+          "channel_ingress"
+        ],
+        "mode": "ADAPTER",
+        "receipts": [
+          "channel_ingress_receipt"
+        ],
+        "risk_ceiling": "READ",
+        "rollback": [
+          "disable channel_ingress manifest"
+        ],
+        "side_effect_class": "none",
+        "status": "DESIGN_ONLY",
+        "tests": [
+          "test_channel_ingress"
+        ],
+        "version": "0.1.0"
+      },
+      {
+        "canonical_owner": "events",
+        "canonical_owner_impl": "wls.stores.EventStore",
+        "capability_id": "scheduler",
+        "declares_authority": false,
+        "dependencies": [],
+        "interfaces": [
+          "scheduler"
+        ],
+        "mode": "EVENT_SOURCE",
+        "receipts": [
+          "scheduler_receipt"
+        ],
+        "risk_ceiling": "READ",
+        "rollback": [
+          "disable scheduler manifest"
+        ],
+        "side_effect_class": "none",
+        "status": "DESIGN_ONLY",
+        "tests": [
+          "test_scheduler"
+        ],
+        "version": "0.1.0"
+      },
+      {
+        "canonical_owner": "planning",
+        "canonical_owner_impl": "wls.planner.Planner",
+        "capability_id": "provider_routing",
+        "declares_authority": false,
+        "dependencies": [],
+        "interfaces": [
+          "provider_routing"
+        ],
+        "mode": "ADAPTER",
+        "receipts": [
+          "provider_routing_receipt"
+        ],
+        "risk_ceiling": "READ",
+        "rollback": [
+          "disable provider_routing manifest"
+        ],
+        "side_effect_class": "none",
+        "status": "DESIGN_ONLY",
+        "tests": [
+          "test_provider_routing"
+        ],
+        "version": "0.1.0"
+      },
+      {
+        "canonical_owner": "tools",
+        "canonical_owner_impl": "wls.tools.ToolRegistry",
+        "capability_id": "browser_readonly",
+        "declares_authority": false,
+        "dependencies": [],
+        "interfaces": [
+          "browser_readonly"
+        ],
+        "mode": "ADAPTER",
+        "receipts": [
+          "browser_readonly_receipt"
+        ],
+        "risk_ceiling": "READ",
+        "rollback": [
+          "disable browser_readonly manifest"
+        ],
+        "side_effect_class": "none",
+        "status": "DESIGN_ONLY",
+        "tests": [
+          "test_browser_readonly"
+        ],
+        "version": "0.1.0"
+      },
+      {
+        "canonical_owner": "planning",
+        "canonical_owner_impl": "wls.planner.Planner",
+        "capability_id": "browser_form_draft",
+        "declares_authority": false,
+        "dependencies": [],
+        "interfaces": [
+          "browser_form_draft"
+        ],
+        "mode": "WORKBENCH",
+        "receipts": [
+          "browser_form_draft_receipt"
+        ],
+        "risk_ceiling": "READ",
+        "rollback": [
+          "disable browser_form_draft manifest"
+        ],
+        "side_effect_class": "none",
+        "status": "DESIGN_ONLY",
+        "tests": [
+          "test_browser_form_draft"
+        ],
+        "version": "0.1.0"
+      },
+      {
+        "canonical_owner": "tools",
+        "canonical_owner_impl": "wls.tools.ToolRegistry",
+        "capability_id": "download_quarantine_draft",
+        "declares_authority": false,
+        "dependencies": [],
+        "interfaces": [
+          "download_quarantine_draft"
+        ],
+        "mode": "WORKBENCH",
+        "receipts": [
+          "download_quarantine_draft_receipt"
+        ],
+        "risk_ceiling": "READ",
+        "rollback": [
+          "disable download_quarantine_draft manifest"
+        ],
+        "side_effect_class": "none",
+        "status": "DESIGN_ONLY",
+        "tests": [
+          "test_download_quarantine_draft"
+        ],
+        "version": "0.1.0"
+      },
+      {
+        "canonical_owner": "events",
+        "canonical_owner_impl": "wls.stores.EventStore",
+        "capability_id": "document_ingress",
+        "declares_authority": false,
+        "dependencies": [],
+        "interfaces": [
+          "document_ingress"
+        ],
+        "mode": "ADAPTER",
+        "receipts": [
+          "document_ingress_receipt"
+        ],
+        "risk_ceiling": "READ",
+        "rollback": [
+          "disable document_ingress manifest"
+        ],
+        "side_effect_class": "none",
+        "status": "DESIGN_ONLY",
+        "tests": [
+          "test_document_ingress"
+        ],
+        "version": "0.1.0"
+      },
+      {
+        "canonical_owner": "tools",
+        "canonical_owner_impl": "wls.tools.ToolRegistry",
+        "capability_id": "computer_sandbox",
+        "declares_authority": false,
+        "dependencies": [],
+        "interfaces": [
+          "computer_sandbox"
+        ],
+        "mode": "ADAPTER",
+        "receipts": [
+          "computer_sandbox_receipt"
+        ],
+        "risk_ceiling": "READ",
+        "rollback": [
+          "disable computer_sandbox manifest"
+        ],
+        "side_effect_class": "none",
+        "status": "DESIGN_ONLY",
+        "tests": [
+          "test_computer_sandbox"
+        ],
+        "version": "0.1.0"
+      },
+      {
+        "canonical_owner": "evolution",
+        "canonical_owner_impl": "wls.growth_cycle.GrowthCycleManager",
+        "capability_id": "coding_worktree",
+        "declares_authority": false,
+        "dependencies": [],
+        "interfaces": [
+          "coding_worktree"
+        ],
+        "mode": "ADAPTER",
+        "receipts": [
+          "coding_worktree_receipt"
+        ],
+        "risk_ceiling": "READ",
+        "rollback": [
+          "disable coding_worktree manifest"
+        ],
+        "side_effect_class": "none",
+        "status": "DESIGN_ONLY",
+        "tests": [
+          "test_coding_worktree"
+        ],
+        "version": "0.1.0"
+      },
+      {
+        "canonical_owner": "memory",
+        "canonical_owner_impl": "wls.stores.MemoryStore",
+        "capability_id": "external_memory_projection",
+        "declares_authority": false,
+        "dependencies": [],
+        "interfaces": [
+          "external_memory_projection"
+        ],
+        "mode": "PROJECTION",
+        "receipts": [
+          "external_memory_projection_receipt"
+        ],
+        "risk_ceiling": "READ",
+        "rollback": [
+          "disable external_memory_projection manifest"
+        ],
+        "side_effect_class": "none",
+        "status": "DESIGN_ONLY",
+        "tests": [
+          "test_external_memory_projection"
+        ],
+        "version": "0.1.0"
+      },
+      {
+        "canonical_owner": "tools",
+        "canonical_owner_impl": "wls.tools.ToolRegistry",
+        "capability_id": "mcp_trust",
+        "declares_authority": false,
+        "dependencies": [],
+        "interfaces": [
+          "mcp_trust"
+        ],
+        "mode": "ADAPTER",
+        "receipts": [
+          "mcp_trust_receipt"
+        ],
+        "risk_ceiling": "READ",
+        "rollback": [
+          "disable mcp_trust manifest"
+        ],
+        "side_effect_class": "none",
+        "status": "DESIGN_ONLY",
+        "tests": [
+          "test_mcp_trust"
+        ],
+        "version": "0.1.0"
+      },
+      {
+        "canonical_owner": "events",
+        "canonical_owner_impl": "wls.stores.EventStore",
+        "capability_id": "a2a_worker",
+        "declares_authority": false,
+        "dependencies": [],
+        "interfaces": [
+          "a2a_worker"
+        ],
+        "mode": "ADAPTER",
+        "receipts": [
+          "a2a_worker_receipt"
+        ],
+        "risk_ceiling": "READ",
+        "rollback": [
+          "disable a2a_worker manifest"
+        ],
+        "side_effect_class": "none",
+        "status": "DESIGN_ONLY",
+        "tests": [
+          "test_a2a_worker"
+        ],
+        "version": "0.1.0"
+      },
+      {
+        "canonical_owner": "evidence",
+        "canonical_owner_impl": "wls.evidence.EvidenceLedger",
+        "capability_id": "owner_console",
+        "declares_authority": false,
+        "dependencies": [],
+        "interfaces": [
+          "owner_console"
+        ],
+        "mode": "PROJECTION",
+        "receipts": [
+          "owner_console_receipt"
+        ],
+        "risk_ceiling": "READ",
+        "rollback": [
+          "disable owner_console manifest"
+        ],
+        "side_effect_class": "none",
+        "status": "DESIGN_ONLY",
+        "tests": [
+          "test_owner_console"
+        ],
+        "version": "0.1.0"
+      },
+      {
+        "canonical_owner": "events",
+        "canonical_owner_impl": "wls.stores.EventStore",
+        "capability_id": "wechat_w0_w1",
+        "declares_authority": false,
+        "dependencies": [],
+        "interfaces": [
+          "wechat_w0_w1"
+        ],
+        "mode": "ADAPTER",
+        "receipts": [
+          "wechat_w0_w1_receipt"
+        ],
+        "risk_ceiling": "READ",
+        "rollback": [
+          "disable wechat_w0_w1 manifest"
+        ],
+        "side_effect_class": "none",
+        "status": "DESIGN_ONLY",
+        "tests": [
+          "test_wechat_w0_w1"
+        ],
+        "version": "0.1.0"
+      },
+      {
+        "canonical_owner": "events",
+        "canonical_owner_impl": "wls.stores.EventStore",
+        "capability_id": "voice_transcript_ingress",
+        "declares_authority": false,
+        "dependencies": [],
+        "interfaces": [
+          "voice_transcript_ingress"
+        ],
+        "mode": "ADAPTER",
+        "receipts": [
+          "voice_transcript_ingress_receipt"
+        ],
+        "risk_ceiling": "READ",
+        "rollback": [
+          "disable voice_transcript_ingress manifest"
+        ],
+        "side_effect_class": "none",
+        "status": "DESIGN_ONLY",
+        "tests": [
+          "test_voice_transcript_ingress"
+        ],
+        "version": "0.1.0"
+      },
+      {
+        "canonical_owner": "events",
+        "canonical_owner_impl": "wls.stores.EventStore",
+        "capability_id": "screen_snapshot_ingress",
+        "declares_authority": false,
+        "dependencies": [],
+        "interfaces": [
+          "screen_snapshot_ingress"
+        ],
+        "mode": "ADAPTER",
+        "receipts": [
+          "screen_snapshot_ingress_receipt"
+        ],
+        "risk_ceiling": "READ",
+        "rollback": [
+          "disable screen_snapshot_ingress manifest"
+        ],
+        "side_effect_class": "none",
+        "status": "DESIGN_ONLY",
+        "tests": [
+          "test_screen_snapshot_ingress"
+        ],
+        "version": "0.1.0"
+      },
+      {
+        "canonical_owner": "planning",
+        "canonical_owner_impl": "wls.planner.Planner",
+        "capability_id": "read_only_task_organs",
+        "declares_authority": false,
+        "dependencies": [],
+        "interfaces": [
+          "read_only_task_organs"
+        ],
+        "mode": "WORKBENCH",
+        "receipts": [
+          "read_only_task_organs_receipt"
+        ],
+        "risk_ceiling": "READ",
+        "rollback": [
+          "disable read_only_task_organs manifest"
+        ],
+        "side_effect_class": "none",
+        "status": "DESIGN_ONLY",
+        "tests": [
+          "test_read_only_task_organs"
+        ],
+        "version": "0.1.0"
+      },
+      {
+        "canonical_owner": "planning",
+        "canonical_owner_impl": "wls.planner.Planner",
+        "capability_id": "workbench_templates",
+        "declares_authority": false,
+        "dependencies": [],
+        "interfaces": [
+          "workbench_templates"
+        ],
+        "mode": "WORKBENCH",
+        "receipts": [
+          "workbench_templates_receipt"
+        ],
+        "risk_ceiling": "READ",
+        "rollback": [
+          "disable workbench_templates manifest"
+        ],
+        "side_effect_class": "none",
+        "status": "DESIGN_ONLY",
+        "tests": [
+          "test_workbench_templates"
+        ],
+        "version": "0.1.0"
+      },
+      {
+        "canonical_owner": "planning",
+        "canonical_owner_impl": "wls.planner.Planner",
+        "capability_id": "agentic_task_harness",
+        "declares_authority": false,
+        "dependencies": [],
+        "interfaces": [
+          "agentic_task_harness"
+        ],
+        "mode": "WORKBENCH",
+        "receipts": [
+          "agentic_task_harness_receipt"
+        ],
+        "risk_ceiling": "READ",
+        "rollback": [
+          "disable agentic_task_harness manifest"
+        ],
+        "side_effect_class": "none",
+        "status": "DESIGN_ONLY",
+        "tests": [
+          "test_agentic_task_harness"
+        ],
+        "version": "0.1.0"
+      }
+    ],
+    "summary": {
+      "authority_model": "canonical WLS owners only",
+      "by_mode": {
+        "ADAPTER": 11,
+        "EVENT_SOURCE": 1,
+        "PROJECTION": 2,
+        "WORKBENCH": 5
+      },
+      "by_owner": {
+        "events": 7,
+        "evidence": 1,
+        "evolution": 1,
+        "memory": 1,
+        "planning": 5,
+        "tools": 4
+      },
+      "count": 19
+    }
+  },
+  "claim_ceiling": "repository inventory only; no live deployment, worker execution, Skill promotion, or longitudinal evidence claim",
+  "inventory_digest": "fd6887c135cd5baeb40ca53f90560d749848d113bb3c58d66862b3eab4b03f4a",
+  "inventory_id": "WLS-CAPABILITY-INVENTORY-DL001",
+  "schema_version": 1,
+  "source": {
+    "branch": "living-agent-os-capabilities-001",
+    "head_before_inventory_write": "3910b03209f85817c344f252ee8723de0df8321e",
+    "head_note": "This is the commit used as input when regenerating the inventory; the commit containing current.json will necessarily differ.",
+    "repo": "D:\\WLS-Dev\\workstation-living-system-private"
+  },
+  "validation_surfaces": {
+    "architecture_passes": [
+      "P01",
+      "P02",
+      "P03",
+      "P04",
+      "P05",
+      "P06",
+      "P07",
+      "P08",
+      "P09",
+      "P10",
+      "P11",
+      "P12",
+      "P13",
+      "P14",
+      "P15",
+      "P16",
+      "P17",
+      "P18",
+      "P19",
+      "P20",
+      "P21",
+      "P22",
+      "P23",
+      "P24",
+      "P25",
+      "P26",
+      "P27",
+      "P28",
+      "P29",
+      "P30",
+      "P31",
+      "P32",
+      "P33",
+      "P34",
+      "P35",
+      "P36",
+      "P37",
+      "P38",
+      "P39",
+      "P40",
+      "P41",
+      "P42",
+      "P43",
+      "P44",
+      "P45",
+      "P46",
+      "P47",
+      "P48",
+      "P49",
+      "P50",
+      "P51",
+      "P52",
+      "P53",
+      "P54",
+      "P55",
+      "P56",
+      "P57",
+      "P58",
+      "P59",
+      "P60",
+      "P61",
+      "P62",
+      "P63",
+      "P64",
+      "P65",
+      "P66",
+      "P67",
+      "P68",
+      "P69",
+      "P70"
+    ],
+    "base_campaign_rounds": [
+      "R01",
+      "R02",
+      "R03",
+      "R04",
+      "R05",
+      "R06",
+      "R07",
+      "R08",
+      "R09",
+      "R10",
+      "R11",
+      "R12",
+      "R13",
+      "R14",
+      "R15",
+      "R16",
+      "R17",
+      "R18",
+      "R19",
+      "R20",
+      "R21",
+      "R22",
+      "R23",
+      "R24",
+      "R25",
+      "R26",
+      "R27",
+      "R28",
+      "R29",
+      "R30"
+    ],
+    "campaign_rounds": [
+      "R01",
+      "R02",
+      "R03",
+      "R04",
+      "R05",
+      "R06",
+      "R07",
+      "R08",
+      "R09",
+      "R10",
+      "R11",
+      "R12",
+      "R13",
+      "R14",
+      "R15",
+      "R16",
+      "R17",
+      "R18",
+      "R19",
+      "R20",
+      "R21",
+      "R22",
+      "R23",
+      "R24",
+      "R25",
+      "R26",
+      "R27",
+      "R28",
+      "R29",
+      "R30",
+      "R31",
+      "R32",
+      "R33",
+      "R34",
+      "R35",
+      "R36",
+      "R37",
+      "R38",
+      "R39",
+      "R40"
+    ],
+    "longitudinal_extension_rounds": [
+      "R31",
+      "R32",
+      "R33",
+      "R34",
+      "R35",
+      "R36",
+      "R37",
+      "R38",
+      "R39",
+      "R40"
+    ],
+    "scripts": [
+      "build_capability_inventory.py",
+      "campaign_state.py",
+      "run_architecture_validation.py",
+      "run_life_campaign_30.py",
+      "run_local_soak_probe.py",
+      "run_single_software_tail_check.py",
+      "validate_evolution_chain.py",
+      "verify_evolution_target_001.py",
+      "verify_evolution_target_002.py",
+      "verify_evolution_target_003.py",
+      "verify_packaging_layout.py"
+    ],
+    "tests": [
+      "test_agentic_harness.py",
+      "test_architecture_validation_runner.py",
+      "test_capability_inventory.py",
+      "test_causal_memory_retrieval.py",
+      "test_cognition.py",
+      "test_evolution_chain.py",
+      "test_evolution_target_003.py",
+      "test_growth_cycle.py",
+      "test_keyfiles.py",
+      "test_life_campaign_30.py",
+      "test_living_agent_os_capabilities.py",
+      "test_memory_ablation.py",
+      "test_memory_refutation.py",
+      "test_packaging_layout.py",
+      "test_ui_projection.py",
+      "test_ui_server.py"
+    ]
+  },
+  "worker_registry": {
+    "admission_gate": {
+      "minimum_real_task_proofs": 2,
+      "requires_cost_and_scope_measurement": true,
+      "requires_isolated_branch_or_worktree": true,
+      "requires_owner_approval": true,
+      "requires_real_task_evidence": true,
+      "requires_rollback_plan": true,
+      "requires_task_packet_compatibility": true
+    },
+    "path": ".evolution/worker_registry.json",
+    "primary_code_worker_id": "chatgpt_interactive",
+    "workers": [
+      {
+        "availability": "PLATFORM_CONTROLLED",
+        "cost_path": "PLATFORM_INTERACTIVE_NOT_WLS_API",
+        "degraded_mode": {
+          "allowed_capability": "bounded_deterministic",
+          "enabled": true,
+          "forbidden": [
+            "architecture migration",
+            "security policy weakening",
+            "claim elevation",
+            "parallel runtime creation",
+            "unbounded refactor"
+          ],
+          "requires_deterministic_acceptance": true,
+          "requires_explicit_paths": true
+        },
+        "interface": "ChatGPT with GitHub connector actions",
+        "provider": "OpenAI",
+        "roles": [
+          "architecture_and_review",
+          "repository_engineering",
+          "bounded_deterministic"
+        ],
+        "runtime_secret_access": "NONE",
+        "status": "ACTIVE",
+        "worker_id": "chatgpt_interactive",
+        "write_authority": "BRANCH_AND_PULL_REQUEST"
+      },
+      {
+        "availability": "PLATFORM_CONTROLLED",
+        "cost_path": "EXISTING_NOTION_PLAN",
+        "forbidden": [
+          "GitHub code modification",
+          "VERIFIED claim creation without GitHub or runtime evidence",
+          "owner approval substitution",
+          "page deletion, archive or parent move in province 003",
+          "canonical runtime replacement"
+        ],
+        "interface": "Notion AI workspace retrieval and synthesis",
+        "provider": "Notion",
+        "roles": [
+          "historical_context_retrieval",
+          "contradiction_audit",
+          "packet_enrichment",
+          "post_merge_archive",
+          "curriculum_candidate_mining"
+        ],
+        "runtime_secret_access": "NONE",
+        "status": "ACTIVE_CONTEXT_ONLY",
+        "worker_id": "notion_ai_context",
+        "write_authority": "NOTION_CONTEXT_ONLY"
+      },
+      {
+        "admission_target": "MULTI-WORKER-ADMISSION",
+        "interface": "UNDECIDED",
+        "provider": "Google",
+        "roles": [],
+        "runtime_secret_access": "NONE",
+        "status": "PENDING_NOT_ACTIVATED",
+        "worker_id": "gemini_candidate",
+        "write_authority": "NONE"
+      },
+      {
+        "admission_target": "MULTI-WORKER-ADMISSION",
+        "interface": "UNDECIDED",
+        "provider": "Anthropic",
+        "roles": [],
+        "runtime_secret_access": "NONE",
+        "status": "PENDING_NOT_ACTIVATED",
+        "worker_id": "claude_candidate",
+        "write_authority": "NONE"
+      },
+      {
+        "admission_target": "MULTI-WORKER-ADMISSION",
+        "interface": "UNDECIDED",
+        "provider": "Zhipu AI",
+        "roles": [],
+        "runtime_secret_access": "NONE",
+        "status": "PENDING_NOT_ACTIVATED",
+        "worker_id": "glm_candidate",
+        "write_authority": "NONE"
+      },
+      {
+        "admission_target": "MULTI-WORKER-ADMISSION",
+        "interface": "UNDECIDED",
+        "provider": "DeepSeek",
+        "roles": [],
+        "runtime_secret_access": "NONE",
+        "status": "PENDING_NOT_ACTIVATED",
+        "worker_id": "deepseek_candidate",
+        "write_authority": "NONE"
+      }
+    ]
+  }
+}
