@@ -500,6 +500,30 @@
           "test_task_route_classifier"
         ],
         "version": "0.1.0"
+      },
+      {
+        "canonical_owner": "evidence",
+        "canonical_owner_impl": "wls.evidence.EvidenceLedger",
+        "capability_id": "execution_trace_candidate",
+        "declares_authority": false,
+        "dependencies": [],
+        "interfaces": [
+          "execution_trace_candidate"
+        ],
+        "mode": "PROJECTION",
+        "receipts": [
+          "execution_trace_candidate_receipt"
+        ],
+        "risk_ceiling": "READ",
+        "rollback": [
+          "disable execution_trace_candidate manifest"
+        ],
+        "side_effect_class": "none",
+        "status": "DESIGN_ONLY",
+        "tests": [
+          "test_execution_trace_candidate"
+        ],
+        "version": "0.1.0"
       }
     ],
     "summary": {
@@ -507,27 +531,27 @@
       "by_mode": {
         "ADAPTER": 11,
         "EVENT_SOURCE": 1,
-        "PROJECTION": 2,
+        "PROJECTION": 3,
         "WORKBENCH": 6
       },
       "by_owner": {
         "events": 7,
-        "evidence": 1,
+        "evidence": 2,
         "evolution": 1,
         "memory": 1,
         "planning": 6,
         "tools": 4
       },
-      "count": 20
+      "count": 21
     }
   },
   "claim_ceiling": "repository inventory only; no live deployment, worker execution, Skill promotion, or longitudinal evidence claim",
-  "inventory_digest": "9ca73a5ee6a000fa0b09605f8fbe7df22714fc9229a118976748e31cbb6878bc",
+  "inventory_digest": "bc957bdaa2596ef7ecb6fd4ecf395f0fc9f413589baa635f8f51d5311506b7ba",
   "inventory_id": "WLS-CAPABILITY-INVENTORY-DL001",
   "schema_version": 1,
   "source": {
     "branch": "living-agent-os-capabilities-001",
-    "head_before_inventory_write": "00cf90b6e37abc542ea7f1b3fb812fdde4b75ac3",
+    "head_before_inventory_write": "14095ce99048556588be463d1cd89b15041b35be",
     "head_note": "This is the commit used as input when regenerating the inventory; the commit containing current.json will necessarily differ.",
     "repo": "D:\\WLS-Dev\\workstation-living-system-private"
   },
@@ -711,6 +735,7 @@
       "test_cognition.py",
       "test_evolution_chain.py",
       "test_evolution_target_003.py",
+      "test_execution_trace.py",
       "test_growth_cycle.py",
       "test_keyfiles.py",
       "test_life_campaign_30.py",

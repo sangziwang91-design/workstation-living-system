@@ -103,6 +103,12 @@ and rationale. It is monotonic on risk and cannot lower a Planner or Policy risk
 floor. It does not create Plans, Actions, leases, tool calls, Goals, Memories,
 Skills, or evidence, and it cannot authorize execution.
 
+Execution tracing is fitted as an EvidenceLedger-owned projection candidate.
+`TraceEmitter` can produce stable payload and trace digests for tests, local
+harness receipts, and future replay review, but emitted trace events are
+explicitly `trace_candidate_only`. They are not canonical evidence until the
+existing `EvidenceLedger` records them.
+
 Approval and tool receipts are fitted through the existing `ApprovalManager`,
 `PolicyEngine`, `ToolRegistry`, and `EvidenceLedger`. Runtime validation prepares
 a reversible sandbox write, issues a signed approval envelope with nonce and

@@ -160,6 +160,7 @@ def baseline_registry() -> CapabilityRegistry:
         ("workbench_templates", "planning", CapabilityMode.WORKBENCH),
         ("agentic_task_harness", "planning", CapabilityMode.WORKBENCH),
         ("task_route_classifier", "planning", CapabilityMode.WORKBENCH),
+        ("execution_trace_candidate", "evidence", CapabilityMode.PROJECTION),
     ]:
         registry.register(
             CapabilityManifest(
