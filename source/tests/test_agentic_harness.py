@@ -751,6 +751,75 @@ def test_agentic_worker_lifecycle_marks_stale_worker_and_blocks_lease(
     assert panel["status"]["worker_lifecycle_v1"]["worker_execution"] is False
 
 
+def test_agentic_worker_lease_recovery_returns_stale_worker_node_to_ready(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    worker = WorkerProfile(
+        worker_id="pytest-recover-worker",
+        worker_type="LOCAL_SHADOW",
+        label="Pytest recover worker",
+        allowed_domains=["RESEARCH", "MIXED", "CODE"],
+        max_risk=RiskLevel.READ,
+    )
+    runtime.agentic.worker_registry.register_profile(
+        worker,
+        reason="unit test recovery worker registration",
+    )
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect stale worker recovery",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id,
+        worker_id=worker.worker_id,
+        ttl_seconds=30,
+    )[0]
+    heartbeat = runtime.agentic.record_lease_heartbeat(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        extend_seconds=60,
+        reason="unit test lease heartbeat",
+    )
+    runtime.agentic.worker_registry.mark_stale_workers(
+        stale_before=(datetime.now(UTC) + timedelta(seconds=1)).isoformat(),
+        reason="unit test mark worker stale",
+    )
+    runtime.agentic.worker_registry.record_heartbeat(
+        "readonly-inspector",
+        details={"phase": "unit-test-reacquire-worker-active"},
+    )
+    recovery = runtime.agentic.recover_stale_worker_leases(
+        graph_id,
+        worker_id=worker.worker_id,
+        reason="unit test stale worker lease recovery",
+    )
+    reacquired = runtime.agentic.acquire_ready_leases(
+        graph_id,
+        worker_id="readonly-inspector",
+    )[0]
+
+    graph = runtime.agentic.load_graph(graph_id)
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+    assert heartbeat["lease_id"] == lease.lease_id
+    assert heartbeat["expires_at"] != heartbeat["previous_expires_at"]
+    assert recovery["recovered_lease_count"] == 1
+    assert recovery["recovered_nodes"][0]["expired_lease_id"] == lease.lease_id
+    assert reacquired.node_id == lease.node_id
+    assert reacquired.lease_id != lease.lease_id
+    assert graph.nodes[lease.node_id].status is TaskNodeStatus.LEASED
+    assert graph.nodes[lease.node_id].worker_id == "readonly-inspector"
+    assert panel["status"]["worker_lease_recovery_v1"]["receipt_count"] == 2
+    assert panel["status"]["worker_lease_recovery_v1"]["retry_execution"] is False
+
+
 def test_agentic_file_mailbox_handoff_imports_through_canonical_harness(
     tmp_path: Path,
 ) -> None:

@@ -27,6 +27,7 @@ from .read_only_organs import (
 from .runtime import LivingSystem
 from .scheduler import ScheduledEvent
 from .schemas import ActionSpec, ActionStatus, Plan, RiskLevel, utc_now
+from .task_graph import TaskNodeStatus
 from .ui_projection import OwnerConsoleProductProjection
 from .wechat_adapter import WeChatW0W1Adapter
 from .worker_registry import WorkerProfile
@@ -4204,6 +4205,123 @@ def validate_phase2_agentic_result_replay_quarantine(
         ],
         [
             "Agentic result replay quarantine rejects duplicate worker result envelopes before a second completion attempt while preserving LivingSystem as canonical completion authority",
+        ],
+    )
+
+
+def validate_phase2_agentic_worker_lease_recovery(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    worker = WorkerProfile(
+        worker_id="validation-recover-worker",
+        worker_type="LOCAL_SHADOW",
+        label="Validation recover worker",
+        allowed_domains=["RESEARCH", "MIXED", "CODE"],
+        max_risk=RiskLevel.READ,
+        metadata={"validation": "worker lease recovery"},
+    )
+    runtime.agentic.worker_registry.register_profile(
+        worker,
+        reason="architecture validation lease recovery registration",
+    )
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect stale worker recovery",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = str(receipt["graph"]["graph_id"])
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id,
+        worker_id=worker.worker_id,
+        ttl_seconds=30,
+    )[0]
+    heartbeat = runtime.agentic.record_lease_heartbeat(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        extend_seconds=60,
+        reason="architecture validation lease heartbeat",
+    )
+    stale_cutoff = (datetime.now(UTC) + timedelta(seconds=1)).isoformat()
+    runtime.agentic.worker_registry.mark_stale_workers(
+        stale_before=stale_cutoff,
+        reason="architecture validation worker stale before recovery",
+    )
+    runtime.agentic.worker_registry.record_heartbeat(
+        "readonly-inspector",
+        details={"phase": "validation-reacquire-worker-active"},
+    )
+    recovery = runtime.agentic.recover_stale_worker_leases(
+        graph_id,
+        worker_id=worker.worker_id,
+        reason="architecture validation stale worker lease recovery",
+    )
+    reacquired = runtime.agentic.acquire_ready_leases(
+        graph_id,
+        worker_id="readonly-inspector",
+    )[0]
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "agentic_tasks"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN (
+                'agentic_lease_heartbeat_recorded',
+                'agentic_stale_worker_leases_recovered',
+                'agentic_worker_lifecycle_marked_stale',
+                'agentic_task_node_leased'
+            )
+            """
+        )
+    }
+    graph = runtime.agentic.load_graph(graph_id)
+    if (
+        heartbeat["lease_id"] != lease.lease_id
+        or heartbeat["expires_at"] == heartbeat["previous_expires_at"]
+        or recovery["recovered_lease_count"] != 1
+        or recovery["recovered_nodes"][0]["expired_lease_id"] != lease.lease_id
+        or reacquired.node_id != lease.node_id
+        or reacquired.lease_id == lease.lease_id
+        or graph.nodes[lease.node_id].status is not TaskNodeStatus.LEASED
+        or graph.nodes[lease.node_id].worker_id != "readonly-inspector"
+        or panel is None
+        or panel["status"]["worker_lease_recovery_v1"]["receipt_count"] < 2
+        or {
+            "agentic_lease_heartbeat_recorded",
+            "agentic_stale_worker_leases_recovered",
+            "agentic_worker_lifecycle_marked_stale",
+            "agentic_task_node_leased",
+        }
+        - event_types
+    ):
+        return ArchitecturePassResult(
+            "P53",
+            "BLOCKED",
+            [graph_id, str(recovery)],
+            ["agentic worker lease recovery validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P53",
+        "ADMIT_SHADOW_ONLY",
+        [
+            graph_id,
+            lease.lease_id,
+            reacquired.lease_id,
+            *sorted(event_types),
+        ],
+        [
+            "Agentic worker lease recovery records lease heartbeat and returns stale-worker leases to READY for canonical reacquisition without executing retry or inferring worker success",
         ],
     )
 

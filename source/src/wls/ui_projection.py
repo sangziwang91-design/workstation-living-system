@@ -473,6 +473,9 @@ class OwnerConsoleProductProjection:
         repair_candidates = status.get("agentic_repair_candidate_receipts", [])
         budgets = status.get("agentic_budget_receipts", [])
         checkpoint_resume = status.get("agentic_checkpoint_resume_receipts", [])
+        worker_lease_recovery = status.get(
+            "agentic_worker_lease_recovery_receipts", []
+        )
         retry_gates = status.get("agentic_retry_gate_receipts", [])
         replan_candidates = status.get("agentic_replan_candidate_receipts", [])
         scorecards = status.get("agentic_benchmark_scorecard_receipts", [])
@@ -549,6 +552,16 @@ class OwnerConsoleProductProjection:
                     else [],
                     "retry_execution": False,
                     "worker_result_inferred": False,
+                },
+                "worker_lease_recovery_v1": {
+                    "receipt_count": len(worker_lease_recovery)
+                    if isinstance(worker_lease_recovery, list)
+                    else 0,
+                    "items": worker_lease_recovery
+                    if isinstance(worker_lease_recovery, list)
+                    else [],
+                    "retry_execution": False,
+                    "worker_execution": False,
                 },
                 "retry_gate_v1": {
                     "receipt_count": len(retry_gates)

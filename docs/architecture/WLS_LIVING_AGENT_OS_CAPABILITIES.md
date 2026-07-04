@@ -344,6 +344,10 @@ fields such as `memory_id`/`active`.
   Duplicate result envelopes are rejected before any second completion attempt,
   preserving mailbox evidence without granting external workers completion
   authority or claiming distributed execution maturity.
+- P53 is a shadow-level runtime admission for worker lease heartbeat and stale
+  worker recovery. Active leases can record heartbeat evidence and stale-worker
+  leases can return to READY for canonical reacquisition, while no retry,
+  worker success, or task completion is inferred.
 
 ## Projection Rule
 

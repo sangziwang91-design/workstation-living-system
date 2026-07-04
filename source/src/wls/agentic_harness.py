@@ -456,6 +456,32 @@ class AgenticHarness:
                 )
         return receipts
 
+    def worker_lease_recovery_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        rows = self.db.query_all(
+            """
+            SELECT event_type,payload_json,created_at FROM evidence
+            WHERE event_type IN (
+                'agentic_lease_heartbeat_recorded',
+                'agentic_stale_worker_leases_recovered'
+            )
+            ORDER BY seq DESC
+            LIMIT ?
+            """,
+            (max(0, int(limit)),),
+        )
+        receipts: list[dict[str, Any]] = []
+        for row in rows:
+            payload = json.loads(str(row["payload_json"]))
+            if isinstance(payload, dict):
+                receipts.append(
+                    {
+                        **payload,
+                        "event_type": row["event_type"],
+                        "created_at": row["created_at"],
+                    }
+                )
+        return receipts
+
     def retry_gate_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         rows = self.db.query_all(
             """
@@ -720,6 +746,139 @@ class AgenticHarness:
                 ),
             }
             self.ledger.append("agentic_graph_resume_recorded", payload, connection)
+            return payload
+
+    def record_lease_heartbeat(
+        self,
+        graph_id: str,
+        node_id: str,
+        *,
+        lease_id: str,
+        extend_seconds: int = 300,
+        reason: str,
+    ) -> dict[str, Any]:
+        if extend_seconds < 1:
+            raise ValueError("lease heartbeat extension must be >= 1 second")
+        if not reason.strip():
+            raise ValueError("lease heartbeat reason is required")
+        with self.db.transaction() as connection:
+            lease = self._active_lease(graph_id, node_id, lease_id, connection)
+            previous_expires_at = str(lease["expires_at"])
+            heartbeat_at = utc_now()
+            expires_at = (
+                datetime.now(UTC) + timedelta(seconds=extend_seconds)
+            ).isoformat()
+            connection.execute(
+                """
+                UPDATE agentic_node_leases
+                SET expires_at=?
+                WHERE lease_id=?
+                """,
+                (expires_at, lease_id),
+            )
+            payload = {
+                "heartbeat_id": new_id("lease_heartbeat"),
+                "graph_id": graph_id,
+                "node_id": node_id,
+                "lease_id": lease_id,
+                "worker_id": lease["worker_id"],
+                "heartbeat_at": heartbeat_at,
+                "previous_expires_at": previous_expires_at,
+                "expires_at": expires_at,
+                "reason": reason,
+                "direct_execution": False,
+                "claim_ceiling": (
+                    "lease heartbeat receipt only; no worker result, node "
+                    "completion, retry execution, or external authority is inferred"
+                ),
+            }
+            self.ledger.append("agentic_lease_heartbeat_recorded", payload, connection)
+            return payload
+
+    def recover_stale_worker_leases(
+        self,
+        graph_id: str,
+        *,
+        worker_id: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("stale worker lease recovery reason is required")
+        with self.db.transaction() as connection:
+            worker = connection.execute(
+                """
+                SELECT status FROM agentic_worker_profiles
+                WHERE worker_id=?
+                """,
+                (worker_id,),
+            ).fetchone()
+            if worker is None:
+                raise PermissionError(f"unknown worker profile: {worker_id}")
+            if str(worker["status"]) != "STALE":
+                raise ValueError("stale worker lease recovery requires STALE worker")
+            graph = self._load_graph_for_update(graph_id, connection)
+            rows = connection.execute(
+                """
+                SELECT lease_id,node_id,worker_id,expires_at
+                FROM agentic_node_leases
+                WHERE graph_id=? AND worker_id=? AND status='ACTIVE'
+                ORDER BY acquired_at ASC
+                """,
+                (graph_id, worker_id),
+            ).fetchall()
+            recovered_nodes: list[dict[str, Any]] = []
+            recovered_at = utc_now()
+            for row in rows:
+                node_id = str(row["node_id"])
+                connection.execute(
+                    """
+                    UPDATE agentic_node_leases
+                    SET status='EXPIRED',released_at=?
+                    WHERE lease_id=?
+                    """,
+                    (recovered_at, row["lease_id"]),
+                )
+                if node_id in graph.nodes:
+                    node = graph.nodes[node_id]
+                    if (
+                        node.status is TaskNodeStatus.LEASED
+                        and node.lease_id == row["lease_id"]
+                    ):
+                        graph.transition(node_id, TaskNodeStatus.READY)
+                        graph.nodes[node_id].lease_id = None
+                        graph.nodes[node_id].worker_id = None
+                        graph.nodes[node_id].error = None
+                recovered_nodes.append(
+                    {
+                        "node_id": node_id,
+                        "expired_lease_id": row["lease_id"],
+                        "worker_id": row["worker_id"],
+                        "previous_expires_at": row["expires_at"],
+                    }
+                )
+            self._persist_graph(graph, connection)
+            payload = {
+                "recovery_id": new_id("worker_recovery"),
+                "graph_id": graph_id,
+                "worker_id": worker_id,
+                "reason": reason,
+                "recovered_at": recovered_at,
+                "recovered_lease_count": len(rows),
+                "recovered_nodes": recovered_nodes,
+                "graph_digest": graph.snapshot()["graph_digest"],
+                "direct_execution": False,
+                "retry_executed": False,
+                "claim_ceiling": (
+                    "stale worker lease recovery receipt only; leased nodes may "
+                    "return to READY, but no retry, worker result, repair success, "
+                    "or task completion is inferred"
+                ),
+            }
+            self.ledger.append(
+                "agentic_stale_worker_leases_recovered",
+                payload,
+                connection,
+            )
             return payload
 
     def reserve_node_budget(

@@ -29,6 +29,7 @@ from wls.architecture_validation import (
     validate_phase2_agentic_retry_gate,
     validate_phase2_agentic_replan_candidate,
     validate_phase2_agentic_result_replay_quarantine,
+    validate_phase2_agentic_worker_lease_recovery,
     validate_phase2_agentic_worker_lifecycle,
     validate_phase2_agentic_task_harness,
     validate_external_memory_projection,
@@ -2440,6 +2441,17 @@ def test_architecture_validation_checks_agentic_result_replay_quarantine(
         tmp_path / "agentic-result-replay-validation-home"
     )
     assert result.pass_id == "P52"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert len(result.evidence) >= 5
+
+
+def test_architecture_validation_checks_agentic_worker_lease_recovery(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_agentic_worker_lease_recovery(
+        tmp_path / "agentic-worker-lease-recovery-validation-home"
+    )
+    assert result.pass_id == "P53"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) >= 5
 
