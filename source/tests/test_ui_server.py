@@ -69,6 +69,26 @@ def test_bootstrap_nonce_is_one_time_and_fragment_session_authenticates() -> Non
         server.shutdown()
 
 
+def test_product_projection_endpoint_exposes_read_only_owner_panels() -> None:
+    _, server = make_server()
+    connection = HTTPConnection("127.0.0.1", server.bound_port, timeout=5)
+    try:
+        status, _, payload = request(connection, "GET", "/api/product", token=server.token)
+        assert status == 200
+        product = json.loads(payload)
+        assert product["surface"] == "owner_console"
+        assert product["mode"] == "READ_ONLY_PROJECTION"
+        assert product["writes_canonical_state"] is False
+        assert product["direct_tool_execution"] is False
+        assert "organs" in product["panel_ids"]
+        assert {panel["panel_id"] for panel in product["panels"]} == set(
+            product["panel_ids"]
+        )
+    finally:
+        connection.close()
+        server.shutdown()
+
+
 def test_invalid_host_and_cross_site_write_are_rejected() -> None:
     _, server = make_server()
     connection = HTTPConnection("127.0.0.1", server.bound_port, timeout=5)
@@ -212,8 +232,10 @@ def test_static_ui_respects_strict_csp_without_inline_style() -> None:
         assert status == 200
         assert "style-src 'self'" in headers["Content-Security-Policy"]
         assert b"style=" not in payload
+        assert b'data-view="panels"' in payload
         status, _, js = request(connection, "GET", "/assets/app.js", token=server.token)
         assert status == 200
+        assert b"/api/product" in js
         assert b'style="' not in js
         assert b".style." not in js
     finally:

@@ -19,6 +19,7 @@ const state = {
   inbox: { count: 0, items: [] },
   runs: [],
   library: null,
+  product: null,
 };
 
 const main = document.querySelector("#main");
@@ -190,6 +191,43 @@ function renderRunList(runs) {
     </button>`).join("")}</div>`;
 }
 
+async function renderPanels() {
+  if (!state.product) state.product = await api("/api/product");
+  const panels = state.product.panels || [];
+  main.innerHTML = pageHead("Living Agent OS", "Panels", "产品化器官面板只读取 LivingSystem.status，不写入 canonical state。") + `
+    <div class="grid cols-4">
+      ${metricCard("Panels", panels.length, "read-only")}
+      ${metricCard("Mode", state.product.mode || "-", "projection")}
+      ${metricCard("Writes", state.product.writes_canonical_state ? "Yes" : "No", "canonical")}
+      ${metricCard("Tools", state.product.direct_tool_execution ? "Direct" : "None", "execution")}
+    </div>
+    <div class="section-title"><h2>Organs</h2><small>${escapeHtml(state.product.projection_version || "-")}</small></div>
+    <div class="grid cols-2">${panels.map(panelCard).join("") || `<div class="empty">No product panels projected.</div>`}</div>
+  `;
+  bindSelectable();
+}
+
+function panelCard(panel) {
+  const status = panel.status || {};
+  const summary = Object.entries(status).slice(0, 4).map(([key, value]) =>
+    `<span class="pill">${escapeHtml(key)}: ${escapeHtml(formatPanelValue(value))}</span>`
+  ).join("");
+  return `<button class="row-card selectable" data-type="panel" data-json="${encodeURIComponent(JSON.stringify(panel))}" type="button">
+    <div>
+      <h3>${escapeHtml(panel.title || panel.panel_id)}</h3>
+      <p>${escapeHtml(panel.summary || panel.claim_ceiling || "Read-only product panel")}</p>
+      <div class="meta">${summary}</div>
+    </div>
+    <div>${escapeHtml(panel.panel_id)}</div>
+  </button>`;
+}
+
+function formatPanelValue(value) {
+  if (value === null || value === undefined) return "-";
+  if (typeof value === "object") return Array.isArray(value) ? `${value.length} items` : `${Object.keys(value).length} keys`;
+  return String(value);
+}
+
 async function renderLibrary() {
   if (!state.library) state.library = await api("/api/library");
   const evidence = state.library.evidence || [];
@@ -221,6 +259,7 @@ function render() {
   else if (state.view === "inbox") renderInbox();
   else if (state.view === "projects") renderProjects();
   else if (state.view === "runs") renderRuns();
+  else if (state.view === "panels") renderPanels().catch(handleError);
   else if (state.view === "library") renderLibrary().catch(handleError);
 }
 
@@ -313,6 +352,7 @@ async function resolveUnknownAction(actionId) {
 async function refreshInboxRuns() {
   state.inbox = await api("/api/inbox");
   state.runs = await api("/api/runs");
+  state.product = null;
   document.querySelector("#inbox-badge").textContent = state.inbox.count || "";
   render();
 }
@@ -366,6 +406,7 @@ document.querySelector("#goal-form").addEventListener("submit", async (event) =>
     dialog.close();
     event.currentTarget.reset();
     showToast("Goal written to canonical GoalStore.");
+    state.product = null;
     await loadAll();
     state.view = "projects";
     render();
@@ -382,6 +423,7 @@ document.querySelector("#run-cycle").addEventListener("click", async (event) => 
     const result = await api("/api/cycle", { method: "POST", body: "{}" });
     showToast(`Cycle finished: ${result.status || "UNKNOWN"}`);
     state.library = null;
+    state.product = null;
     await loadAll();
     state.view = "runs";
     render();

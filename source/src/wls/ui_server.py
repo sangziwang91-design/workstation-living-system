@@ -17,7 +17,7 @@ import webbrowser
 
 from .config import default_config
 from .runtime import LivingSystem
-from .ui_projection import UIProjection
+from .ui_projection import OwnerConsoleProductProjection, UIProjection
 
 
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost"}
@@ -81,6 +81,7 @@ class WLSUIServer:
 
     def build(self) -> ThreadingHTTPServer:
         projection = self.projection
+        product_projection = OwnerConsoleProductProjection()
         session_token = self.session_token
         cycle_lock = self._cycle_lock
         bootstrap_lock = threading.Lock()
@@ -262,6 +263,10 @@ class WLSUIServer:
                         self._json(200, projection.inbox())
                     elif path == "/api/library":
                         self._json(200, projection.library())
+                    elif path == "/api/product":
+                        self._json(
+                            200, product_projection.project(projection.runtime.status())
+                        )
                     elif path == "/api/health":
                         self._json(
                             200,

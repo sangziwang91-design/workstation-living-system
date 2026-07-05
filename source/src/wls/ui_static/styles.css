@@ -113,7 +113,7 @@ input, textarea, select { width: 100%; border: 1px solid var(--line); border-rad
   .topbar { grid-template-columns: 1fr auto; height: 64px; }
   .command-button { display: none; }
   .sidebar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; height: 64px; border: 1px solid var(--line); background: var(--panel); padding: 6px; }
-  .sidebar nav { grid-template-columns: repeat(5,1fr); display: grid; }
+  .sidebar nav { grid-template-columns: repeat(6,1fr); display: grid; }
   .nav-item { text-align: center; padding: 8px 4px; font-size: 12px; }
   .sidebar-bottom { display: none; }
   .main { padding: 20px 15px 90px; }
