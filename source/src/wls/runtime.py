@@ -1054,6 +1054,7 @@ class LivingSystem:
             "packaging_layout": len(self.packaging_layout_receipts(100)),
             "delivery_readiness": len(self.delivery_readiness_receipts(100)),
             "installed_tail_check": len(self.installed_tail_check_receipts(100)),
+            "operational_preflight": len(self.operational_preflight_receipts(100)),
         }
         branch_only_scaffolding = [
             {
@@ -1435,6 +1436,102 @@ class LivingSystem:
         if not isinstance(receipts, list):
             return []
         return receipts[: max(0, int(limit))]
+
+    def operational_preflight_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("operational_preflight_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
+    def record_operational_preflight_audit(
+        self,
+        *,
+        status_snapshot: dict[str, Any],
+        integrity_report: dict[str, Any],
+        lease_probe: dict[str, Any],
+        reason: str,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("operational preflight audit reason is required")
+        pending_actions = status_snapshot.get("pending_actions", [])
+        if not isinstance(pending_actions, list):
+            pending_actions = []
+        latest_cycle = status_snapshot.get("latest_cycle")
+        if not isinstance(latest_cycle, dict):
+            latest_cycle = {}
+        runtime_failures: list[str] = []
+        if status_snapshot.get("paused") is not False:
+            runtime_failures.append("runtime paused")
+        if status_snapshot.get("killed") is not False:
+            runtime_failures.append("kill switch active")
+        if pending_actions:
+            runtime_failures.append("pending actions require approval or reconciliation")
+        if int(status_snapshot.get("cycle_count", 0) or 0) < 1:
+            runtime_failures.append("no completed cycle evidence")
+        if latest_cycle.get("status") != "SUCCEEDED":
+            runtime_failures.append("latest cycle is not SUCCEEDED")
+        integrity_failures = [] if integrity_report.get("ok") is True else ["integrity not ok"]
+        lease_failures = [
+            key
+            for key in (
+                "runtime_lock_available",
+                "daemon_lock_available",
+                "no_stale_runtime_lock",
+                "no_stale_daemon_lock",
+            )
+            if lease_probe.get(key) is not True
+        ]
+        startup_resume = status_snapshot.get("startup_resume", {})
+        if not isinstance(startup_resume, dict):
+            startup_resume = {}
+        resume_failures = (
+            []
+            if startup_resume.get("unresolved_running_actions", 0) in {0, None}
+            else ["unresolved running actions after startup"]
+        )
+        failure_groups = {
+            "runtime_failures": runtime_failures,
+            "integrity_failures": integrity_failures,
+            "lease_failures": lease_failures,
+            "resume_failures": resume_failures,
+        }
+        passed = not any(failure_groups.values())
+        receipt = {
+            "receipt_type": "OPERATIONAL_PREFLIGHT_AUDIT",
+            "status": "OPERATIONAL_PREFLIGHT_PASSED" if passed else "OPERATIONAL_PREFLIGHT_BLOCKED",
+            "audit_id": new_id("operational_preflight_audit"),
+            "reason": reason,
+            "status_snapshot": {
+                "home": status_snapshot.get("home"),
+                "read_only": status_snapshot.get("read_only"),
+                "paused": status_snapshot.get("paused"),
+                "killed": status_snapshot.get("killed"),
+                "cycle_count": status_snapshot.get("cycle_count"),
+                "latest_cycle": latest_cycle,
+                "pending_action_count": len(pending_actions),
+                "startup_resume": startup_resume,
+            },
+            "integrity_report": integrity_report,
+            "lease_probe": lease_probe,
+            "failure_groups": failure_groups,
+            "daemon_started": False,
+            "live_install_modified": False,
+            "live_config_modified": False,
+            "live_database_modified": False,
+            "claim_ceiling": (
+                "operational preflight receipt only; it validates a bounded "
+                "runtime status snapshot, integrity report, and lease probe but "
+                "does not start a daemon, modify live state, or prove long-run uptime"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.operational_preflight_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("operational_preflight_receipts", updated, connection)
+            self.ledger.append("operational_preflight_audit_recorded", receipt, connection)
+        return receipt
 
     def record_installed_tail_check_audit(
         self,
@@ -4563,6 +4660,7 @@ class LivingSystem:
             "packaging_layout_receipts": self.packaging_layout_receipts(),
             "delivery_readiness_receipts": self.delivery_readiness_receipts(),
             "installed_tail_check_receipts": self.installed_tail_check_receipts(),
+            "operational_preflight_receipts": self.operational_preflight_receipts(),
             "final_delivery_audit_receipts": self.final_delivery_audit_receipts(),
             "read_only_execution_preflights": self.read_only_execution_preflights(),
             "read_only_execution_receipts": self.read_only_execution_receipts(),

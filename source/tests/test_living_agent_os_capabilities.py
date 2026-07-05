@@ -59,6 +59,7 @@ from wls.architecture_validation import (
     validate_phase2_holdout_epoch_immutability,
     validate_phase2_installed_tail_check_audit,
     validate_phase2_multimodal_asset_readonly_execution,
+    validate_phase2_operational_preflight_audit,
     validate_phase2_owner_surface_and_readonly_organs,
     validate_phase2_packaging_layout_audit,
     validate_phase2_paired_baseline_candidate_experiment,
@@ -3769,6 +3770,76 @@ def test_installed_tail_check_audit_blocks_live_hash_drift(
     assert blocked["deploy_executed"] is False
     assert panel["status"]["installed_tail_check"]["receipt_count"] == 2
     assert panel["status"]["installed_tail_check"]["live_config_modified"] is False
+
+
+def test_architecture_validation_checks_operational_preflight_audit(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_operational_preflight_audit(
+        tmp_path / "operational-preflight-validation-home"
+    )
+    assert result.pass_id == "P77"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert "runtime_status_bound" in result.evidence
+    assert "lease_probe_bound" in result.evidence
+
+
+def test_operational_preflight_audit_blocks_unready_runtime(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime.run_cycle()
+    status_snapshot = runtime.status()
+    integrity_report = {
+        "ok": True,
+        "ledger": "ok",
+        "database": "ok",
+        "cognition": "ok",
+        "causal_memory": "ok",
+        "memory_attribution": "ok",
+    }
+    lease_probe = {
+        "runtime_lock_available": True,
+        "daemon_lock_available": True,
+        "no_stale_runtime_lock": True,
+        "no_stale_daemon_lock": True,
+    }
+    passed = runtime.record_operational_preflight_audit(
+        status_snapshot=status_snapshot,
+        integrity_report=integrity_report,
+        lease_probe=lease_probe,
+        reason="unit test operational preflight audit",
+    )
+    blocked = runtime.record_operational_preflight_audit(
+        status_snapshot={
+            **status_snapshot,
+            "killed": True,
+            "pending_actions": [{"action_id": "a1", "status": "WAITING_APPROVAL"}],
+        },
+        integrity_report={**integrity_report, "ok": False},
+        lease_probe={**lease_probe, "runtime_lock_available": False},
+        reason="unit test operational preflight block",
+    )
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "life"
+    )
+
+    assert passed["status"] == "OPERATIONAL_PREFLIGHT_PASSED"
+    assert passed["failure_groups"]["runtime_failures"] == []
+    assert passed["daemon_started"] is False
+    assert blocked["status"] == "OPERATIONAL_PREFLIGHT_BLOCKED"
+    assert "kill switch active" in blocked["failure_groups"]["runtime_failures"]
+    assert (
+        "pending actions require approval or reconciliation"
+        in blocked["failure_groups"]["runtime_failures"]
+    )
+    assert blocked["failure_groups"]["integrity_failures"] == ["integrity not ok"]
+    assert blocked["failure_groups"]["lease_failures"] == ["runtime_lock_available"]
+    assert blocked["daemon_started"] is False
+    assert panel["status"]["operational_preflight"]["receipt_count"] == 2
+    assert panel["status"]["operational_preflight"]["live_install_modified"] is False
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

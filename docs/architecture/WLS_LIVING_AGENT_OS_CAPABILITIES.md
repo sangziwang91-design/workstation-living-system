@@ -488,6 +488,12 @@ fields such as `memory_id`/`active`.
   status-smoke results. Hash drift, failed required checks, or smoke failure
   block the receipt without installing, upgrading, deploying, merging, or
   mutating the live instance.
+- P77 is a shadow-level runtime admission for operational preflight. It binds
+  runtime status, completed-cycle evidence, pending-action state, integrity
+  report, startup-resume state, and runtime/daemon lease probes into a receipt.
+  A paused/killed runtime, pending approval/reconciliation, failed integrity, or
+  unavailable lease blocks the receipt without starting a daemon or modifying
+  live installation, config, or database state.
 
 ## Projection Rule
 

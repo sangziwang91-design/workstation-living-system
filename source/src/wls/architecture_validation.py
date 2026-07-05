@@ -6839,6 +6839,104 @@ def validate_phase2_installed_tail_check_audit(
     )
 
 
+def validate_phase2_operational_preflight_audit(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    runtime.run_cycle()
+    status_snapshot = runtime.status()
+    integrity_report = {
+        "ok": True,
+        "ledger": "verified in disposable architecture validation",
+        "database": "ok",
+        "cognition": "ok",
+        "causal_memory": "ok",
+        "memory_attribution": "ok",
+    }
+    lease_probe = {
+        "runtime_lock_available": True,
+        "daemon_lock_available": True,
+        "no_stale_runtime_lock": True,
+        "no_stale_daemon_lock": True,
+    }
+    passed = runtime.record_operational_preflight_audit(
+        status_snapshot=status_snapshot,
+        integrity_report=integrity_report,
+        lease_probe=lease_probe,
+        reason="architecture validation operational preflight audit",
+    )
+    blocked_status = {
+        **status_snapshot,
+        "paused": True,
+        "pending_actions": [
+            {
+                "action_id": "waiting-action",
+                "status": "WAITING_APPROVAL",
+                "risk": "REVERSIBLE_WRITE",
+            }
+        ],
+    }
+    blocked = runtime.record_operational_preflight_audit(
+        status_snapshot=blocked_status,
+        integrity_report={**integrity_report, "ok": False},
+        lease_probe={**lease_probe, "daemon_lock_available": False},
+        reason="architecture validation operational preflight block",
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "life"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type='operational_preflight_audit_recorded'
+            """
+        )
+    }
+    if (
+        passed["status"] != "OPERATIONAL_PREFLIGHT_PASSED"
+        or passed["failure_groups"]["runtime_failures"]
+        or passed["daemon_started"] is not False
+        or blocked["status"] != "OPERATIONAL_PREFLIGHT_BLOCKED"
+        or not blocked["failure_groups"]["runtime_failures"]
+        or not blocked["failure_groups"]["integrity_failures"]
+        or not blocked["failure_groups"]["lease_failures"]
+        or panel is None
+        or panel["status"]["operational_preflight"]["receipt_count"] != 2
+        or panel["status"]["operational_preflight"]["daemon_started"] is not False
+        or event_types != {"operational_preflight_audit_recorded"}
+    ):
+        return ArchitecturePassResult(
+            "P77",
+            "BLOCKED",
+            [str(passed), str(blocked)],
+            ["operational preflight audit validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P77",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(passed["audit_id"]),
+            str(blocked["audit_id"]),
+            "runtime_status_bound",
+            "integrity_report_bound",
+            "lease_probe_bound",
+            "operational_preflight_audit_recorded",
+        ],
+        [
+            "Operational preflight audits bind runtime status, completed-cycle evidence, integrity status, and lease probes without starting daemons, mutating live state, or claiming long-run uptime",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

@@ -642,6 +642,7 @@ class OwnerConsoleProductProjection:
 
     @staticmethod
     def _life_panel(status: dict[str, Any]) -> dict[str, Any]:
+        preflight = status.get("operational_preflight_receipts", [])
         return {
             "panel_id": "life",
             "title": "Life",
@@ -653,6 +654,12 @@ class OwnerConsoleProductProjection:
                 "killed": status.get("killed"),
                 "cycle_count": status.get("cycle_count"),
                 "event_counts": status.get("event_counts", {}),
+                "operational_preflight": {
+                    "receipt_count": len(preflight) if isinstance(preflight, list) else 0,
+                    "items": preflight if isinstance(preflight, list) else [],
+                    "daemon_started": False,
+                    "live_install_modified": False,
+                },
             },
         }
 
