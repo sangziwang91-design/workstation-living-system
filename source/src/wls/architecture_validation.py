@@ -7313,6 +7313,126 @@ def validate_phase2_release_state_audit(home: Path) -> ArchitecturePassResult:
     )
 
 
+def validate_phase2_release_handoff_summary(home: Path) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    readiness_summary = {
+        "overall_status": "CANDIDATE_READY",
+        "missing_or_blocked": [],
+        "items": [
+            {"pass_id": "P77", "status": "OPERATIONAL_PREFLIGHT_PASSED"},
+            {"pass_id": "P76", "status": "INSTALLED_TAIL_CHECK_PASSED"},
+            {"pass_id": "P75", "status": "PACKAGING_LAYOUT_PASSED"},
+            {"pass_id": "P74", "status": "DELIVERY_READY_CANDIDATE"},
+        ],
+    }
+    owner_commands = {
+        "R01_R05": (
+            "D:\\WLS-Dev\\workstation-living-system-private\\scripts\\"
+            "run_life_campaign_30.ps1 -CampaignHome "
+            "'D:\\WLS\\campaigns\\life-campaign-30' -StartRound R01 "
+            "-EndRound R05 --execute"
+        ),
+        "R01_R40": (
+            "D:\\WLS-Dev\\workstation-living-system-private\\scripts\\"
+            "run_life_campaign_30.ps1 -CampaignHome "
+            "'D:\\WLS\\campaigns\\life-campaign-30' -StartRound R01 "
+            "-EndRound R40 --execute"
+        ),
+    }
+    boundaries = {
+        "live_install_modified": False,
+        "live_config_modified": False,
+        "live_database_modified": False,
+        "merge_executed": False,
+        "deploy_executed": False,
+        "skill_promoted": False,
+        "persistent_daemon_started": False,
+    }
+    runtime.record_delivery_handoff_package(
+        readiness_summary=readiness_summary,
+        candidate={"branch": "living-agent-os-capabilities-001", "commit": "abcdef"},
+        test_results=[
+            {"name": "architecture_validation_p74_p80", "status": "PASS"},
+            {"name": "ui_projection_and_server", "status": "PASS"},
+        ],
+        owner_commands=owner_commands,
+        rollback_steps=[
+            "Delete disposable campaign home D:\\WLS\\campaigns\\life-campaign-30.",
+            "Use git revert on the candidate branch if rejected.",
+            "Keep live installation, live config, and live database unchanged.",
+        ],
+        boundaries={
+            key: value
+            for key, value in boundaries.items()
+            if key != "persistent_daemon_started"
+        },
+        reason="architecture validation release handoff summary handoff",
+    )
+    runtime.record_release_state_audit(
+        receipt_counts={
+            "final_delivery_audit": 1,
+            "delivery_readiness": 1,
+            "packaging_layout": 1,
+            "installed_tail_check": 1,
+            "operational_preflight": 1,
+            "delivery_handoff": 1,
+        },
+        asset_checks={
+            "campaign_spec": True,
+            "campaign_runner": True,
+            "powershell_entry": True,
+            "owner_console_static": True,
+            "delivery_handoff_script": True,
+            "architecture_doc": True,
+        },
+        test_results=[
+            {"name": "architecture_validation_p74_p80", "status": "PASS"},
+            {"name": "ui_projection_and_server", "status": "PASS"},
+            {"name": "campaign_packaging_contracts", "status": "PASS"},
+        ],
+        boundaries=boundaries,
+        reason="architecture validation release handoff summary release state",
+    )
+    product = OwnerConsoleProductProjection().project(runtime.status())
+    release_handoff = product["release_handoff"]
+    app_js = (Path(__file__).parent / "ui_static" / "app.js").read_text(
+        encoding="utf-8"
+    )
+    handoff_script = (
+        Path(__file__).parents[2] / "scripts" / "build_delivery_handoff.py"
+    ).read_text(encoding="utf-8")
+    if (
+        release_handoff["overall_status"] != "CANDIDATE_READY"
+        or release_handoff["missing_or_blocked"]
+        or [item["pass_id"] for item in release_handoff["items"]] != ["P79", "P80"]
+        or product["writes_canonical_state"] is not False
+        or product["direct_tool_execution"] is not False
+        or "Release Handoff" not in app_js
+        or "releaseHandoffCards" not in app_js
+        or "release_state_summary" not in handoff_script
+        or "release_state_audit" not in handoff_script
+    ):
+        return ArchitecturePassResult(
+            "P81",
+            "BLOCKED",
+            [str(release_handoff)],
+            ["release handoff summary validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P81",
+        "ADMIT_SHADOW_ONLY",
+        [
+            release_handoff["overall_status"],
+            "owner_console_release_handoff_projected",
+            "static_ui_release_handoff_rendered",
+            "handoff_export_release_state_summary",
+        ],
+        [
+            "Owner Console and delivery handoff exports expose P79/P80 release-state readiness as read-only candidate evidence without executing campaigns or mutating live state",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

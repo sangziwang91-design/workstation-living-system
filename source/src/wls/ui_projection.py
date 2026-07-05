@@ -629,6 +629,7 @@ class OwnerConsoleProductProjection:
             "panels": panels,
             "panel_ids": [panel["panel_id"] for panel in panels],
             "delivery_readiness": self._delivery_readiness_summary(panels),
+            "release_handoff": self._release_handoff_summary(panels),
             "source_keys": sorted(status.keys()),
             "claim_ceiling": "read-only product projection over LivingSystem.status",
         }
@@ -704,6 +705,51 @@ class OwnerConsoleProductProjection:
             "claim_ceiling": (
                 "read-only readiness projection; candidate evidence only until "
                 "campaign, packaging, tail, and operational receipts are current"
+            ),
+        }
+
+    @staticmethod
+    def _release_handoff_summary(panels: list[dict[str, Any]]) -> dict[str, Any]:
+        by_id = {str(panel.get("panel_id")): panel for panel in panels}
+        capability = by_id.get("capability_epoch", {}).get("status", {})
+        if not isinstance(capability, dict):
+            capability = {}
+        items = [
+            {
+                "readiness_id": "delivery_handoff",
+                "label": "Handoff",
+                "pass_id": "P79",
+                "status": OwnerConsoleProductProjection._latest_nested_status(
+                    capability, "delivery_handoff"
+                ),
+            },
+            {
+                "readiness_id": "release_state_audit",
+                "label": "Release State",
+                "pass_id": "P80",
+                "status": OwnerConsoleProductProjection._latest_nested_status(
+                    capability, "release_state_audit"
+                ),
+            },
+        ]
+        acceptable = {
+            "DELIVERY_HANDOFF_READY",
+            "RELEASE_STATE_CANDIDATE_READY",
+        }
+        missing = [
+            item["readiness_id"]
+            for item in items
+            if item["status"] not in acceptable
+        ]
+        return {
+            "overall_status": "CANDIDATE_READY" if not missing else "NEEDS_EVIDENCE",
+            "items": items,
+            "missing_or_blocked": missing,
+            "writes_canonical_state": False,
+            "direct_tool_execution": False,
+            "claim_ceiling": (
+                "read-only release handoff projection; candidate evidence only "
+                "until delivery handoff and release state audit receipts are current"
             ),
         }
 

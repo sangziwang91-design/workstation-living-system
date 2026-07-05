@@ -75,6 +75,7 @@ from wls.architecture_validation import (
     validate_phase2_readonly_execution_preflight,
     validate_phase2_research_composite_readonly_execution,
     validate_phase2_release_state_audit,
+    validate_phase2_release_handoff_summary,
     validate_phase2_scheduler_due_event_runtime_intake,
     validate_phase2_skill_candidate_extraction_receipts,
     validate_phase2_learning_epoch_review_receipts,
@@ -3938,6 +3939,18 @@ def test_architecture_validation_checks_release_state_audit(
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert "release_state_candidate_ready" in result.evidence
     assert "missing_evidence_blocks_release" in result.evidence
+
+
+def test_architecture_validation_checks_release_handoff_summary(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_release_handoff_summary(
+        tmp_path / "release-handoff-summary-home"
+    )
+    assert result.pass_id == "P81"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert "owner_console_release_handoff_projected" in result.evidence
+    assert "handoff_export_release_state_summary" in result.evidence
 
 
 def test_release_state_audit_blocks_missing_evidence(

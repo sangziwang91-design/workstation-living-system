@@ -510,6 +510,10 @@ fields such as `memory_id`/`active`.
   receipts; required source assets; regression results; and no-live-mutation
   boundaries. Missing evidence blocks the release state without changing live
   installation, starting daemons, merging, deploying, or promoting Skills.
+- P81 is a shadow-level runtime admission for release handoff summary. The
+  Owner Console and delivery handoff JSON expose P79/P80 release-state
+  readiness as read-only candidate evidence, so the Owner-facing delivery layer
+  no longer depends only on earlier P74-P77 readiness receipts.
 
 ## Projection Rule
 

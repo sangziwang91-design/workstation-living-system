@@ -206,6 +206,8 @@ async function renderPanels() {
     </div>
     <div class="section-title"><h2>Delivery Readiness</h2><small>candidate evidence</small></div>
     <div class="grid cols-4">${readiness.join("")}</div>
+    <div class="section-title"><h2>Release Handoff</h2><small>candidate evidence</small></div>
+    <div class="grid cols-2">${releaseHandoffCards().join("")}</div>
     <div class="section-title"><h2>Organs</h2><small>${escapeHtml(state.product.projection_version || "-")}</small></div>
     <div class="grid cols-2">${panels.map(panelCard).join("") || `<div class="empty">No product panels projected.</div>`}</div>
   `;
@@ -216,6 +218,15 @@ function readinessCards() {
   const summary = state.product.delivery_readiness || {};
   const items = Array.isArray(summary.items) ? summary.items : [];
   if (!items.length) return [readinessCard("Readiness", "NO_RECEIPT", "P74-P77")];
+  return items.map((item) =>
+    readinessCard(item.label || item.readiness_id, item.status || "UNKNOWN", item.pass_id || "-")
+  );
+}
+
+function releaseHandoffCards() {
+  const summary = state.product.release_handoff || {};
+  const items = Array.isArray(summary.items) ? summary.items : [];
+  if (!items.length) return [readinessCard("Release", "NO_RECEIPT", "P79-P80")];
   return items.map((item) =>
     readinessCard(item.label || item.readiness_id, item.status || "UNKNOWN", item.pass_id || "-")
   );

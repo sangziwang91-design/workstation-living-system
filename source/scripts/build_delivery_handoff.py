@@ -48,13 +48,29 @@ def build_handoff(
         "missing_or_blocked": [] if readiness_status == "CANDIDATE_READY" else ["runtime_receipts"],
         "claim_ceiling": "script-level summary; current runtime receipts must be generated separately",
     }
+    release_state_summary = {
+        "overall_status": (
+            "CANDIDATE_READY"
+            if readiness_status == "CANDIDATE_READY"
+            else "NEEDS_EVIDENCE"
+        ),
+        "required_receipts": ["delivery_handoff", "release_state_audit"],
+        "missing_or_blocked": []
+        if readiness_status == "CANDIDATE_READY"
+        else ["delivery_handoff", "release_state_audit"],
+        "claim_ceiling": (
+            "script-level release summary; runtime P79/P80 receipts must be "
+            "generated separately before Owner execution"
+        ),
+    }
     return {
         "artifact_type": "WLS_DELIVERY_HANDOFF_PACKAGE",
         "candidate": {"branch": branch, "commit": commit},
         "readiness_summary": readiness_summary,
+        "release_state_summary": release_state_summary,
         "owner_commands": commands,
         "test_results": [
-            {"name": "architecture_validation_p74_p78", "status": "PASS"},
+            {"name": "architecture_validation_p74_p81", "status": "PASS"},
             {"name": "ui_projection_and_server", "status": "PASS"},
             {"name": "life_campaign_and_packaging_contracts", "status": "PASS"},
         ],

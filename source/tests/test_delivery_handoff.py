@@ -22,6 +22,11 @@ def test_build_delivery_handoff_outputs_owner_commands() -> None:
 
     assert payload["artifact_type"] == "WLS_DELIVERY_HANDOFF_PACKAGE"
     assert payload["readiness_summary"]["overall_status"] == "CANDIDATE_READY"
+    assert payload["release_state_summary"]["overall_status"] == "CANDIDATE_READY"
+    assert payload["release_state_summary"]["required_receipts"] == [
+        "delivery_handoff",
+        "release_state_audit",
+    ]
     assert "run_life_campaign_30.ps1" in payload["owner_commands"]["R01_R05"]
     assert "-StartRound R01" in payload["owner_commands"]["R01_R05"]
     assert "-EndRound R05" in payload["owner_commands"]["R01_R05"]

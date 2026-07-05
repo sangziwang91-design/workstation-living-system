@@ -297,11 +297,16 @@ def test_owner_console_product_projection_summarizes_delivery_readiness() -> Non
     empty = projection.project({})
 
     assert empty["delivery_readiness"]["overall_status"] == "NEEDS_EVIDENCE"
+    assert empty["release_handoff"]["overall_status"] == "NEEDS_EVIDENCE"
     assert set(empty["delivery_readiness"]["missing_or_blocked"]) == {
         "operational_preflight",
         "installed_tail_check",
         "packaging_layout",
         "delivery_readiness",
+    }
+    assert set(empty["release_handoff"]["missing_or_blocked"]) == {
+        "delivery_handoff",
+        "release_state_audit",
     }
 
     ready = projection.project(
@@ -314,18 +319,29 @@ def test_owner_console_product_projection_summarizes_delivery_readiness() -> Non
             ],
             "packaging_layout_receipts": [{"status": "PACKAGING_LAYOUT_PASSED"}],
             "delivery_readiness_receipts": [{"status": "DELIVERY_READY_CANDIDATE"}],
+            "delivery_handoff_receipts": [{"status": "DELIVERY_HANDOFF_READY"}],
+            "release_state_audit_receipts": [
+                {"status": "RELEASE_STATE_CANDIDATE_READY"}
+            ],
         }
     )
 
     assert ready["delivery_readiness"]["overall_status"] == "CANDIDATE_READY"
+    assert ready["release_handoff"]["overall_status"] == "CANDIDATE_READY"
     assert ready["delivery_readiness"]["missing_or_blocked"] == []
+    assert ready["release_handoff"]["missing_or_blocked"] == []
     assert [item["pass_id"] for item in ready["delivery_readiness"]["items"]] == [
         "P77",
         "P76",
         "P75",
         "P74",
     ]
+    assert [item["pass_id"] for item in ready["release_handoff"]["items"]] == [
+        "P79",
+        "P80",
+    ]
     assert ready["delivery_readiness"]["writes_canonical_state"] is False
+    assert ready["release_handoff"]["writes_canonical_state"] is False
 
 
 def test_task_requires_project_id() -> None:
