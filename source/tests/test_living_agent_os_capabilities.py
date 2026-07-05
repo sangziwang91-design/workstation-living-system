@@ -59,6 +59,7 @@ from wls.architecture_validation import (
     validate_phase2_holdout_epoch_immutability,
     validate_phase2_multimodal_asset_readonly_execution,
     validate_phase2_owner_surface_and_readonly_organs,
+    validate_phase2_packaging_layout_audit,
     validate_phase2_paired_baseline_candidate_experiment,
     validate_phase2_preflighted_readonly_execution,
     validate_phase2_promotion_bundle_gate,
@@ -3609,6 +3610,79 @@ def test_delivery_readiness_audit_blocks_missing_candidate_boundaries(
     assert blocked["boundaries"]["failures"] == ["live_install_modified"]
     assert panel["status"]["delivery_readiness"]["receipt_count"] == 2
     assert panel["status"]["delivery_readiness"]["live_install_modified"] is False
+
+
+def test_architecture_validation_checks_packaging_layout_audit(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_packaging_layout_audit(
+        tmp_path / "packaging-layout-validation-home"
+    )
+    assert result.pass_id == "P75"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert "single_package_root_bound" in result.evidence
+    assert "version_authority_bound" in result.evidence
+
+
+def test_packaging_layout_audit_blocks_duplicate_authority(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    checks = {
+        "single_project_manifest": True,
+        "no_setup_py": True,
+        "no_setup_cfg": True,
+        "single_package_root": True,
+        "canonical_cli_exists": True,
+        "canonical_main_exists": True,
+        "root_package_dir": True,
+        "root_find_dir": True,
+        "root_test_dir": True,
+        "version_is_dynamic": True,
+        "version_attr_is_canonical": True,
+    }
+    report = {
+        "success": True,
+        "canonical_project_root": ".",
+        "canonical_package": "source/src/wls",
+        "canonical_version_file": "source/src/wls/_version.py",
+        "canonical_version": "0.9.0.dev1",
+        "project_manifests": ["pyproject.toml"],
+        "package_roots": ["source/src/wls"],
+        "checks": checks,
+    }
+    passed = runtime.record_packaging_layout_audit(
+        report=report,
+        reason="unit test packaging layout audit",
+    )
+    blocked = runtime.record_packaging_layout_audit(
+        report={
+            **report,
+            "success": False,
+            "canonical_version_file": "source/wls/_version.py",
+            "project_manifests": ["pyproject.toml", "source/pyproject.toml"],
+            "package_roots": ["source/src/wls", "source/wls"],
+            "checks": {**checks, "single_package_root": False},
+        },
+        reason="unit test packaging layout block",
+    )
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "capability_epoch"
+    )
+
+    assert passed["status"] == "PACKAGING_LAYOUT_PASSED"
+    assert passed["single_authority_preserved"] is True
+    assert passed["install_executed"] is False
+    assert blocked["status"] == "PACKAGING_LAYOUT_BLOCKED"
+    assert blocked["failure_groups"]["failed_checks"] == ["single_package_root"]
+    assert blocked["failure_groups"]["field_failures"] == ["canonical_version_file"]
+    assert blocked["failure_groups"]["manifest_failures"]
+    assert blocked["failure_groups"]["package_root_failures"]
+    assert blocked["install_executed"] is False
+    assert panel["status"]["packaging_layout"]["receipt_count"] == 2
+    assert panel["status"]["packaging_layout"]["single_authority_required"] is True
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

@@ -1051,6 +1051,8 @@ class LivingSystem:
             "offspring_budget": len(self.offspring_budget_receipts(100)),
             "offspring_checkpoint": len(self.offspring_checkpoint_receipts(100)),
             "offspring_mailbox": len(self.offspring_mailbox_receipts(100)),
+            "packaging_layout": len(self.packaging_layout_receipts(100)),
+            "delivery_readiness": len(self.delivery_readiness_receipts(100)),
         }
         branch_only_scaffolding = [
             {
@@ -1330,6 +1332,96 @@ class LivingSystem:
         if not isinstance(receipts, list):
             return []
         return receipts[: max(0, int(limit))]
+
+    def packaging_layout_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("packaging_layout_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
+    def record_packaging_layout_audit(
+        self,
+        *,
+        report: dict[str, Any],
+        reason: str,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("packaging layout audit reason is required")
+        checks = report.get("checks", {})
+        if not isinstance(checks, dict):
+            checks = {}
+        failed_checks = [
+            str(key)
+            for key, value in sorted(checks.items())
+            if value is not True
+        ]
+        required_fields = {
+            "canonical_project_root": ".",
+            "canonical_package": "source/src/wls",
+            "canonical_version_file": "source/src/wls/_version.py",
+        }
+        field_failures = [
+            key for key, expected in required_fields.items() if report.get(key) != expected
+        ]
+        package_roots = report.get("package_roots", [])
+        if not isinstance(package_roots, list):
+            package_roots = []
+        package_root_failures = (
+            []
+            if package_roots == ["source/src/wls"]
+            else ["package_roots must equal ['source/src/wls']"]
+        )
+        project_manifests = report.get("project_manifests", [])
+        if not isinstance(project_manifests, list):
+            project_manifests = []
+        manifest_failures = (
+            []
+            if project_manifests == ["pyproject.toml"]
+            else ["project_manifests must equal ['pyproject.toml']"]
+        )
+        success_claim_failure = (
+            []
+            if report.get("success") is True
+            else ["packaging report did not declare success"]
+        )
+        failure_groups = {
+            "failed_checks": failed_checks,
+            "field_failures": field_failures,
+            "package_root_failures": package_root_failures,
+            "manifest_failures": manifest_failures,
+            "success_claim_failure": success_claim_failure,
+        }
+        passed = not any(failure_groups.values())
+        receipt = {
+            "receipt_type": "PACKAGING_LAYOUT_AUDIT",
+            "status": "PACKAGING_LAYOUT_PASSED" if passed else "PACKAGING_LAYOUT_BLOCKED",
+            "audit_id": new_id("packaging_layout_audit"),
+            "reason": reason,
+            "report": report,
+            "failure_groups": failure_groups,
+            "canonical_project_root": report.get("canonical_project_root"),
+            "canonical_package": report.get("canonical_package"),
+            "canonical_version_file": report.get("canonical_version_file"),
+            "project_manifests": project_manifests,
+            "package_roots": package_roots,
+            "single_authority_preserved": passed,
+            "install_executed": False,
+            "package_build_executed": False,
+            "live_install_modified": False,
+            "claim_ceiling": (
+                "repository packaging layout receipt only; it verifies source-tree "
+                "layout and version authority from a report but does not build, "
+                "install, deploy, or prove wheel/runtime compatibility"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.packaging_layout_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("packaging_layout_receipts", updated, connection)
+            self.ledger.append("packaging_layout_audit_recorded", receipt, connection)
+        return receipt
 
     def delivery_readiness_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         receipts = self.db.get_runtime("delivery_readiness_receipts", [])
@@ -4383,6 +4475,7 @@ class LivingSystem:
             "holdout_epoch_receipts": self.holdout_epoch_receipts(),
             "promotion_bundle_receipts": self.promotion_bundle_receipts(),
             "transfer_audit_receipts": self.transfer_audit_receipts(),
+            "packaging_layout_receipts": self.packaging_layout_receipts(),
             "delivery_readiness_receipts": self.delivery_readiness_receipts(),
             "final_delivery_audit_receipts": self.final_delivery_audit_receipts(),
             "read_only_execution_preflights": self.read_only_execution_preflights(),

@@ -477,6 +477,11 @@ fields such as `memory_id`/`active`.
   boundaries into a receipt. It can mark a candidate ready for Owner review or
   blocked by missing commands/assets/boundaries, but it performs no merge,
   deployment, package installation, Skill promotion, or live configuration write.
+- P75 is a shadow-level runtime admission for packaging layout authority. It
+  records the result of the repository packaging layout contract as a receipt,
+  requiring one project manifest, one package root, and one version file. A
+  failed check blocks packaging readiness without building a wheel, installing
+  a package, mutating the live instance, or creating a second source authority.
 
 ## Projection Rule
 

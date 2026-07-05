@@ -6624,6 +6624,110 @@ def validate_phase2_delivery_readiness_audit(
     )
 
 
+def validate_phase2_packaging_layout_audit(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    checks = {
+        "single_project_manifest": True,
+        "no_setup_py": True,
+        "no_setup_cfg": True,
+        "single_package_root": True,
+        "canonical_cli_exists": True,
+        "canonical_main_exists": True,
+        "root_package_dir": True,
+        "root_find_dir": True,
+        "root_test_dir": True,
+        "version_is_dynamic": True,
+        "version_attr_is_canonical": True,
+        "duplicate_source_metadata_absent": True,
+        "legacy_installer_not_at_root": True,
+        "no_direct_main_push_workflow": True,
+        "no_source_project_install": True,
+        "no_source_project_build": True,
+        "no_source_working_directory": True,
+    }
+    report = {
+        "success": True,
+        "canonical_project_root": ".",
+        "canonical_package": "source/src/wls",
+        "canonical_version_file": "source/src/wls/_version.py",
+        "canonical_version": "0.9.0.dev1",
+        "project_manifests": ["pyproject.toml"],
+        "package_roots": ["source/src/wls"],
+        "checks": checks,
+    }
+    passed = runtime.record_packaging_layout_audit(
+        report=report,
+        reason="architecture validation packaging layout audit",
+    )
+    blocked_report = {
+        **report,
+        "success": False,
+        "canonical_package": "source/wls",
+        "project_manifests": ["pyproject.toml", "source/pyproject.toml"],
+        "package_roots": ["source/src/wls", "legacy/wls"],
+        "checks": {**checks, "single_package_root": False},
+    }
+    blocked = runtime.record_packaging_layout_audit(
+        report=blocked_report,
+        reason="architecture validation packaging layout block",
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "capability_epoch"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type='packaging_layout_audit_recorded'
+            """
+        )
+    }
+    if (
+        passed["status"] != "PACKAGING_LAYOUT_PASSED"
+        or passed["failure_groups"]["failed_checks"]
+        or passed["single_authority_preserved"] is not True
+        or passed["install_executed"] is not False
+        or blocked["status"] != "PACKAGING_LAYOUT_BLOCKED"
+        or not blocked["failure_groups"]["failed_checks"]
+        or not blocked["failure_groups"]["package_root_failures"]
+        or panel is None
+        or panel["status"]["packaging_layout"]["receipt_count"] != 2
+        or panel["status"]["packaging_layout"]["install_executed"] is not False
+        or event_types != {"packaging_layout_audit_recorded"}
+    ):
+        return ArchitecturePassResult(
+            "P75",
+            "BLOCKED",
+            [str(passed), str(blocked)],
+            ["packaging layout audit validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P75",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(passed["audit_id"]),
+            str(blocked["audit_id"]),
+            "single_package_root_bound",
+            "single_project_manifest_bound",
+            "version_authority_bound",
+            "packaging_layout_audit_recorded",
+        ],
+        [
+            "Packaging layout audits bind repository source authority to one project manifest, one package root, and one version file without building, installing, deploying, or mutating the live instance",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:
