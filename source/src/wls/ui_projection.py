@@ -1471,6 +1471,7 @@ class OwnerConsoleProductProjection:
         delivery_handoff = status.get("delivery_handoff_receipts", [])
         release_state_audit = status.get("release_state_audit_receipts", [])
         ui_hardening = status.get("ui_hardening_audit_receipts", [])
+        delivery_gap = status.get("delivery_gap_audit_receipts", [])
         installed_tail_check = status.get("installed_tail_check_receipts", [])
         final_delivery = status.get("final_delivery_audit_receipts", [])
         return {
@@ -1546,6 +1547,15 @@ class OwnerConsoleProductProjection:
                     "persistent_ui_token": False,
                     "ui_completion_authority": False,
                     "real_browser_e2e_required": True,
+                },
+                "delivery_gap_audit": {
+                    "receipt_count": len(delivery_gap)
+                    if isinstance(delivery_gap, list)
+                    else 0,
+                    "items": delivery_gap if isinstance(delivery_gap, list) else [],
+                    "live_install_modified": False,
+                    "merge_executed": False,
+                    "owner_host_gates_required": True,
                 },
                 "installed_tail_check": {
                     "receipt_count": len(installed_tail_check)

@@ -7663,6 +7663,122 @@ def validate_phase2_offspring_ecology_audit(home: Path) -> ArchitecturePassResul
     )
 
 
+def validate_phase2_delivery_gap_audit(home: Path) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    ready = runtime.record_delivery_gap_audit(
+        package_coverage={
+            "WLS_30_ROUND_DIRECT_ITERATION_TASK": "COVERED",
+            "WLS_EVOLUTIONARY_FUTURE_PACKAGE_v2": "PARTIAL",
+            "WLS_LIVING_AGENT_OS_CAPABILITY_EVOLUTION": "COVERED",
+            "WLS_AGENTIC_DEEP_LEAP": "COVERED",
+            "WLS_DEEP_LEAP_PACK": "COVERED",
+            "WLS_OFFSPRING_EVOLUTION": "COVERED",
+            "WLS_UI_RUNTIME_V1_1": "COVERED",
+            "WLS_CODEX_FINAL_ROUTE": "COVERED",
+        },
+        milestone_coverage={
+            "R01_R40_campaign_framework": "COVERED",
+            "P47_P84_living_agent_os": "COVERED",
+            "owner_console_ui": "COVERED",
+            "agentic_harness": "COVERED",
+            "offspring_ecology": "COVERED",
+            "real_owner_host_longitudinal": "OWNER_GATE",
+            "external_independent_benchmark": "OWNER_GATE",
+        },
+        owner_host_gates={
+            "real_browser_e2e": False,
+            "owner_host_longitudinal": False,
+            "external_independent_benchmark": False,
+        },
+        repository_checks={
+            "candidate_branch": True,
+            "clean_source_tree": True,
+            "handoff_export": True,
+            "no_live_mutation": True,
+        },
+        reason="architecture validation delivery gap audit",
+    )
+    blocked = runtime.record_delivery_gap_audit(
+        package_coverage={
+            "WLS_30_ROUND_DIRECT_ITERATION_TASK": "COVERED",
+            "WLS_UI_RUNTIME_V1_1": "MISSING",
+        },
+        milestone_coverage={
+            "owner_console_ui": "MISSING",
+            "agentic_harness": "COVERED",
+        },
+        owner_host_gates={"real_browser_e2e": False},
+        repository_checks={
+            "candidate_branch": True,
+            "clean_source_tree": False,
+            "handoff_export": True,
+            "no_live_mutation": True,
+        },
+        reason="architecture validation delivery gap block",
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "capability_epoch"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type='delivery_gap_audit_recorded'
+            """
+        )
+    }
+    capability_status = panel["status"] if panel is not None else {}
+    delivery_gap_status = capability_status.get("delivery_gap_audit", {})
+    if (
+        ready["status"] != "DELIVERY_GAP_CANDIDATE_READY"
+        or sorted(ready["failure_groups"]["owner_host_gates"])
+        != [
+            "external_independent_benchmark",
+            "owner_host_longitudinal",
+            "real_browser_e2e",
+        ]
+        or ready["live_install_modified"] is not False
+        or blocked["status"] != "DELIVERY_GAP_BLOCKED"
+        or "WLS_UI_RUNTIME_V1_1" not in blocked["failure_groups"]["missing_packages"]
+        or "owner_console_ui" not in blocked["failure_groups"]["missing_milestones"]
+        or "clean_source_tree"
+        not in blocked["failure_groups"]["failed_repository_checks"]
+        or panel is None
+        or delivery_gap_status.get("receipt_count") != 2
+        or delivery_gap_status.get("live_install_modified") is not False
+        or delivery_gap_status.get("merge_executed") is not False
+        or delivery_gap_status.get("owner_host_gates_required") is not True
+        or event_types != {"delivery_gap_audit_recorded"}
+    ):
+        return ArchitecturePassResult(
+            "P85",
+            "BLOCKED",
+            [str(ready), str(blocked)],
+            ["delivery gap audit validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P85",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(ready["audit_id"]),
+            "delivery_gap_candidate_ready",
+            "owner_host_gates_preserved",
+            "delivery_gap_audit_recorded",
+        ],
+        [
+            "Delivery gap audits summarize D:\\WLS-Dev source-package absorption, P/R coverage, repository checks, and unresolved Owner-host gates without mutating live state or converting external gates into repository readiness",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

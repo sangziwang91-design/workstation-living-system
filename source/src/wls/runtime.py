@@ -1062,6 +1062,7 @@ class LivingSystem:
             "delivery_handoff": len(self.delivery_handoff_receipts(100)),
             "release_state_audit": len(self.release_state_audit_receipts(100)),
             "ui_hardening_audit": len(self.ui_hardening_audit_receipts(100)),
+            "delivery_gap_audit": len(self.delivery_gap_audit_receipts(100)),
         }
         branch_only_scaffolding = [
             {
@@ -1469,6 +1470,12 @@ class LivingSystem:
             return []
         return receipts[: max(0, int(limit))]
 
+    def delivery_gap_audit_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("delivery_gap_audit_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
     def installed_tail_check_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         receipts = self.db.get_runtime("installed_tail_check_receipts", [])
         if not isinstance(receipts, list):
@@ -1845,6 +1852,95 @@ class LivingSystem:
         with self.db.transaction() as connection:
             self.db.set_runtime("ui_hardening_audit_receipts", updated, connection)
             self.ledger.append("ui_hardening_audit_recorded", receipt, connection)
+        return receipt
+
+    def record_delivery_gap_audit(
+        self,
+        *,
+        package_coverage: dict[str, str],
+        milestone_coverage: dict[str, str],
+        owner_host_gates: dict[str, bool],
+        repository_checks: dict[str, bool],
+        reason: str,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("delivery gap audit reason is required")
+        allowed_states = {"COVERED", "PARTIAL", "MISSING", "BLOCKED", "OWNER_GATE"}
+        invalid_package_states = {
+            key: value
+            for key, value in package_coverage.items()
+            if value not in allowed_states
+        }
+        invalid_milestone_states = {
+            key: value
+            for key, value in milestone_coverage.items()
+            if value not in allowed_states
+        }
+        missing_packages = [
+            key
+            for key, value in package_coverage.items()
+            if value in {"MISSING", "BLOCKED"}
+        ]
+        missing_milestones = [
+            key
+            for key, value in milestone_coverage.items()
+            if value in {"MISSING", "BLOCKED"}
+        ]
+        failed_repository_checks = [
+            key for key, value in repository_checks.items() if value is not True
+        ]
+        unresolved_owner_gates = [
+            key for key, value in owner_host_gates.items() if value is not True
+        ]
+        failure_groups = {
+            "invalid_package_states": sorted(invalid_package_states),
+            "invalid_milestone_states": sorted(invalid_milestone_states),
+            "missing_packages": sorted(missing_packages),
+            "missing_milestones": sorted(missing_milestones),
+            "failed_repository_checks": sorted(failed_repository_checks),
+            "owner_host_gates": sorted(unresolved_owner_gates),
+        }
+        candidate_ready = not (
+            invalid_package_states
+            or invalid_milestone_states
+            or missing_packages
+            or missing_milestones
+            or failed_repository_checks
+        )
+        receipt = {
+            "receipt_type": "DELIVERY_GAP_AUDIT",
+            "status": "DELIVERY_GAP_CANDIDATE_READY"
+            if candidate_ready
+            else "DELIVERY_GAP_BLOCKED",
+            "audit_id": new_id("delivery_gap_audit"),
+            "reason": reason,
+            "package_coverage": package_coverage,
+            "milestone_coverage": milestone_coverage,
+            "owner_host_gates": owner_host_gates,
+            "repository_checks": repository_checks,
+            "failure_groups": failure_groups,
+            "allowed_conclusion": (
+                "repository candidate ready with explicit owner-host gates"
+                if candidate_ready
+                else "delivery gaps require repair before handoff"
+            ),
+            "live_install_modified": False,
+            "merge_executed": False,
+            "deploy_executed": False,
+            "skill_promoted": False,
+            "claim_ceiling": (
+                "delivery gap audit receipt only; repository candidate coverage "
+                "can be summarized, while unresolved owner-host gates remain "
+                "outside this proof"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.delivery_gap_audit_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("delivery_gap_audit_receipts", updated, connection)
+            self.ledger.append("delivery_gap_audit_recorded", receipt, connection)
         return receipt
 
     def record_installed_tail_check_audit(
@@ -4977,6 +5073,7 @@ class LivingSystem:
             "delivery_handoff_receipts": self.delivery_handoff_receipts(),
             "release_state_audit_receipts": self.release_state_audit_receipts(),
             "ui_hardening_audit_receipts": self.ui_hardening_audit_receipts(),
+            "delivery_gap_audit_receipts": self.delivery_gap_audit_receipts(),
             "installed_tail_check_receipts": self.installed_tail_check_receipts(),
             "operational_preflight_receipts": self.operational_preflight_receipts(),
             "final_delivery_audit_receipts": self.final_delivery_audit_receipts(),

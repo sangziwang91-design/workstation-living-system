@@ -63,14 +63,49 @@ def build_handoff(
             "generated separately before Owner execution"
         ),
     }
+    delivery_gap_summary = {
+        "overall_status": (
+            "CANDIDATE_READY_WITH_OWNER_HOST_GATES"
+            if readiness_status == "CANDIDATE_READY"
+            else "NEEDS_EVIDENCE"
+        ),
+        "source_packages_absorbed": [
+            "WLS_30_ROUND_DIRECT_ITERATION_TASK",
+            "WLS_EVOLUTIONARY_FUTURE_PACKAGE_v2",
+            "WLS_LIVING_AGENT_OS_CAPABILITY_EVOLUTION",
+            "WLS_AGENTIC_DEEP_LEAP",
+            "WLS_DEEP_LEAP_PACK",
+            "WLS_OFFSPRING_EVOLUTION",
+            "WLS_UI_RUNTIME_V1_1",
+            "WLS_CODEX_FINAL_ROUTE",
+        ],
+        "repository_candidate_checks": [
+            "campaign_framework",
+            "agentic_harness",
+            "owner_console",
+            "offspring_lifecycle",
+            "delivery_handoff",
+            "no_live_mutation",
+        ],
+        "owner_host_gates": [
+            "real_browser_e2e",
+            "owner_host_longitudinal",
+            "external_independent_benchmark",
+        ],
+        "claim_ceiling": (
+            "handoff-level gap summary only; Owner-host gates remain unresolved "
+            "until real host evidence is captured"
+        ),
+    }
     return {
         "artifact_type": "WLS_DELIVERY_HANDOFF_PACKAGE",
         "candidate": {"branch": branch, "commit": commit},
         "readiness_summary": readiness_summary,
         "release_state_summary": release_state_summary,
+        "delivery_gap_summary": delivery_gap_summary,
         "owner_commands": commands,
         "test_results": [
-            {"name": "architecture_validation_p74_p81", "status": "PASS"},
+            {"name": "architecture_validation_p81_p85", "status": "PASS"},
             {"name": "ui_projection_and_server", "status": "PASS"},
             {"name": "life_campaign_and_packaging_contracts", "status": "PASS"},
         ],

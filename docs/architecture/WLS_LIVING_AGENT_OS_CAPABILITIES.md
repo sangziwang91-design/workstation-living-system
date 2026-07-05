@@ -526,6 +526,10 @@ fields such as `memory_id`/`active`.
   compares candidate population productivity, niche diversity, budget cost, and
   failure status while preserving no archive-search execution, no absorption,
   no promotion, and no second authority.
+- P85 is a shadow-level runtime admission for delivery gap audit receipts. It
+  records D:\WLS-Dev package absorption, P/R coverage, repository checks, and
+  unresolved Owner-host gates without converting owner gates into repository
+  readiness or mutating live state.
 
 ## Projection Rule
 

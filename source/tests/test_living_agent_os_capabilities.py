@@ -55,6 +55,7 @@ from wls.architecture_validation import (
     validate_phase2_coding_candidate_readonly_execution,
     validate_phase2_browser_readonly_runtime_execution,
     validate_phase2_external_handoff_runtime_receipts,
+    validate_phase2_delivery_gap_audit,
     validate_phase2_delivery_handoff_package,
     validate_phase2_delivery_readiness_audit,
     validate_phase2_final_delivery_audit,
@@ -4034,6 +4035,56 @@ def test_offspring_ecology_audit_tracks_population_without_absorption(
     assert receipt["second_authority_created"] is False
     assert panel["status"]["ecology"]["receipt_count"] == 1
     assert panel["status"]["ecology"]["absorption_executed"] is False
+
+
+def test_architecture_validation_checks_delivery_gap_audit(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_delivery_gap_audit(
+        tmp_path / "delivery-gap-validation-home"
+    )
+    assert result.pass_id == "P85"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert "delivery_gap_candidate_ready" in result.evidence
+    assert "owner_host_gates_preserved" in result.evidence
+
+
+def test_delivery_gap_audit_tracks_owner_gates_without_live_mutation(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt = runtime.record_delivery_gap_audit(
+        package_coverage={
+            "WLS_30_ROUND_DIRECT_ITERATION_TASK": "COVERED",
+            "WLS_EVOLUTIONARY_FUTURE_PACKAGE_v2": "PARTIAL",
+        },
+        milestone_coverage={
+            "R01_R40_campaign_framework": "COVERED",
+            "real_owner_host_longitudinal": "OWNER_GATE",
+        },
+        owner_host_gates={"real_owner_host_longitudinal": False},
+        repository_checks={
+            "candidate_branch": True,
+            "handoff_export": True,
+            "no_live_mutation": True,
+        },
+        reason="unit test delivery gap audit",
+    )
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "capability_epoch"
+    )
+
+    assert receipt["status"] == "DELIVERY_GAP_CANDIDATE_READY"
+    assert receipt["failure_groups"]["owner_host_gates"] == [
+        "real_owner_host_longitudinal"
+    ]
+    assert receipt["live_install_modified"] is False
+    assert receipt["merge_executed"] is False
+    assert receipt["deploy_executed"] is False
+    assert panel["status"]["delivery_gap_audit"]["receipt_count"] == 1
+    assert panel["status"]["delivery_gap_audit"]["owner_host_gates_required"] is True
 
 
 def test_release_state_audit_blocks_missing_evidence(
