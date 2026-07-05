@@ -57,6 +57,7 @@ from wls.architecture_validation import (
     validate_phase2_delivery_readiness_audit,
     validate_phase2_final_delivery_audit,
     validate_phase2_holdout_epoch_immutability,
+    validate_phase2_installed_tail_check_audit,
     validate_phase2_multimodal_asset_readonly_execution,
     validate_phase2_owner_surface_and_readonly_organs,
     validate_phase2_packaging_layout_audit,
@@ -3683,6 +3684,91 @@ def test_packaging_layout_audit_blocks_duplicate_authority(
     assert blocked["install_executed"] is False
     assert panel["status"]["packaging_layout"]["receipt_count"] == 2
     assert panel["status"]["packaging_layout"]["single_authority_required"] is True
+
+
+def test_architecture_validation_checks_installed_tail_check_audit(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_installed_tail_check_audit(
+        tmp_path / "installed-tail-check-validation-home"
+    )
+    assert result.pass_id == "P76"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert "live_hash_preservation_bound" in result.evidence
+
+
+def test_installed_tail_check_audit_blocks_live_hash_drift(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    checks = {
+        "install_root_exists": True,
+        "live_home_exists": True,
+        "campaign_home_exists": True,
+        "campaign_not_live_home": True,
+        "campaign_not_runtime_live_home": True,
+        "campaign_not_inside_live_home": True,
+        "campaign_not_inside_runtime_live_home": True,
+        "campaign_config_exists": True,
+        "campaign_config_points_to_campaign_home": True,
+        "live_config_present": True,
+        "live_db_present": True,
+        "live_config_unchanged": True,
+        "live_db_unchanged": True,
+    }
+    report = {
+        "receipt_type": "SINGLE_SOFTWARE_TAIL_CHECK",
+        "status": "PASS_WITH_LIMITS",
+        "install_root": "D:\\WLS\\wls-0.9.0.dev1-py313",
+        "live_home": "D:\\WLS\\wls-0.9.0.dev1-py313\\home",
+        "campaign_home": "D:\\WLS\\campaigns\\life-campaign-30",
+        "checks": checks,
+        "live_hashes_before": {
+            "live_config_sha256": "config-hash",
+            "live_db_sha256": "db-hash",
+        },
+        "live_hashes_after": {
+            "live_config_sha256": "config-hash",
+            "live_db_sha256": "db-hash",
+        },
+        "status_smoke": {"executed": False, "ok": None},
+        "required_checks": list(checks),
+    }
+    passed = runtime.record_installed_tail_check_audit(
+        report=report,
+        reason="unit test installed tail check audit",
+    )
+    blocked = runtime.record_installed_tail_check_audit(
+        report={
+            **report,
+            "status": "FAIL",
+            "checks": {**checks, "live_config_unchanged": False},
+            "live_hashes_after": {
+                "live_config_sha256": "changed-config-hash",
+                "live_db_sha256": "db-hash",
+            },
+            "status_smoke": {"executed": True, "ok": False},
+        },
+        reason="unit test installed tail check block",
+    )
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "capability_epoch"
+    )
+
+    assert passed["status"] == "INSTALLED_TAIL_CHECK_PASSED"
+    assert passed["live_config_modified"] is False
+    assert passed["live_database_modified"] is False
+    assert blocked["status"] == "INSTALLED_TAIL_CHECK_BLOCKED"
+    assert blocked["failure_groups"]["failed_required_checks"] == [
+        "live_config_unchanged"
+    ]
+    assert blocked["failure_groups"]["live_hash_failures"] == ["live_config_sha256"]
+    assert blocked["live_config_modified"] is True
+    assert blocked["deploy_executed"] is False
+    assert panel["status"]["installed_tail_check"]["receipt_count"] == 2
+    assert panel["status"]["installed_tail_check"]["live_config_modified"] is False
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

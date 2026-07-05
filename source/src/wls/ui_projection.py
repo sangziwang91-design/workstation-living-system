@@ -1314,6 +1314,7 @@ class OwnerConsoleProductProjection:
         convergence = status.get("single_software_convergence_receipts", [])
         packaging_layout = status.get("packaging_layout_receipts", [])
         delivery_readiness = status.get("delivery_readiness_receipts", [])
+        installed_tail_check = status.get("installed_tail_check_receipts", [])
         final_delivery = status.get("final_delivery_audit_receipts", [])
         return {
             "panel_id": "capability_epoch",
@@ -1356,6 +1357,17 @@ class OwnerConsoleProductProjection:
                     else [],
                     "live_install_modified": False,
                     "merge_executed": False,
+                    "deploy_executed": False,
+                },
+                "installed_tail_check": {
+                    "receipt_count": len(installed_tail_check)
+                    if isinstance(installed_tail_check, list)
+                    else 0,
+                    "items": installed_tail_check
+                    if isinstance(installed_tail_check, list)
+                    else [],
+                    "live_config_modified": False,
+                    "live_database_modified": False,
                     "deploy_executed": False,
                 },
                 "allowed_conclusion": "FUNCTIONAL_RUNTIME_ONLY",

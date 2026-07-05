@@ -6728,6 +6728,117 @@ def validate_phase2_packaging_layout_audit(
     )
 
 
+def validate_phase2_installed_tail_check_audit(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    checks = {
+        "install_root_exists": True,
+        "live_home_exists": True,
+        "campaign_home_exists": True,
+        "campaign_not_live_home": True,
+        "campaign_not_runtime_live_home": True,
+        "campaign_not_inside_live_home": True,
+        "campaign_not_inside_runtime_live_home": True,
+        "campaign_config_exists": True,
+        "campaign_config_points_to_campaign_home": True,
+        "live_config_present": True,
+        "live_db_present": True,
+        "live_config_unchanged": True,
+        "live_db_unchanged": True,
+    }
+    required_checks = list(checks)
+    report = {
+        "receipt_type": "SINGLE_SOFTWARE_TAIL_CHECK",
+        "status": "PASS_WITH_LIMITS",
+        "install_root": "D:\\WLS\\wls-0.9.0.dev1-py313",
+        "live_home": "D:\\WLS\\wls-0.9.0.dev1-py313\\home",
+        "campaign_home": "D:\\WLS\\campaigns\\life-campaign-30",
+        "checks": checks,
+        "live_hashes_before": {
+            "live_config_sha256": "config-hash",
+            "live_db_sha256": "db-hash",
+        },
+        "live_hashes_after": {
+            "live_config_sha256": "config-hash",
+            "live_db_sha256": "db-hash",
+        },
+        "status_smoke": {"executed": False, "ok": None},
+        "required_checks": required_checks,
+    }
+    passed = runtime.record_installed_tail_check_audit(
+        report=report,
+        reason="architecture validation installed tail check audit",
+    )
+    blocked_report = {
+        **report,
+        "status": "FAIL",
+        "checks": {**checks, "live_db_unchanged": False},
+        "live_hashes_after": {
+            "live_config_sha256": "config-hash",
+            "live_db_sha256": "changed-db-hash",
+        },
+        "status_smoke": {"executed": True, "ok": False},
+    }
+    blocked = runtime.record_installed_tail_check_audit(
+        report=blocked_report,
+        reason="architecture validation installed tail check block",
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "capability_epoch"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type='installed_tail_check_audit_recorded'
+            """
+        )
+    }
+    if (
+        passed["status"] != "INSTALLED_TAIL_CHECK_PASSED"
+        or passed["failure_groups"]["failed_required_checks"]
+        or passed["live_config_modified"] is not False
+        or passed["live_database_modified"] is not False
+        or blocked["status"] != "INSTALLED_TAIL_CHECK_BLOCKED"
+        or not blocked["failure_groups"]["failed_required_checks"]
+        or not blocked["failure_groups"]["live_hash_failures"]
+        or panel is None
+        or panel["status"]["installed_tail_check"]["receipt_count"] != 2
+        or panel["status"]["installed_tail_check"]["deploy_executed"] is not False
+        or event_types != {"installed_tail_check_audit_recorded"}
+    ):
+        return ArchitecturePassResult(
+            "P76",
+            "BLOCKED",
+            [str(passed), str(blocked)],
+            ["installed tail check audit validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P76",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(passed["audit_id"]),
+            str(blocked["audit_id"]),
+            "installed_tail_check_bound",
+            "live_hash_preservation_bound",
+            "status_smoke_limit_bound",
+            "installed_tail_check_audit_recorded",
+        ],
+        [
+            "Installed tail-check audits preserve disposable compatibility and live hash evidence from reports while blocking mutation, smoke failure, deployment, merge, and Skill promotion claims",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

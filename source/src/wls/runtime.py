@@ -1053,6 +1053,7 @@ class LivingSystem:
             "offspring_mailbox": len(self.offspring_mailbox_receipts(100)),
             "packaging_layout": len(self.packaging_layout_receipts(100)),
             "delivery_readiness": len(self.delivery_readiness_receipts(100)),
+            "installed_tail_check": len(self.installed_tail_check_receipts(100)),
         }
         branch_only_scaffolding = [
             {
@@ -1428,6 +1429,90 @@ class LivingSystem:
         if not isinstance(receipts, list):
             return []
         return receipts[: max(0, int(limit))]
+
+    def installed_tail_check_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("installed_tail_check_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
+    def record_installed_tail_check_audit(
+        self,
+        *,
+        report: dict[str, Any],
+        reason: str,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("installed tail check audit reason is required")
+        checks = report.get("checks", {})
+        if not isinstance(checks, dict):
+            checks = {}
+        required_checks = report.get("required_checks", [])
+        if not isinstance(required_checks, list):
+            required_checks = []
+        failed_required = [
+            str(name)
+            for name in required_checks
+            if checks.get(str(name)) is not True
+        ]
+        before = report.get("live_hashes_before", {})
+        after = report.get("live_hashes_after", {})
+        if not isinstance(before, dict):
+            before = {}
+        if not isinstance(after, dict):
+            after = {}
+        live_hash_failures = [
+            key for key, value in before.items() if after.get(key) != value
+        ]
+        smoke = report.get("status_smoke", {})
+        if not isinstance(smoke, dict):
+            smoke = {}
+        smoke_failure = smoke.get("ok") is False
+        required_paths = ["install_root", "live_home", "campaign_home"]
+        path_failures = [key for key in required_paths if not str(report.get(key, "")).strip()]
+        failure_groups = {
+            "failed_required_checks": failed_required,
+            "live_hash_failures": live_hash_failures,
+            "smoke_failures": ["status_smoke"] if smoke_failure else [],
+            "path_failures": path_failures,
+        }
+        passed = (
+            report.get("receipt_type") == "SINGLE_SOFTWARE_TAIL_CHECK"
+            and report.get("status") == "PASS_WITH_LIMITS"
+            and not any(failure_groups.values())
+        )
+        receipt = {
+            "receipt_type": "INSTALLED_TAIL_CHECK_AUDIT",
+            "status": "INSTALLED_TAIL_CHECK_PASSED" if passed else "INSTALLED_TAIL_CHECK_BLOCKED",
+            "audit_id": new_id("installed_tail_check_audit"),
+            "reason": reason,
+            "report": report,
+            "failure_groups": failure_groups,
+            "install_root": report.get("install_root"),
+            "live_home": report.get("live_home"),
+            "campaign_home": report.get("campaign_home"),
+            "live_hashes_before": before,
+            "live_hashes_after": after,
+            "status_smoke": smoke,
+            "live_config_modified": False if not live_hash_failures else True,
+            "live_database_modified": False if not live_hash_failures else True,
+            "merge_executed": False,
+            "deploy_executed": False,
+            "skill_promoted": False,
+            "claim_ceiling": (
+                "installed-package tail-check receipt only; it verifies bounded "
+                "disposable compatibility evidence and live hash preservation from "
+                "a report but does not install, upgrade, deploy, or prove final readiness"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.installed_tail_check_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("installed_tail_check_receipts", updated, connection)
+            self.ledger.append("installed_tail_check_audit_recorded", receipt, connection)
+        return receipt
 
     def record_delivery_readiness_audit(
         self,
@@ -4477,6 +4562,7 @@ class LivingSystem:
             "transfer_audit_receipts": self.transfer_audit_receipts(),
             "packaging_layout_receipts": self.packaging_layout_receipts(),
             "delivery_readiness_receipts": self.delivery_readiness_receipts(),
+            "installed_tail_check_receipts": self.installed_tail_check_receipts(),
             "final_delivery_audit_receipts": self.final_delivery_audit_receipts(),
             "read_only_execution_preflights": self.read_only_execution_preflights(),
             "read_only_execution_receipts": self.read_only_execution_receipts(),

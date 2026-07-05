@@ -482,6 +482,12 @@ fields such as `memory_id`/`active`.
   requiring one project manifest, one package root, and one version file. A
   failed check blocks packaging readiness without building a wheel, installing
   a package, mutating the live instance, or creating a second source authority.
+- P76 is a shadow-level runtime admission for installed-package tail checks.
+  It records disposable installed-instance compatibility reports, required
+  check outcomes, live config/database hashes before and after, and optional
+  status-smoke results. Hash drift, failed required checks, or smoke failure
+  block the receipt without installing, upgrading, deploying, merging, or
+  mutating the live instance.
 
 ## Projection Rule
 
