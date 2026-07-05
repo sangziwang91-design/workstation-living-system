@@ -96,6 +96,12 @@ class OffspringRegistry:
             return []
         return receipts[: max(0, int(limit))]
 
+    def ecology_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("offspring_ecology_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
     def draft_birth_contract(
         self,
         *,
@@ -546,6 +552,87 @@ class OffspringRegistry:
         }
         receipt["receipt_digest"] = digest_json(receipt)
         self._record_budget_receipt(receipt, "offspring_no_gain_stop_reviewed")
+        return receipt
+
+    def audit_ecology(
+        self,
+        *,
+        population: list[dict[str, Any]],
+        selection_policy: dict[str, Any],
+        reason: str,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("offspring ecology audit reason is required")
+        if not population:
+            raise ValueError("offspring ecology audit requires population entries")
+        normalized = [self._normalize_ecology_entry(item) for item in population]
+        total_cost = sum(float(item["cost"]) for item in normalized)
+        total_score = sum(float(item["score"]) for item in normalized)
+        productive = [
+            item
+            for item in normalized
+            if float(item["score"]) > 0 and str(item["status"]) != "FAILED"
+        ]
+        niches = sorted({str(item["niche"]) for item in normalized if item["niche"]})
+        failure_count = sum(1 for item in normalized if str(item["status"]) == "FAILED")
+        productivity = total_score / total_cost if total_cost > 0 else 0.0
+        max_population = int(selection_policy.get("max_population", len(normalized)))
+        max_depth = int(selection_policy.get("max_depth", 1))
+        selection_axes = [
+            str(item) for item in selection_policy.get("selection_axes", [])
+        ]
+        retire_failed = bool(selection_policy.get("retire_failed", True))
+        policy = {
+            "max_population": max_population,
+            "max_depth": max_depth,
+            "selection_axes": selection_axes,
+            "retire_failed": retire_failed,
+            "owner_review_required_for_absorption": True,
+        }
+        blocked_reasons = []
+        if len(normalized) > max_population:
+            blocked_reasons.append("population_exceeds_limit")
+        if len(niches) < min(2, len(normalized)):
+            blocked_reasons.append("insufficient_niche_diversity")
+        if failure_count == len(normalized):
+            blocked_reasons.append("all_candidates_failed")
+        receipt = {
+            "receipt_type": "OFFSPRING_ECOLOGY_AUDIT",
+            "status": "ECOLOGY_REVIEW_READY"
+            if not blocked_reasons
+            else "ECOLOGY_REVIEW_BLOCKED",
+            "audit_id": new_id("offspring_ecology"),
+            "reason": reason,
+            "population": normalized,
+            "population_count": len(normalized),
+            "productive_count": len(productive),
+            "failure_count": failure_count,
+            "niches": niches,
+            "total_cost": total_cost,
+            "total_score": total_score,
+            "productivity": productivity,
+            "selection_policy": policy,
+            "blocked_reasons": blocked_reasons,
+            "archive_search_executed": False,
+            "child_runtime_started": False,
+            "parent_write_allowed": False,
+            "promotion_executed": False,
+            "absorption_executed": False,
+            "second_authority_created": False,
+            "claim_ceiling": (
+                "offspring ecology audit receipt only; compares candidate "
+                "population evidence and selection constraints without spawning "
+                "children, absorbing capabilities, promotion, merge, deployment, "
+                "or second authority"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.ecology_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("offspring_ecology_receipts", updated, connection)
+            self.ledger.append("offspring_ecology_audit_recorded", receipt, connection)
         return receipt
 
     def record_checkpoint(
@@ -1141,6 +1228,32 @@ class OffspringRegistry:
                 raise ValueError("budget values must be non-negative or -1")
             normalized[str(key)] = number
         return normalized
+
+    @staticmethod
+    def _normalize_ecology_entry(item: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(item, dict):
+            raise ValueError("offspring ecology population entries must be objects")
+        offspring_id = str(item.get("offspring_id", "")).strip()
+        if not offspring_id:
+            raise ValueError("offspring ecology entry requires offspring_id")
+        status = str(item.get("status", "")).strip().upper()
+        if status not in {"CANDIDATE", "RETIRED", "FAILED", "QUARANTINED"}:
+            raise ValueError("unsupported offspring ecology status")
+        cost = float(item.get("cost", 0.0))
+        score = float(item.get("score", 0.0))
+        if cost < 0 or score < 0:
+            raise ValueError("offspring ecology cost and score must be non-negative")
+        return {
+            "offspring_id": offspring_id,
+            "parent_id": str(item.get("parent_id", "WLS-PRIME")),
+            "status": status,
+            "niche": str(item.get("niche", "")).strip(),
+            "cost": cost,
+            "score": score,
+            "failures": int(item.get("failures", 0)),
+            "novelty": float(item.get("novelty", 0.0)),
+            "evidence_ids": [str(value) for value in item.get("evidence_ids", [])],
+        }
 
     @staticmethod
     def _remaining_before(

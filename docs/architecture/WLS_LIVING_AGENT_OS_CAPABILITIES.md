@@ -522,6 +522,10 @@ fields such as `memory_id`/`active`.
   audit records D01-D18 local defect coverage, loopback/security/no-token/no-UI
   authority boundaries, local regression results, and explicitly keeps
   real-browser Owner-host E2E as a separate gate.
+- P84 is a shadow-level runtime admission for offspring ecology audits. It
+  compares candidate population productivity, niche diversity, budget cost, and
+  failure status while preserving no archive-search execution, no absorption,
+  no promotion, and no second authority.
 
 ## Projection Rule
 

@@ -1158,6 +1158,7 @@ class OwnerConsoleProductProjection:
         budget_receipts = status.get("offspring_budget_receipts", [])
         checkpoint_receipts = status.get("offspring_checkpoint_receipts", [])
         mailbox_receipts = status.get("offspring_mailbox_receipts", [])
+        ecology_receipts = status.get("offspring_ecology_receipts", [])
         return {
             "panel_id": "offspring",
             "title": "Offspring",
@@ -1223,6 +1224,17 @@ class OwnerConsoleProductProjection:
                     "unknown_schema_quarantine": True,
                     "candidate_only": True,
                     "completion_authority_transferred": False,
+                },
+                "ecology": {
+                    "receipt_count": len(ecology_receipts)
+                    if isinstance(ecology_receipts, list)
+                    else 0,
+                    "items": ecology_receipts
+                    if isinstance(ecology_receipts, list)
+                    else [],
+                    "archive_search_executed": False,
+                    "absorption_executed": False,
+                    "promotion_executed": False,
                 },
                 "birth_contract_only": not bool(state_receipts)
                 if isinstance(state_receipts, list)

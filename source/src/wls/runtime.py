@@ -364,6 +364,9 @@ class LivingSystem:
     def offspring_mailbox_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         return self.offspring.mailbox_receipts(limit=limit)
 
+    def offspring_ecology_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        return self.offspring.ecology_receipts(limit=limit)
+
     def agentic_task_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         rows = self.db.query_all(
             """
@@ -1051,6 +1054,7 @@ class LivingSystem:
             "offspring_budget": len(self.offspring_budget_receipts(100)),
             "offspring_checkpoint": len(self.offspring_checkpoint_receipts(100)),
             "offspring_mailbox": len(self.offspring_mailbox_receipts(100)),
+            "offspring_ecology": len(self.offspring_ecology_receipts(100)),
             "packaging_layout": len(self.packaging_layout_receipts(100)),
             "delivery_readiness": len(self.delivery_readiness_receipts(100)),
             "installed_tail_check": len(self.installed_tail_check_receipts(100)),
@@ -1291,6 +1295,19 @@ class LivingSystem:
     ) -> dict[str, Any]:
         return self.offspring.receive_mailbox_envelope(
             envelope=envelope,
+            reason=reason,
+        )
+
+    def audit_offspring_ecology(
+        self,
+        *,
+        population: list[dict[str, Any]],
+        selection_policy: dict[str, Any],
+        reason: str,
+    ) -> dict[str, Any]:
+        return self.offspring.audit_ecology(
+            population=population,
+            selection_policy=selection_policy,
             reason=reason,
         )
 
@@ -4926,6 +4943,7 @@ class LivingSystem:
             "offspring_budget_receipts": self.offspring_budget_receipts(),
             "offspring_checkpoint_receipts": self.offspring_checkpoint_receipts(),
             "offspring_mailbox_receipts": self.offspring_mailbox_receipts(),
+            "offspring_ecology_receipts": self.offspring_ecology_receipts(),
             "agentic_task_receipts": self.agentic_task_receipts(),
             "agentic_context_manifest_receipts": self.agentic_context_manifest_receipts(),
             "agentic_worker_profile_receipts": self.agentic_worker_profile_receipts(),

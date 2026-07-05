@@ -43,6 +43,7 @@ from wls.architecture_validation import (
     validate_phase2_offspring_birth_contract,
     validate_phase2_offspring_budget_no_gain_stop,
     validate_phase2_offspring_checkpoint_fork,
+    validate_phase2_offspring_ecology_audit,
     validate_phase2_offspring_isolated_state_budget,
     validate_phase2_offspring_mailbox_envelope,
     validate_phase2_offspring_retirement_cleanup,
@@ -3976,6 +3977,63 @@ def test_architecture_validation_checks_ui_hardening_audit(
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert "ui_hardening_candidate_ready" in result.evidence
     assert "real_browser_e2e_remains_owner_host_gate" in result.evidence
+
+
+def test_architecture_validation_checks_offspring_ecology_audit(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_offspring_ecology_audit(
+        tmp_path / "offspring-ecology-validation-home"
+    )
+    assert result.pass_id == "P84"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert "offspring_ecology_review_ready" in result.evidence
+
+
+def test_offspring_ecology_audit_tracks_population_without_absorption(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt = runtime.audit_offspring_ecology(
+        population=[
+            {
+                "offspring_id": "offspring-one",
+                "status": "CANDIDATE",
+                "niche": "repo-reliability",
+                "cost": 3,
+                "score": 1.5,
+                "evidence_ids": ["ev-one"],
+            },
+            {
+                "offspring_id": "offspring-two",
+                "status": "RETIRED",
+                "niche": "retrieval-policy",
+                "cost": 2,
+                "score": 0.5,
+                "evidence_ids": ["ev-two"],
+            },
+        ],
+        selection_policy={
+            "max_population": 4,
+            "max_depth": 2,
+            "selection_axes": ["score", "novelty", "cost"],
+        },
+        reason="unit test offspring ecology audit",
+    )
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "offspring"
+    )
+
+    assert receipt["status"] == "ECOLOGY_REVIEW_READY"
+    assert receipt["population_count"] == 2
+    assert receipt["productive_count"] == 2
+    assert receipt["absorption_executed"] is False
+    assert receipt["promotion_executed"] is False
+    assert receipt["second_authority_created"] is False
+    assert panel["status"]["ecology"]["receipt_count"] == 1
+    assert panel["status"]["ecology"]["absorption_executed"] is False
 
 
 def test_release_state_audit_blocks_missing_evidence(

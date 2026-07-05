@@ -7567,6 +7567,102 @@ def validate_phase2_ui_hardening_audit(home: Path) -> ArchitecturePassResult:
     )
 
 
+def validate_phase2_offspring_ecology_audit(home: Path) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    ready = runtime.audit_offspring_ecology(
+        population=[
+            {
+                "offspring_id": "offspring-alpha",
+                "status": "CANDIDATE",
+                "niche": "repo-reliability",
+                "cost": 4,
+                "score": 2,
+                "novelty": 0.3,
+                "evidence_ids": ["ev-alpha"],
+            },
+            {
+                "offspring_id": "offspring-beta",
+                "status": "RETIRED",
+                "niche": "context-policy",
+                "cost": 2,
+                "score": 1,
+                "novelty": 0.6,
+                "evidence_ids": ["ev-beta"],
+            },
+        ],
+        selection_policy={
+            "max_population": 3,
+            "max_depth": 2,
+            "selection_axes": ["score", "novelty", "cost"],
+        },
+        reason="architecture validation offspring ecology audit",
+    )
+    blocked = runtime.audit_offspring_ecology(
+        population=[
+            {
+                "offspring_id": "offspring-failed",
+                "status": "FAILED",
+                "niche": "repo-reliability",
+                "cost": 1,
+                "score": 0,
+                "evidence_ids": ["ev-failed"],
+            }
+        ],
+        selection_policy={"max_population": 1, "max_depth": 1},
+        reason="architecture validation offspring ecology block",
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "offspring"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type='offspring_ecology_audit_recorded'
+            """
+        )
+    }
+    if (
+        ready["status"] != "ECOLOGY_REVIEW_READY"
+        or ready["productive_count"] != 2
+        or ready["second_authority_created"] is not False
+        or blocked["status"] != "ECOLOGY_REVIEW_BLOCKED"
+        or "all_candidates_failed" not in blocked["blocked_reasons"]
+        or panel is None
+        or panel["status"]["ecology"]["receipt_count"] != 2
+        or panel["status"]["ecology"]["absorption_executed"] is not False
+        or panel["status"]["ecology"]["promotion_executed"] is not False
+        or event_types != {"offspring_ecology_audit_recorded"}
+    ):
+        return ArchitecturePassResult(
+            "P84",
+            "BLOCKED",
+            [str(ready), str(blocked)],
+            ["offspring ecology audit validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P84",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(ready["audit_id"]),
+            "offspring_ecology_review_ready",
+            "failed_population_blocks_ecology",
+            "offspring_ecology_audit_recorded",
+        ],
+        [
+            "Offspring ecology audits compare candidate population productivity, niche diversity, budget cost, and failure status without archive search execution, absorption, promotion, or second authority",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:
