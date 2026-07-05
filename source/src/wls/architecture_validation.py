@@ -7212,6 +7212,107 @@ def validate_phase2_delivery_handoff_package(home: Path) -> ArchitecturePassResu
     )
 
 
+def validate_phase2_release_state_audit(home: Path) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    receipt_counts = {
+        "final_delivery_audit": 1,
+        "delivery_readiness": 1,
+        "packaging_layout": 1,
+        "installed_tail_check": 1,
+        "operational_preflight": 1,
+        "delivery_handoff": 1,
+    }
+    asset_checks = {
+        "campaign_spec": True,
+        "campaign_runner": True,
+        "powershell_entry": True,
+        "owner_console_static": True,
+        "delivery_handoff_script": True,
+        "architecture_doc": True,
+    }
+    test_results = [
+        {"name": "architecture_validation_p74_p79", "status": "PASS"},
+        {"name": "ui_projection_and_server", "status": "PASS"},
+        {"name": "campaign_packaging_contracts", "status": "PASS"},
+    ]
+    boundaries = {
+        "live_install_modified": False,
+        "live_config_modified": False,
+        "live_database_modified": False,
+        "merge_executed": False,
+        "deploy_executed": False,
+        "skill_promoted": False,
+        "persistent_daemon_started": False,
+    }
+    passed = runtime.record_release_state_audit(
+        receipt_counts=receipt_counts,
+        asset_checks=asset_checks,
+        test_results=test_results,
+        boundaries=boundaries,
+        reason="architecture validation release state audit",
+    )
+    blocked = runtime.record_release_state_audit(
+        receipt_counts={**receipt_counts, "installed_tail_check": 0},
+        asset_checks={**asset_checks, "owner_console_static": False},
+        test_results=[{"name": "campaign_packaging_contracts", "status": "FAIL"}],
+        boundaries={**boundaries, "deploy_executed": True},
+        reason="architecture validation release state block",
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "capability_epoch"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type='release_state_audit_recorded'
+            """
+        )
+    }
+    if (
+        passed["status"] != "RELEASE_STATE_CANDIDATE_READY"
+        or passed["failure_groups"]["receipt_failures"]
+        or passed["failure_groups"]["asset_failures"]
+        or blocked["status"] != "RELEASE_STATE_BLOCKED"
+        or blocked["failure_groups"]["receipt_failures"] != ["installed_tail_check"]
+        or blocked["failure_groups"]["asset_failures"] != ["owner_console_static"]
+        or blocked["failure_groups"]["test_failures"] != ["campaign_packaging_contracts"]
+        or blocked["failure_groups"]["boundary_failures"] != ["deploy_executed"]
+        or panel is None
+        or panel["status"]["release_state_audit"]["receipt_count"] != 2
+        or panel["status"]["release_state_audit"]["deploy_executed"] is not False
+        or event_types != {"release_state_audit_recorded"}
+    ):
+        return ArchitecturePassResult(
+            "P80",
+            "BLOCKED",
+            [str(passed), str(blocked)],
+            ["release state audit validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P80",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(passed["audit_id"]),
+            str(blocked["audit_id"]),
+            "release_state_candidate_ready",
+            "missing_evidence_blocks_release",
+            "release_state_audit_recorded",
+        ],
+        [
+            "Release state audits summarize current repository readiness evidence, assets, tests, and no-live-mutation boundaries while blocking incomplete handoff states",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

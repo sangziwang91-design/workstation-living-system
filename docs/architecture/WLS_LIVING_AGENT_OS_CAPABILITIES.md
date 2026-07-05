@@ -504,6 +504,12 @@ fields such as `memory_id`/`active`.
   results, exact Owner campaign commands, rollback steps, and no-live-mutation
   boundaries. The repository script can export the JSON package, but it does
   not run campaigns, merge, deploy, install packages, or promote Skills.
+- P80 is a shadow-level runtime admission for release state audit. The audit
+  summarizes current repository candidate evidence across final delivery,
+  readiness, packaging, installed-tail, operational-preflight, and handoff
+  receipts; required source assets; regression results; and no-live-mutation
+  boundaries. Missing evidence blocks the release state without changing live
+  installation, starting daemons, merging, deploying, or promoting Skills.
 
 ## Projection Rule
 

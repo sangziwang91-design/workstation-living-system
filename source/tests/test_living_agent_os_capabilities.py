@@ -74,6 +74,7 @@ from wls.architecture_validation import (
     validate_phase2_readonly_planner_admission,
     validate_phase2_readonly_execution_preflight,
     validate_phase2_research_composite_readonly_execution,
+    validate_phase2_release_state_audit,
     validate_phase2_scheduler_due_event_runtime_intake,
     validate_phase2_skill_candidate_extraction_receipts,
     validate_phase2_learning_epoch_review_receipts,
@@ -3925,6 +3926,79 @@ def test_delivery_handoff_package_blocks_incomplete_handoff(
     assert blocked["failure_groups"]["test_failures"] == ["focused"]
     assert blocked["failure_groups"]["boundary_failures"] == ["deploy_executed"]
     assert panel["status"]["delivery_handoff"]["receipt_count"] == 2
+
+
+def test_architecture_validation_checks_release_state_audit(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_release_state_audit(
+        tmp_path / "release-state-validation-home"
+    )
+    assert result.pass_id == "P80"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert "release_state_candidate_ready" in result.evidence
+    assert "missing_evidence_blocks_release" in result.evidence
+
+
+def test_release_state_audit_blocks_missing_evidence(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    counts = {
+        "final_delivery_audit": 1,
+        "delivery_readiness": 1,
+        "packaging_layout": 1,
+        "installed_tail_check": 1,
+        "operational_preflight": 1,
+        "delivery_handoff": 1,
+    }
+    assets = {
+        "campaign_spec": True,
+        "campaign_runner": True,
+        "powershell_entry": True,
+        "owner_console_static": True,
+        "delivery_handoff_script": True,
+        "architecture_doc": True,
+    }
+    boundaries = {
+        "live_install_modified": False,
+        "live_config_modified": False,
+        "live_database_modified": False,
+        "merge_executed": False,
+        "deploy_executed": False,
+        "skill_promoted": False,
+        "persistent_daemon_started": False,
+    }
+    ready = runtime.record_release_state_audit(
+        receipt_counts=counts,
+        asset_checks=assets,
+        test_results=[{"name": "focused", "status": "PASS"}],
+        boundaries=boundaries,
+        reason="unit test release state ready",
+    )
+    blocked = runtime.record_release_state_audit(
+        receipt_counts={**counts, "delivery_handoff": 0},
+        asset_checks={**assets, "delivery_handoff_script": False},
+        test_results=[{"name": "focused", "status": "FAIL"}],
+        boundaries={**boundaries, "persistent_daemon_started": True},
+        reason="unit test release state block",
+    )
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "capability_epoch"
+    )
+
+    assert ready["status"] == "RELEASE_STATE_CANDIDATE_READY"
+    assert ready["allowed_conclusion"] == "candidate-ready repository handoff"
+    assert blocked["status"] == "RELEASE_STATE_BLOCKED"
+    assert blocked["failure_groups"]["receipt_failures"] == ["delivery_handoff"]
+    assert blocked["failure_groups"]["asset_failures"] == ["delivery_handoff_script"]
+    assert blocked["failure_groups"]["test_failures"] == ["focused"]
+    assert blocked["failure_groups"]["boundary_failures"] == [
+        "persistent_daemon_started"
+    ]
+    assert panel["status"]["release_state_audit"]["receipt_count"] == 2
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

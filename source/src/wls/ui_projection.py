@@ -1402,6 +1402,7 @@ class OwnerConsoleProductProjection:
         packaging_layout = status.get("packaging_layout_receipts", [])
         delivery_readiness = status.get("delivery_readiness_receipts", [])
         delivery_handoff = status.get("delivery_handoff_receipts", [])
+        release_state_audit = status.get("release_state_audit_receipts", [])
         installed_tail_check = status.get("installed_tail_check_receipts", [])
         final_delivery = status.get("final_delivery_audit_receipts", [])
         return {
@@ -1455,6 +1456,17 @@ class OwnerConsoleProductProjection:
                     if isinstance(delivery_handoff, list)
                     else [],
                     "merge_executed": False,
+                    "deploy_executed": False,
+                    "skill_promoted": False,
+                },
+                "release_state_audit": {
+                    "receipt_count": len(release_state_audit)
+                    if isinstance(release_state_audit, list)
+                    else 0,
+                    "items": release_state_audit
+                    if isinstance(release_state_audit, list)
+                    else [],
+                    "live_install_modified": False,
                     "deploy_executed": False,
                     "skill_promoted": False,
                 },

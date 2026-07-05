@@ -1056,6 +1056,7 @@ class LivingSystem:
             "installed_tail_check": len(self.installed_tail_check_receipts(100)),
             "operational_preflight": len(self.operational_preflight_receipts(100)),
             "delivery_handoff": len(self.delivery_handoff_receipts(100)),
+            "release_state_audit": len(self.release_state_audit_receipts(100)),
         }
         branch_only_scaffolding = [
             {
@@ -1438,6 +1439,12 @@ class LivingSystem:
             return []
         return receipts[: max(0, int(limit))]
 
+    def release_state_audit_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("release_state_audit_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
     def installed_tail_check_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         receipts = self.db.get_runtime("installed_tail_check_receipts", [])
         if not isinstance(receipts, list):
@@ -1647,6 +1654,97 @@ class LivingSystem:
         with self.db.transaction() as connection:
             self.db.set_runtime("delivery_handoff_receipts", updated, connection)
             self.ledger.append("delivery_handoff_package_recorded", receipt, connection)
+        return receipt
+
+    def record_release_state_audit(
+        self,
+        *,
+        receipt_counts: dict[str, int],
+        asset_checks: dict[str, bool],
+        test_results: list[dict[str, Any]],
+        boundaries: dict[str, bool],
+        reason: str,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("release state audit reason is required")
+        required_receipts = [
+            "final_delivery_audit",
+            "delivery_readiness",
+            "packaging_layout",
+            "installed_tail_check",
+            "operational_preflight",
+            "delivery_handoff",
+        ]
+        receipt_failures = [
+            key for key in required_receipts if int(receipt_counts.get(key, 0)) < 1
+        ]
+        required_assets = [
+            "campaign_spec",
+            "campaign_runner",
+            "powershell_entry",
+            "owner_console_static",
+            "delivery_handoff_script",
+            "architecture_doc",
+        ]
+        asset_failures = [
+            key for key in required_assets if asset_checks.get(key) is not True
+        ]
+        test_failures = [
+            str(item.get("name", "unnamed"))
+            for item in test_results
+            if item.get("status") not in {"PASS", "PASS_WITH_LIMITS"}
+        ]
+        expected_false_boundaries = {
+            "live_install_modified",
+            "live_config_modified",
+            "live_database_modified",
+            "merge_executed",
+            "deploy_executed",
+            "skill_promoted",
+            "persistent_daemon_started",
+        }
+        boundary_failures = [
+            key for key in sorted(expected_false_boundaries) if boundaries.get(key) is not False
+        ]
+        failure_groups = {
+            "receipt_failures": receipt_failures,
+            "asset_failures": asset_failures,
+            "test_failures": test_failures,
+            "boundary_failures": boundary_failures,
+        }
+        passed = not any(failure_groups.values())
+        receipt = {
+            "receipt_type": "RELEASE_STATE_AUDIT",
+            "status": "RELEASE_STATE_CANDIDATE_READY" if passed else "RELEASE_STATE_BLOCKED",
+            "audit_id": new_id("release_state_audit"),
+            "reason": reason,
+            "receipt_counts": receipt_counts,
+            "asset_checks": asset_checks,
+            "test_results": test_results,
+            "boundaries": boundaries,
+            "failure_groups": failure_groups,
+            "allowed_conclusion": (
+                "candidate-ready repository handoff"
+                if passed
+                else "release state requires missing evidence repair"
+            ),
+            "live_install_modified": False,
+            "merge_executed": False,
+            "deploy_executed": False,
+            "skill_promoted": False,
+            "claim_ceiling": (
+                "release state audit receipt only; it summarizes repository "
+                "candidate evidence and boundaries but does not prove live "
+                "deployment, production readiness, or long-run external behavior"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.release_state_audit_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("release_state_audit_receipts", updated, connection)
+            self.ledger.append("release_state_audit_recorded", receipt, connection)
         return receipt
 
     def record_installed_tail_check_audit(
@@ -4776,6 +4874,7 @@ class LivingSystem:
             "packaging_layout_receipts": self.packaging_layout_receipts(),
             "delivery_readiness_receipts": self.delivery_readiness_receipts(),
             "delivery_handoff_receipts": self.delivery_handoff_receipts(),
+            "release_state_audit_receipts": self.release_state_audit_receipts(),
             "installed_tail_check_receipts": self.installed_tail_check_receipts(),
             "operational_preflight_receipts": self.operational_preflight_receipts(),
             "final_delivery_audit_receipts": self.final_delivery_audit_receipts(),
