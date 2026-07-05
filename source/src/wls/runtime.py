@@ -1055,6 +1055,7 @@ class LivingSystem:
             "delivery_readiness": len(self.delivery_readiness_receipts(100)),
             "installed_tail_check": len(self.installed_tail_check_receipts(100)),
             "operational_preflight": len(self.operational_preflight_receipts(100)),
+            "delivery_handoff": len(self.delivery_handoff_receipts(100)),
         }
         branch_only_scaffolding = [
             {
@@ -1431,6 +1432,12 @@ class LivingSystem:
             return []
         return receipts[: max(0, int(limit))]
 
+    def delivery_handoff_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("delivery_handoff_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
     def installed_tail_check_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         receipts = self.db.get_runtime("installed_tail_check_receipts", [])
         if not isinstance(receipts, list):
@@ -1531,6 +1538,115 @@ class LivingSystem:
         with self.db.transaction() as connection:
             self.db.set_runtime("operational_preflight_receipts", updated, connection)
             self.ledger.append("operational_preflight_audit_recorded", receipt, connection)
+        return receipt
+
+    def record_delivery_handoff_package(
+        self,
+        *,
+        readiness_summary: dict[str, Any],
+        candidate: dict[str, str],
+        test_results: list[dict[str, Any]],
+        owner_commands: dict[str, str],
+        rollback_steps: list[str],
+        boundaries: dict[str, bool],
+        reason: str,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("delivery handoff package reason is required")
+        branch = str(candidate.get("branch", "")).strip()
+        commit = str(candidate.get("commit", "")).strip()
+        candidate_failures = []
+        if not branch:
+            candidate_failures.append("missing candidate branch")
+        if branch in {"main", "master"}:
+            candidate_failures.append("candidate branch must not be main/master")
+        if not commit:
+            candidate_failures.append("missing candidate commit")
+        readiness_failures = (
+            []
+            if readiness_summary.get("overall_status") == "CANDIDATE_READY"
+            and not readiness_summary.get("missing_or_blocked")
+            else ["readiness summary is not candidate-ready"]
+        )
+        test_failures = [
+            str(item.get("name", "unnamed"))
+            for item in test_results
+            if item.get("status") not in {"PASS", "PASS_WITH_LIMITS"}
+        ]
+        required_commands = {"R01_R05": ("R01", "R05"), "R01_R40": ("R01", "R40")}
+        command_failures = []
+        for command_id, (start, end) in required_commands.items():
+            command = owner_commands.get(command_id, "")
+            fragments = [
+                "run_life_campaign_30.ps1",
+                "-CampaignHome",
+                "-StartRound",
+                start,
+                "-EndRound",
+                end,
+                "--execute",
+            ]
+            if not command or any(fragment not in command for fragment in fragments):
+                command_failures.append(command_id)
+        rollback_text = "\n".join(rollback_steps).lower()
+        rollback_failures = []
+        if not rollback_steps:
+            rollback_failures.append("missing rollback steps")
+        if "campaign" not in rollback_text:
+            rollback_failures.append("campaign cleanup missing")
+        if "git" not in rollback_text:
+            rollback_failures.append("git rollback missing")
+        if "live" not in rollback_text:
+            rollback_failures.append("live boundary missing")
+        expected_false_boundaries = {
+            "live_install_modified",
+            "live_config_modified",
+            "live_database_modified",
+            "merge_executed",
+            "deploy_executed",
+            "skill_promoted",
+        }
+        boundary_failures = [
+            key for key in sorted(expected_false_boundaries) if boundaries.get(key) is not False
+        ]
+        failure_groups = {
+            "candidate_failures": candidate_failures,
+            "readiness_failures": readiness_failures,
+            "test_failures": test_failures,
+            "command_failures": command_failures,
+            "rollback_failures": rollback_failures,
+            "boundary_failures": boundary_failures,
+        }
+        passed = not any(failure_groups.values())
+        receipt = {
+            "receipt_type": "DELIVERY_HANDOFF_PACKAGE",
+            "status": "DELIVERY_HANDOFF_READY" if passed else "DELIVERY_HANDOFF_BLOCKED",
+            "handoff_id": new_id("delivery_handoff"),
+            "reason": reason,
+            "readiness_summary": readiness_summary,
+            "candidate": {"branch": branch, "commit": commit},
+            "test_results": test_results,
+            "owner_commands": owner_commands,
+            "rollback_steps": rollback_steps,
+            "boundaries": boundaries,
+            "failure_groups": failure_groups,
+            "live_install_modified": False,
+            "merge_executed": False,
+            "deploy_executed": False,
+            "skill_promoted": False,
+            "claim_ceiling": (
+                "delivery handoff package receipt only; it summarizes candidate "
+                "readiness, tests, commands, and rollback but does not execute "
+                "campaigns, merge, deploy, install packages, or promote Skills"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.delivery_handoff_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("delivery_handoff_receipts", updated, connection)
+            self.ledger.append("delivery_handoff_package_recorded", receipt, connection)
         return receipt
 
     def record_installed_tail_check_audit(
@@ -4659,6 +4775,7 @@ class LivingSystem:
             "transfer_audit_receipts": self.transfer_audit_receipts(),
             "packaging_layout_receipts": self.packaging_layout_receipts(),
             "delivery_readiness_receipts": self.delivery_readiness_receipts(),
+            "delivery_handoff_receipts": self.delivery_handoff_receipts(),
             "installed_tail_check_receipts": self.installed_tail_check_receipts(),
             "operational_preflight_receipts": self.operational_preflight_receipts(),
             "final_delivery_audit_receipts": self.final_delivery_audit_receipts(),

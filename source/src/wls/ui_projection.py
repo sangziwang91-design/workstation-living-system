@@ -1401,6 +1401,7 @@ class OwnerConsoleProductProjection:
         convergence = status.get("single_software_convergence_receipts", [])
         packaging_layout = status.get("packaging_layout_receipts", [])
         delivery_readiness = status.get("delivery_readiness_receipts", [])
+        delivery_handoff = status.get("delivery_handoff_receipts", [])
         installed_tail_check = status.get("installed_tail_check_receipts", [])
         final_delivery = status.get("final_delivery_audit_receipts", [])
         return {
@@ -1445,6 +1446,17 @@ class OwnerConsoleProductProjection:
                     "live_install_modified": False,
                     "merge_executed": False,
                     "deploy_executed": False,
+                },
+                "delivery_handoff": {
+                    "receipt_count": len(delivery_handoff)
+                    if isinstance(delivery_handoff, list)
+                    else 0,
+                    "items": delivery_handoff
+                    if isinstance(delivery_handoff, list)
+                    else [],
+                    "merge_executed": False,
+                    "deploy_executed": False,
+                    "skill_promoted": False,
                 },
                 "installed_tail_check": {
                     "receipt_count": len(installed_tail_check)

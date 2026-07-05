@@ -499,6 +499,11 @@ fields such as `memory_id`/`active`.
   P74-P77 receipts, and the static product panel renders that summary as compact
   candidate evidence cards. The view performs no direct tool execution and never
   writes canonical runtime state.
+- P79 is a shadow-level runtime admission for delivery handoff packages. A
+  handoff binds readiness summary, candidate branch and commit, recent test
+  results, exact Owner campaign commands, rollback steps, and no-live-mutation
+  boundaries. The repository script can export the JSON package, but it does
+  not run campaigns, merge, deploy, install packages, or promote Skills.
 
 ## Projection Rule
 

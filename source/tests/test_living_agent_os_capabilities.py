@@ -54,6 +54,7 @@ from wls.architecture_validation import (
     validate_phase2_coding_candidate_readonly_execution,
     validate_phase2_browser_readonly_runtime_execution,
     validate_phase2_external_handoff_runtime_receipts,
+    validate_phase2_delivery_handoff_package,
     validate_phase2_delivery_readiness_audit,
     validate_phase2_final_delivery_audit,
     validate_phase2_holdout_epoch_immutability,
@@ -3853,6 +3854,77 @@ def test_architecture_validation_checks_owner_console_readiness_view(
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert "owner_console_delivery_readiness_projected" in result.evidence
     assert "static_ui_delivery_readiness_rendered" in result.evidence
+
+
+def test_architecture_validation_checks_delivery_handoff_package(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_delivery_handoff_package(
+        tmp_path / "delivery-handoff-validation-home"
+    )
+    assert result.pass_id == "P79"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert "owner_commands_exportable" in result.evidence
+    assert "rollback_steps_bound" in result.evidence
+
+
+def test_delivery_handoff_package_blocks_incomplete_handoff(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    ready = runtime.record_delivery_handoff_package(
+        readiness_summary={"overall_status": "CANDIDATE_READY", "missing_or_blocked": []},
+        candidate={"branch": "living-agent-os-capabilities-001", "commit": "abc"},
+        test_results=[{"name": "focused", "status": "PASS"}],
+        owner_commands={
+            "R01_R05": "run_life_campaign_30.ps1 -CampaignHome D:\\WLS\\campaigns\\life-campaign-30 -StartRound R01 -EndRound R05 --execute",
+            "R01_R40": "run_life_campaign_30.ps1 -CampaignHome D:\\WLS\\campaigns\\life-campaign-30 -StartRound R01 -EndRound R40 --execute",
+        },
+        rollback_steps=[
+            "Delete disposable campaign home D:\\WLS\\campaigns\\life-campaign-30.",
+            "Use git revert on the candidate branch if rejected.",
+            "Keep live installation unchanged.",
+        ],
+        boundaries={
+            "live_install_modified": False,
+            "live_config_modified": False,
+            "live_database_modified": False,
+            "merge_executed": False,
+            "deploy_executed": False,
+            "skill_promoted": False,
+        },
+        reason="unit test delivery handoff ready",
+    )
+    blocked = runtime.record_delivery_handoff_package(
+        readiness_summary={"overall_status": "NEEDS_EVIDENCE", "missing_or_blocked": ["P77"]},
+        candidate={"branch": "main", "commit": ""},
+        test_results=[{"name": "focused", "status": "FAIL"}],
+        owner_commands={"R01_R05": "missing"},
+        rollback_steps=["No rollback"],
+        boundaries={
+            "live_install_modified": False,
+            "live_config_modified": False,
+            "live_database_modified": False,
+            "merge_executed": False,
+            "deploy_executed": True,
+            "skill_promoted": False,
+        },
+        reason="unit test delivery handoff blocked",
+    )
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "capability_epoch"
+    )
+
+    assert ready["status"] == "DELIVERY_HANDOFF_READY"
+    assert ready["merge_executed"] is False
+    assert blocked["status"] == "DELIVERY_HANDOFF_BLOCKED"
+    assert blocked["failure_groups"]["candidate_failures"]
+    assert blocked["failure_groups"]["readiness_failures"]
+    assert blocked["failure_groups"]["test_failures"] == ["focused"]
+    assert blocked["failure_groups"]["boundary_failures"] == ["deploy_executed"]
+    assert panel["status"]["delivery_handoff"]["receipt_count"] == 2
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

@@ -7097,6 +7097,121 @@ def validate_phase2_owner_console_readiness_view(home: Path) -> ArchitecturePass
     )
 
 
+def validate_phase2_delivery_handoff_package(home: Path) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    readiness_summary = {
+        "overall_status": "CANDIDATE_READY",
+        "missing_or_blocked": [],
+        "items": [
+            {"pass_id": "P77", "status": "OPERATIONAL_PREFLIGHT_PASSED"},
+            {"pass_id": "P76", "status": "INSTALLED_TAIL_CHECK_PASSED"},
+            {"pass_id": "P75", "status": "PACKAGING_LAYOUT_PASSED"},
+            {"pass_id": "P74", "status": "DELIVERY_READY_CANDIDATE"},
+        ],
+    }
+    owner_commands = {
+        "R01_R05": (
+            "D:\\WLS-Dev\\workstation-living-system-private\\scripts\\"
+            "run_life_campaign_30.ps1 -CampaignHome "
+            "'D:\\WLS\\campaigns\\life-campaign-30' -StartRound R01 "
+            "-EndRound R05 --execute"
+        ),
+        "R01_R40": (
+            "D:\\WLS-Dev\\workstation-living-system-private\\scripts\\"
+            "run_life_campaign_30.ps1 -CampaignHome "
+            "'D:\\WLS\\campaigns\\life-campaign-30' -StartRound R01 "
+            "-EndRound R40 --execute"
+        ),
+    }
+    boundaries = {
+        "live_install_modified": False,
+        "live_config_modified": False,
+        "live_database_modified": False,
+        "merge_executed": False,
+        "deploy_executed": False,
+        "skill_promoted": False,
+    }
+    passed = runtime.record_delivery_handoff_package(
+        readiness_summary=readiness_summary,
+        candidate={"branch": "living-agent-os-capabilities-001", "commit": "abcdef"},
+        test_results=[
+            {"name": "architecture_validation_p74_p78", "status": "PASS"},
+            {"name": "ui_projection_and_server", "status": "PASS"},
+        ],
+        owner_commands=owner_commands,
+        rollback_steps=[
+            "Delete disposable campaign home D:\\WLS\\campaigns\\life-campaign-30.",
+            "Use git revert on the candidate branch if rejected.",
+            "Keep live installation, live config, and live database unchanged.",
+        ],
+        boundaries=boundaries,
+        reason="architecture validation delivery handoff package",
+    )
+    blocked = runtime.record_delivery_handoff_package(
+        readiness_summary={"overall_status": "NEEDS_EVIDENCE", "missing_or_blocked": ["P76"]},
+        candidate={"branch": "main", "commit": ""},
+        test_results=[{"name": "ui_projection_and_server", "status": "FAIL"}],
+        owner_commands={"R01_R05": "missing execute"},
+        rollback_steps=["No rollback"],
+        boundaries={**boundaries, "deploy_executed": True},
+        reason="architecture validation delivery handoff block",
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "capability_epoch"
+        ),
+        None,
+    )
+    script = (Path(__file__).parents[2] / "scripts" / "build_delivery_handoff.py")
+    script_text = script.read_text(encoding="utf-8")
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type='delivery_handoff_package_recorded'
+            """
+        )
+    }
+    if (
+        passed["status"] != "DELIVERY_HANDOFF_READY"
+        or passed["failure_groups"]["candidate_failures"]
+        or passed["failure_groups"]["test_failures"]
+        or blocked["status"] != "DELIVERY_HANDOFF_BLOCKED"
+        or not blocked["failure_groups"]["readiness_failures"]
+        or not blocked["failure_groups"]["boundary_failures"]
+        or panel is None
+        or panel["status"]["delivery_handoff"]["receipt_count"] != 2
+        or "run_life_campaign_30.ps1" not in script_text
+        or "WLS_DELIVERY_HANDOFF_PACKAGE" not in script_text
+        or event_types != {"delivery_handoff_package_recorded"}
+    ):
+        return ArchitecturePassResult(
+            "P79",
+            "BLOCKED",
+            [str(passed), str(blocked)],
+            ["delivery handoff package validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P79",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(passed["handoff_id"]),
+            str(blocked["handoff_id"]),
+            "owner_commands_exportable",
+            "rollback_steps_bound",
+            "delivery_handoff_package_recorded",
+        ],
+        [
+            "Delivery handoff packages bind readiness, candidate branch, tests, Owner commands, rollback, and no-live-mutation boundaries without executing campaigns, merging, deploying, or promoting Skills",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:
