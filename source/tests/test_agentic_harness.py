@@ -487,6 +487,75 @@ def test_agentic_node_acceptance_failure_blocks_dependents(
     assert graph.nodes["gather"].status is TaskNodeStatus.BLOCKED
 
 
+def test_agentic_process_auditor_flags_green_nodes_without_acceptance_trace(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    passed_receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    passed_graph_id = passed_receipt["graph"]["graph_id"]
+    passed_lease = runtime.agentic.acquire_ready_leases(
+        passed_graph_id, worker_id="readonly-inspector"
+    )[0]
+    runtime.agentic.complete_node_with_acceptance(
+        passed_graph_id,
+        passed_lease.node_id,
+        lease_id=passed_lease.lease_id,
+        result={
+            "status": "SUCCEEDED",
+            "summary": "inspection result is recorded",
+            "evidence": ["agentic_task_graph_compiled"],
+        },
+        acceptance_checks=[
+            {"check_id": "status", "type": "result_status"},
+            {
+                "check_id": "evidence",
+                "type": "evidence_min",
+                "config": {"minimum": 1},
+            },
+        ],
+    )
+    passed = runtime.agentic.audit_graph_process(
+        passed_graph_id, reason="unit test process audit pass"
+    )
+
+    review_receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    review_graph_id = review_receipt["graph"]["graph_id"]
+    review_lease = runtime.agentic.acquire_ready_leases(
+        review_graph_id, worker_id="readonly-inspector"
+    )[0]
+    runtime.agentic.complete_node(
+        review_graph_id,
+        review_lease.node_id,
+        lease_id=review_lease.lease_id,
+        result={"status": "SUCCEEDED", "summary": "inspection result is recorded"},
+    )
+    review = runtime.agentic.audit_graph_process(
+        review_graph_id, reason="unit test process audit review"
+    )
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+
+    assert passed["status"] == "PASS"
+    assert passed["issues"] == []
+    assert review["status"] == "REVIEW_REQUIRED"
+    assert review["critical_count"] == 0
+    assert review["issues"][0]["type"] == "succeeded_without_acceptance_trace"
+    assert runtime.status()["agentic_process_audit_receipts"][0]["graph_id"] == review_graph_id
+    assert panel["status"]["process_auditor_v1"]["receipt_count"] == 2
+    assert panel["status"]["process_auditor_v1"]["worker_execution"] is False
+
+
 def test_agentic_repair_candidate_preserves_failed_node_state(
     tmp_path: Path,
 ) -> None:

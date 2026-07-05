@@ -457,6 +457,11 @@ class LivingSystem:
     ) -> list[dict[str, Any]]:
         return self.agentic.replan_candidate_receipts(limit=limit)
 
+    def agentic_process_audit_receipts(
+        self, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        return self.agentic.process_audit_receipts(limit=limit)
+
     def agentic_harness_epoch_audit_receipts(
         self, limit: int = 20
     ) -> list[dict[str, Any]]:
@@ -4210,6 +4215,7 @@ class LivingSystem:
             "agentic_worker_trust_receipts": self.agentic_worker_trust_receipts(),
             "agentic_retry_gate_receipts": self.agentic_retry_gate_receipts(),
             "agentic_replan_candidate_receipts": self.agentic_replan_candidate_receipts(),
+            "agentic_process_audit_receipts": self.agentic_process_audit_receipts(),
             "agentic_benchmark_scorecard_receipts": self.agentic_benchmark_scorecard_receipts(),
             "agentic_harness_epoch_audit_receipts": self.agentic_harness_epoch_audit_receipts(),
             "single_software_convergence_receipts": self.single_software_convergence_receipts(),

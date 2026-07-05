@@ -520,6 +520,131 @@ class AgenticHarness:
                 receipts.append({**payload, "created_at": row["created_at"]})
         return receipts
 
+    def process_audit_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        rows = self.db.query_all(
+            """
+            SELECT payload_json,created_at FROM evidence
+            WHERE event_type='agentic_process_audit_recorded'
+            ORDER BY seq DESC
+            LIMIT ?
+            """,
+            (max(0, int(limit)),),
+        )
+        receipts: list[dict[str, Any]] = []
+        for row in rows:
+            payload = json.loads(str(row["payload_json"]))
+            if isinstance(payload, dict):
+                receipts.append({**payload, "created_at": row["created_at"]})
+        return receipts
+
+    def audit_graph_process(self, graph_id: str, *, reason: str) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("process audit reason is required")
+        graph = self.load_graph(graph_id)
+        leases = self.db.query_all(
+            """
+            SELECT lease_id,node_id,worker_id,status,acquired_at,expires_at,released_at
+            FROM agentic_node_leases
+            WHERE graph_id=?
+            ORDER BY acquired_at ASC
+            """,
+            (graph_id,),
+        )
+        evidence = self._node_process_evidence(graph_id)
+        active_lease_node_ids = {
+            str(row["node_id"])
+            for row in leases
+            if str(row["status"]) == "ACTIVE"
+        }
+        issues: list[dict[str, Any]] = []
+        for node in graph.nodes.values():
+            node_evidence = evidence.get(node.node_id, {})
+            if node.status is TaskNodeStatus.SUCCEEDED:
+                if not node.result_digest:
+                    issues.append(
+                        self._process_issue(
+                            node.node_id,
+                            "succeeded_without_result_digest",
+                            "CRITICAL",
+                        )
+                    )
+                if not node_evidence.get("completion"):
+                    issues.append(
+                        self._process_issue(
+                            node.node_id,
+                            "succeeded_without_completion_receipt",
+                            "CRITICAL",
+                        )
+                    )
+                if not node_evidence.get("acceptance"):
+                    issues.append(
+                        self._process_issue(
+                            node.node_id,
+                            "succeeded_without_acceptance_trace",
+                            "WARNING",
+                        )
+                    )
+            if node.status is TaskNodeStatus.FAILED and not node_evidence.get("failure"):
+                issues.append(
+                    self._process_issue(
+                        node.node_id,
+                        "failed_without_failure_receipt",
+                        "CRITICAL",
+                    )
+                )
+            if node.status is TaskNodeStatus.LEASED and node.node_id not in active_lease_node_ids:
+                issues.append(
+                    self._process_issue(
+                        node.node_id,
+                        "leased_without_active_lease",
+                        "CRITICAL",
+                    )
+                )
+            if (
+                node.status is not TaskNodeStatus.LEASED
+                and node.node_id in active_lease_node_ids
+            ):
+                issues.append(
+                    self._process_issue(
+                        node.node_id,
+                        "active_lease_on_nonleased_node",
+                        "CRITICAL",
+                    )
+                )
+        critical_count = sum(1 for issue in issues if issue["severity"] == "CRITICAL")
+        status = "PASS"
+        if critical_count:
+            status = "FAIL"
+        elif issues:
+            status = "REVIEW_REQUIRED"
+        node_status_counts: dict[str, int] = {}
+        for node in graph.nodes.values():
+            node_status_counts[node.status.value] = (
+                node_status_counts.get(node.status.value, 0) + 1
+            )
+        payload = {
+            "audit_id": new_id("process_audit"),
+            "graph_id": graph_id,
+            "reason": reason,
+            "status": status,
+            "critical_count": critical_count,
+            "warning_count": len(issues) - critical_count,
+            "issues": issues,
+            "node_status_counts": node_status_counts,
+            "graph_digest": graph.snapshot()["graph_digest"],
+            "active_lease_count": len(active_lease_node_ids),
+            "completion_inferred": False,
+            "repair_inferred": False,
+            "worker_execution": False,
+            "claim_ceiling": (
+                "process audit receipt only; detects missing process evidence "
+                "without completing nodes, retrying work, accepting worker claims, "
+                "or mutating live systems"
+            ),
+        }
+        self.ledger.append("agentic_process_audit_recorded", payload)
+        return payload
+
     def propose_replan_candidate(
         self,
         graph_id: str,
@@ -1746,6 +1871,68 @@ class AgenticHarness:
             }
         )
         return event
+
+    def _node_process_evidence(self, graph_id: str) -> dict[str, dict[str, bool]]:
+        rows = self.db.query_all(
+            """
+            SELECT event_type,payload_json FROM evidence
+            WHERE json_extract(payload_json, '$.graph_id')=?
+            """,
+            (graph_id,),
+        )
+        evidence: dict[str, dict[str, bool]] = {}
+        for row in rows:
+            event_type = str(row["event_type"])
+            payload = json.loads(str(row["payload_json"]))
+            if not isinstance(payload, dict):
+                continue
+            node_id = str(payload.get("node_id") or "")
+            if not node_id:
+                completion = payload.get("completion")
+                if isinstance(completion, dict):
+                    node_id = str(completion.get("node_id") or "")
+            if not node_id:
+                continue
+            flags = evidence.setdefault(
+                node_id,
+                {
+                    "completion": False,
+                    "acceptance": False,
+                    "failure": False,
+                    "import": False,
+                },
+            )
+            if event_type == "agentic_task_node_completed":
+                flags["completion"] = True
+            elif event_type == "agentic_task_node_acceptance_evaluated":
+                flags["acceptance"] = True
+                if payload.get("status") == TaskNodeStatus.FAILED.value:
+                    flags["failure"] = True
+                if payload.get("result_digest"):
+                    flags["completion"] = True
+            elif event_type == "agentic_task_node_failed":
+                flags["failure"] = True
+            elif event_type == "agentic_result_envelope_imported":
+                flags["import"] = True
+                completion = payload.get("completion")
+                if isinstance(completion, dict):
+                    if completion.get("result_digest"):
+                        flags["completion"] = True
+                    if completion.get("acceptance_report") is not None:
+                        flags["acceptance"] = True
+                    if completion.get("status") == TaskNodeStatus.FAILED.value:
+                        flags["failure"] = True
+        return evidence
+
+    @staticmethod
+    def _process_issue(
+        node_id: str, issue_type: str, severity: str
+    ) -> dict[str, str]:
+        return {
+            "node_id": node_id,
+            "type": issue_type,
+            "severity": severity,
+        }
 
     @staticmethod
     def _sha256_file(path: Path) -> str:

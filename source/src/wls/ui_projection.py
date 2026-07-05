@@ -1118,6 +1118,7 @@ class OwnerConsoleProductProjection:
         worker_trust = status.get("agentic_worker_trust_receipts", [])
         retry_gates = status.get("agentic_retry_gate_receipts", [])
         replan_candidates = status.get("agentic_replan_candidate_receipts", [])
+        process_audits = status.get("agentic_process_audit_receipts", [])
         scorecards = status.get("agentic_benchmark_scorecard_receipts", [])
         audits = status.get("agentic_harness_epoch_audit_receipts", [])
         return {
@@ -1240,6 +1241,17 @@ class OwnerConsoleProductProjection:
                     else [],
                     "graph_mutation": False,
                     "task_completion_inferred": False,
+                },
+                "process_auditor_v1": {
+                    "receipt_count": len(process_audits)
+                    if isinstance(process_audits, list)
+                    else 0,
+                    "items": process_audits
+                    if isinstance(process_audits, list)
+                    else [],
+                    "worker_execution": False,
+                    "completion_inferred": False,
+                    "repair_inferred": False,
                 },
                 "benchmark_scorecard_v1": {
                     "receipt_count": len(scorecards)
