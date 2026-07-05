@@ -1112,6 +1112,7 @@ class OwnerConsoleProductProjection:
         budgets = status.get("agentic_budget_receipts", [])
         checkpoint_resume = status.get("agentic_checkpoint_resume_receipts", [])
         context_packets = status.get("agentic_context_packet_receipts", [])
+        context_epochs = status.get("agentic_context_epoch_receipts", [])
         worker_lease_recovery = status.get(
             "agentic_worker_lease_recovery_receipts", []
         )
@@ -1205,6 +1206,18 @@ class OwnerConsoleProductProjection:
                     "secret_material_present": False,
                     "raw_database_export": False,
                     "worker_execution": False,
+                },
+                "context_epoch_v1": {
+                    "receipt_count": len(context_epochs)
+                    if isinstance(context_epochs, list)
+                    else 0,
+                    "items": context_epochs
+                    if isinstance(context_epochs, list)
+                    else [],
+                    "raw_transcript_replaced": False,
+                    "original_receipts_preserved": True,
+                    "worker_execution": False,
+                    "memory_write": False,
                 },
                 "worker_lease_recovery_v1": {
                     "receipt_count": len(worker_lease_recovery)

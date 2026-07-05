@@ -474,6 +474,23 @@ class AgenticHarness:
                 receipts.append({**payload, "created_at": row["created_at"]})
         return receipts
 
+    def context_epoch_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        rows = self.db.query_all(
+            """
+            SELECT payload_json,created_at FROM evidence
+            WHERE event_type='agentic_context_epoch_recorded'
+            ORDER BY seq DESC
+            LIMIT ?
+            """,
+            (max(0, int(limit)),),
+        )
+        receipts: list[dict[str, Any]] = []
+        for row in rows:
+            payload = json.loads(str(row["payload_json"]))
+            if isinstance(payload, dict):
+                receipts.append({**payload, "created_at": row["created_at"]})
+        return receipts
+
     def worker_lease_recovery_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         rows = self.db.query_all(
             """
@@ -540,6 +557,70 @@ class AgenticHarness:
         }
         self.ledger.append("agentic_context_packet_rendered", receipt)
         return receipt
+
+    def record_context_epoch(
+        self,
+        graph_id: str,
+        *,
+        reason: str,
+        max_recent_evidence: int = 20,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("context epoch reason is required")
+        if max_recent_evidence < 1:
+            raise ValueError("max_recent_evidence must be >= 1")
+        graph = self.load_graph(graph_id)
+        manifest = self.context_manifest.load_latest_for_graph(graph_id)
+        packet_refs = self._context_packet_refs(graph_id)
+        evidence_refs = self._recent_graph_evidence_refs(
+            graph_id,
+            limit=max_recent_evidence,
+        )
+        node_status_counts: dict[str, int] = {}
+        for node in graph.nodes.values():
+            node_status_counts[node.status.value] = (
+                node_status_counts.get(node.status.value, 0) + 1
+            )
+        payload = {
+            "epoch_id": new_id("ctxepoch"),
+            "graph_id": graph_id,
+            "intent_id": graph.intent_id,
+            "reason": reason,
+            "created_at": utc_now(),
+            "manifest_ref": {
+                "manifest_id": str(manifest["manifest_id"]),
+                "manifest_digest": str(manifest["manifest_digest"]),
+            },
+            "graph_ref": {
+                "graph_digest": graph.snapshot()["graph_digest"],
+                "node_status_counts": node_status_counts,
+            },
+            "packet_refs": packet_refs,
+            "recent_evidence_refs": evidence_refs,
+            "safe_boundary": True,
+            "raw_transcript_replaced": False,
+            "original_receipts_preserved": True,
+            "critical_evidence_ref_count": len(evidence_refs),
+            "packet_ref_count": len(packet_refs),
+            "worker_execution": False,
+            "memory_write": False,
+            "claim_ceiling": (
+                "context epoch checkpoint receipt only; preserves references to "
+                "manifest, role packets, graph digest, and evidence rows without "
+                "replacing original receipts or executing workers"
+            ),
+        }
+        payload["epoch_digest"] = digest_json(
+            {
+                "graph_id": payload["graph_id"],
+                "manifest_ref": payload["manifest_ref"],
+                "graph_ref": payload["graph_ref"],
+                "packet_refs": payload["packet_refs"],
+                "recent_evidence_refs": payload["recent_evidence_refs"],
+            }
+        )
+        self.ledger.append("agentic_context_epoch_recorded", payload)
+        return payload
 
     def worker_arbitration_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         return self.worker_registry.arbitration_receipts(limit=limit)
@@ -1981,6 +2062,59 @@ class AgenticHarness:
                     if completion.get("status") == TaskNodeStatus.FAILED.value:
                         flags["failure"] = True
         return evidence
+
+    def _context_packet_refs(self, graph_id: str) -> list[dict[str, Any]]:
+        rows = self.db.query_all(
+            """
+            SELECT evidence_id,payload_json,created_at,record_hash FROM evidence
+            WHERE event_type='agentic_context_packet_rendered'
+              AND json_extract(payload_json, '$.graph_id')=?
+            ORDER BY seq ASC
+            """,
+            (graph_id,),
+        )
+        refs: list[dict[str, Any]] = []
+        for row in rows:
+            payload = json.loads(str(row["payload_json"]))
+            if not isinstance(payload, dict):
+                continue
+            refs.append(
+                {
+                    "evidence_id": row["evidence_id"],
+                    "record_hash": row["record_hash"],
+                    "created_at": row["created_at"],
+                    "packet_id": payload.get("packet_id"),
+                    "packet_digest": payload.get("packet_digest"),
+                    "role": payload.get("role"),
+                }
+            )
+        return refs
+
+    def _recent_graph_evidence_refs(
+        self,
+        graph_id: str,
+        *,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        rows = self.db.query_all(
+            """
+            SELECT seq,evidence_id,event_type,created_at,record_hash FROM evidence
+            WHERE json_extract(payload_json, '$.graph_id')=?
+            ORDER BY seq DESC
+            LIMIT ?
+            """,
+            (graph_id, max(1, int(limit))),
+        )
+        return [
+            {
+                "seq": row["seq"],
+                "evidence_id": row["evidence_id"],
+                "event_type": row["event_type"],
+                "created_at": row["created_at"],
+                "record_hash": row["record_hash"],
+            }
+            for row in reversed(rows)
+        ]
 
     @staticmethod
     def _process_issue(

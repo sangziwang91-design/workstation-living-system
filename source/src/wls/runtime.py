@@ -439,6 +439,11 @@ class LivingSystem:
     ) -> list[dict[str, Any]]:
         return self.agentic.context_packet_receipts(limit=limit)
 
+    def agentic_context_epoch_receipts(
+        self, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        return self.agentic.context_epoch_receipts(limit=limit)
+
     def agentic_worker_lease_recovery_receipts(
         self, limit: int = 20
     ) -> list[dict[str, Any]]:
@@ -4216,6 +4221,7 @@ class LivingSystem:
             "agentic_budget_receipts": self.agentic_budget_receipts(),
             "agentic_checkpoint_resume_receipts": self.agentic_checkpoint_resume_receipts(),
             "agentic_context_packet_receipts": self.agentic_context_packet_receipts(),
+            "agentic_context_epoch_receipts": self.agentic_context_epoch_receipts(),
             "agentic_worker_lease_recovery_receipts": self.agentic_worker_lease_recovery_receipts(),
             "agentic_worker_arbitration_receipts": self.agentic_worker_arbitration_receipts(),
             "agentic_worker_trust_receipts": self.agentic_worker_trust_receipts(),

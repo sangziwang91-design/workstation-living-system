@@ -272,6 +272,54 @@ def test_role_context_packet_filters_sensitive_records_and_records_receipt(
     assert panel["status"]["role_context_packets_v1"]["raw_database_export"] is False
 
 
+def test_context_epoch_preserves_packet_and_evidence_references(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    planner_packet = runtime.agentic.render_context_packet(
+        graph_id,
+        role="planner",
+        reason="unit test planner context packet",
+    )
+    reviewer_packet = runtime.agentic.render_context_packet(
+        graph_id,
+        role="reviewer",
+        reason="unit test reviewer context packet",
+    )
+
+    epoch = runtime.agentic.record_context_epoch(
+        graph_id,
+        reason="unit test context epoch checkpoint",
+    )
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+
+    assert epoch["graph_id"] == graph_id
+    assert epoch["manifest_ref"]["manifest_digest"] == receipt["context_manifest"]["manifest_digest"]
+    assert {
+        planner_packet["packet_digest"],
+        reviewer_packet["packet_digest"],
+    } == {item["packet_digest"] for item in epoch["packet_refs"]}
+    assert epoch["critical_evidence_ref_count"] >= 3
+    assert epoch["safe_boundary"] is True
+    assert epoch["raw_transcript_replaced"] is False
+    assert epoch["original_receipts_preserved"] is True
+    assert epoch["worker_execution"] is False
+    assert runtime.status()["agentic_context_epoch_receipts"][0]["graph_id"] == graph_id
+    assert panel["status"]["context_epoch_v1"]["receipt_count"] == 1
+    assert panel["status"]["context_epoch_v1"]["original_receipts_preserved"] is True
+    assert panel["status"]["context_epoch_v1"]["memory_write"] is False
+
+
 def test_worker_registry_rejects_unknown_and_overrisk_workers(tmp_path: Path) -> None:
     harness = _harness(tmp_path)
     receipt = harness.admit_and_compile(
