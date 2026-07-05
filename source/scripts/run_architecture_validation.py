@@ -21,6 +21,7 @@ from wls.architecture_validation import (  # noqa: E402
     validate_phase2_coding_candidate_readonly_execution,
     validate_phase2_browser_readonly_runtime_execution,
     validate_phase2_external_handoff_runtime_receipts,
+    validate_phase2_delivery_readiness_audit,
     validate_phase2_final_delivery_audit,
     validate_phase2_holdout_epoch_immutability,
     validate_phase2_multimodal_asset_readonly_execution,
@@ -122,6 +123,7 @@ SELECTIVE_VALIDATION_PASSES = {
     "P71",
     "P72",
     "P73",
+    "P74",
 }
 
 
@@ -331,6 +333,12 @@ def _run_selected_validation(selected: set[str]) -> dict[str, object]:
             results.append(
                 validate_phase2_agentic_process_auditor(
                     temp_path / "phase2-agentic-process-auditor-home"
+                )
+            )
+        if _selected(selected, "P74"):
+            results.append(
+                validate_phase2_delivery_readiness_audit(
+                    temp_path / "phase2-delivery-readiness-home"
                 )
             )
     return {
@@ -656,6 +664,11 @@ def run_validation(selected: set[str] | None = None) -> dict[str, object]:
             )
         )
         results.append(
+            validate_phase2_delivery_readiness_audit(
+                temp_path / "phase2-delivery-readiness-home"
+            )
+        )
+        results.append(
             validate_phase2_agentic_process_auditor(
                 temp_path / "phase2-agentic-process-auditor-home"
             )
@@ -683,7 +696,10 @@ def main(argv: list[str] | None = None) -> int:
         "--only",
         action="append",
         dest="only",
-        help="Run one validation pass only. Currently supports P01, P42, P43, P44, P45, P46, P47, P48, P49, P50, P51, P52, P53, P54, P55, P56, P57, P58, P59, P60, P61, P62, P63, P64, P65, P66, P67, P68, P69, and P70.",
+        help=(
+            "Run one validation pass only. Currently supports P01 and "
+            "P42 through P74."
+        ),
     )
     args = parser.parse_args(argv)
     selected = {item.upper() for item in args.only} if args.only else None

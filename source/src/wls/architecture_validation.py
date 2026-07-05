@@ -6510,6 +6510,120 @@ def validate_phase2_final_delivery_audit(
     )
 
 
+def validate_phase2_delivery_readiness_audit(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    owner_commands = {
+        "R01_R05": (
+            "D:\\WLS-Dev\\workstation-living-system-private\\scripts\\"
+            "run_life_campaign_30.ps1 -CampaignHome "
+            "'D:\\WLS\\campaigns\\life-campaign-30' -StartRound R01 "
+            "-EndRound R05 --execute"
+        ),
+        "R01_R40": (
+            "D:\\WLS-Dev\\workstation-living-system-private\\scripts\\"
+            "run_life_campaign_30.ps1 -CampaignHome "
+            "'D:\\WLS\\campaigns\\life-campaign-30' -StartRound R01 "
+            "-EndRound R40 --execute"
+        ),
+    }
+    campaign_assets = {
+        "campaign_spec": True,
+        "python_runner": True,
+        "powershell_entry": True,
+        "campaign_tests": True,
+        "campaign_architecture_doc": True,
+    }
+    rollback_steps = [
+        "Delete or archive the disposable campaign home D:\\WLS\\campaigns\\life-campaign-30.",
+        "Use git switch main or git revert on the candidate branch; do not merge automatically.",
+        "Leave the live installation, live config, and live database unchanged.",
+    ]
+    boundaries = {
+        "live_install_modified": False,
+        "live_config_modified": False,
+        "live_database_modified": False,
+        "merge_executed": False,
+        "deploy_executed": False,
+        "skill_promoted": False,
+    }
+    passed = runtime.record_delivery_readiness_audit(
+        branch="living-agent-os-capabilities-001",
+        commit="abcdef1234567890",
+        owner_commands=owner_commands,
+        campaign_assets=campaign_assets,
+        rollback_steps=rollback_steps,
+        boundaries=boundaries,
+        reason="architecture validation delivery readiness audit",
+    )
+    blocked = runtime.record_delivery_readiness_audit(
+        branch="main",
+        commit="",
+        owner_commands={"R01_R05": "missing execute flag"},
+        campaign_assets={**campaign_assets, "powershell_entry": False},
+        rollback_steps=["No rollback"],
+        boundaries={**boundaries, "deploy_executed": True},
+        reason="architecture validation delivery readiness block",
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "capability_epoch"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type='delivery_readiness_audit_recorded'
+            """
+        )
+    }
+    if (
+        passed["status"] != "DELIVERY_READY_CANDIDATE"
+        or passed["failure_groups"]["branch_failures"]
+        or passed["owner_commands"]["failures"]
+        or passed["campaign_assets"]["missing"]
+        or passed["rollback"]["failures"]
+        or passed["boundaries"]["failures"]
+        or blocked["status"] != "DELIVERY_READY_BLOCKED"
+        or not blocked["failure_groups"]["branch_failures"]
+        or not blocked["owner_commands"]["failures"]
+        or panel is None
+        or panel["status"]["delivery_readiness"]["receipt_count"] != 2
+        or panel["status"]["delivery_readiness"]["live_install_modified"] is not False
+        or event_types != {"delivery_readiness_audit_recorded"}
+    ):
+        return ArchitecturePassResult(
+            "P74",
+            "BLOCKED",
+            [str(passed), str(blocked)],
+            ["delivery readiness audit validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P74",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(passed["audit_id"]),
+            str(blocked["audit_id"]),
+            "candidate_branch_bound",
+            "owner_commands_bound",
+            "rollback_path_bound",
+            "live_boundaries_preserved",
+            "delivery_readiness_audit_recorded",
+        ],
+        [
+            "Delivery readiness audits bind candidate branch, exact Owner commands, required campaign assets, rollback steps, and no-live-mutation boundaries without merging, deployment, or Skill promotion",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

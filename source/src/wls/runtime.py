@@ -1331,6 +1331,143 @@ class LivingSystem:
             return []
         return receipts[: max(0, int(limit))]
 
+    def delivery_readiness_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("delivery_readiness_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
+    def record_delivery_readiness_audit(
+        self,
+        *,
+        branch: str,
+        commit: str,
+        owner_commands: dict[str, str],
+        campaign_assets: dict[str, bool],
+        rollback_steps: list[str],
+        boundaries: dict[str, bool],
+        reason: str,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("delivery readiness audit reason is required")
+        branch_name = branch.strip()
+        commit_ref = commit.strip()
+        branch_failures = []
+        if not branch_name:
+            branch_failures.append("missing candidate branch")
+        if branch_name in {"main", "master"}:
+            branch_failures.append("candidate branch must not be main/master")
+        commit_failures = [] if commit_ref else ["missing candidate commit"]
+        required_assets = {
+            "campaign_spec": "source/verification/life_campaign_30.json",
+            "python_runner": "source/scripts/run_life_campaign_30.py",
+            "powershell_entry": "scripts/run_life_campaign_30.ps1",
+            "campaign_tests": "source/tests/test_life_campaign_30.py",
+            "campaign_architecture_doc": "docs/architecture/WLS_LIFE_CAMPAIGN_30.md",
+        }
+        asset_failures = [
+            path
+            for key, path in required_assets.items()
+            if campaign_assets.get(key) is not True
+        ]
+        required_commands = {"R01_R05": ("R01", "R05"), "R01_R40": ("R01", "R40")}
+        command_failures: list[str] = []
+        for command_id, (start, end) in required_commands.items():
+            command = owner_commands.get(command_id, "")
+            required_fragments = [
+                "scripts",
+                "run_life_campaign_30.ps1",
+                "-CampaignHome",
+                "-StartRound",
+                start,
+                "-EndRound",
+                end,
+                "--execute",
+            ]
+            if not command or any(fragment not in command for fragment in required_fragments):
+                command_failures.append(command_id)
+        rollback_text = "\n".join(rollback_steps).lower()
+        rollback_failures = []
+        if not rollback_steps:
+            rollback_failures.append("missing rollback steps")
+        if "campaign" not in rollback_text or not (
+            "delete" in rollback_text or "remove" in rollback_text
+        ):
+            rollback_failures.append("disposable campaign home cleanup missing")
+        if "git" not in rollback_text:
+            rollback_failures.append("candidate branch rollback missing")
+        if "live" not in rollback_text:
+            rollback_failures.append("live installation boundary missing")
+        expected_false_boundaries = {
+            "live_install_modified",
+            "live_config_modified",
+            "live_database_modified",
+            "merge_executed",
+            "deploy_executed",
+            "skill_promoted",
+        }
+        boundary_failures = [
+            key for key in sorted(expected_false_boundaries) if boundaries.get(key) is not False
+        ]
+        failure_groups = {
+            "branch_failures": branch_failures,
+            "commit_failures": commit_failures,
+            "asset_failures": asset_failures,
+            "command_failures": command_failures,
+            "rollback_failures": rollback_failures,
+            "boundary_failures": boundary_failures,
+        }
+        passed = not any(failure_groups.values())
+        receipt = {
+            "receipt_type": "DELIVERY_READINESS_AUDIT",
+            "status": "DELIVERY_READY_CANDIDATE" if passed else "DELIVERY_READY_BLOCKED",
+            "audit_id": new_id("delivery_readiness_audit"),
+            "reason": reason,
+            "candidate": {
+                "branch": branch_name,
+                "commit": commit_ref,
+                "branch_failures": branch_failures,
+                "commit_failures": commit_failures,
+            },
+            "campaign_assets": {
+                "required": required_assets,
+                "present": campaign_assets,
+                "missing": asset_failures,
+            },
+            "owner_commands": {
+                "commands": owner_commands,
+                "required": sorted(required_commands),
+                "failures": command_failures,
+            },
+            "rollback": {
+                "steps": rollback_steps,
+                "failures": rollback_failures,
+            },
+            "boundaries": {
+                "expected_false": sorted(expected_false_boundaries),
+                "observed": boundaries,
+                "failures": boundary_failures,
+            },
+            "failure_groups": failure_groups,
+            "live_install_modified": False,
+            "merge_executed": False,
+            "deploy_executed": False,
+            "skill_promoted": False,
+            "claim_ceiling": (
+                "candidate delivery readiness receipt only; it verifies repository "
+                "commands, rollback instructions, and safety boundaries but does not "
+                "prove live deployment, package installation, or external readiness"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.delivery_readiness_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("delivery_readiness_receipts", updated, connection)
+            self.ledger.append("delivery_readiness_audit_recorded", receipt, connection)
+        return receipt
+
     def record_final_delivery_audit(
         self,
         *,
@@ -4246,6 +4383,7 @@ class LivingSystem:
             "holdout_epoch_receipts": self.holdout_epoch_receipts(),
             "promotion_bundle_receipts": self.promotion_bundle_receipts(),
             "transfer_audit_receipts": self.transfer_audit_receipts(),
+            "delivery_readiness_receipts": self.delivery_readiness_receipts(),
             "final_delivery_audit_receipts": self.final_delivery_audit_receipts(),
             "read_only_execution_preflights": self.read_only_execution_preflights(),
             "read_only_execution_receipts": self.read_only_execution_receipts(),

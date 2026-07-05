@@ -54,6 +54,7 @@ from wls.architecture_validation import (
     validate_phase2_coding_candidate_readonly_execution,
     validate_phase2_browser_readonly_runtime_execution,
     validate_phase2_external_handoff_runtime_receipts,
+    validate_phase2_delivery_readiness_audit,
     validate_phase2_final_delivery_audit,
     validate_phase2_holdout_epoch_immutability,
     validate_phase2_multimodal_asset_readonly_execution,
@@ -3518,6 +3519,96 @@ def test_final_delivery_audit_blocks_claims_above_evidence(
     assert blocked["claim_ledger"]["claim_failures"]
     assert panel["status"]["final_delivery_audit"]["receipt_count"] == 2
     assert panel["status"]["final_delivery_audit"]["live_install_modified"] is False
+
+
+def test_architecture_validation_checks_delivery_readiness_audit(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_delivery_readiness_audit(
+        tmp_path / "delivery-readiness-validation-home"
+    )
+    assert result.pass_id == "P74"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert "owner_commands_bound" in result.evidence
+    assert "live_boundaries_preserved" in result.evidence
+
+
+def test_delivery_readiness_audit_blocks_missing_candidate_boundaries(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    owner_commands = {
+        "R01_R05": (
+            "D:\\WLS-Dev\\workstation-living-system-private\\scripts\\"
+            "run_life_campaign_30.ps1 -CampaignHome "
+            "'D:\\WLS\\campaigns\\life-campaign-30' -StartRound R01 "
+            "-EndRound R05 --execute"
+        ),
+        "R01_R40": (
+            "D:\\WLS-Dev\\workstation-living-system-private\\scripts\\"
+            "run_life_campaign_30.ps1 -CampaignHome "
+            "'D:\\WLS\\campaigns\\life-campaign-30' -StartRound R01 "
+            "-EndRound R40 --execute"
+        ),
+    }
+    campaign_assets = {
+        "campaign_spec": True,
+        "python_runner": True,
+        "powershell_entry": True,
+        "campaign_tests": True,
+        "campaign_architecture_doc": True,
+    }
+    rollback_steps = [
+        "Delete disposable campaign home D:\\WLS\\campaigns\\life-campaign-30.",
+        "Use git revert on the candidate branch if the audit is rejected.",
+        "Keep live installation, live config, and live database unchanged.",
+    ]
+    boundaries = {
+        "live_install_modified": False,
+        "live_config_modified": False,
+        "live_database_modified": False,
+        "merge_executed": False,
+        "deploy_executed": False,
+        "skill_promoted": False,
+    }
+
+    passed = runtime.record_delivery_readiness_audit(
+        branch="living-agent-os-capabilities-001",
+        commit="abcdef1234567890",
+        owner_commands=owner_commands,
+        campaign_assets=campaign_assets,
+        rollback_steps=rollback_steps,
+        boundaries=boundaries,
+        reason="unit test delivery readiness audit",
+    )
+    blocked = runtime.record_delivery_readiness_audit(
+        branch="main",
+        commit="",
+        owner_commands={"R01_R05": owner_commands["R01_R05"]},
+        campaign_assets={**campaign_assets, "python_runner": False},
+        rollback_steps=["No cleanup"],
+        boundaries={**boundaries, "live_install_modified": True},
+        reason="unit test delivery readiness block",
+    )
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "capability_epoch"
+    )
+
+    assert passed["status"] == "DELIVERY_READY_CANDIDATE"
+    assert passed["failure_groups"]["asset_failures"] == []
+    assert passed["owner_commands"]["failures"] == []
+    assert passed["live_install_modified"] is False
+    assert blocked["status"] == "DELIVERY_READY_BLOCKED"
+    assert blocked["failure_groups"]["branch_failures"]
+    assert blocked["failure_groups"]["commit_failures"]
+    assert blocked["campaign_assets"]["missing"] == [
+        "source/scripts/run_life_campaign_30.py"
+    ]
+    assert blocked["boundaries"]["failures"] == ["live_install_modified"]
+    assert panel["status"]["delivery_readiness"]["receipt_count"] == 2
+    assert panel["status"]["delivery_readiness"]["live_install_modified"] is False
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

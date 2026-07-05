@@ -1312,6 +1312,7 @@ class OwnerConsoleProductProjection:
     def _capability_epoch_panel(status: dict[str, Any]) -> dict[str, Any]:
         receipts = status.get("capability_epoch_audit_receipts", [])
         convergence = status.get("single_software_convergence_receipts", [])
+        delivery_readiness = status.get("delivery_readiness_receipts", [])
         final_delivery = status.get("final_delivery_audit_receipts", [])
         return {
             "panel_id": "capability_epoch",
@@ -1333,6 +1334,17 @@ class OwnerConsoleProductProjection:
                     "default_read_only": True,
                     "dangerous_actions_require_approval": True,
                     "live_install_modified": False,
+                },
+                "delivery_readiness": {
+                    "receipt_count": len(delivery_readiness)
+                    if isinstance(delivery_readiness, list)
+                    else 0,
+                    "items": delivery_readiness
+                    if isinstance(delivery_readiness, list)
+                    else [],
+                    "live_install_modified": False,
+                    "merge_executed": False,
+                    "deploy_executed": False,
                 },
                 "allowed_conclusion": "FUNCTIONAL_RUNTIME_ONLY",
                 "live_deployment_executed": False,

@@ -471,6 +471,12 @@ fields such as `memory_id`/`active`.
   separates `CODED`, `TESTED`, `CAMPAIGN`, and `EXTERNAL` evidence levels.
   Claims above their evidence level are blocked, UI `UNKNOWN` coverage blocks
   delivery, and the audit mutates no live installation or public release state.
+- P74 is a shadow-level runtime admission for candidate delivery readiness.
+  The audit binds candidate branch and commit, exact Owner campaign commands,
+  required R01-R30/R31-R40 campaign assets, rollback steps, and no-live-mutation
+  boundaries into a receipt. It can mark a candidate ready for Owner review or
+  blocked by missing commands/assets/boundaries, but it performs no merge,
+  deployment, package installation, Skill promotion, or live configuration write.
 
 ## Projection Rule
 
