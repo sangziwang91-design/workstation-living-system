@@ -10,7 +10,13 @@ import threading
 from .schemas import utc_now
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+GOAL_METADATA_COLUMNS = {
+    "rationale": "TEXT NOT NULL DEFAULT ''",
+    "origin": "TEXT NOT NULL DEFAULT 'owner'",
+    "task_spec_json": "TEXT NOT NULL DEFAULT '{}'",
+    "risk": "TEXT NOT NULL DEFAULT 'READ'",
+}
 
 
 class Database:
@@ -142,7 +148,11 @@ class Database:
                     status TEXT NOT NULL,
                     progress REAL NOT NULL,
                     created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
+                    updated_at TEXT NOT NULL,
+                    rationale TEXT NOT NULL DEFAULT '',
+                    origin TEXT NOT NULL DEFAULT 'owner',
+                    task_spec_json TEXT NOT NULL DEFAULT '{}',
+                    risk TEXT NOT NULL DEFAULT 'READ'
                 );
                 CREATE INDEX IF NOT EXISTS idx_goals_status_priority ON goals(status, priority DESC);
 
@@ -435,6 +445,26 @@ class Database:
             connection.execute(
                 "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
                 (SCHEMA_VERSION, utc_now()),
+            )
+            for column, declaration in GOAL_METADATA_COLUMNS.items():
+                self._ensure_column(connection, "goals", column, declaration)
+
+    @staticmethod
+    def _ensure_column(
+        connection: sqlite3.Connection,
+        table: str,
+        column: str,
+        declaration: str,
+    ) -> None:
+        if table != "goals" or GOAL_METADATA_COLUMNS.get(column) != declaration:
+            raise ValueError("unsupported schema column migration")
+        existing = {
+            str(row["name"])
+            for row in connection.execute("PRAGMA table_info(goals)")
+        }
+        if column not in existing:
+            connection.execute(
+                f"ALTER TABLE {table} ADD COLUMN {column} {declaration}"  # nosec B608
             )
 
     def execute(self, sql: str, parameters: Sequence[Any] = ()) -> int:

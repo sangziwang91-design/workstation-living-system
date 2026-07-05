@@ -382,7 +382,7 @@ class UIProjection:
         priority = float(payload.get("priority", 0.5))
         if not 0.0 <= priority <= 1.0:
             raise ValueError("priority must be within [0, 1]")
-        RiskLevel(str(payload.get("risk", RiskLevel.READ.value)))
+        risk = RiskLevel(str(payload.get("risk", RiskLevel.READ.value)))
         goal = Goal(
             title=title,
             description=str(payload.get("description", "")),
@@ -391,6 +391,14 @@ class UIProjection:
             source="wls-ui",
             autonomous=False,
             parent_goal_id=str(parent_goal_id) if parent_goal_id else None,
+            rationale=str(payload.get("rationale", "")),
+            origin="owner",
+            task_spec={
+                "kind": kind,
+                "created_via": "wls-ui",
+                "ui_contract_version": 2,
+            },
+            risk=risk,
         )
         goal_id = self.runtime.add_goal(goal)
         return {"goal_id": goal_id, "kind": kind, "created_at": goal.created_at}
@@ -494,9 +502,10 @@ class UIProjection:
         data["success_criteria"] = _decode_json(
             data.pop("success_criteria_json", "[]"), []
         )
-        task_spec = _decode_json(data.get("task_spec_json"), {})
+        task_spec = _decode_json(data.pop("task_spec_json", "{}"), {})
+        data["task_spec"] = task_spec if isinstance(task_spec, dict) else {}
         data["kind"] = kind
-        if isinstance(task_spec, dict) and task_spec.get("kind") == "task":
+        if data["task_spec"].get("kind") == "task":
             data["kind"] = "task"
         if "task_count" in data:
             data["task_count"] = int(data["task_count"] or 0)

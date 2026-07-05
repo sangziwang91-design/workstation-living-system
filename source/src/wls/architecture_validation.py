@@ -29,7 +29,7 @@ from .runtime import LivingSystem
 from .scheduler import ScheduledEvent
 from .schemas import ActionSpec, ActionStatus, MemoryItem, Plan, RiskLevel, utc_now
 from .task_graph import TaskNodeStatus
-from .ui_projection import OwnerConsoleProductProjection
+from .ui_projection import OwnerConsoleProductProjection, UIProjection
 from .wechat_adapter import WeChatW0W1Adapter
 from .worker_registry import WorkerProfile
 from .workbench import WorkbenchTemplate
@@ -7429,6 +7429,59 @@ def validate_phase2_release_handoff_summary(home: Path) -> ArchitecturePassResul
         ],
         [
             "Owner Console and delivery handoff exports expose P79/P80 release-state readiness as read-only candidate evidence without executing campaigns or mutating live state",
+        ],
+    )
+
+
+def validate_phase2_owner_goal_metadata_persistence(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    projection = UIProjection(runtime)
+    project_id = projection.create_goal(
+        {
+            "kind": "project",
+            "title": "Owner metadata project",
+            "rationale": "validate owner console metadata",
+            "risk": "READ",
+        }
+    )["goal_id"]
+    task_id = projection.create_goal(
+        {
+            "kind": "task",
+            "project_id": project_id,
+            "title": "Owner metadata task",
+            "rationale": "validate task metadata",
+            "risk": "READ",
+        }
+    )["goal_id"]
+    project = projection.project_detail(project_id)
+    task_row = runtime.goals.get(task_id)
+    if (
+        project["origin"] != "owner"
+        or project["task_spec"].get("kind") != "project"
+        or task_row is None
+        or task_row.origin != "owner"
+        or task_row.rationale != "validate task metadata"
+        or task_row.task_spec.get("created_via") != "wls-ui"
+        or task_row.risk.value != "READ"
+    ):
+        return ArchitecturePassResult(
+            "P82",
+            "BLOCKED",
+            [str(project), str(task_row.to_dict() if task_row else None)],
+            ["owner goal metadata persistence validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P82",
+        "ADMIT_SHADOW_ONLY",
+        [
+            "owner_goal_metadata_persisted",
+            "ui_task_spec_bound_to_canonical_goal",
+            "goal_risk_round_tripped",
+        ],
+        [
+            "Owner Console goal creation stores origin, rationale, task_spec, and risk in the canonical GoalStore without creating a UI-side authority",
         ],
     )
 

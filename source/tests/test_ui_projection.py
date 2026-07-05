@@ -85,13 +85,13 @@ class GoalFacade:
                 goal.progress,
                 goal.created_at,
                 goal.updated_at,
-                None,
-                None,
-                "{}",
+                goal.rationale,
+                goal.origin,
+                json.dumps(goal.task_spec),
                 "[]",
                 "[]",
                 "[]",
-                "READ",
+                goal.risk.value,
                 None,
                 None,
                 0,
@@ -207,6 +207,8 @@ def test_projection_maps_top_level_goals_to_projects() -> None:
             "project_id": project_id,
             "title": "Build owner console",
             "success_criteria": ["UI starts"],
+            "rationale": "Owner requested UI hardening",
+            "risk": "READ",
         }
     )
 
@@ -215,8 +217,17 @@ def test_projection_maps_top_level_goals_to_projects() -> None:
 
     assert projects[0]["goal_id"] == project_id
     assert projects[0]["task_count"] == 1
+    assert projects[0]["origin"] == "owner"
+    assert projects[0]["task_spec"]["kind"] == "project"
     assert tasks[0]["title"] == "Build owner console"
     assert tasks[0]["parent_goal_id"] == project_id
+    assert tasks[0]["rationale"] == "Owner requested UI hardening"
+    assert tasks[0]["risk"] == "READ"
+    assert tasks[0]["task_spec"] == {
+        "created_via": "wls-ui",
+        "kind": "task",
+        "ui_contract_version": 2,
+    }
 
 
 def test_projection_filters_archived_and_explicit_task_rows() -> None:

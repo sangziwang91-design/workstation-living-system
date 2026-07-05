@@ -204,6 +204,10 @@ class Goal:
     progress: float = 0.0
     created_at: str = field(default_factory=utc_now)
     updated_at: str = field(default_factory=utc_now)
+    rationale: str = ""
+    origin: str = "owner"
+    task_spec: dict[str, Any] = field(default_factory=dict)
+    risk: RiskLevel = RiskLevel.READ
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.priority <= 1.0:
@@ -212,10 +216,13 @@ class Goal:
             raise ValueError("progress must be within [0, 1]")
         if not self.title.strip():
             raise ValueError("goal title is required")
+        if not isinstance(self.risk, RiskLevel):
+            self.risk = RiskLevel(str(self.risk))
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["status"] = self.status.value
+        data["risk"] = self.risk.value
         return data
 
 

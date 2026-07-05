@@ -61,6 +61,7 @@ from wls.architecture_validation import (
     validate_phase2_installed_tail_check_audit,
     validate_phase2_multimodal_asset_readonly_execution,
     validate_phase2_operational_preflight_audit,
+    validate_phase2_owner_goal_metadata_persistence,
     validate_phase2_owner_surface_and_readonly_organs,
     validate_phase2_owner_console_readiness_view,
     validate_phase2_packaging_layout_audit,
@@ -3951,6 +3952,17 @@ def test_architecture_validation_checks_release_handoff_summary(
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert "owner_console_release_handoff_projected" in result.evidence
     assert "handoff_export_release_state_summary" in result.evidence
+
+
+def test_architecture_validation_checks_owner_goal_metadata_persistence(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_owner_goal_metadata_persistence(
+        tmp_path / "owner-goal-metadata-home"
+    )
+    assert result.pass_id == "P82"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert "owner_goal_metadata_persisted" in result.evidence
 
 
 def test_release_state_audit_blocks_missing_evidence(

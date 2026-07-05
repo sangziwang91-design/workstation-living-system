@@ -514,6 +514,10 @@ fields such as `memory_id`/`active`.
   Owner Console and delivery handoff JSON expose P79/P80 release-state
   readiness as read-only candidate evidence, so the Owner-facing delivery layer
   no longer depends only on earlier P74-P77 readiness receipts.
+- P82 is a shadow-level runtime admission for Owner Console goal metadata
+  persistence. UI-created Projects and Tasks bind origin, rationale, task_spec,
+  and risk into the canonical GoalStore, preserving one Goal authority instead
+  of letting the UI keep its own task semantics.
 
 ## Projection Rule
 
