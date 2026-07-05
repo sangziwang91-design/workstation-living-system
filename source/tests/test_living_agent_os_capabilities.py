@@ -31,6 +31,9 @@ from wls.architecture_validation import (
     validate_phase2_agentic_lease_fencing_reconciliation,
     validate_phase2_agentic_retry_gate,
     validate_phase2_agentic_replan_candidate,
+    validate_phase2_agentic_role_context_packets,
+    validate_phase2_agentic_context_epoch_checkpoint,
+    validate_phase2_agentic_process_auditor,
     validate_phase2_agentic_result_replay_quarantine,
     validate_phase2_agentic_worker_trust_quarantine,
     validate_phase2_agentic_worker_capability_arbitration,
@@ -2439,6 +2442,39 @@ def test_architecture_validation_checks_agentic_replan_candidate(
     assert result.pass_id == "P50"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert len(result.evidence) >= 4
+
+
+def test_architecture_validation_checks_agentic_role_context_packets(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_agentic_role_context_packets(
+        tmp_path / "agentic-role-context-validation-home"
+    )
+    assert result.pass_id == "P71"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert "agentic_context_packet_rendered" in result.evidence
+
+
+def test_architecture_validation_checks_agentic_context_epoch_checkpoint(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_agentic_context_epoch_checkpoint(
+        tmp_path / "agentic-context-epoch-validation-home"
+    )
+    assert result.pass_id == "P72"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert "agentic_context_epoch_recorded" in result.evidence
+
+
+def test_architecture_validation_checks_agentic_process_auditor(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_agentic_process_auditor(
+        tmp_path / "agentic-process-auditor-validation-home"
+    )
+    assert result.pass_id == "P73"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert "agentic_process_audit_recorded" in result.evidence
 
 
 def test_architecture_validation_checks_agentic_worker_lifecycle(

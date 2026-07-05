@@ -27,7 +27,7 @@ from .read_only_organs import (
 )
 from .runtime import LivingSystem
 from .scheduler import ScheduledEvent
-from .schemas import ActionSpec, ActionStatus, Plan, RiskLevel, utc_now
+from .schemas import ActionSpec, ActionStatus, MemoryItem, Plan, RiskLevel, utc_now
 from .task_graph import TaskNodeStatus
 from .ui_projection import OwnerConsoleProductProjection
 from .wechat_adapter import WeChatW0W1Adapter
@@ -3995,6 +3995,310 @@ def validate_phase2_agentic_replan_candidate(home: Path) -> ArchitecturePassResu
         ],
         [
             "Agentic replan candidates describe bounded graph revision options from failed graph state without mutating the graph or inferring task completion",
+        ],
+    )
+
+
+def validate_phase2_agentic_role_context_packets(home: Path) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    safe_memory_id = runtime.memories.add(
+        MemoryItem(
+            memory_type="project_note",
+            content={"summary": "Architecture validation context note."},
+            importance=0.9,
+            confidence=0.8,
+            source_ids=["architecture-validation:safe-context"],
+            tags=["agentic_context"],
+        )
+    )
+    secret_memory_id = runtime.memories.add(
+        MemoryItem(
+            memory_type="project_note",
+            content={"summary": "temporary token must be suppressed"},
+            importance=1.0,
+            confidence=0.8,
+            source_ids=["architecture-validation:sensitive-context"],
+            tags=["agentic_context"],
+        )
+    )
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository documents",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = str(receipt["graph"]["graph_id"])
+    packet_receipt = runtime.agentic.render_context_packet(
+        graph_id,
+        role="executor",
+        token_budget=1200,
+        reason="architecture validation role context packet",
+    )
+    packet = packet_receipt["packet"]
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "agentic_tasks"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN (
+                'agentic_task_graph_compiled',
+                'agentic_context_packet_rendered'
+            )
+            """
+        )
+    }
+    if (
+        safe_memory_id not in packet["included_record_ids"]
+        or secret_memory_id in packet["included_record_ids"]
+        or {
+            "record_id": secret_memory_id,
+            "reason": "sensitive_context_filter",
+        }
+        not in packet["suppressed_records"]
+        or packet["secret_material_present"] is not False
+        or packet["raw_database_export"] is not False
+        or packet_receipt["worker_execution"] is not False
+        or panel is None
+        or panel["status"]["role_context_packets_v1"]["receipt_count"] != 1
+        or {
+            "agentic_task_graph_compiled",
+            "agentic_context_packet_rendered",
+        }
+        - event_types
+    ):
+        return ArchitecturePassResult(
+            "P71",
+            "BLOCKED",
+            [graph_id, str(packet_receipt)],
+            ["agentic role context packet validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P71",
+        "ADMIT_SHADOW_ONLY",
+        [
+            graph_id,
+            str(packet["packet_id"]),
+            str(packet["packet_digest"]),
+            *sorted(event_types),
+        ],
+        [
+            "Role-scoped context packets render from canonical manifests with token budget, sensitive-record suppression, and Owner Console visibility without exporting raw database state or executing workers",
+        ],
+    )
+
+
+def validate_phase2_agentic_context_epoch_checkpoint(
+    home: Path,
+) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository documents",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = str(receipt["graph"]["graph_id"])
+    planner = runtime.agentic.render_context_packet(
+        graph_id,
+        role="planner",
+        reason="architecture validation planner packet",
+    )
+    reviewer = runtime.agentic.render_context_packet(
+        graph_id,
+        role="reviewer",
+        reason="architecture validation reviewer packet",
+    )
+    epoch = runtime.agentic.record_context_epoch(
+        graph_id,
+        reason="architecture validation context epoch checkpoint",
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "agentic_tasks"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN (
+                'agentic_task_graph_compiled',
+                'agentic_context_packet_rendered',
+                'agentic_context_epoch_recorded'
+            )
+            """
+        )
+    }
+    if (
+        epoch["manifest_ref"]["manifest_digest"]
+        != receipt["context_manifest"]["manifest_digest"]
+        or {
+            planner["packet_digest"],
+            reviewer["packet_digest"],
+        }
+        != {item["packet_digest"] for item in epoch["packet_refs"]}
+        or epoch["critical_evidence_ref_count"] < 3
+        or epoch["safe_boundary"] is not True
+        or epoch["raw_transcript_replaced"] is not False
+        or epoch["original_receipts_preserved"] is not True
+        or epoch["worker_execution"] is not False
+        or epoch["memory_write"] is not False
+        or panel is None
+        or panel["status"]["context_epoch_v1"]["receipt_count"] != 1
+        or {
+            "agentic_task_graph_compiled",
+            "agentic_context_packet_rendered",
+            "agentic_context_epoch_recorded",
+        }
+        - event_types
+    ):
+        return ArchitecturePassResult(
+            "P72",
+            "BLOCKED",
+            [graph_id, str(epoch)],
+            ["agentic context epoch checkpoint validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P72",
+        "ADMIT_SHADOW_ONLY",
+        [
+            graph_id,
+            str(epoch["epoch_id"]),
+            str(epoch["epoch_digest"]),
+            *sorted(event_types),
+        ],
+        [
+            "Context epoch checkpoints preserve manifest, role-packet, graph, and evidence references at a safe boundary without replacing original receipts, writing memory, or executing workers",
+        ],
+    )
+
+
+def validate_phase2_agentic_process_auditor(home: Path) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    pass_receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository documents",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    pass_graph_id = str(pass_receipt["graph"]["graph_id"])
+    pass_lease = runtime.agentic.acquire_ready_leases(
+        pass_graph_id,
+        worker_id="readonly-inspector",
+    )[0]
+    runtime.agentic.complete_node_with_acceptance(
+        pass_graph_id,
+        pass_lease.node_id,
+        lease_id=pass_lease.lease_id,
+        result={
+            "status": "SUCCEEDED",
+            "summary": "inspection result is recorded",
+            "evidence": ["agentic_task_graph_compiled"],
+        },
+        acceptance_checks=[
+            {"check_id": "status", "type": "result_status"},
+            {
+                "check_id": "evidence",
+                "type": "evidence_min",
+                "config": {"minimum": 1},
+            },
+        ],
+    )
+    passed = runtime.agentic.audit_graph_process(
+        pass_graph_id,
+        reason="architecture validation process audit pass",
+    )
+    review_receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository documents",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    review_graph_id = str(review_receipt["graph"]["graph_id"])
+    review_lease = runtime.agentic.acquire_ready_leases(
+        review_graph_id,
+        worker_id="readonly-inspector",
+    )[0]
+    runtime.agentic.complete_node(
+        review_graph_id,
+        review_lease.node_id,
+        lease_id=review_lease.lease_id,
+        result={"status": "SUCCEEDED", "summary": "inspection result is recorded"},
+    )
+    reviewed = runtime.agentic.audit_graph_process(
+        review_graph_id,
+        reason="architecture validation process audit review",
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "agentic_tasks"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type IN (
+                'agentic_task_node_acceptance_evaluated',
+                'agentic_task_node_completed',
+                'agentic_process_audit_recorded'
+            )
+            """
+        )
+    }
+    if (
+        passed["status"] != "PASS"
+        or passed["issues"]
+        or reviewed["status"] != "REVIEW_REQUIRED"
+        or reviewed["critical_count"] != 0
+        or reviewed["issues"][0]["type"] != "succeeded_without_acceptance_trace"
+        or reviewed["completion_inferred"] is not False
+        or reviewed["repair_inferred"] is not False
+        or reviewed["worker_execution"] is not False
+        or panel is None
+        or panel["status"]["process_auditor_v1"]["receipt_count"] != 2
+        or {
+            "agentic_task_node_acceptance_evaluated",
+            "agentic_task_node_completed",
+            "agentic_process_audit_recorded",
+        }
+        - event_types
+    ):
+        return ArchitecturePassResult(
+            "P73",
+            "BLOCKED",
+            [pass_graph_id, review_graph_id, str(reviewed)],
+            ["agentic process auditor validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P73",
+        "ADMIT_SHADOW_ONLY",
+        [
+            pass_graph_id,
+            review_graph_id,
+            str(reviewed["audit_id"]),
+            *sorted(event_types),
+        ],
+        [
+            "Agentic process auditor distinguishes machine-accepted PASS from green-but-unaccepted REVIEW_REQUIRED nodes and records the gap without completing, repairing, or executing worker tasks",
         ],
     )
 

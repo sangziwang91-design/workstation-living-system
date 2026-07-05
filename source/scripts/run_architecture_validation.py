@@ -63,6 +63,9 @@ from wls.architecture_validation import (  # noqa: E402
     validate_phase2_agentic_lease_fencing_reconciliation,
     validate_phase2_agentic_retry_gate,
     validate_phase2_agentic_replan_candidate,
+    validate_phase2_agentic_role_context_packets,
+    validate_phase2_agentic_context_epoch_checkpoint,
+    validate_phase2_agentic_process_auditor,
     validate_phase2_agentic_result_replay_quarantine,
     validate_phase2_agentic_worker_trust_quarantine,
     validate_phase2_agentic_worker_capability_arbitration,
@@ -116,6 +119,9 @@ SELECTIVE_VALIDATION_PASSES = {
     "P68",
     "P69",
     "P70",
+    "P71",
+    "P72",
+    "P73",
 }
 
 
@@ -307,6 +313,24 @@ def _run_selected_validation(selected: set[str]) -> dict[str, object]:
             results.append(
                 validate_phase2_final_delivery_audit(
                     temp_path / "phase2-final-delivery-home"
+                )
+            )
+        if _selected(selected, "P71"):
+            results.append(
+                validate_phase2_agentic_role_context_packets(
+                    temp_path / "phase2-agentic-role-context-home"
+                )
+            )
+        if _selected(selected, "P72"):
+            results.append(
+                validate_phase2_agentic_context_epoch_checkpoint(
+                    temp_path / "phase2-agentic-context-epoch-home"
+                )
+            )
+        if _selected(selected, "P73"):
+            results.append(
+                validate_phase2_agentic_process_auditor(
+                    temp_path / "phase2-agentic-process-auditor-home"
                 )
             )
     return {
@@ -619,6 +643,21 @@ def run_validation(selected: set[str] | None = None) -> dict[str, object]:
         results.append(
             validate_phase2_final_delivery_audit(
                 temp_path / "phase2-final-delivery-home"
+            )
+        )
+        results.append(
+            validate_phase2_agentic_role_context_packets(
+                temp_path / "phase2-agentic-role-context-home"
+            )
+        )
+        results.append(
+            validate_phase2_agentic_context_epoch_checkpoint(
+                temp_path / "phase2-agentic-context-epoch-home"
+            )
+        )
+        results.append(
+            validate_phase2_agentic_process_auditor(
+                temp_path / "phase2-agentic-process-auditor-home"
             )
         )
     for pass_id, note in PASS_CONTRACTS.items():
