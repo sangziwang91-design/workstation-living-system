@@ -628,6 +628,7 @@ class OwnerConsoleProductProjection:
             "direct_tool_execution": False,
             "panels": panels,
             "panel_ids": [panel["panel_id"] for panel in panels],
+            "delivery_readiness": self._delivery_readiness_summary(panels),
             "source_keys": sorted(status.keys()),
             "claim_ceiling": "read-only product projection over LivingSystem.status",
         }
@@ -639,6 +640,85 @@ class OwnerConsoleProductProjection:
             }
         )
         return payload
+
+    @staticmethod
+    def _delivery_readiness_summary(panels: list[dict[str, Any]]) -> dict[str, Any]:
+        by_id = {str(panel.get("panel_id")): panel for panel in panels}
+        life = by_id.get("life", {}).get("status", {})
+        capability = by_id.get("capability_epoch", {}).get("status", {})
+        if not isinstance(life, dict):
+            life = {}
+        if not isinstance(capability, dict):
+            capability = {}
+        items = [
+            {
+                "readiness_id": "operational_preflight",
+                "label": "Operational",
+                "pass_id": "P77",
+                "status": OwnerConsoleProductProjection._latest_nested_status(
+                    life, "operational_preflight"
+                ),
+            },
+            {
+                "readiness_id": "installed_tail_check",
+                "label": "Tail Check",
+                "pass_id": "P76",
+                "status": OwnerConsoleProductProjection._latest_nested_status(
+                    capability, "installed_tail_check"
+                ),
+            },
+            {
+                "readiness_id": "packaging_layout",
+                "label": "Packaging",
+                "pass_id": "P75",
+                "status": OwnerConsoleProductProjection._latest_nested_status(
+                    capability, "packaging_layout"
+                ),
+            },
+            {
+                "readiness_id": "delivery_readiness",
+                "label": "Delivery",
+                "pass_id": "P74",
+                "status": OwnerConsoleProductProjection._latest_nested_status(
+                    capability, "delivery_readiness"
+                ),
+            },
+        ]
+        acceptable = {
+            "OPERATIONAL_PREFLIGHT_PASSED",
+            "INSTALLED_TAIL_CHECK_PASSED",
+            "PACKAGING_LAYOUT_PASSED",
+            "DELIVERY_READY_CANDIDATE",
+        }
+        missing = [
+            item["readiness_id"]
+            for item in items
+            if item["status"] not in acceptable
+        ]
+        return {
+            "overall_status": "CANDIDATE_READY" if not missing else "NEEDS_EVIDENCE",
+            "items": items,
+            "missing_or_blocked": missing,
+            "writes_canonical_state": False,
+            "direct_tool_execution": False,
+            "claim_ceiling": (
+                "read-only readiness projection; candidate evidence only until "
+                "campaign, packaging, tail, and operational receipts are current"
+            ),
+        }
+
+    @staticmethod
+    def _latest_nested_status(status: dict[str, Any], key: str) -> str:
+        nested = status.get(key, {})
+        if not isinstance(nested, dict):
+            return "NO_RECEIPT"
+        items = nested.get("items", [])
+        if not isinstance(items, list) or not items:
+            return "NO_RECEIPT"
+        latest = items[0]
+        if not isinstance(latest, dict):
+            return "UNKNOWN"
+        return str(latest.get("status", "UNKNOWN"))
 
     @staticmethod
     def _life_panel(status: dict[str, Any]) -> dict[str, Any]:

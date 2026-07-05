@@ -6937,6 +6937,166 @@ def validate_phase2_operational_preflight_audit(
     )
 
 
+def validate_phase2_owner_console_readiness_view(home: Path) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    runtime.run_cycle()
+    status_snapshot = runtime.status()
+    integrity_report = {
+        "ok": True,
+        "ledger": "ok",
+        "database": "ok",
+        "cognition": "ok",
+        "causal_memory": "ok",
+        "memory_attribution": "ok",
+    }
+    lease_probe = {
+        "runtime_lock_available": True,
+        "daemon_lock_available": True,
+        "no_stale_runtime_lock": True,
+        "no_stale_daemon_lock": True,
+    }
+    runtime.record_operational_preflight_audit(
+        status_snapshot=status_snapshot,
+        integrity_report=integrity_report,
+        lease_probe=lease_probe,
+        reason="architecture validation readiness view preflight",
+    )
+    runtime.record_installed_tail_check_audit(
+        report={
+            "receipt_type": "SINGLE_SOFTWARE_TAIL_CHECK",
+            "status": "PASS_WITH_LIMITS",
+            "install_root": "D:\\WLS\\wls-0.9.0.dev1-py313",
+            "live_home": "D:\\WLS\\wls-0.9.0.dev1-py313\\home",
+            "campaign_home": "D:\\WLS\\campaigns\\life-campaign-30",
+            "checks": {
+                "install_root_exists": True,
+                "live_home_exists": True,
+                "campaign_home_exists": True,
+                "campaign_not_live_home": True,
+                "campaign_not_runtime_live_home": True,
+                "campaign_not_inside_live_home": True,
+                "campaign_not_inside_runtime_live_home": True,
+                "campaign_config_exists": True,
+                "campaign_config_points_to_campaign_home": True,
+                "live_config_present": True,
+                "live_db_present": True,
+                "live_config_unchanged": True,
+                "live_db_unchanged": True,
+            },
+            "live_hashes_before": {
+                "live_config_sha256": "config-hash",
+                "live_db_sha256": "db-hash",
+            },
+            "live_hashes_after": {
+                "live_config_sha256": "config-hash",
+                "live_db_sha256": "db-hash",
+            },
+            "status_smoke": {"executed": False, "ok": None},
+            "required_checks": [
+                "install_root_exists",
+                "live_home_exists",
+                "campaign_home_exists",
+                "campaign_not_live_home",
+                "campaign_not_runtime_live_home",
+                "campaign_not_inside_live_home",
+                "campaign_not_inside_runtime_live_home",
+                "campaign_config_exists",
+                "campaign_config_points_to_campaign_home",
+                "live_config_present",
+                "live_db_present",
+                "live_config_unchanged",
+                "live_db_unchanged",
+            ],
+        },
+        reason="architecture validation readiness view tail check",
+    )
+    runtime.record_packaging_layout_audit(
+        report={
+            "success": True,
+            "canonical_project_root": ".",
+            "canonical_package": "source/src/wls",
+            "canonical_version_file": "source/src/wls/_version.py",
+            "project_manifests": ["pyproject.toml"],
+            "package_roots": ["source/src/wls"],
+            "checks": {"single_project_manifest": True, "single_package_root": True},
+        },
+        reason="architecture validation readiness view packaging",
+    )
+    runtime.record_delivery_readiness_audit(
+        branch="living-agent-os-capabilities-001",
+        commit="abcdef1234567890",
+        owner_commands={
+            "R01_R05": (
+                "D:\\WLS-Dev\\workstation-living-system-private\\scripts\\"
+                "run_life_campaign_30.ps1 -CampaignHome "
+                "'D:\\WLS\\campaigns\\life-campaign-30' -StartRound R01 "
+                "-EndRound R05 --execute"
+            ),
+            "R01_R40": (
+                "D:\\WLS-Dev\\workstation-living-system-private\\scripts\\"
+                "run_life_campaign_30.ps1 -CampaignHome "
+                "'D:\\WLS\\campaigns\\life-campaign-30' -StartRound R01 "
+                "-EndRound R40 --execute"
+            ),
+        },
+        campaign_assets={
+            "campaign_spec": True,
+            "python_runner": True,
+            "powershell_entry": True,
+            "campaign_tests": True,
+            "campaign_architecture_doc": True,
+        },
+        rollback_steps=[
+            "Delete disposable campaign home D:\\WLS\\campaigns\\life-campaign-30.",
+            "Use git revert on the candidate branch if rejected.",
+            "Keep live installation, live config, and live database unchanged.",
+        ],
+        boundaries={
+            "live_install_modified": False,
+            "live_config_modified": False,
+            "live_database_modified": False,
+            "merge_executed": False,
+            "deploy_executed": False,
+            "skill_promoted": False,
+        },
+        reason="architecture validation readiness view delivery",
+    )
+    product = OwnerConsoleProductProjection().project(runtime.status())
+    app_js = (Path(__file__).parent / "ui_static" / "app.js").read_text(
+        encoding="utf-8"
+    )
+    readiness = product["delivery_readiness"]
+    if (
+        readiness["overall_status"] != "CANDIDATE_READY"
+        or readiness["missing_or_blocked"]
+        or [item["pass_id"] for item in readiness["items"]]
+        != ["P77", "P76", "P75", "P74"]
+        or product["writes_canonical_state"] is not False
+        or product["direct_tool_execution"] is not False
+        or "Delivery Readiness" not in app_js
+        or "readinessCards" not in app_js
+    ):
+        return ArchitecturePassResult(
+            "P78",
+            "BLOCKED",
+            [str(readiness)],
+            ["owner console readiness view validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P78",
+        "ADMIT_SHADOW_ONLY",
+        [
+            readiness["overall_status"],
+            "owner_console_delivery_readiness_projected",
+            "static_ui_delivery_readiness_rendered",
+            "read_only_projection_preserved",
+        ],
+        [
+            "Owner Console exposes a read-only delivery readiness summary over P74-P77 receipts and renders it in the product panel without direct tool execution or canonical writes",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

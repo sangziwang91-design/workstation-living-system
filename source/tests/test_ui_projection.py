@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from wls.schemas import Goal
-from wls.ui_projection import UIProjection
+from wls.ui_projection import OwnerConsoleProductProjection, UIProjection
 
 
 class MiniDB:
@@ -290,6 +290,42 @@ def test_projection_filters_archived_and_explicit_task_rows() -> None:
     assert UIProjection(runtime).projects() == []
     with pytest.raises(ValueError, match="explicitly tagged as task"):
         UIProjection(runtime).project_detail("orphan-task")
+
+
+def test_owner_console_product_projection_summarizes_delivery_readiness() -> None:
+    projection = OwnerConsoleProductProjection()
+    empty = projection.project({})
+
+    assert empty["delivery_readiness"]["overall_status"] == "NEEDS_EVIDENCE"
+    assert set(empty["delivery_readiness"]["missing_or_blocked"]) == {
+        "operational_preflight",
+        "installed_tail_check",
+        "packaging_layout",
+        "delivery_readiness",
+    }
+
+    ready = projection.project(
+        {
+            "operational_preflight_receipts": [
+                {"status": "OPERATIONAL_PREFLIGHT_PASSED"}
+            ],
+            "installed_tail_check_receipts": [
+                {"status": "INSTALLED_TAIL_CHECK_PASSED"}
+            ],
+            "packaging_layout_receipts": [{"status": "PACKAGING_LAYOUT_PASSED"}],
+            "delivery_readiness_receipts": [{"status": "DELIVERY_READY_CANDIDATE"}],
+        }
+    )
+
+    assert ready["delivery_readiness"]["overall_status"] == "CANDIDATE_READY"
+    assert ready["delivery_readiness"]["missing_or_blocked"] == []
+    assert [item["pass_id"] for item in ready["delivery_readiness"]["items"]] == [
+        "P77",
+        "P76",
+        "P75",
+        "P74",
+    ]
+    assert ready["delivery_readiness"]["writes_canonical_state"] is False
 
 
 def test_task_requires_project_id() -> None:

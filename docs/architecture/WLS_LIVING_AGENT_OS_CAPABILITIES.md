@@ -494,6 +494,11 @@ fields such as `memory_id`/`active`.
   A paused/killed runtime, pending approval/reconciliation, failed integrity, or
   unavailable lease blocks the receipt without starting a daemon or modifying
   live installation, config, or database state.
+- P78 is a shadow-level runtime admission for the Owner Console readiness view.
+  `/api/product` exposes a top-level read-only delivery readiness summary over
+  P74-P77 receipts, and the static product panel renders that summary as compact
+  candidate evidence cards. The view performs no direct tool execution and never
+  writes canonical runtime state.
 
 ## Projection Rule
 

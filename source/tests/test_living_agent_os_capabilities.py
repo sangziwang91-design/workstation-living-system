@@ -61,6 +61,7 @@ from wls.architecture_validation import (
     validate_phase2_multimodal_asset_readonly_execution,
     validate_phase2_operational_preflight_audit,
     validate_phase2_owner_surface_and_readonly_organs,
+    validate_phase2_owner_console_readiness_view,
     validate_phase2_packaging_layout_audit,
     validate_phase2_paired_baseline_candidate_experiment,
     validate_phase2_preflighted_readonly_execution,
@@ -3840,6 +3841,18 @@ def test_operational_preflight_audit_blocks_unready_runtime(
     assert blocked["daemon_started"] is False
     assert panel["status"]["operational_preflight"]["receipt_count"] == 2
     assert panel["status"]["operational_preflight"]["live_install_modified"] is False
+
+
+def test_architecture_validation_checks_owner_console_readiness_view(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_owner_console_readiness_view(
+        tmp_path / "owner-console-readiness-validation-home"
+    )
+    assert result.pass_id == "P78"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert "owner_console_delivery_readiness_projected" in result.evidence
+    assert "static_ui_delivery_readiness_rendered" in result.evidence
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:

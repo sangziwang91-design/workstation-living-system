@@ -80,6 +80,8 @@ def test_product_projection_endpoint_exposes_read_only_owner_panels() -> None:
         assert product["mode"] == "READ_ONLY_PROJECTION"
         assert product["writes_canonical_state"] is False
         assert product["direct_tool_execution"] is False
+        assert product["delivery_readiness"]["overall_status"] == "NEEDS_EVIDENCE"
+        assert product["delivery_readiness"]["writes_canonical_state"] is False
         assert "organs" in product["panel_ids"]
         assert {panel["panel_id"] for panel in product["panels"]} == set(
             product["panel_ids"]
@@ -236,6 +238,9 @@ def test_static_ui_respects_strict_csp_without_inline_style() -> None:
         status, _, js = request(connection, "GET", "/assets/app.js", token=server.token)
         assert status == 200
         assert b"/api/product" in js
+        assert b"Delivery Readiness" in js
+        assert b"OPERATIONAL_PREFLIGHT_PASSED" not in js
+        assert b"readinessCards" in js
         assert b'style="' not in js
         assert b".style." not in js
     finally:

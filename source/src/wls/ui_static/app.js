@@ -56,7 +56,9 @@ function escapeHtml(value) {
 
 function statusClass(status) {
   if (["SUCCEEDED", "COMPLETED", "VERIFIED", "ACTIVE"].includes(status)) return "good";
+  if (String(status || "").endsWith("_PASSED")) return "good";
   if (["FAILED", "KILLED", "UNKNOWN_SIDE_EFFECT", "BLOCKED"].includes(status)) return "bad";
+  if (String(status || "").endsWith("_BLOCKED")) return "bad";
   return "warn";
 }
 
@@ -112,7 +114,7 @@ function renderHome() {
   const running = (counts.cycles || {}).RUNNING || 0;
   const waiting = h.pending_action_count || 0;
   const evidence = Object.values(counts.events || {}).reduce((a, b) => a + Number(b || 0), 0);
-  main.innerHTML = pageHead("Today", "Owner Console", "统一查看目标、执行、审批、证据和系统状态。") + `
+  main.innerHTML = pageHead("Today", "Owner Console", "Unified view of goals, execution, approvals, evidence, and runtime state.") + `
     <div class="grid cols-4">
       ${metricCard("Active Goals", active, "canonical")}
       ${metricCard("Running", running, "cycles")}
@@ -132,7 +134,7 @@ function renderHome() {
 }
 
 function renderProjects() {
-  main.innerHTML = pageHead("Long-lived Objects", "Projects", "顶层 Goal 映射为 Project，子 Goal 映射为 Task。") +
+  main.innerHTML = pageHead("Long-lived Objects", "Projects", "Top-level Goals appear as Projects; child Goals appear as Tasks.") +
     (state.projects.length ? `<div class="grid cols-2">${state.projects.map(projectCard).join("")}</div>` :
       `<div class="empty">No projects yet. Create the first Project from the top command.</div>`);
   bindSelectable();
@@ -194,17 +196,37 @@ function renderRunList(runs) {
 async function renderPanels() {
   if (!state.product) state.product = await api("/api/product");
   const panels = state.product.panels || [];
-  main.innerHTML = pageHead("Living Agent OS", "Panels", "产品化器官面板只读取 LivingSystem.status，不写入 canonical state。") + `
+  const readiness = readinessCards();
+  main.innerHTML = pageHead("Living Agent OS", "Panels", "Read-only product panels over LivingSystem.status; no canonical writes.") + `
     <div class="grid cols-4">
       ${metricCard("Panels", panels.length, "read-only")}
       ${metricCard("Mode", state.product.mode || "-", "projection")}
       ${metricCard("Writes", state.product.writes_canonical_state ? "Yes" : "No", "canonical")}
       ${metricCard("Tools", state.product.direct_tool_execution ? "Direct" : "None", "execution")}
     </div>
+    <div class="section-title"><h2>Delivery Readiness</h2><small>candidate evidence</small></div>
+    <div class="grid cols-4">${readiness.join("")}</div>
     <div class="section-title"><h2>Organs</h2><small>${escapeHtml(state.product.projection_version || "-")}</small></div>
     <div class="grid cols-2">${panels.map(panelCard).join("") || `<div class="empty">No product panels projected.</div>`}</div>
   `;
   bindSelectable();
+}
+
+function readinessCards() {
+  const summary = state.product.delivery_readiness || {};
+  const items = Array.isArray(summary.items) ? summary.items : [];
+  if (!items.length) return [readinessCard("Readiness", "NO_RECEIPT", "P74-P77")];
+  return items.map((item) =>
+    readinessCard(item.label || item.readiness_id, item.status || "UNKNOWN", item.pass_id || "-")
+  );
+}
+
+function readinessCard(title, status, suffix) {
+  return `<div class="card readiness ${statusClass(status)}">
+    <h3>${escapeHtml(title)}</h3>
+    <div class="metric compact">${escapeHtml(status)}</div>
+    <div class="meta"><span class="pill">${escapeHtml(suffix)}</span></div>
+  </div>`;
 }
 
 function panelCard(panel) {
