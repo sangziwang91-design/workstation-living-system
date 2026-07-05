@@ -1458,6 +1458,7 @@ class OwnerConsoleProductProjection:
         delivery_readiness = status.get("delivery_readiness_receipts", [])
         delivery_handoff = status.get("delivery_handoff_receipts", [])
         release_state_audit = status.get("release_state_audit_receipts", [])
+        ui_hardening = status.get("ui_hardening_audit_receipts", [])
         installed_tail_check = status.get("installed_tail_check_receipts", [])
         final_delivery = status.get("final_delivery_audit_receipts", [])
         return {
@@ -1524,6 +1525,15 @@ class OwnerConsoleProductProjection:
                     "live_install_modified": False,
                     "deploy_executed": False,
                     "skill_promoted": False,
+                },
+                "ui_hardening_audit": {
+                    "receipt_count": len(ui_hardening)
+                    if isinstance(ui_hardening, list)
+                    else 0,
+                    "items": ui_hardening if isinstance(ui_hardening, list) else [],
+                    "persistent_ui_token": False,
+                    "ui_completion_authority": False,
+                    "real_browser_e2e_required": True,
                 },
                 "installed_tail_check": {
                     "receipt_count": len(installed_tail_check)

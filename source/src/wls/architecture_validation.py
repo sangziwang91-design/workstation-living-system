@@ -7486,6 +7486,87 @@ def validate_phase2_owner_goal_metadata_persistence(
     )
 
 
+def validate_phase2_ui_hardening_audit(home: Path) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    defect_checks = {f"D{index:02d}": True for index in range(1, 19)}
+    boundary_checks = {
+        "loopback_only": True,
+        "no_auth_cookie": True,
+        "no_persistent_ui_token": True,
+        "no_ui_completion_authority": True,
+        "no_second_goal_store": True,
+        "cycle_request_lock": True,
+        "sanitized_500": True,
+    }
+    passed = runtime.record_ui_hardening_audit(
+        defect_checks=defect_checks,
+        boundary_checks=boundary_checks,
+        test_results=[
+            {"name": "ui_projection_and_server", "status": "PASS"},
+            {"name": "goal_metadata_persistence", "status": "PASS"},
+        ],
+        real_browser_e2e=False,
+        reason="architecture validation UI hardening audit",
+    )
+    blocked = runtime.record_ui_hardening_audit(
+        defect_checks={**defect_checks, "D09": False},
+        boundary_checks={**boundary_checks, "no_auth_cookie": False},
+        test_results=[{"name": "ui_server_security", "status": "FAIL"}],
+        real_browser_e2e=False,
+        reason="architecture validation UI hardening block",
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "capability_epoch"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type='ui_hardening_audit_recorded'
+            """
+        )
+    }
+    if (
+        passed["status"] != "UI_HARDENING_CANDIDATE_READY"
+        or passed["failure_groups"]["owner_host_gates"] != ["real_browser_e2e"]
+        or blocked["status"] != "UI_HARDENING_BLOCKED"
+        or blocked["failure_groups"]["defect_failures"] != ["D09"]
+        or blocked["failure_groups"]["boundary_failures"] != ["no_auth_cookie"]
+        or panel is None
+        or panel["status"]["ui_hardening_audit"]["receipt_count"] != 2
+        or panel["status"]["ui_hardening_audit"]["persistent_ui_token"] is not False
+        or panel["status"]["ui_hardening_audit"]["ui_completion_authority"] is not False
+        or event_types != {"ui_hardening_audit_recorded"}
+    ):
+        return ArchitecturePassResult(
+            "P83",
+            "BLOCKED",
+            [str(passed), str(blocked)],
+            ["UI hardening audit validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P83",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(passed["audit_id"]),
+            "ui_hardening_candidate_ready",
+            "real_browser_e2e_remains_owner_host_gate",
+            "ui_hardening_audit_recorded",
+        ],
+        [
+            "UI hardening audits bind D01-D18 coverage, local security boundaries, tests, and real-browser gate status without creating UI authority or claiming Owner-host browser proof",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

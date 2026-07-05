@@ -1057,6 +1057,7 @@ class LivingSystem:
             "operational_preflight": len(self.operational_preflight_receipts(100)),
             "delivery_handoff": len(self.delivery_handoff_receipts(100)),
             "release_state_audit": len(self.release_state_audit_receipts(100)),
+            "ui_hardening_audit": len(self.ui_hardening_audit_receipts(100)),
         }
         branch_only_scaffolding = [
             {
@@ -1445,6 +1446,12 @@ class LivingSystem:
             return []
         return receipts[: max(0, int(limit))]
 
+    def ui_hardening_audit_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("ui_hardening_audit_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
     def installed_tail_check_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         receipts = self.db.get_runtime("installed_tail_check_receipts", [])
         if not isinstance(receipts, list):
@@ -1745,6 +1752,82 @@ class LivingSystem:
         with self.db.transaction() as connection:
             self.db.set_runtime("release_state_audit_receipts", updated, connection)
             self.ledger.append("release_state_audit_recorded", receipt, connection)
+        return receipt
+
+    def record_ui_hardening_audit(
+        self,
+        *,
+        defect_checks: dict[str, bool],
+        boundary_checks: dict[str, bool],
+        test_results: list[dict[str, Any]],
+        real_browser_e2e: bool,
+        reason: str,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("UI hardening audit reason is required")
+        required_defects = [f"D{index:02d}" for index in range(1, 19)]
+        defect_failures = [
+            key for key in required_defects if defect_checks.get(key) is not True
+        ]
+        expected_boundaries = {
+            "loopback_only",
+            "no_auth_cookie",
+            "no_persistent_ui_token",
+            "no_ui_completion_authority",
+            "no_second_goal_store",
+            "cycle_request_lock",
+            "sanitized_500",
+        }
+        boundary_failures = [
+            key for key in sorted(expected_boundaries) if boundary_checks.get(key) is not True
+        ]
+        test_failures = [
+            str(item.get("name", "unnamed"))
+            for item in test_results
+            if item.get("status") not in {"PASS", "PASS_WITH_LIMITS"}
+        ]
+        failure_groups = {
+            "defect_failures": defect_failures,
+            "boundary_failures": boundary_failures,
+            "test_failures": test_failures,
+            "owner_host_gates": [] if real_browser_e2e else ["real_browser_e2e"],
+        }
+        passed = not (
+            defect_failures or boundary_failures or test_failures
+        )
+        receipt = {
+            "receipt_type": "UI_HARDENING_AUDIT",
+            "status": "UI_HARDENING_CANDIDATE_READY"
+            if passed
+            else "UI_HARDENING_BLOCKED",
+            "audit_id": new_id("ui_hardening_audit"),
+            "reason": reason,
+            "defect_checks": defect_checks,
+            "boundary_checks": boundary_checks,
+            "test_results": test_results,
+            "real_browser_e2e": real_browser_e2e,
+            "failure_groups": failure_groups,
+            "allowed_conclusion": (
+                "local UI hardening candidate"
+                if passed
+                else "UI hardening requires missing evidence repair"
+            ),
+            "live_install_modified": False,
+            "ui_completion_authority": False,
+            "persistent_ui_token": False,
+            "claim_ceiling": (
+                "UI hardening audit receipt only; local tests can support "
+                "candidate readiness, while real browser and Owner host behavior "
+                "remain separate gates unless explicitly evidenced"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.ui_hardening_audit_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("ui_hardening_audit_receipts", updated, connection)
+            self.ledger.append("ui_hardening_audit_recorded", receipt, connection)
         return receipt
 
     def record_installed_tail_check_audit(
@@ -4875,6 +4958,7 @@ class LivingSystem:
             "delivery_readiness_receipts": self.delivery_readiness_receipts(),
             "delivery_handoff_receipts": self.delivery_handoff_receipts(),
             "release_state_audit_receipts": self.release_state_audit_receipts(),
+            "ui_hardening_audit_receipts": self.ui_hardening_audit_receipts(),
             "installed_tail_check_receipts": self.installed_tail_check_receipts(),
             "operational_preflight_receipts": self.operational_preflight_receipts(),
             "final_delivery_audit_receipts": self.final_delivery_audit_receipts(),

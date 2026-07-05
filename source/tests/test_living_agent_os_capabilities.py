@@ -84,6 +84,7 @@ from wls.architecture_validation import (
     validate_phase2_screen_snapshot_ingress_receipts,
     validate_phase2_typed_readonly_organ_profiles,
     validate_phase2_transfer_efficiency_audit,
+    validate_phase2_ui_hardening_audit,
     validate_phase2_wechat_approval_channel_receipts,
     validate_phase2_voice_transcript_ingress_receipts,
     validate_p01_registry,
@@ -3963,6 +3964,18 @@ def test_architecture_validation_checks_owner_goal_metadata_persistence(
     assert result.pass_id == "P82"
     assert result.verdict == "ADMIT_SHADOW_ONLY"
     assert "owner_goal_metadata_persisted" in result.evidence
+
+
+def test_architecture_validation_checks_ui_hardening_audit(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_ui_hardening_audit(
+        tmp_path / "ui-hardening-validation-home"
+    )
+    assert result.pass_id == "P83"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert "ui_hardening_candidate_ready" in result.evidence
+    assert "real_browser_e2e_remains_owner_host_gate" in result.evidence
 
 
 def test_release_state_audit_blocks_missing_evidence(

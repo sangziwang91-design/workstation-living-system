@@ -518,6 +518,10 @@ fields such as `memory_id`/`active`.
   persistence. UI-created Projects and Tasks bind origin, rationale, task_spec,
   and risk into the canonical GoalStore, preserving one Goal authority instead
   of letting the UI keep its own task semantics.
+- P83 is a shadow-level runtime admission for UI hardening audit receipts. The
+  audit records D01-D18 local defect coverage, loopback/security/no-token/no-UI
+  authority boundaries, local regression results, and explicitly keeps
+  real-browser Owner-host E2E as a separate gate.
 
 ## Projection Rule
 
