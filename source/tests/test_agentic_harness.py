@@ -1603,6 +1603,19 @@ def test_agentic_harness_epoch_audit_records_safety_invariants(
             },
         ],
     )
+    runtime.agentic.render_context_packet(
+        trace_graph_id,
+        role="reviewer",
+        reason="unit test epoch audit reviewer packet",
+    )
+    runtime.agentic.record_context_epoch(
+        trace_graph_id,
+        reason="unit test epoch audit context checkpoint",
+    )
+    runtime.agentic.audit_graph_process(
+        trace_graph_id,
+        reason="unit test epoch audit process auditor",
+    )
     mailbox_root = tmp_path / "audit-mailbox"
     mailbox_receipt = runtime.agentic.admit_and_compile(
         "Inspect repository docs",
@@ -1694,6 +1707,9 @@ def test_agentic_harness_epoch_audit_records_safety_invariants(
     assert audit["receipt_counts"]["node_action_binding"] == 2
     assert audit["receipt_counts"]["failure_attribution"] == 1
     assert audit["receipt_counts"]["acceptance_trace"] == 1
+    assert audit["receipt_counts"]["context_packet"] == 1
+    assert audit["receipt_counts"]["context_epoch"] == 1
+    assert audit["receipt_counts"]["process_audit"] == 1
     assert audit["receipt_counts"]["file_mailbox"] == 2
     assert audit["receipt_counts"]["repair_candidate"] == 1
     assert audit["invariants"]["failed_nodes_have_repair_candidates"] is True
@@ -1729,6 +1745,19 @@ def test_single_software_convergence_audit_records_remaining_tail_gaps(
             "evidence": ["agentic_task_graph_compiled"],
         },
         acceptance_checks=[{"check_id": "status", "type": "result_status"}],
+    )
+    runtime.agentic.render_context_packet(
+        graph_id,
+        role="reviewer",
+        reason="unit test convergence reviewer packet",
+    )
+    runtime.agentic.record_context_epoch(
+        graph_id,
+        reason="unit test convergence context checkpoint",
+    )
+    runtime.agentic.audit_graph_process(
+        graph_id,
+        reason="unit test convergence process audit",
     )
     mailbox_root = tmp_path / "convergence-mailbox"
     mailbox_receipt = runtime.agentic.admit_and_compile(
@@ -1785,6 +1814,9 @@ def test_single_software_convergence_audit_records_remaining_tail_gaps(
     assert receipt["invariants"]["branch_is_not_final_state"] is True
     assert receipt["invariants"]["single_living_system_authority"] is True
     assert receipt["receipt_counts"]["agentic_acceptance_trace"] == 1
+    assert receipt["receipt_counts"]["agentic_context_packet"] == 1
+    assert receipt["receipt_counts"]["agentic_context_epoch"] == 1
+    assert receipt["receipt_counts"]["agentic_process_audit"] == 1
     assert receipt["receipt_counts"]["agentic_file_mailbox"] == 2
     assert "candidate branch not yet packaged" in receipt["blocking_gaps"][0]
     panel = next(

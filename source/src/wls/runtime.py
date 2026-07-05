@@ -775,6 +775,9 @@ class LivingSystem:
         acceptance_trace_count = len(
             self.agentic_acceptance_trace_receipts(limit=100)
         )
+        context_packet_count = len(self.agentic_context_packet_receipts(limit=100))
+        context_epoch_count = len(self.agentic_context_epoch_receipts(limit=100))
+        process_audit_count = len(self.agentic_process_audit_receipts(limit=100))
         mailbox_count = len(self.agentic_mailbox_receipts(limit=100))
         repair_candidate_count = len(
             self.agentic_repair_candidate_receipts(limit=100)
@@ -864,6 +867,9 @@ class LivingSystem:
                 "node_action_binding": binding_count,
                 "failure_attribution": failure_count,
                 "acceptance_trace": acceptance_trace_count,
+                "context_packet": context_packet_count,
+                "context_epoch": context_epoch_count,
+                "process_audit": process_audit_count,
                 "file_mailbox": mailbox_count,
                 "repair_candidate": repair_candidate_count,
             },
@@ -1007,6 +1013,9 @@ class LivingSystem:
             "agentic_acceptance_trace": len(
                 self.agentic_acceptance_trace_receipts(100)
             ),
+            "agentic_context_packet": len(self.agentic_context_packet_receipts(100)),
+            "agentic_context_epoch": len(self.agentic_context_epoch_receipts(100)),
+            "agentic_process_audit": len(self.agentic_process_audit_receipts(100)),
             "agentic_file_mailbox": len(self.agentic_mailbox_receipts(100)),
             "agentic_repair_candidate": len(
                 self.agentic_repair_candidate_receipts(100)
