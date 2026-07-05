@@ -457,6 +457,23 @@ class AgenticHarness:
                 )
         return receipts
 
+    def context_packet_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        rows = self.db.query_all(
+            """
+            SELECT payload_json,created_at FROM evidence
+            WHERE event_type='agentic_context_packet_rendered'
+            ORDER BY seq DESC
+            LIMIT ?
+            """,
+            (max(0, int(limit)),),
+        )
+        receipts: list[dict[str, Any]] = []
+        for row in rows:
+            payload = json.loads(str(row["payload_json"]))
+            if isinstance(payload, dict):
+                receipts.append({**payload, "created_at": row["created_at"]})
+        return receipts
+
     def worker_lease_recovery_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         rows = self.db.query_all(
             """
@@ -482,6 +499,47 @@ class AgenticHarness:
                     }
                 )
         return receipts
+
+    def render_context_packet(
+        self,
+        graph_id: str,
+        *,
+        role: str,
+        token_budget: int = 1200,
+        reason: str,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("context packet reason is required")
+        manifest = self.context_manifest.load_latest_for_graph(graph_id)
+        packet = self.context_manifest.build_role_packet(
+            manifest,
+            role=role,
+            token_budget=token_budget,
+        )
+        receipt = {
+            "receipt_type": "AGENTIC_CONTEXT_PACKET_RENDERED",
+            "graph_id": graph_id,
+            "manifest_id": packet["manifest_id"],
+            "packet_id": packet["packet_id"],
+            "packet_digest": packet["packet_digest"],
+            "role": packet["role"],
+            "reason": reason,
+            "token_budget": packet["token_budget"],
+            "estimated_tokens": packet["estimated_tokens"],
+            "included_record_ids": packet["included_record_ids"],
+            "suppressed_records": packet["suppressed_records"],
+            "secret_material_present": packet["secret_material_present"],
+            "raw_database_export": packet["raw_database_export"],
+            "worker_execution": False,
+            "packet": packet,
+            "claim_ceiling": (
+                "context packet render receipt only; no worker execution, "
+                "provider call, memory write, secret access, or external source "
+                "access is inferred"
+            ),
+        }
+        self.ledger.append("agentic_context_packet_rendered", receipt)
+        return receipt
 
     def worker_arbitration_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         return self.worker_registry.arbitration_receipts(limit=limit)

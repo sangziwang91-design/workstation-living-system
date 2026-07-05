@@ -1111,6 +1111,7 @@ class OwnerConsoleProductProjection:
         repair_candidates = status.get("agentic_repair_candidate_receipts", [])
         budgets = status.get("agentic_budget_receipts", [])
         checkpoint_resume = status.get("agentic_checkpoint_resume_receipts", [])
+        context_packets = status.get("agentic_context_packet_receipts", [])
         worker_lease_recovery = status.get(
             "agentic_worker_lease_recovery_receipts", []
         )
@@ -1193,6 +1194,17 @@ class OwnerConsoleProductProjection:
                     else [],
                     "retry_execution": False,
                     "worker_result_inferred": False,
+                },
+                "role_context_packets_v1": {
+                    "receipt_count": len(context_packets)
+                    if isinstance(context_packets, list)
+                    else 0,
+                    "items": context_packets
+                    if isinstance(context_packets, list)
+                    else [],
+                    "secret_material_present": False,
+                    "raw_database_export": False,
+                    "worker_execution": False,
                 },
                 "worker_lease_recovery_v1": {
                     "receipt_count": len(worker_lease_recovery)

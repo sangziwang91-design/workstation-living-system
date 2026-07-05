@@ -213,6 +213,65 @@ def test_context_manifest_selects_scoped_canonical_records(tmp_path: Path) -> No
     assert runtime.status()["agentic_context_manifest_receipts"][0]["graph_id"] == receipt["graph"]["graph_id"]
 
 
+def test_role_context_packet_filters_sensitive_records_and_records_receipt(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    safe_memory_id = runtime.memories.add(
+        MemoryItem(
+            memory_type="project_note",
+            content={"summary": "Use the repository architecture note as context."},
+            importance=0.9,
+            confidence=0.8,
+            source_ids=["test://safe-context"],
+            tags=["agentic_context"],
+        )
+    )
+    secret_memory_id = runtime.memories.add(
+        MemoryItem(
+            memory_type="project_note",
+            content={"summary": "temporary token should never leave the runtime"},
+            importance=1.0,
+            confidence=0.9,
+            source_ids=["test://sensitive-context"],
+            tags=["agentic_context"],
+        )
+    )
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+
+    packet_receipt = runtime.agentic.render_context_packet(
+        graph_id,
+        role="executor",
+        token_budget=1200,
+        reason="unit test role-scoped context packet",
+    )
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+
+    packet = packet_receipt["packet"]
+    assert safe_memory_id in packet["included_record_ids"]
+    assert secret_memory_id not in packet["included_record_ids"]
+    assert {
+        "record_id": secret_memory_id,
+        "reason": "sensitive_context_filter",
+    } in packet["suppressed_records"]
+    assert packet["role"] == "executor"
+    assert packet["secret_material_present"] is False
+    assert packet["raw_database_export"] is False
+    assert packet_receipt["worker_execution"] is False
+    assert runtime.status()["agentic_context_packet_receipts"][0]["graph_id"] == graph_id
+    assert panel["status"]["role_context_packets_v1"]["receipt_count"] == 1
+    assert panel["status"]["role_context_packets_v1"]["raw_database_export"] is False
+
+
 def test_worker_registry_rejects_unknown_and_overrisk_workers(tmp_path: Path) -> None:
     harness = _harness(tmp_path)
     receipt = harness.admit_and_compile(
