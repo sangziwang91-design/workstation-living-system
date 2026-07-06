@@ -8103,6 +8103,120 @@ def validate_phase2_source_artifact_inventory_audit(home: Path) -> ArchitectureP
     )
 
 
+def validate_phase2_delivery_self_check_audit(home: Path) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    validation_results = [
+        {"pass_id": f"P{index:02d}", "verdict": "ADMIT_SHADOW_ONLY"}
+        for index in range(81, 89)
+    ]
+    handoff_summary = {
+        "artifact_type": "WLS_DELIVERY_HANDOFF_PACKAGE",
+        "candidate": {"commit": "architecture-validation-head"},
+        "delivery_gap_summary": {
+            "overall_status": "CANDIDATE_READY_WITH_OWNER_HOST_GATES"
+        },
+    }
+    ready = runtime.record_delivery_self_check(
+        exact_head="architecture-validation-head",
+        validation_results=validation_results,
+        handoff_summary=handoff_summary,
+        repository_checks={
+            "git_branch_present": True,
+            "git_head_present": True,
+            "worktree_clean": True,
+            "architecture_validation_executed": True,
+            "handoff_export_executed": True,
+        },
+        boundary_checks={
+            "live_install_modified": False,
+            "live_config_modified": False,
+            "live_database_modified": False,
+            "merge_executed": False,
+            "deploy_executed": False,
+        },
+        reason="architecture validation delivery self-check audit",
+    )
+    blocked = runtime.record_delivery_self_check(
+        exact_head="architecture-validation-head",
+        validation_results=validation_results[:-1],
+        handoff_summary={
+            **handoff_summary,
+            "candidate": {"commit": "wrong-head"},
+        },
+        repository_checks={
+            "git_branch_present": True,
+            "git_head_present": True,
+            "worktree_clean": False,
+            "architecture_validation_executed": True,
+            "handoff_export_executed": True,
+        },
+        boundary_checks={
+            "live_install_modified": False,
+            "live_config_modified": False,
+            "live_database_modified": False,
+            "merge_executed": True,
+            "deploy_executed": False,
+        },
+        reason="architecture validation delivery self-check block",
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "capability_epoch"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type='delivery_self_check_recorded'
+            """
+        )
+    }
+    capability_status = panel["status"] if panel is not None else {}
+    self_check_status = capability_status.get("delivery_self_check", {})
+    if (
+        ready["status"] != "DELIVERY_SELF_CHECK_PASSED"
+        or ready["exact_head"] != "architecture-validation-head"
+        or ready["live_install_modified"] is not False
+        or blocked["status"] != "DELIVERY_SELF_CHECK_BLOCKED"
+        or blocked["failure_groups"]["missing_passes"] != ["P88"]
+        or blocked["failure_groups"]["repository_failures"] != ["worktree_clean"]
+        or blocked["failure_groups"]["boundary_failures"] != ["merge_executed"]
+        or blocked["failure_groups"]["handoff_failures"] != ["candidate_commit"]
+        or panel is None
+        or self_check_status.get("receipt_count") != 2
+        or self_check_status.get("live_install_modified") is not False
+        or self_check_status.get("merge_executed") is not False
+        or self_check_status.get("deploy_executed") is not False
+        or event_types != {"delivery_self_check_recorded"}
+    ):
+        return ArchitecturePassResult(
+            "P89",
+            "BLOCKED",
+            [str(ready), str(blocked)],
+            ["delivery self-check audit validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P89",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(ready["audit_id"]),
+            "delivery_self_check_passed",
+            "dirty_or_mismatched_handoff_blocks",
+            "delivery_self_check_recorded",
+        ],
+        [
+            "Delivery self-check receipts bind exact head, P81-P88 validation, handoff export consistency, clean worktree, and no-live-mutation boundaries without executing campaigns, installing, merging, deploying, or promoting Skills",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

@@ -546,6 +546,12 @@ fields such as `memory_id`/`active`.
   superseded, partial, and Owner-gated coverage states into canonical evidence
   without installing artifacts, mutating the live instance, merging, deploying,
   or treating Owner-host campaign work as complete.
+- P89 is a shadow-level runtime admission for delivery self-check receipts. It
+  binds the exact candidate HEAD to P81-P88 validation results, handoff export
+  consistency, a clean worktree, and no-live-mutation boundaries. The companion
+  `source/scripts/run_delivery_self_check.py` command can reproduce the
+  repository handoff self-check without running campaigns, installing packages,
+  merging, deploying, or promoting Skills.
 
 ## Projection Rule
 

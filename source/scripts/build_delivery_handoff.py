@@ -119,6 +119,12 @@ def build_handoff(
             "owner_host_artifacts_preserved_as_gates": True,
             "artifact_install_executed": False,
         },
+        "delivery_self_check": {
+            "script": "source/scripts/run_delivery_self_check.py",
+            "covers": "P81-P88, handoff export, clean worktree, and no-live-mutation boundaries",
+            "runs_campaigns": False,
+            "installs_packages": False,
+        },
         "owner_host_gates": [
             "real_browser_e2e",
             "owner_host_longitudinal",
@@ -137,7 +143,7 @@ def build_handoff(
         "delivery_gap_summary": delivery_gap_summary,
         "owner_commands": commands,
         "test_results": [
-            {"name": "architecture_validation_p81_p88", "status": "PASS"},
+            {"name": "architecture_validation_p81_p89", "status": "PASS"},
             {"name": "ui_projection_and_server", "status": "PASS"},
             {"name": "life_campaign_and_packaging_contracts", "status": "PASS"},
         ],

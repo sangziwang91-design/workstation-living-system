@@ -1065,6 +1065,7 @@ class LivingSystem:
             "ui_package_absorption": len(self.ui_package_absorption_receipts(100)),
             "final_route_absorption": len(self.final_route_absorption_receipts(100)),
             "source_artifact_inventory": len(self.source_artifact_inventory_receipts(100)),
+            "delivery_self_check": len(self.delivery_self_check_receipts(100)),
             "delivery_gap_audit": len(self.delivery_gap_audit_receipts(100)),
         }
         branch_only_scaffolding = [
@@ -1493,6 +1494,14 @@ class LivingSystem:
         self, limit: int = 20
     ) -> list[dict[str, Any]]:
         receipts = self.db.get_runtime("source_artifact_inventory_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
+    def delivery_self_check_receipts(
+        self, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("delivery_self_check_receipts", [])
         if not isinstance(receipts, list):
             return []
         return receipts[: max(0, int(limit))]
@@ -2247,6 +2256,94 @@ class LivingSystem:
                 "source_artifact_inventory_receipts", updated, connection
             )
             self.ledger.append("source_artifact_inventory_recorded", receipt, connection)
+        return receipt
+
+    def record_delivery_self_check(
+        self,
+        *,
+        exact_head: str,
+        validation_results: list[dict[str, Any]],
+        handoff_summary: dict[str, Any],
+        repository_checks: dict[str, bool],
+        boundary_checks: dict[str, bool],
+        reason: str,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("delivery self-check reason is required")
+        if not exact_head.strip():
+            raise ValueError("delivery self-check exact_head is required")
+        validation_failures = [
+            str(item.get("pass_id", "UNKNOWN"))
+            for item in validation_results
+            if item.get("verdict") != "ADMIT_SHADOW_ONLY"
+        ]
+        required_passes = {f"P{index:02d}" for index in range(81, 89)}
+        observed_passes = {
+            str(item.get("pass_id"))
+            for item in validation_results
+            if isinstance(item, dict)
+        }
+        missing_passes = sorted(required_passes - observed_passes)
+        repository_failures = [
+            key for key, value in repository_checks.items() if value is not True
+        ]
+        boundary_failures = [
+            key for key, value in boundary_checks.items() if value is True
+        ]
+        handoff_failures: list[str] = []
+        if handoff_summary.get("artifact_type") != "WLS_DELIVERY_HANDOFF_PACKAGE":
+            handoff_failures.append("artifact_type")
+        candidate = handoff_summary.get("candidate", {})
+        if not isinstance(candidate, dict) or candidate.get("commit") != exact_head:
+            handoff_failures.append("candidate_commit")
+        delivery_gap = handoff_summary.get("delivery_gap_summary", {})
+        if not isinstance(delivery_gap, dict) or delivery_gap.get("overall_status") != (
+            "CANDIDATE_READY_WITH_OWNER_HOST_GATES"
+        ):
+            handoff_failures.append("delivery_gap_summary")
+        failure_groups = {
+            "validation_failures": validation_failures,
+            "missing_passes": missing_passes,
+            "repository_failures": sorted(repository_failures),
+            "boundary_failures": sorted(boundary_failures),
+            "handoff_failures": sorted(handoff_failures),
+        }
+        candidate_ready = not any(failure_groups.values())
+        receipt = {
+            "receipt_type": "DELIVERY_SELF_CHECK",
+            "status": "DELIVERY_SELF_CHECK_PASSED"
+            if candidate_ready
+            else "DELIVERY_SELF_CHECK_BLOCKED",
+            "audit_id": new_id("delivery_self_check"),
+            "exact_head": exact_head,
+            "validation_results": validation_results,
+            "handoff_summary": handoff_summary,
+            "repository_checks": repository_checks,
+            "boundary_checks": boundary_checks,
+            "failure_groups": failure_groups,
+            "allowed_conclusion": (
+                "candidate self-check passed for repository handoff"
+                if candidate_ready
+                else "candidate self-check requires repair before handoff"
+            ),
+            "live_install_modified": False,
+            "live_config_modified": False,
+            "live_database_modified": False,
+            "merge_executed": False,
+            "deploy_executed": False,
+            "claim_ceiling": (
+                "delivery self-check receipt only; proves repository handoff "
+                "self-consistency for the checked exact head, not live deployment "
+                "or Owner-host longitudinal readiness"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.delivery_self_check_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("delivery_self_check_receipts", updated, connection)
+            self.ledger.append("delivery_self_check_recorded", receipt, connection)
         return receipt
 
     def record_installed_tail_check_audit(
@@ -5382,6 +5479,7 @@ class LivingSystem:
             "ui_package_absorption_receipts": self.ui_package_absorption_receipts(),
             "final_route_absorption_receipts": self.final_route_absorption_receipts(),
             "source_artifact_inventory_receipts": self.source_artifact_inventory_receipts(),
+            "delivery_self_check_receipts": self.delivery_self_check_receipts(),
             "delivery_gap_audit_receipts": self.delivery_gap_audit_receipts(),
             "installed_tail_check_receipts": self.installed_tail_check_receipts(),
             "operational_preflight_receipts": self.operational_preflight_receipts(),

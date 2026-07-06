@@ -1474,6 +1474,7 @@ class OwnerConsoleProductProjection:
         ui_package_absorption = status.get("ui_package_absorption_receipts", [])
         final_route_absorption = status.get("final_route_absorption_receipts", [])
         source_artifact_inventory = status.get("source_artifact_inventory_receipts", [])
+        delivery_self_check = status.get("delivery_self_check_receipts", [])
         delivery_gap = status.get("delivery_gap_audit_receipts", [])
         installed_tail_check = status.get("installed_tail_check_receipts", [])
         final_delivery = status.get("final_delivery_audit_receipts", [])
@@ -1592,6 +1593,17 @@ class OwnerConsoleProductProjection:
                     "artifact_install_executed": False,
                     "live_install_modified": False,
                     "owner_host_gates_required": True,
+                },
+                "delivery_self_check": {
+                    "receipt_count": len(delivery_self_check)
+                    if isinstance(delivery_self_check, list)
+                    else 0,
+                    "items": delivery_self_check
+                    if isinstance(delivery_self_check, list)
+                    else [],
+                    "live_install_modified": False,
+                    "merge_executed": False,
+                    "deploy_executed": False,
                 },
                 "installed_tail_check": {
                     "receipt_count": len(installed_tail_check)

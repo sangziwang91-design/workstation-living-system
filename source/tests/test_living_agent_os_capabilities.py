@@ -81,6 +81,7 @@ from wls.architecture_validation import (
     validate_phase2_release_state_audit,
     validate_phase2_release_handoff_summary,
     validate_phase2_scheduler_due_event_runtime_intake,
+    validate_phase2_delivery_self_check_audit,
     validate_phase2_skill_candidate_extraction_receipts,
     validate_phase2_source_artifact_inventory_audit,
     validate_phase2_learning_epoch_review_receipts,
@@ -4236,6 +4237,70 @@ def test_source_artifact_inventory_blocks_missing_or_untracked_artifacts(
     assert blocked["failure_groups"]["missing_artifacts"] == ["artifact.zip"]
     assert blocked["failure_groups"]["untracked_hashes"] == ["untracked.zip"]
     assert panel["status"]["source_artifact_inventory"]["receipt_count"] == 2
+
+
+def test_architecture_validation_checks_delivery_self_check_audit(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_delivery_self_check_audit(
+        tmp_path / "delivery-self-check-validation-home"
+    )
+    assert result.pass_id == "P89"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert "delivery_self_check_passed" in result.evidence
+    assert "dirty_or_mismatched_handoff_blocks" in result.evidence
+
+
+def test_delivery_self_check_blocks_dirty_or_mismatched_handoff(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    validation_results = [
+        {"pass_id": f"P{index:02d}", "verdict": "ADMIT_SHADOW_ONLY"}
+        for index in range(81, 89)
+    ]
+    ready = runtime.record_delivery_self_check(
+        exact_head="head-one",
+        validation_results=validation_results,
+        handoff_summary={
+            "artifact_type": "WLS_DELIVERY_HANDOFF_PACKAGE",
+            "candidate": {"commit": "head-one"},
+            "delivery_gap_summary": {
+                "overall_status": "CANDIDATE_READY_WITH_OWNER_HOST_GATES"
+            },
+        },
+        repository_checks={"worktree_clean": True},
+        boundary_checks={"live_install_modified": False},
+        reason="unit test delivery self-check ready",
+    )
+    blocked = runtime.record_delivery_self_check(
+        exact_head="head-one",
+        validation_results=validation_results[:-1],
+        handoff_summary={
+            "artifact_type": "WLS_DELIVERY_HANDOFF_PACKAGE",
+            "candidate": {"commit": "head-two"},
+            "delivery_gap_summary": {
+                "overall_status": "CANDIDATE_READY_WITH_OWNER_HOST_GATES"
+            },
+        },
+        repository_checks={"worktree_clean": False},
+        boundary_checks={"live_install_modified": False, "merge_executed": True},
+        reason="unit test delivery self-check blocked",
+    )
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "capability_epoch"
+    )
+
+    assert ready["status"] == "DELIVERY_SELF_CHECK_PASSED"
+    assert ready["live_install_modified"] is False
+    assert blocked["status"] == "DELIVERY_SELF_CHECK_BLOCKED"
+    assert blocked["failure_groups"]["missing_passes"] == ["P88"]
+    assert blocked["failure_groups"]["repository_failures"] == ["worktree_clean"]
+    assert blocked["failure_groups"]["boundary_failures"] == ["merge_executed"]
+    assert blocked["failure_groups"]["handoff_failures"] == ["candidate_commit"]
+    assert panel["status"]["delivery_self_check"]["receipt_count"] == 2
 
 
 def test_release_state_audit_blocks_missing_evidence(

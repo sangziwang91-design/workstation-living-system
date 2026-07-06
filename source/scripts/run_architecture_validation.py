@@ -48,6 +48,7 @@ from wls.architecture_validation import (  # noqa: E402
     validate_phase2_release_state_audit,
     validate_phase2_release_handoff_summary,
     validate_phase2_scheduler_due_event_runtime_intake,
+    validate_phase2_delivery_self_check_audit,
     validate_phase2_skill_candidate_extraction_receipts,
     validate_phase2_source_artifact_inventory_audit,
     validate_phase2_learning_epoch_review_receipts,
@@ -152,6 +153,7 @@ SELECTIVE_VALIDATION_PASSES = {
     "P86",
     "P87",
     "P88",
+    "P89",
 }
 
 
@@ -451,6 +453,12 @@ def _run_selected_validation(selected: set[str]) -> dict[str, object]:
             results.append(
                 validate_phase2_source_artifact_inventory_audit(
                     temp_path / "phase2-source-artifact-inventory-home"
+                )
+            )
+        if _selected(selected, "P89"):
+            results.append(
+                validate_phase2_delivery_self_check_audit(
+                    temp_path / "phase2-delivery-self-check-home"
                 )
             )
     return {
@@ -851,6 +859,11 @@ def run_validation(selected: set[str] | None = None) -> dict[str, object]:
             )
         )
         results.append(
+            validate_phase2_delivery_self_check_audit(
+                temp_path / "phase2-delivery-self-check-home"
+            )
+        )
+        results.append(
             validate_phase2_agentic_process_auditor(
                 temp_path / "phase2-agentic-process-auditor-home"
             )
@@ -880,7 +893,7 @@ def main(argv: list[str] | None = None) -> int:
         dest="only",
         help=(
             "Run one validation pass only. Currently supports P01 and "
-            "P42 through P88."
+            "P42 through P89."
         ),
     )
     args = parser.parse_args(argv)
