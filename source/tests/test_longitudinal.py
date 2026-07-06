@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from wls.longitudinal import LongitudinalEvaluator, LongitudinalProtocol, MeasurementPoint
+from wls.longitudinal import LongitudinalEvaluator, MeasurementPoint
 
 
 class TestLongitudinal:

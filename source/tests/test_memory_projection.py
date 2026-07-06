@@ -6,13 +6,12 @@ import pytest
 
 from wls.db import Database
 from wls.memory_projection import MemoryProjection, MemoryProjectionEngine, WorkingSetCache
-from wls.schemas import new_id, utc_now
+from wls.schemas import utc_now
 
 
 @pytest.fixture
 def db_with_memories(tmp_path):
     db = Database(tmp_path / "test.db")
-    from wls.evidence import EvidenceLedger
 
     for i in range(5):
         db.execute(

@@ -26,7 +26,7 @@
   },
   "canonical_baseline": {
     "main_commit_at_bootstrap": "cf3e60d70d6c679891a560effabe89fd30da6709",
-    "development_version": "0.9.0.dev1",
+    "development_version": "0.9.0.dev2",
     "completed_targets": [
       "EVOLUTION-TARGET-001",
       "EVOLUTION-TARGET-002",

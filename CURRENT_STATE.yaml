@@ -4,7 +4,7 @@ system:
   name: "Workstation Living System"
   abbreviation: "WLS"
   repository: "sangziwang91-design/workstation-living-system-private"
-  development_version: "0.9.0.dev1"
+  development_version: "0.9.0.dev2"
   canonical_identity_file: "LIVING_SYSTEM_GENOME.md"
   canonical_runtime: "source/src/wls/runtime.py::LivingSystem"
 

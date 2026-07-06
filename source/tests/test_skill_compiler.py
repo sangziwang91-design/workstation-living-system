@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from wls.skill_compiler import SkillCompiler, SkillPackage, CompiledSkill
+from wls.skill_compiler import SkillCompiler, SkillPackage
 
 
 class TestSkillCompiler:
