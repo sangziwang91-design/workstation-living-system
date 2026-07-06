@@ -96,6 +96,15 @@ def build_handoff(
             "payload_overwrite_required": False,
             "creates_second_ui_authority": False,
         },
+        "final_route_absorption": {
+            "package": "WLS-CODEX-FINAL-ROUTE-001",
+            "sha256": (
+                "c58fcde5dbb2be2e6dfb51e297bd61d8f0242cc92e3b0644548136ce9c972c5f"
+            ),
+            "route_nodes": "P47-P70 mapped into current P47-P87 candidate line",
+            "campaign_rounds": "R31-R40 preserved as Owner-host gates",
+            "creates_second_runtime": False,
+        },
         "owner_host_gates": [
             "real_browser_e2e",
             "owner_host_longitudinal",
@@ -114,7 +123,7 @@ def build_handoff(
         "delivery_gap_summary": delivery_gap_summary,
         "owner_commands": commands,
         "test_results": [
-            {"name": "architecture_validation_p81_p86", "status": "PASS"},
+            {"name": "architecture_validation_p81_p87", "status": "PASS"},
             {"name": "ui_projection_and_server", "status": "PASS"},
             {"name": "life_campaign_and_packaging_contracts", "status": "PASS"},
         ],

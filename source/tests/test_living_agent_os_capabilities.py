@@ -59,6 +59,7 @@ from wls.architecture_validation import (
     validate_phase2_delivery_handoff_package,
     validate_phase2_delivery_readiness_audit,
     validate_phase2_final_delivery_audit,
+    validate_phase2_final_route_absorption_audit,
     validate_phase2_holdout_epoch_immutability,
     validate_phase2_installed_tail_check_audit,
     validate_phase2_multimodal_asset_readonly_execution,
@@ -4144,6 +4145,53 @@ def test_ui_package_absorption_tracks_package_without_overwrite(
         panel["status"]["ui_package_absorption"]["payload_overwrite_executed"]
         is False
     )
+
+
+def test_architecture_validation_checks_final_route_absorption_audit(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_final_route_absorption_audit(
+        tmp_path / "final-route-absorption-validation-home"
+    )
+    assert result.pass_id == "P87"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert "final_route_absorbed_as_candidate_map" in result.evidence
+    assert "r31_r40_preserved_as_owner_gates" in result.evidence
+
+
+def test_final_route_absorption_preserves_owner_campaign_gates(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt = runtime.record_final_route_absorption(
+        package_hash=(
+            "c58fcde5dbb2be2e6dfb51e297bd61d8f0242cc92e3b0644548136ce9c972c5f"
+        ),
+        route_nodes={"P48": "COVERED", "P49": "COVERED"},
+        campaign_rounds={"R31": "OWNER_GATE", "R32": "OWNER_GATE"},
+        claim_rules={
+            "coded_vs_tested_separated": True,
+            "campaign_verified_requires_campaign": True,
+            "external_verified_requires_external_evidence": True,
+            "promotion_requires_owner_authorization": True,
+            "no_second_runtime_from_route_package": True,
+        },
+        source_ledgers=["sources/SOURCE_LEDGER.md"],
+        reason="unit test final route absorption",
+    )
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "capability_epoch"
+    )
+
+    assert receipt["status"] == "FINAL_ROUTE_ABSORBED_AS_CANDIDATE_MAP"
+    assert receipt["failure_groups"]["owner_gates"] == ["R31", "R32"]
+    assert receipt["installed_route_package"] is False
+    assert receipt["created_second_runtime"] is False
+    assert receipt["promotion_executed"] is False
+    assert panel["status"]["final_route_absorption"]["receipt_count"] == 1
+    assert panel["status"]["final_route_absorption"]["created_second_runtime"] is False
 
 
 def test_release_state_audit_blocks_missing_evidence(

@@ -1472,6 +1472,7 @@ class OwnerConsoleProductProjection:
         release_state_audit = status.get("release_state_audit_receipts", [])
         ui_hardening = status.get("ui_hardening_audit_receipts", [])
         ui_package_absorption = status.get("ui_package_absorption_receipts", [])
+        final_route_absorption = status.get("final_route_absorption_receipts", [])
         delivery_gap = status.get("delivery_gap_audit_receipts", [])
         installed_tail_check = status.get("installed_tail_check_receipts", [])
         final_delivery = status.get("final_delivery_audit_receipts", [])
@@ -1568,6 +1569,17 @@ class OwnerConsoleProductProjection:
                     "payload_overwrite_executed": False,
                     "live_install_modified": False,
                     "second_ui_authority_created": False,
+                },
+                "final_route_absorption": {
+                    "receipt_count": len(final_route_absorption)
+                    if isinstance(final_route_absorption, list)
+                    else 0,
+                    "items": final_route_absorption
+                    if isinstance(final_route_absorption, list)
+                    else [],
+                    "installed_route_package": False,
+                    "created_second_runtime": False,
+                    "promotion_executed": False,
                 },
                 "installed_tail_check": {
                     "receipt_count": len(installed_tail_check)

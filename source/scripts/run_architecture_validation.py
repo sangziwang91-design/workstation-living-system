@@ -25,6 +25,7 @@ from wls.architecture_validation import (  # noqa: E402
     validate_phase2_external_handoff_runtime_receipts,
     validate_phase2_delivery_readiness_audit,
     validate_phase2_final_delivery_audit,
+    validate_phase2_final_route_absorption_audit,
     validate_phase2_holdout_epoch_immutability,
     validate_phase2_installed_tail_check_audit,
     validate_phase2_multimodal_asset_readonly_execution,
@@ -148,6 +149,7 @@ SELECTIVE_VALIDATION_PASSES = {
     "P84",
     "P85",
     "P86",
+    "P87",
 }
 
 
@@ -435,6 +437,12 @@ def _run_selected_validation(selected: set[str]) -> dict[str, object]:
             results.append(
                 validate_phase2_ui_package_absorption_audit(
                     temp_path / "phase2-ui-package-absorption-home"
+                )
+            )
+        if _selected(selected, "P87"):
+            results.append(
+                validate_phase2_final_route_absorption_audit(
+                    temp_path / "phase2-final-route-absorption-home"
                 )
             )
     return {
@@ -825,6 +833,11 @@ def run_validation(selected: set[str] | None = None) -> dict[str, object]:
             )
         )
         results.append(
+            validate_phase2_final_route_absorption_audit(
+                temp_path / "phase2-final-route-absorption-home"
+            )
+        )
+        results.append(
             validate_phase2_agentic_process_auditor(
                 temp_path / "phase2-agentic-process-auditor-home"
             )
@@ -854,7 +867,7 @@ def main(argv: list[str] | None = None) -> int:
         dest="only",
         help=(
             "Run one validation pass only. Currently supports P01 and "
-            "P42 through P86."
+            "P42 through P87."
         ),
     )
     args = parser.parse_args(argv)

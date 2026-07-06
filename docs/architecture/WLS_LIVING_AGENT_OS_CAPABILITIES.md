@@ -536,6 +536,11 @@ fields such as `memory_id`/`active`.
   canonical runtime evidence without overwriting newer UI code, installing the
   package, adding dependencies, migrating the database, or creating a second UI
   authority.
+- P87 is a shadow-level runtime admission for final-route absorption receipts.
+  It maps the `WLS-CODEX-FINAL-ROUTE-001` package hash, P47-P70 coverage map,
+  R31-R40 campaign route, source ledger, and claim rules into canonical runtime
+  evidence while preserving R31-R40 as Owner-host campaign gates and avoiding a
+  second runtime, merge, promotion, or package install.
 
 ## Projection Rule
 

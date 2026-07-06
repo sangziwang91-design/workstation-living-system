@@ -7892,6 +7892,107 @@ def validate_phase2_ui_package_absorption_audit(home: Path) -> ArchitecturePassR
     )
 
 
+def validate_phase2_final_route_absorption_audit(home: Path) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    route_nodes = {f"P{index:02d}": "COVERED" for index in range(48, 71)}
+    route_nodes["P47"] = "COVERED"
+    ready = runtime.record_final_route_absorption(
+        package_hash=(
+            "c58fcde5dbb2be2e6dfb51e297bd61d8f0242cc92e3b0644548136ce9c972c5f"
+        ),
+        route_nodes=route_nodes,
+        campaign_rounds={f"R{index:02d}": "OWNER_GATE" for index in range(31, 41)},
+        claim_rules={
+            "coded_vs_tested_separated": True,
+            "campaign_verified_requires_campaign": True,
+            "external_verified_requires_external_evidence": True,
+            "promotion_requires_owner_authorization": True,
+            "no_second_runtime_from_route_package": True,
+        },
+        source_ledgers=[
+            "sources/SOURCE_LEDGER.md",
+            "templates/COVERAGE_MAP.json",
+            "08_ACCEPTANCE_AND_CLAIM_RULES.md",
+        ],
+        reason="architecture validation final route absorption audit",
+    )
+    blocked = runtime.record_final_route_absorption(
+        package_hash=(
+            "c58fcde5dbb2be2e6dfb51e297bd61d8f0242cc92e3b0644548136ce9c972c5f"
+        ),
+        route_nodes={"P48": "COVERED", "P49": "MISSING"},
+        campaign_rounds={"R31": "OWNER_GATE", "R32": "CONFLICT"},
+        claim_rules={
+            "coded_vs_tested_separated": True,
+            "campaign_verified_requires_campaign": False,
+            "external_verified_requires_external_evidence": True,
+            "promotion_requires_owner_authorization": True,
+            "no_second_runtime_from_route_package": True,
+        },
+        source_ledgers=["sources/SOURCE_LEDGER.md", ""],
+        reason="architecture validation final route absorption block",
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "capability_epoch"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type='final_route_absorption_recorded'
+            """
+        )
+    }
+    capability_status = panel["status"] if panel is not None else {}
+    route_status = capability_status.get("final_route_absorption", {})
+    if (
+        ready["status"] != "FINAL_ROUTE_ABSORBED_AS_CANDIDATE_MAP"
+        or ready["package_hash"]
+        != "c58fcde5dbb2be2e6dfb51e297bd61d8f0242cc92e3b0644548136ce9c972c5f"
+        or len(ready["failure_groups"]["owner_gates"]) != 10
+        or ready["installed_route_package"] is not False
+        or ready["created_second_runtime"] is not False
+        or blocked["status"] != "FINAL_ROUTE_ABSORPTION_BLOCKED"
+        or blocked["failure_groups"]["node_gaps"] != ["P49"]
+        or blocked["failure_groups"]["round_gaps"] != ["R32"]
+        or "campaign_verified_requires_campaign"
+        not in blocked["failure_groups"]["claim_rule_failures"]
+        or panel is None
+        or route_status.get("receipt_count") != 2
+        or route_status.get("installed_route_package") is not False
+        or route_status.get("created_second_runtime") is not False
+        or route_status.get("promotion_executed") is not False
+        or event_types != {"final_route_absorption_recorded"}
+    ):
+        return ArchitecturePassResult(
+            "P87",
+            "BLOCKED",
+            [str(ready), str(blocked)],
+            ["final route absorption audit validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P87",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(ready["audit_id"]),
+            "final_route_absorbed_as_candidate_map",
+            "r31_r40_preserved_as_owner_gates",
+            "final_route_absorption_recorded",
+        ],
+        [
+            "Final route absorption maps the P47-P70/R31-R40 route package hash, coverage map, and claim rules into canonical runtime evidence while preserving R31-R40 as Owner-host campaign gates and avoiding a second runtime",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

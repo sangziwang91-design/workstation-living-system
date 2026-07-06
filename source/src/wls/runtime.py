@@ -1063,6 +1063,7 @@ class LivingSystem:
             "release_state_audit": len(self.release_state_audit_receipts(100)),
             "ui_hardening_audit": len(self.ui_hardening_audit_receipts(100)),
             "ui_package_absorption": len(self.ui_package_absorption_receipts(100)),
+            "final_route_absorption": len(self.final_route_absorption_receipts(100)),
             "delivery_gap_audit": len(self.delivery_gap_audit_receipts(100)),
         }
         branch_only_scaffolding = [
@@ -1475,6 +1476,14 @@ class LivingSystem:
         self, limit: int = 20
     ) -> list[dict[str, Any]]:
         receipts = self.db.get_runtime("ui_package_absorption_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
+    def final_route_absorption_receipts(
+        self, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("final_route_absorption_receipts", [])
         if not isinstance(receipts, list):
             return []
         return receipts[: max(0, int(limit))]
@@ -2044,6 +2053,117 @@ class LivingSystem:
                 "ui_package_absorption_receipts", updated, connection
             )
             self.ledger.append("ui_package_absorption_recorded", receipt, connection)
+        return receipt
+
+    def record_final_route_absorption(
+        self,
+        *,
+        package_hash: str,
+        route_nodes: dict[str, str],
+        campaign_rounds: dict[str, str],
+        claim_rules: dict[str, bool],
+        source_ledgers: list[str],
+        reason: str,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("final route absorption reason is required")
+        normalized_hash = package_hash.strip().lower()
+        if len(normalized_hash) != 64 or any(
+            item not in "0123456789abcdef" for item in normalized_hash
+        ):
+            raise ValueError("final route hash must be a lowercase SHA256 hex digest")
+        allowed_states = {"COVERED", "PARTIAL", "MISSING", "CONFLICT", "OWNER_GATE"}
+        invalid_node_states = {
+            key: value for key, value in route_nodes.items() if value not in allowed_states
+        }
+        invalid_round_states = {
+            key: value
+            for key, value in campaign_rounds.items()
+            if value not in allowed_states
+        }
+        node_gaps = [
+            key
+            for key, value in route_nodes.items()
+            if value in {"MISSING", "CONFLICT"}
+        ]
+        round_gaps = [
+            key
+            for key, value in campaign_rounds.items()
+            if value in {"MISSING", "CONFLICT"}
+        ]
+        required_claim_rules = {
+            "coded_vs_tested_separated",
+            "campaign_verified_requires_campaign",
+            "external_verified_requires_external_evidence",
+            "promotion_requires_owner_authorization",
+            "no_second_runtime_from_route_package",
+        }
+        claim_rule_failures = [
+            key for key in sorted(required_claim_rules) if claim_rules.get(key) is not True
+        ]
+        source_ledger_failures = [
+            item for item in source_ledgers if not isinstance(item, str) or not item
+        ]
+        owner_gates = sorted(
+            [
+                key
+                for key, value in {**route_nodes, **campaign_rounds}.items()
+                if value == "OWNER_GATE"
+            ]
+        )
+        failure_groups = {
+            "invalid_node_states": sorted(invalid_node_states),
+            "invalid_round_states": sorted(invalid_round_states),
+            "node_gaps": sorted(node_gaps),
+            "round_gaps": sorted(round_gaps),
+            "claim_rule_failures": claim_rule_failures,
+            "source_ledger_failures": source_ledger_failures,
+            "owner_gates": owner_gates,
+        }
+        candidate_ready = not (
+            invalid_node_states
+            or invalid_round_states
+            or node_gaps
+            or round_gaps
+            or claim_rule_failures
+            or source_ledger_failures
+        )
+        receipt = {
+            "receipt_type": "FINAL_ROUTE_ABSORPTION",
+            "status": "FINAL_ROUTE_ABSORBED_AS_CANDIDATE_MAP"
+            if candidate_ready
+            else "FINAL_ROUTE_ABSORPTION_BLOCKED",
+            "audit_id": new_id("final_route_absorption"),
+            "package_hash": normalized_hash,
+            "route_nodes": route_nodes,
+            "campaign_rounds": campaign_rounds,
+            "claim_rules": claim_rules,
+            "source_ledgers": sorted(source_ledgers),
+            "failure_groups": failure_groups,
+            "allowed_conclusion": (
+                "final route package mapped into repository candidate coverage"
+                if candidate_ready
+                else "final route package absorption requires repair before handoff"
+            ),
+            "installed_route_package": False,
+            "created_second_runtime": False,
+            "promotion_executed": False,
+            "merge_executed": False,
+            "claim_ceiling": (
+                "Final route absorption receipt only; maps roadmap and claim rules "
+                "into current repository evidence without installing package content, "
+                "merging, promoting, or proving Owner-host campaigns"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.final_route_absorption_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime(
+                "final_route_absorption_receipts", updated, connection
+            )
+            self.ledger.append("final_route_absorption_recorded", receipt, connection)
         return receipt
 
     def record_installed_tail_check_audit(
@@ -5177,6 +5297,7 @@ class LivingSystem:
             "release_state_audit_receipts": self.release_state_audit_receipts(),
             "ui_hardening_audit_receipts": self.ui_hardening_audit_receipts(),
             "ui_package_absorption_receipts": self.ui_package_absorption_receipts(),
+            "final_route_absorption_receipts": self.final_route_absorption_receipts(),
             "delivery_gap_audit_receipts": self.delivery_gap_audit_receipts(),
             "installed_tail_check_receipts": self.installed_tail_check_receipts(),
             "operational_preflight_receipts": self.operational_preflight_receipts(),
