@@ -32,6 +32,14 @@ class RuntimeConfig:
     memory_decay_days: int = 30
     sleep_after_idle_cycles: int = 5
     max_autonomous_goals: int = 3
+    daemon_max_pending_events: int = 10000
+    daemon_max_database_bytes: int = 2147483648
+    daemon_max_cycle_seconds: float = 300.0
+    daemon_max_consecutive_failures: int = 3
+    daemon_failure_backoff_seconds: float = 1.0
+    daemon_failure_backoff_max_seconds: float = 60.0
+    daemon_heartbeat_every_cycles: int = 1
+    daemon_heartbeat_retention: int = 1000
     sensors: list[SensorConfig] = field(default_factory=list)
     tool_policy: dict[str, Any] = field(default_factory=dict)
     provider: dict[str, Any] = field(
