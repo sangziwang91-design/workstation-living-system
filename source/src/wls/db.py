@@ -10,7 +10,7 @@ import threading
 from .schemas import utc_now
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 GOAL_METADATA_COLUMNS = {
     "rationale": "TEXT NOT NULL DEFAULT ''",
     "origin": "TEXT NOT NULL DEFAULT 'owner'",
@@ -435,6 +435,28 @@ class Database:
                     recorded_at TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_metrics_name_time ON metrics(name, recorded_at);
+
+                CREATE TABLE IF NOT EXISTS schedules (
+                    schedule_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    payload_json TEXT NOT NULL DEFAULT '{}',
+                    cron_seconds REAL,
+                    next_due_at TEXT NOT NULL,
+                    last_emitted_at TEXT,
+                    last_emitted_event_id TEXT,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    max_runs INTEGER,
+                    run_count INTEGER NOT NULL DEFAULT 0,
+                    consecutive_failures INTEGER NOT NULL DEFAULT 0,
+                    max_consecutive_failures INTEGER NOT NULL DEFAULT 3,
+                    backoff_seconds REAL NOT NULL DEFAULT 1.0,
+                    backoff_max_seconds REAL NOT NULL DEFAULT 60.0,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_schedules_due
+                    ON schedules(status, next_due_at) WHERE status='active';
 
                 CREATE TABLE IF NOT EXISTS schema_migrations (
                     version INTEGER PRIMARY KEY,
