@@ -11,10 +11,20 @@ from wls.ui_projection import OwnerConsoleProductProjection, UIProjection
 
 
 class MiniDB:
-    def __init__(self, *, legacy_evidence: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        legacy_evidence: bool = False,
+        archived_goal_column: bool = True,
+    ) -> None:
         self.connection = sqlite3.connect(":memory:", check_same_thread=False)
         self.connection.row_factory = sqlite3.Row
         evidence_optional = "" if legacy_evidence else ",source_type TEXT,producer TEXT,branch TEXT,commit_sha TEXT"
+        goal_archive_columns = (
+            ",completed_at TEXT,archived_at TEXT,last_reviewed_at TEXT"
+            if archived_goal_column
+            else ""
+        )
         self.connection.executescript(
             f"""
             CREATE TABLE goals (
@@ -24,8 +34,8 @@ class MiniDB:
                 created_at TEXT,updated_at TEXT,rationale TEXT,origin TEXT,
                 task_spec_json TEXT,dependencies_json TEXT,progress_evidence_json TEXT,
                 remaining_work_json TEXT,risk TEXT,blocked_reason TEXT,
-                contradiction_reason TEXT,interruption_count INTEGER,recovery_count INTEGER,
-                completed_at TEXT,archived_at TEXT,last_reviewed_at TEXT
+                contradiction_reason TEXT,interruption_count INTEGER,recovery_count INTEGER
+                {goal_archive_columns}
             );
             CREATE TABLE cycles (
                 cycle_id TEXT PRIMARY KEY,started_at TEXT,finished_at TEXT,status TEXT,
@@ -106,7 +116,7 @@ class GoalFacade:
 
 class ApprovalFacade:
     def __init__(self) -> None:
-        self.calls = []
+        self.calls: list[tuple[str, bool, int, str]] = []
 
     def issue(self, action_id, approved, minutes, reason):
         self.calls.append((action_id, approved, minutes, reason))
@@ -114,13 +124,21 @@ class ApprovalFacade:
 
 
 class FakeRuntime:
-    def __init__(self, *, legacy_evidence: bool = False) -> None:
-        self.db = MiniDB(legacy_evidence=legacy_evidence)
+    def __init__(
+        self,
+        *,
+        legacy_evidence: bool = False,
+        archived_goal_column: bool = True,
+    ) -> None:
+        self.db = MiniDB(
+            legacy_evidence=legacy_evidence,
+            archived_goal_column=archived_goal_column,
+        )
         self.goals = GoalFacade(self.db)
         self.approvals = ApprovalFacade()
         self.config = SimpleNamespace(secret_path="secret.key")
-        self.resumed = []
-        self.resolved = []
+        self.resumed: list[str] = []
+        self.resolved: list[tuple[str, str, dict]] = []
         self.cycle_result = {"status": "COMPLETED"}
 
     def status(self):
@@ -504,3 +522,13 @@ def test_library_accepts_legacy_evidence_schema_without_provenance_columns() -> 
     assert evidence["producer"] is None
     assert evidence["branch"] is None
     assert evidence["commit_sha"] is None
+
+
+def test_bootstrap_accepts_fresh_canonical_goal_schema_without_archive_column() -> None:
+    runtime = FakeRuntime(archived_goal_column=False)
+
+    bootstrap = UIProjection(runtime).bootstrap()
+
+    assert bootstrap["projects"] == []
+    assert bootstrap["inbox"]["items"] == []
+    assert bootstrap["home"]["integrity_hint"]["projection_only"] is True

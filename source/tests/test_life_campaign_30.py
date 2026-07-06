@@ -978,6 +978,45 @@ def test_r31_blocks_without_real_24_hour_active_evidence(
     assert audit["live_install_mutated"] is False
 
 
+def test_r31_does_not_count_planned_duration_as_active_elapsed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner, paths = _prepared_r30_runner(tmp_path, monkeypatch)
+    run_path = paths.campaign_home / "campaign_evidence" / "R15" / "r15_run.json"
+    run_path.parent.mkdir(parents=True, exist_ok=True)
+    run_path.write_text(
+        json.dumps(
+            {
+                "duration_seconds": 86400,
+                "heartbeats": [
+                    {
+                        "index": 1,
+                        "started_at": "2026-06-30T00:00:00+00:00",
+                        "finished_at": "2026-06-30T00:05:00+00:00",
+                    },
+                    {
+                        "index": 2,
+                        "started_at": "2026-06-30T00:05:00+00:00",
+                        "finished_at": "2026-06-30T00:10:00+00:00",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    result = runner.run(["R31"])
+    assert result["results"][0]["status"] == "OWNER_REVIEW"
+    assert result["results"][0]["active_elapsed_seconds"] == 600
+    audit = load_json(
+        paths.campaign_home
+        / "campaign_evidence"
+        / "R31"
+        / "r31_minimum_life_gap_audit.json"
+    )
+    assert audit["active_elapsed_seconds"] == 600
+    assert audit["planned_duration_seconds"] == 86400
+
+
 def test_r31_passes_only_with_prior_r15_pass_and_active_elapsed_evidence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

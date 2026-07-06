@@ -104,57 +104,7 @@ from wls.architecture_validation import (  # noqa: E402
 )
 
 PASS_CONTRACTS: dict[str, str] = {}
-SELECTIVE_VALIDATION_PASSES = {
-    "P01",
-    "P42",
-    "P43",
-    "P44",
-    "P45",
-    "P46",
-    "P47",
-    "P48",
-    "P49",
-    "P50",
-    "P51",
-    "P52",
-    "P53",
-    "P54",
-    "P55",
-    "P56",
-    "P57",
-    "P58",
-    "P59",
-    "P60",
-    "P61",
-    "P62",
-    "P63",
-    "P64",
-    "P65",
-    "P66",
-    "P67",
-    "P68",
-    "P69",
-    "P70",
-    "P71",
-    "P72",
-    "P73",
-    "P74",
-    "P75",
-    "P76",
-    "P77",
-    "P78",
-    "P79",
-    "P80",
-    "P81",
-    "P82",
-    "P83",
-    "P84",
-    "P85",
-    "P86",
-    "P87",
-    "P88",
-    "P89",
-}
+SELECTIVE_VALIDATION_PASSES = {f"P{index:02d}" for index in range(1, 90)}
 
 
 def _selected(selected: set[str] | None, pass_id: str) -> bool:
@@ -173,6 +123,198 @@ def _run_selected_validation(selected: set[str]) -> dict[str, object]:
         temp_path = Path(temp)
         if _selected(selected, "P01"):
             results.append(validate_p01_registry())
+        if _selected(selected, "P02") or _selected(selected, "P09"):
+            results.extend(validate_runtime_event_ingress(temp_path / "event-home"))
+        if _selected(selected, "P03"):
+            results.append(validate_runtime_approval_receipts(temp_path / "approval-home"))
+        if _selected(selected, "P04"):
+            results.append(validate_browser_computer_organs())
+        if _selected(selected, "P05"):
+            results.append(validate_coding_worktree_candidate(temp_path / "coding-worktree"))
+        if _selected(selected, "P06"):
+            results.append(validate_external_memory_projection())
+        if _selected(selected, "P07"):
+            results.append(validate_mcp_a2a_candidates())
+        if _selected(selected, "P08"):
+            results.append(validate_runtime_provider_route(temp_path / "provider-home"))
+        if _selected(selected, "P10"):
+            results.append(validate_workbench_templates())
+        if _selected(selected, "P11") or _selected(selected, "P12"):
+            results.extend(
+                validate_phase2_owner_surface_and_readonly_organs(
+                    temp_path / "phase2-owner-surface-home"
+                )
+            )
+        if _selected(selected, "P13"):
+            results.append(validate_phase2_typed_readonly_organ_profiles())
+        if _selected(selected, "P14"):
+            results.append(
+                validate_phase2_runtime_readonly_task_preview(
+                    temp_path / "phase2-preview-home"
+                )
+            )
+        if _selected(selected, "P15"):
+            results.append(
+                validate_phase2_readonly_planner_admission(
+                    temp_path / "phase2-admission-home"
+                )
+            )
+        if _selected(selected, "P16"):
+            results.append(
+                validate_phase2_readonly_execution_preflight(
+                    temp_path / "phase2-preflight-home"
+                )
+            )
+        if _selected(selected, "P17"):
+            results.append(
+                validate_phase2_preflighted_readonly_execution(
+                    temp_path / "phase2-execution-home"
+                )
+            )
+        if _selected(selected, "P18"):
+            results.append(
+                validate_phase2_readonly_result_projection(
+                    temp_path / "phase2-projection-home"
+                )
+            )
+        if _selected(selected, "P19"):
+            results.append(
+                validate_phase2_projection_review_and_rollback(
+                    temp_path / "phase2-review-home"
+                )
+            )
+        if _selected(selected, "P20"):
+            results.append(
+                validate_phase2_browser_readonly_runtime_execution(
+                    temp_path / "phase2-browser-runtime-home"
+                )
+            )
+        if _selected(selected, "P21"):
+            results.append(
+                validate_phase2_research_composite_readonly_execution(
+                    temp_path / "phase2-research-composite-home"
+                )
+            )
+        if _selected(selected, "P22"):
+            results.append(
+                validate_phase2_multimodal_asset_readonly_execution(
+                    temp_path / "phase2-multimodal-asset-home"
+                )
+            )
+        if _selected(selected, "P23"):
+            results.append(
+                validate_phase2_coding_candidate_readonly_execution(
+                    temp_path / "phase2-coding-candidate-home"
+                )
+            )
+        if _selected(selected, "P24"):
+            results.append(
+                validate_phase2_scheduler_due_event_runtime_intake(
+                    temp_path / "phase2-scheduler-due-home"
+                )
+            )
+        if _selected(selected, "P25"):
+            results.append(
+                validate_phase2_external_handoff_runtime_receipts(
+                    temp_path / "phase2-external-handoff-home"
+                )
+            )
+        if _selected(selected, "P26"):
+            results.append(
+                validate_phase2_wechat_approval_channel_receipts(
+                    temp_path / "phase2-wechat-approval-home"
+                )
+            )
+        if _selected(selected, "P27"):
+            results.append(
+                validate_phase2_provider_route_runtime_receipts(
+                    temp_path / "phase2-provider-route-home"
+                )
+            )
+        if _selected(selected, "P28"):
+            results.append(
+                validate_phase2_skill_candidate_extraction_receipts(
+                    temp_path / "phase2-skill-candidate-home"
+                )
+            )
+        if _selected(selected, "P29"):
+            results.append(
+                validate_phase2_learning_epoch_review_receipts(
+                    temp_path / "phase2-learning-epoch-home"
+                )
+            )
+        if _selected(selected, "P30"):
+            results.append(
+                validate_phase2_capability_epoch_audit_receipts(
+                    temp_path / "phase2-capability-epoch-home"
+                )
+            )
+        if _selected(selected, "P31"):
+            results.append(
+                validate_phase2_voice_transcript_ingress_receipts(
+                    temp_path / "phase2-voice-transcript-home"
+                )
+            )
+        if _selected(selected, "P32"):
+            results.append(
+                validate_phase2_local_notification_draft_receipts(
+                    temp_path / "phase2-local-notification-home"
+                )
+            )
+        if _selected(selected, "P33"):
+            results.append(
+                validate_phase2_screen_snapshot_ingress_receipts(
+                    temp_path / "phase2-screen-snapshot-home"
+                )
+            )
+        if _selected(selected, "P34"):
+            results.append(
+                validate_phase2_browser_form_draft_receipts(
+                    temp_path / "phase2-browser-form-home"
+                )
+            )
+        if _selected(selected, "P35"):
+            results.append(
+                validate_phase2_download_quarantine_draft_receipts(
+                    temp_path / "phase2-download-quarantine-home"
+                )
+            )
+        if _selected(selected, "P36"):
+            results.append(
+                validate_phase2_document_ingress_receipts(
+                    temp_path / "phase2-document-ingress-home"
+                )
+            )
+        if _selected(selected, "P37"):
+            results.append(
+                validate_phase2_document_retrieval_preview(
+                    temp_path / "phase2-document-retrieval-preview-home"
+                )
+            )
+        if _selected(selected, "P38"):
+            results.append(
+                validate_phase2_document_readonly_execution(
+                    temp_path / "phase2-document-readonly-execution-home"
+                )
+            )
+        if _selected(selected, "P39"):
+            results.append(
+                validate_phase2_document_projection_review(
+                    temp_path / "phase2-document-projection-review-home"
+                )
+            )
+        if _selected(selected, "P40"):
+            results.append(
+                validate_phase2_document_skill_candidate_receipts(
+                    temp_path / "phase2-document-skill-candidate-home"
+                )
+            )
+        if _selected(selected, "P41"):
+            results.append(
+                validate_phase2_document_skill_sandbox_receipts(
+                    temp_path / "phase2-document-skill-sandbox-home"
+                )
+            )
         if _selected(selected, "P42"):
             results.append(
                 validate_phase2_agentic_task_harness(
@@ -464,7 +606,7 @@ def _run_selected_validation(selected: set[str]) -> dict[str, object]:
     return {
         "task_id": "WLS-LIVING-AGENT-OS-CAPABILITIES-001",
         "claim_ceiling": "repository-level contracts and tests only; no live/external operation proven",
-        "results": [item.to_dict() for item in results],
+        "results": [item.to_dict() for item in results if item.pass_id in selected],
     }
 
 
@@ -892,8 +1034,7 @@ def main(argv: list[str] | None = None) -> int:
         action="append",
         dest="only",
         help=(
-            "Run one validation pass only. Currently supports P01 and "
-            "P42 through P89."
+            "Run one validation pass only. Supports P01 through P89."
         ),
     )
     args = parser.parse_args(argv)

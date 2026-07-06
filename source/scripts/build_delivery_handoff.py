@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 import argparse
 import json
-import subprocess
+import subprocess  # nosec B404
 import sys
 
 
@@ -12,7 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def git_value(args: list[str]) -> str:
-    result = subprocess.run(
+    result = subprocess.run(  # nosec
         ["git", *args],
         cwd=REPO_ROOT,
         check=False,

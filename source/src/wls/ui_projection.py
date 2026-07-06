@@ -92,22 +92,29 @@ class UIProjection:
         }
 
     def projects(self) -> list[dict[str, Any]]:
+        goal_columns = self._table_columns("goals")
+        root_archived_filter = (
+            "g.archived_at IS NULL" if "archived_at" in goal_columns else "1=1"
+        )
+        child_archived_filter = (
+            "child.archived_at IS NULL" if "archived_at" in goal_columns else "1=1"
+        )
         rows = self.db.query_all(
-            """
+            f"""
             SELECT g.*,
                    (SELECT COUNT(*) FROM goals child
                     WHERE child.parent_goal_id=g.goal_id
-                      AND child.archived_at IS NULL) AS task_count,
+                      AND {child_archived_filter}) AS task_count,
                    (SELECT COUNT(*) FROM goals child
                     WHERE child.parent_goal_id=g.goal_id
-                      AND child.archived_at IS NULL
+                      AND {child_archived_filter}
                       AND child.status IN ('ACTIVE','DECOMPOSED','IN_PROGRESS','WAITING','BLOCKED')
                    ) AS active_task_count
             FROM goals g
             WHERE g.parent_goal_id IS NULL
-              AND g.archived_at IS NULL
+              AND {root_archived_filter}
             ORDER BY g.priority DESC, g.updated_at DESC
-            """
+            """,  # nosec B608
         )
         projects: list[dict[str, Any]] = []
         for row in rows:
@@ -131,7 +138,7 @@ class UIProjection:
             parameters.append(project_id)
         else:
             clauses.append("parent_goal_id IS NOT NULL")
-        if not include_archived:
+        if not include_archived and "archived_at" in self._table_columns("goals"):
             clauses.append("archived_at IS NULL")
         parameters.append(max(1, min(1000, int(limit))))
         rows = self.db.query_all(
@@ -140,7 +147,7 @@ class UIProjection:
             WHERE {' AND '.join(clauses)}
             ORDER BY priority DESC, updated_at DESC
             LIMIT ?
-            """,  # nosec B608 - clauses are selected from fixed internal strings
+            """,  # nosec B608
             tuple(parameters),
         )
         return [self._goal_view(row, kind="task") for row in rows]
@@ -180,7 +187,7 @@ class UIProjection:
                     WHERE p2.cycle_id=c.cycle_id
                       AND a2.goal_id IN ({placeholders})
                 )
-            """  # nosec B608 - placeholders are generated
+            """  # nosec B608
             parameters.extend(normalized_goal_ids)
         parameters.append(max(1, min(500, int(limit))))
         rows = self.db.query_all(
@@ -200,7 +207,7 @@ class UIProjection:
             GROUP BY c.cycle_id
             ORDER BY c.started_at DESC
             LIMIT ?
-            """,  # nosec B608 - goal_filter contains generated placeholders only
+            """,  # nosec B608
             tuple(parameters),
         )
         return [
@@ -256,12 +263,15 @@ class UIProjection:
             ORDER BY rowid DESC
             """
         )
+        clauses = ["status='BLOCKED'"]
+        if "archived_at" in self._table_columns("goals"):
+            clauses.append("archived_at IS NULL")
         goal_rows = self.db.query_all(
-            """
+            f"""
             SELECT * FROM goals
-            WHERE status='BLOCKED' AND archived_at IS NULL
+            WHERE {' AND '.join(clauses)}
             ORDER BY priority DESC,updated_at ASC
-            """
+            """,  # nosec B608
         )
         items: list[dict[str, Any]] = []
         for row in action_rows:
@@ -314,7 +324,7 @@ class UIProjection:
             FROM evidence
             ORDER BY seq DESC
             LIMIT ?
-            """,  # nosec B608 - column names come from a fixed allowlist
+            """,  # nosec B608
             (safe_limit,),
         )
         skill_rows = self.db.query_all(
@@ -481,7 +491,7 @@ class UIProjection:
         return {str(row["status"]): int(row["n"]) for row in rows}
 
     def _table_columns(self, table: str) -> set[str]:
-        if table not in {"evidence"}:
+        if table not in {"evidence", "goals"}:
             raise ValueError("unsupported table")
         rows = self.db.query_all(f"PRAGMA table_info({table})")  # nosec B608
         return {str(row["name"]) for row in rows}

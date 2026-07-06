@@ -1934,11 +1934,7 @@ class CampaignRunner:
         heartbeats = r15_run.get("heartbeats", [])
         if not isinstance(heartbeats, list):
             heartbeats = []
-        active_elapsed_seconds = int(
-            r15_run.get("active_elapsed_seconds")
-            or r15_run.get("duration_seconds")
-            or 0
-        )
+        active_elapsed_seconds = self._r15_active_elapsed_seconds(r15_run, heartbeats)
         heartbeat_indexes = [
             item.get("index")
             for item in heartbeats
@@ -1959,6 +1955,7 @@ class CampaignRunner:
             "source_r15_status": r15_state.get("status"),
             "r15_run_path": str(r15_run_path),
             "active_elapsed_seconds": active_elapsed_seconds,
+            "planned_duration_seconds": int(r15_run.get("duration_seconds") or 0),
             "required_active_elapsed_seconds": threshold_seconds,
             "heartbeat_count": len(heartbeat_indexes),
             "heartbeat_indexes_unique": unique_cycles,
@@ -1989,6 +1986,44 @@ class CampaignRunner:
             "required_active_elapsed_seconds": threshold_seconds,
             "claim_ceiling": "R15 remains partial; do not advance durable-life claims",
         }
+
+    @staticmethod
+    def _r15_active_elapsed_seconds(
+        r15_run: dict[str, Any], heartbeats: list[Any]
+    ) -> int:
+        explicit = r15_run.get("active_elapsed_seconds")
+        if isinstance(explicit, int | float):
+            return max(0, int(explicit))
+        starts: list[datetime] = []
+        finishes: list[datetime] = []
+        for heartbeat in heartbeats:
+            if not isinstance(heartbeat, dict):
+                continue
+            started = CampaignRunner._parse_utc_datetime(heartbeat.get("started_at"))
+            finished = CampaignRunner._parse_utc_datetime(heartbeat.get("finished_at"))
+            if started is not None:
+                starts.append(started)
+            if finished is not None:
+                finishes.append(finished)
+        if starts and finishes:
+            return max(0, int((max(finishes) - min(starts)).total_seconds()))
+        run_started = CampaignRunner._parse_utc_datetime(r15_run.get("started_at"))
+        run_finished = CampaignRunner._parse_utc_datetime(r15_run.get("finished_at"))
+        if run_started is not None and run_finished is not None:
+            return max(0, int((run_finished - run_started).total_seconds()))
+        return 0
+
+    @staticmethod
+    def _parse_utc_datetime(value: object) -> datetime | None:
+        if not isinstance(value, str) or not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC)
 
     def _round_32(self) -> dict[str, Any]:
         return self._real_world_gate_round(

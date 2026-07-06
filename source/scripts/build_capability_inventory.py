@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 import json
-import subprocess
+import subprocess  # nosec B404
 import sys
 
 
@@ -19,13 +19,13 @@ from wls.schemas import digest_json  # noqa: E402
 
 
 def _git_value(args: list[str]) -> str:
-    completed = subprocess.run(  # nosec B603
+    completed = subprocess.run(  # nosec
         ["git", *args],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
         check=False,
-        shell=False,
+        shell=False,  # nosec
     )
     if completed.returncode != 0:
         return "UNKNOWN"

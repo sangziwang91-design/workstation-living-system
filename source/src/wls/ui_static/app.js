@@ -424,7 +424,8 @@ kindSelect.addEventListener("change", () => {
 document.querySelector("#goal-form").addEventListener("submit", async (event) => {
   if (event.submitter?.value === "cancel") return;
   event.preventDefault();
-  const form = new FormData(event.currentTarget);
+  const formEl = event.currentTarget;
+  const form = new FormData(formEl);
   try {
     await api("/api/goals", {
       method: "POST",
@@ -437,7 +438,7 @@ document.querySelector("#goal-form").addEventListener("submit", async (event) =>
       }),
     });
     dialog.close();
-    event.currentTarget.reset();
+    formEl.reset();
     showToast("Goal written to canonical GoalStore.");
     state.product = null;
     await loadAll();

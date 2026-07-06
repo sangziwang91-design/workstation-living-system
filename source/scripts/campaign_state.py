@@ -179,8 +179,59 @@ class CampaignState:
             }
             atomic_write_json(path, data)
         state = cls(path=path, spec=spec, data=data)
+        state._migrate_appended_rounds(round_ids, paths)
         state._validate_state_rounds(round_ids)
         return state
+
+    def _migrate_appended_rounds(self, round_ids: list[str], paths: CampaignPaths) -> None:
+        rounds = self.data.get("rounds")
+        if not isinstance(rounds, dict):
+            raise ValueError("campaign state must contain rounds{}")
+        existing = list(rounds)
+        if existing == round_ids:
+            self._record_path_refresh(paths)
+            return
+        if existing != round_ids[: len(existing)]:
+            return
+        migrations = self.data.setdefault("migration_history", [])
+        missing = round_ids[len(existing) :]
+        for round_id in missing:
+            rounds[round_id] = {
+                "status": "PENDING",
+                "started_at": None,
+                "finished_at": None,
+                "evidence": [],
+                "verdict": None,
+            }
+        migrations.append(
+            {
+                "migrated_at": utc_now(),
+                "kind": "append_rounds_from_spec",
+                "previous_last_round": existing[-1] if existing else None,
+                "added_rounds": missing,
+            }
+        )
+        self._record_path_refresh(paths)
+        self.save()
+
+    def _record_path_refresh(self, paths: CampaignPaths) -> None:
+        current_paths = {
+            "install_root": str(paths.install_root),
+            "live_home": str(paths.live_home),
+            "campaign_home": str(paths.campaign_home),
+            "wls_python": str(paths.wls_python),
+        }
+        previous_paths = self.data.get("paths")
+        if previous_paths == current_paths:
+            return
+        self.data.setdefault("path_history", []).append(
+            {
+                "recorded_at": utc_now(),
+                "previous_paths": previous_paths,
+                "current_paths": current_paths,
+            }
+        )
+        self.data["paths"] = current_paths
 
     def _validate_state_rounds(self, round_ids: list[str]) -> None:
         rounds = self.data.get("rounds")
