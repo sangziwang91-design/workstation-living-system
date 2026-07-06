@@ -7779,6 +7779,119 @@ def validate_phase2_delivery_gap_audit(home: Path) -> ArchitecturePassResult:
     )
 
 
+def validate_phase2_ui_package_absorption_audit(home: Path) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    required_payload_files = [
+        "source/src/wls/ui_projection.py",
+        "source/src/wls/ui_server.py",
+        "source/src/wls/ui_static/app.js",
+        "source/src/wls/ui_static/index.html",
+        "source/src/wls/ui_static/styles.css",
+        "source/tests/test_ui_projection.py",
+        "source/tests/test_ui_server.py",
+    ]
+    ready = runtime.record_ui_package_absorption(
+        package_name="WLS_UI_RUNTIME_V1_1_HARDENED_CONTINUATION_INSTALL_PACKAGE",
+        package_hash=(
+            "f3e9db08862849faf430b3301ee9ee7e76089f762a1739f3dbe4c4b2ed6f32a4"
+        ),
+        payload_files=required_payload_files,
+        defect_checks={f"D{index:02d}": True for index in range(1, 19)},
+        current_source_checks={
+            "current_ui_projection_superset": True,
+            "current_ui_server_compatible": True,
+            "static_assets_present": True,
+            "tests_present": True,
+            "no_payload_overwrite_required": True,
+            "no_new_runtime_dependency": True,
+            "no_database_migration": True,
+            "no_second_ui_authority": True,
+        },
+        owner_host_gates={
+            "real_browser_e2e": False,
+            "owner_host_windows_ui": False,
+        },
+        reason="architecture validation UI package absorption audit",
+    )
+    blocked = runtime.record_ui_package_absorption(
+        package_name="WLS_UI_RUNTIME_V1_1_HARDENED_CONTINUATION_INSTALL_PACKAGE",
+        package_hash=(
+            "f3e9db08862849faf430b3301ee9ee7e76089f762a1739f3dbe4c4b2ed6f32a4"
+        ),
+        payload_files=["source/src/wls/ui_projection.py", ""],
+        defect_checks={f"D{index:02d}": True for index in range(1, 18)},
+        current_source_checks={
+            "current_ui_projection_superset": True,
+            "current_ui_server_compatible": True,
+            "static_assets_present": True,
+            "tests_present": True,
+            "no_payload_overwrite_required": False,
+            "no_new_runtime_dependency": True,
+            "no_database_migration": True,
+            "no_second_ui_authority": True,
+        },
+        owner_host_gates={"real_browser_e2e": False},
+        reason="architecture validation UI package absorption block",
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "capability_epoch"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type='ui_package_absorption_recorded'
+            """
+        )
+    }
+    capability_status = panel["status"] if panel is not None else {}
+    absorption_status = capability_status.get("ui_package_absorption", {})
+    if (
+        ready["status"] != "UI_PACKAGE_ABSORBED_AS_CANDIDATE_EVIDENCE"
+        or ready["package_hash"]
+        != "f3e9db08862849faf430b3301ee9ee7e76089f762a1739f3dbe4c4b2ed6f32a4"
+        or ready["payload_overwrite_executed"] is not False
+        or ready["second_ui_authority_created"] is not False
+        or blocked["status"] != "UI_PACKAGE_ABSORPTION_BLOCKED"
+        or "D18" not in blocked["failure_groups"]["defect_failures"]
+        or "no_payload_overwrite_required"
+        not in blocked["failure_groups"]["source_failures"]
+        or panel is None
+        or absorption_status.get("receipt_count") != 2
+        or absorption_status.get("payload_overwrite_executed") is not False
+        or absorption_status.get("live_install_modified") is not False
+        or absorption_status.get("second_ui_authority_created") is not False
+        or event_types != {"ui_package_absorption_recorded"}
+    ):
+        return ArchitecturePassResult(
+            "P86",
+            "BLOCKED",
+            [str(ready), str(blocked)],
+            ["UI package absorption audit validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P86",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(ready["audit_id"]),
+            "ui_package_absorbed_as_candidate_evidence",
+            "ui_payload_overwrite_not_required",
+            "ui_package_absorption_recorded",
+        ],
+        [
+            "UI package absorption maps the v1.1 hardened package hash, D01-D18 defect ledger, payload files, and current source checks into canonical runtime evidence without installing the package, overwriting newer UI code, or creating a second UI authority",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

@@ -530,6 +530,12 @@ fields such as `memory_id`/`active`.
   records D:\WLS-Dev package absorption, P/R coverage, repository checks, and
   unresolved Owner-host gates without converting owner gates into repository
   readiness or mutating live state.
+- P86 is a shadow-level runtime admission for UI package absorption receipts. It
+  maps the v1/v1.1 UI runtime work packages, hardened D01-D18 defect ledger,
+  package hash, payload inventory, and current-source compatibility checks into
+  canonical runtime evidence without overwriting newer UI code, installing the
+  package, adding dependencies, migrating the database, or creating a second UI
+  authority.
 
 ## Projection Rule
 

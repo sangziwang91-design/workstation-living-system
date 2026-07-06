@@ -1471,6 +1471,7 @@ class OwnerConsoleProductProjection:
         delivery_handoff = status.get("delivery_handoff_receipts", [])
         release_state_audit = status.get("release_state_audit_receipts", [])
         ui_hardening = status.get("ui_hardening_audit_receipts", [])
+        ui_package_absorption = status.get("ui_package_absorption_receipts", [])
         delivery_gap = status.get("delivery_gap_audit_receipts", [])
         installed_tail_check = status.get("installed_tail_check_receipts", [])
         final_delivery = status.get("final_delivery_audit_receipts", [])
@@ -1556,6 +1557,17 @@ class OwnerConsoleProductProjection:
                     "live_install_modified": False,
                     "merge_executed": False,
                     "owner_host_gates_required": True,
+                },
+                "ui_package_absorption": {
+                    "receipt_count": len(ui_package_absorption)
+                    if isinstance(ui_package_absorption, list)
+                    else 0,
+                    "items": ui_package_absorption
+                    if isinstance(ui_package_absorption, list)
+                    else [],
+                    "payload_overwrite_executed": False,
+                    "live_install_modified": False,
+                    "second_ui_authority_created": False,
                 },
                 "installed_tail_check": {
                     "receipt_count": len(installed_tail_check)

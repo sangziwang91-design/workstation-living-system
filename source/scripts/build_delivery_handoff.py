@@ -87,6 +87,15 @@ def build_handoff(
             "delivery_handoff",
             "no_live_mutation",
         ],
+        "ui_package_absorption": {
+            "latest_package": "WLS_UI_RUNTIME_V1_1_HARDENED_CONTINUATION_INSTALL_PACKAGE",
+            "sha256": (
+                "f3e9db08862849faf430b3301ee9ee7e76089f762a1739f3dbe4c4b2ed6f32a4"
+            ),
+            "defect_ledger": "D01-D18",
+            "payload_overwrite_required": False,
+            "creates_second_ui_authority": False,
+        },
         "owner_host_gates": [
             "real_browser_e2e",
             "owner_host_longitudinal",
@@ -105,7 +114,7 @@ def build_handoff(
         "delivery_gap_summary": delivery_gap_summary,
         "owner_commands": commands,
         "test_results": [
-            {"name": "architecture_validation_p81_p85", "status": "PASS"},
+            {"name": "architecture_validation_p81_p86", "status": "PASS"},
             {"name": "ui_projection_and_server", "status": "PASS"},
             {"name": "life_campaign_and_packaging_contracts", "status": "PASS"},
         ],

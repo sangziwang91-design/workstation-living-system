@@ -1062,6 +1062,7 @@ class LivingSystem:
             "delivery_handoff": len(self.delivery_handoff_receipts(100)),
             "release_state_audit": len(self.release_state_audit_receipts(100)),
             "ui_hardening_audit": len(self.ui_hardening_audit_receipts(100)),
+            "ui_package_absorption": len(self.ui_package_absorption_receipts(100)),
             "delivery_gap_audit": len(self.delivery_gap_audit_receipts(100)),
         }
         branch_only_scaffolding = [
@@ -1466,6 +1467,14 @@ class LivingSystem:
 
     def ui_hardening_audit_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         receipts = self.db.get_runtime("ui_hardening_audit_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
+    def ui_package_absorption_receipts(
+        self, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("ui_package_absorption_receipts", [])
         if not isinstance(receipts, list):
             return []
         return receipts[: max(0, int(limit))]
@@ -1941,6 +1950,100 @@ class LivingSystem:
         with self.db.transaction() as connection:
             self.db.set_runtime("delivery_gap_audit_receipts", updated, connection)
             self.ledger.append("delivery_gap_audit_recorded", receipt, connection)
+        return receipt
+
+    def record_ui_package_absorption(
+        self,
+        *,
+        package_name: str,
+        package_hash: str,
+        payload_files: list[str],
+        defect_checks: dict[str, bool],
+        current_source_checks: dict[str, bool],
+        owner_host_gates: dict[str, bool],
+        reason: str,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("UI package absorption reason is required")
+        if not package_name.strip():
+            raise ValueError("UI package name is required")
+        normalized_hash = package_hash.strip().lower()
+        if len(normalized_hash) != 64 or any(
+            item not in "0123456789abcdef" for item in normalized_hash
+        ):
+            raise ValueError("UI package hash must be a lowercase SHA256 hex digest")
+        required_defects = [f"D{index:02d}" for index in range(1, 19)]
+        required_source_checks = {
+            "current_ui_projection_superset",
+            "current_ui_server_compatible",
+            "static_assets_present",
+            "tests_present",
+            "no_payload_overwrite_required",
+            "no_new_runtime_dependency",
+            "no_database_migration",
+            "no_second_ui_authority",
+        }
+        defect_failures = [
+            key for key in required_defects if defect_checks.get(key) is not True
+        ]
+        source_failures = [
+            key
+            for key in sorted(required_source_checks)
+            if current_source_checks.get(key) is not True
+        ]
+        missing_payload_files = [
+            item for item in payload_files if not isinstance(item, str) or not item
+        ]
+        owner_gate_failures = [
+            key for key, value in owner_host_gates.items() if value is not True
+        ]
+        failure_groups = {
+            "defect_failures": defect_failures,
+            "source_failures": source_failures,
+            "missing_payload_files": missing_payload_files,
+            "owner_host_gates": sorted(owner_gate_failures),
+        }
+        candidate_ready = not (
+            defect_failures or source_failures or missing_payload_files
+        )
+        receipt = {
+            "receipt_type": "UI_PACKAGE_ABSORPTION",
+            "status": "UI_PACKAGE_ABSORBED_AS_CANDIDATE_EVIDENCE"
+            if candidate_ready
+            else "UI_PACKAGE_ABSORPTION_BLOCKED",
+            "audit_id": new_id("ui_package_absorption"),
+            "package_name": package_name,
+            "package_hash": normalized_hash,
+            "payload_files": sorted(payload_files),
+            "defect_checks": defect_checks,
+            "current_source_checks": current_source_checks,
+            "owner_host_gates": owner_host_gates,
+            "failure_groups": failure_groups,
+            "allowed_conclusion": (
+                "UI package evidence absorbed into repository candidate"
+                if candidate_ready
+                else "UI package absorption requires repair before handoff"
+            ),
+            "payload_overwrite_executed": False,
+            "live_install_modified": False,
+            "database_migration": False,
+            "new_runtime_dependency": False,
+            "second_ui_authority_created": False,
+            "claim_ceiling": (
+                "UI package absorption receipt only; package payload and defect "
+                "ledger are mapped into current repository evidence, while real "
+                "browser and Owner-host validation remain separate gates"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.ui_package_absorption_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime(
+                "ui_package_absorption_receipts", updated, connection
+            )
+            self.ledger.append("ui_package_absorption_recorded", receipt, connection)
         return receipt
 
     def record_installed_tail_check_audit(
@@ -5073,6 +5176,7 @@ class LivingSystem:
             "delivery_handoff_receipts": self.delivery_handoff_receipts(),
             "release_state_audit_receipts": self.release_state_audit_receipts(),
             "ui_hardening_audit_receipts": self.ui_hardening_audit_receipts(),
+            "ui_package_absorption_receipts": self.ui_package_absorption_receipts(),
             "delivery_gap_audit_receipts": self.delivery_gap_audit_receipts(),
             "installed_tail_check_receipts": self.installed_tail_check_receipts(),
             "operational_preflight_receipts": self.operational_preflight_receipts(),

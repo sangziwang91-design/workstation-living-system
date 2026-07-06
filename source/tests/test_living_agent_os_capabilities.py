@@ -87,6 +87,7 @@ from wls.architecture_validation import (
     validate_phase2_typed_readonly_organ_profiles,
     validate_phase2_transfer_efficiency_audit,
     validate_phase2_ui_hardening_audit,
+    validate_phase2_ui_package_absorption_audit,
     validate_phase2_wechat_approval_channel_receipts,
     validate_phase2_voice_transcript_ingress_receipts,
     validate_p01_registry,
@@ -4085,6 +4086,64 @@ def test_delivery_gap_audit_tracks_owner_gates_without_live_mutation(
     assert receipt["deploy_executed"] is False
     assert panel["status"]["delivery_gap_audit"]["receipt_count"] == 1
     assert panel["status"]["delivery_gap_audit"]["owner_host_gates_required"] is True
+
+
+def test_architecture_validation_checks_ui_package_absorption_audit(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_ui_package_absorption_audit(
+        tmp_path / "ui-package-absorption-validation-home"
+    )
+    assert result.pass_id == "P86"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert "ui_package_absorbed_as_candidate_evidence" in result.evidence
+    assert "ui_payload_overwrite_not_required" in result.evidence
+
+
+def test_ui_package_absorption_tracks_package_without_overwrite(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt = runtime.record_ui_package_absorption(
+        package_name="WLS_UI_RUNTIME_V1_1_HARDENED_CONTINUATION_INSTALL_PACKAGE",
+        package_hash=(
+            "f3e9db08862849faf430b3301ee9ee7e76089f762a1739f3dbe4c4b2ed6f32a4"
+        ),
+        payload_files=[
+            "source/src/wls/ui_projection.py",
+            "source/src/wls/ui_server.py",
+            "source/src/wls/ui_static/app.js",
+        ],
+        defect_checks={f"D{index:02d}": True for index in range(1, 19)},
+        current_source_checks={
+            "current_ui_projection_superset": True,
+            "current_ui_server_compatible": True,
+            "static_assets_present": True,
+            "tests_present": True,
+            "no_payload_overwrite_required": True,
+            "no_new_runtime_dependency": True,
+            "no_database_migration": True,
+            "no_second_ui_authority": True,
+        },
+        owner_host_gates={"real_browser_e2e": False},
+        reason="unit test UI package absorption",
+    )
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "capability_epoch"
+    )
+
+    assert receipt["status"] == "UI_PACKAGE_ABSORBED_AS_CANDIDATE_EVIDENCE"
+    assert receipt["failure_groups"]["owner_host_gates"] == ["real_browser_e2e"]
+    assert receipt["payload_overwrite_executed"] is False
+    assert receipt["live_install_modified"] is False
+    assert receipt["second_ui_authority_created"] is False
+    assert panel["status"]["ui_package_absorption"]["receipt_count"] == 1
+    assert (
+        panel["status"]["ui_package_absorption"]["payload_overwrite_executed"]
+        is False
+    )
 
 
 def test_release_state_audit_blocks_missing_evidence(
