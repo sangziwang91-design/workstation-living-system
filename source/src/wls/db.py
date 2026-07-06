@@ -10,7 +10,13 @@ import threading
 from .schemas import utc_now
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
+GOAL_METADATA_COLUMNS = {
+    "rationale": "TEXT NOT NULL DEFAULT ''",
+    "origin": "TEXT NOT NULL DEFAULT 'owner'",
+    "task_spec_json": "TEXT NOT NULL DEFAULT '{}'",
+    "risk": "TEXT NOT NULL DEFAULT 'READ'",
+}
 
 
 class Database:
@@ -142,7 +148,11 @@ class Database:
                     status TEXT NOT NULL,
                     progress REAL NOT NULL,
                     created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
+                    updated_at TEXT NOT NULL,
+                    rationale TEXT NOT NULL DEFAULT '',
+                    origin TEXT NOT NULL DEFAULT 'owner',
+                    task_spec_json TEXT NOT NULL DEFAULT '{}',
+                    risk TEXT NOT NULL DEFAULT 'READ'
                 );
                 CREATE INDEX IF NOT EXISTS idx_goals_status_priority ON goals(status, priority DESC);
 
@@ -195,6 +205,119 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_actions_idempotency_success
                     ON actions(idempotency_key) WHERE status='SUCCEEDED';
                 CREATE INDEX IF NOT EXISTS idx_actions_status ON actions(status, started_at);
+
+                CREATE TABLE IF NOT EXISTS agentic_task_intents (
+                    intent_id TEXT PRIMARY KEY,
+                    raw_request TEXT NOT NULL,
+                    intent_json TEXT NOT NULL,
+                    route_json TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS agentic_task_graphs (
+                    graph_id TEXT PRIMARY KEY,
+                    intent_id TEXT NOT NULL,
+                    graph_json TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY(intent_id) REFERENCES agentic_task_intents(intent_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_agentic_graphs_intent
+                    ON agentic_task_graphs(intent_id, status);
+
+                CREATE TABLE IF NOT EXISTS agentic_node_leases (
+                    lease_id TEXT PRIMARY KEY,
+                    graph_id TEXT NOT NULL,
+                    node_id TEXT NOT NULL,
+                    conflict_domain TEXT NOT NULL,
+                    worker_id TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    acquired_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    released_at TEXT,
+                    FOREIGN KEY(graph_id) REFERENCES agentic_task_graphs(graph_id)
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_agentic_active_conflict_lease
+                    ON agentic_node_leases(graph_id, conflict_domain)
+                    WHERE status='ACTIVE';
+
+                CREATE TABLE IF NOT EXISTS agentic_context_manifests (
+                    manifest_id TEXT PRIMARY KEY,
+                    graph_id TEXT NOT NULL,
+                    intent_id TEXT NOT NULL,
+                    manifest_json TEXT NOT NULL,
+                    manifest_digest TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(graph_id) REFERENCES agentic_task_graphs(graph_id),
+                    FOREIGN KEY(intent_id) REFERENCES agentic_task_intents(intent_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_agentic_context_graph
+                    ON agentic_context_manifests(graph_id, created_at DESC);
+
+                CREATE TABLE IF NOT EXISTS agentic_worker_profiles (
+                    worker_id TEXT PRIMARY KEY,
+                    profile_json TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    registered_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_agentic_worker_status
+                    ON agentic_worker_profiles(status, updated_at DESC);
+
+                CREATE TABLE IF NOT EXISTS agentic_worker_assignments (
+                    assignment_id TEXT PRIMARY KEY,
+                    graph_id TEXT NOT NULL,
+                    node_id TEXT NOT NULL,
+                    worker_id TEXT NOT NULL,
+                    assignment_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(graph_id) REFERENCES agentic_task_graphs(graph_id),
+                    FOREIGN KEY(worker_id) REFERENCES agentic_worker_profiles(worker_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_agentic_worker_assignments_graph
+                    ON agentic_worker_assignments(graph_id, node_id, created_at DESC);
+
+                CREATE TABLE IF NOT EXISTS agentic_node_action_bindings (
+                    binding_id TEXT PRIMARY KEY,
+                    graph_id TEXT NOT NULL,
+                    node_id TEXT NOT NULL,
+                    lease_id TEXT NOT NULL,
+                    plan_id TEXT NOT NULL,
+                    action_id TEXT NOT NULL,
+                    policy_decision_json TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(graph_id) REFERENCES agentic_task_graphs(graph_id),
+                    FOREIGN KEY(lease_id) REFERENCES agentic_node_leases(lease_id),
+                    FOREIGN KEY(plan_id) REFERENCES plans(plan_id),
+                    FOREIGN KEY(action_id) REFERENCES actions(action_id)
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_agentic_node_action_once
+                    ON agentic_node_action_bindings(graph_id, node_id, lease_id);
+                CREATE INDEX IF NOT EXISTS idx_agentic_node_action_status
+                    ON agentic_node_action_bindings(status, created_at DESC);
+
+                CREATE TABLE IF NOT EXISTS agentic_failure_attributions (
+                    attribution_id TEXT PRIMARY KEY,
+                    graph_id TEXT NOT NULL,
+                    node_id TEXT NOT NULL,
+                    lease_id TEXT NOT NULL,
+                    failure_class TEXT NOT NULL,
+                    error_signature TEXT NOT NULL,
+                    attribution_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(graph_id) REFERENCES agentic_task_graphs(graph_id),
+                    FOREIGN KEY(lease_id) REFERENCES agentic_node_leases(lease_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_agentic_failure_graph
+                    ON agentic_failure_attributions(graph_id, node_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_agentic_failure_class
+                    ON agentic_failure_attributions(failure_class, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_agentic_failure_signature
+                    ON agentic_failure_attributions(error_signature);
 
                 CREATE TABLE IF NOT EXISTS approvals (
                     approval_id TEXT PRIMARY KEY,
@@ -322,6 +445,26 @@ class Database:
             connection.execute(
                 "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
                 (SCHEMA_VERSION, utc_now()),
+            )
+            for column, declaration in GOAL_METADATA_COLUMNS.items():
+                self._ensure_column(connection, "goals", column, declaration)
+
+    @staticmethod
+    def _ensure_column(
+        connection: sqlite3.Connection,
+        table: str,
+        column: str,
+        declaration: str,
+    ) -> None:
+        if table != "goals" or GOAL_METADATA_COLUMNS.get(column) != declaration:
+            raise ValueError("unsupported schema column migration")
+        existing = {
+            str(row["name"])
+            for row in connection.execute("PRAGMA table_info(goals)")
+        }
+        if column not in existing:
+            connection.execute(
+                f"ALTER TABLE {table} ADD COLUMN {column} {declaration}"  # nosec B608
             )
 
     def execute(self, sql: str, parameters: Sequence[Any] = ()) -> int:

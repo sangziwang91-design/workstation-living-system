@@ -1,0 +1,1226 @@
+from __future__ import annotations
+
+import json
+import sqlite3
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SCRIPTS = REPO_ROOT / "source" / "scripts"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+
+from campaign_state import (  # noqa: E402
+    CampaignLock,
+    CampaignPaths,
+    load_json,
+    validate_campaign_spec,
+)
+from run_life_campaign_30 import DEFAULT_SPEC, CampaignRunner, expand_rounds  # noqa: E402
+from run_single_software_tail_check import (  # noqa: E402
+    record_tail_check_manifest,
+    run_tail_check,
+)
+
+
+def _write_fake_wls(live_home: Path) -> None:
+    (live_home / "wls.py").write_text(
+        """
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", required=True)
+    sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("status")
+    sub.add_parser("self-check")
+    sub.add_parser("verify")
+    sub.add_parser("once")
+    goal = sub.add_parser("add-goal")
+    goal.add_argument("title")
+    goal.add_argument("--description", default="")
+    goal.add_argument("--criterion", action="append", default=[])
+    daemon = sub.add_parser("daemon")
+    daemon.add_argument("--max-cycles", type=int, default=1)
+    pause = sub.add_parser("pause")
+    pause.add_argument("reason")
+    resume = sub.add_parser("resume")
+    resume.add_argument("evidence")
+    kill = sub.add_parser("kill")
+    kill.add_argument("reason")
+    reset = sub.add_parser("reset-kill")
+    reset.add_argument("evidence")
+    args = parser.parse_args()
+    config = json.loads(Path(args.config).read_text(encoding="utf-8"))
+    home = Path(config["home"])
+    state_path = home / "fake_status.json"
+    if state_path.exists():
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    else:
+        state = {"cycle_count": 0, "paused": False, "killed": False}
+    if args.command == "once":
+        sensors = {item.get("name"): item for item in config.get("sensors", [])}
+        db_path = home / "state" / "wls.db"
+        if "campaign_fault_http" in sensors:
+            import sqlite3
+            sensor = sensors["campaign_fault_http"]
+            connection = sqlite3.connect(db_path)
+            if sensor.get("sensor_type") == "http":
+                connection.execute(
+                    "INSERT OR REPLACE INTO sensor_state(sensor_name,state_json,last_polled_at,last_success_at,last_error) VALUES (?,?,?,?,?)",
+                    ("campaign_fault_http", "{}", "now", "now", None),
+                )
+                connection.execute(
+                    "INSERT INTO events(event_id,event_type,payload_json) VALUES (?,?,?)",
+                    (
+                        "evt-fault-http",
+                        "observation.service_health",
+                        json.dumps(
+                            {
+                                "observation": {
+                                    "source": "campaign_fault_http",
+                                    "value": {
+                                        "healthy": False,
+                                        "error": "connection refused",
+                                    },
+                                }
+                            }
+                        ),
+                    ),
+                )
+            else:
+                connection.execute(
+                    "INSERT OR REPLACE INTO sensor_state(sensor_name,state_json,last_polled_at,last_success_at,last_error) VALUES (?,?,?,?,?)",
+                    ("campaign_fault_http", "{}", "now", "now", None),
+                )
+            connection.commit()
+            connection.close()
+        if "campaign_r14_recoverable_sensor" in sensors:
+            import sqlite3
+            sensor = sensors["campaign_r14_recoverable_sensor"]
+            connection = sqlite3.connect(db_path)
+            if str(sensor.get("sensor_type", "")).startswith("campaign_r14_fault_sensor"):
+                connection.execute(
+                    "INSERT OR REPLACE INTO sensor_state(sensor_name,state_json,last_polled_at,last_success_at,last_error) VALUES (?,?,?,?,?)",
+                    (
+                        "campaign_r14_recoverable_sensor",
+                        "{}",
+                        "now",
+                        None,
+                        "campaign R14 recoverable sensor fault",
+                    ),
+                )
+            else:
+                connection.execute(
+                    "INSERT OR REPLACE INTO sensor_state(sensor_name,state_json,last_polled_at,last_success_at,last_error) VALUES (?,?,?,?,?)",
+                    ("campaign_r14_recoverable_sensor", "{}", "now", "now", None),
+                )
+            row = connection.execute(
+                "SELECT COUNT(*) FROM goals WHERE autonomous=1 AND status IN ('ACTIVE','BLOCKED')"
+            ).fetchone()
+            if (
+                config.get("max_autonomous_goals", 0) == 1
+                and row
+                and int(row[0]) == 0
+            ):
+                connection.execute(
+                    "INSERT INTO goals(goal_id,title,description,priority,source,autonomous,status,progress,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        "goal-r14",
+                        "Recover sensor: campaign_r14_recoverable_sensor",
+                        "Diagnose campaign sensor failure using read-only evidence.",
+                        0.75,
+                        "autonomy.continuity",
+                        1,
+                        "ACTIVE",
+                        0.0,
+                        "now",
+                        "now",
+                    ),
+                )
+                connection.execute(
+                    "INSERT INTO actions(action_id,plan_id,goal_id,tool,purpose,risk,status,side_effect_class,started_at,finished_at,result_json,error,idempotency_key) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        "act-r14",
+                        "plan-r14",
+                        None,
+                        "noop",
+                        "Record a deliberate no-op instead of inventing activity",
+                        "READ",
+                        "SUCCEEDED",
+                        "none",
+                        "now",
+                        "now",
+                        "{}",
+                        None,
+                        "r14-key",
+                    ),
+                )
+            connection.commit()
+            connection.close()
+        if not state["paused"] and not state["killed"]:
+            state["cycle_count"] += 1
+        payload = {"status": "PAUSED" if state["paused"] else ("KILLED" if state["killed"] else "SUCCEEDED")}
+    elif args.command == "daemon":
+        if not state["paused"] and not state["killed"]:
+            state["cycle_count"] += int(args.max_cycles)
+        payload = {"status": "SUCCEEDED", "cycles": int(args.max_cycles)}
+    elif args.command == "pause":
+        state["paused"] = True
+        payload = {"evidence_id": "pause"}
+    elif args.command == "resume":
+        state["paused"] = False
+        payload = {"evidence_id": "resume"}
+    elif args.command == "kill":
+        state["killed"] = True
+        payload = {"evidence_id": "kill"}
+    elif args.command == "reset-kill":
+        state["killed"] = False
+        payload = {"evidence_id": "reset"}
+    elif args.command == "add-goal":
+        import sqlite3
+        connection = sqlite3.connect(home / "state" / "wls.db")
+        connection.execute(
+            "INSERT INTO goals(goal_id,title,status,progress,source,autonomous) VALUES (?,?,?,?,?,?)",
+            (f"goal-{state.get('goal_count', 0) + 1}", args.title, "ACTIVE", 0.0, "cli", 0),
+        )
+        connection.commit()
+        connection.close()
+        state["goal_count"] = state.get("goal_count", 0) + 1
+        payload = {"goal_id": f"goal-{state['goal_count']}"}
+    elif args.command == "self-check":
+        payload = {"ok": True, "checks": {"read_only": True}}
+    elif args.command == "verify":
+        payload = {"ok": True}
+    else:
+        payload = {
+            "home": str(home),
+            "read_only": True,
+            "paused": state["paused"],
+            "killed": state["killed"],
+            "cycle_count": state["cycle_count"],
+        }
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    print(json.dumps(payload))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+
+def _make_fake_install(tmp_path: Path) -> tuple[CampaignPaths, Path]:
+    install_root = tmp_path / "install"
+    live_home = install_root / "home"
+    campaign_home = tmp_path / "campaign"
+    (install_root / "venv" / "Scripts").mkdir(parents=True)
+    (install_root / "INSTALL_RECEIPT.json").write_text(
+        json.dumps({"wheel_sha256": "abc"}), encoding="utf-8"
+    )
+    (install_root / "venv" / "Scripts" / "python.exe").write_text(
+        "placeholder", encoding="utf-8"
+    )
+    (live_home / "state").mkdir(parents=True)
+    (live_home / "inbox").mkdir()
+    (live_home / "sandbox").mkdir()
+    (live_home / "outbox").mkdir()
+    (live_home / "config.json").write_text(
+        json.dumps(
+            {
+                "home": str(live_home),
+                "read_only": True,
+                "cycle_seconds": 30.0,
+                "provider": {"type": "deterministic"},
+                "tool_policy": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    connection = sqlite3.connect(live_home / "state" / "wls.db")
+    connection.execute(
+        "CREATE TABLE actions(action_id TEXT, idempotency_key TEXT, status TEXT, started_at TEXT, finished_at TEXT, plan_id TEXT, goal_id TEXT, tool TEXT, purpose TEXT, risk TEXT, side_effect_class TEXT, result_json TEXT, error TEXT)"
+    )
+    connection.execute(
+        "CREATE TABLE sensor_state(sensor_name TEXT PRIMARY KEY,state_json TEXT,last_polled_at TEXT,last_success_at TEXT,last_error TEXT)"
+    )
+    connection.execute(
+        "CREATE TABLE goals(goal_id TEXT,title TEXT,description TEXT,priority REAL,status TEXT,progress REAL,source TEXT,autonomous INTEGER,created_at TEXT,updated_at TEXT)"
+    )
+    connection.execute("CREATE TABLE events(event_id TEXT,event_type TEXT,payload_json TEXT)")
+    connection.execute("CREATE TABLE evidence(evidence_id TEXT)")
+    connection.execute("CREATE TABLE cycles(cycle_id TEXT)")
+    connection.commit()
+    connection.close()
+    _write_fake_wls(live_home)
+    paths = CampaignPaths(
+        install_root=install_root,
+        live_home=live_home,
+        campaign_home=campaign_home,
+        wls_python=Path(sys.executable),
+    )
+    return paths, live_home / "config.json"
+
+
+def test_campaign_spec_preserves_30_round_base_and_adds_r31_to_r40() -> None:
+    spec = load_json(REPO_ROOT / "source" / "verification" / "life_campaign_30.json")
+    round_ids = validate_campaign_spec(spec)
+    assert round_ids[0] == "R01"
+    assert round_ids[29] == "R30"
+    assert round_ids[-1] == "R40"
+    assert len(round_ids) == 40
+    assert spec["rounds"][0]["title"] == "Owner-host campaign baseline lock"
+    assert spec["rounds"][30]["title"] == "Complete 24-hour minimum life evidence"
+    assert spec["rounds"][-1]["title"] == "Final epoch audit and claim ceiling"
+
+
+def test_expand_rounds_is_contiguous_and_rejects_reverse() -> None:
+    assert expand_rounds("R02", "R04", None) == ["R02", "R03", "R04"]
+    assert expand_rounds("R39", "R40", None) == ["R39", "R40"]
+    with pytest.raises(ValueError):
+        expand_rounds("R04", "R02", None)
+
+
+def test_campaign_paths_reject_live_home_as_campaign_home(tmp_path: Path) -> None:
+    paths, _ = _make_fake_install(tmp_path)
+    bad = CampaignPaths(
+        install_root=paths.install_root,
+        live_home=paths.live_home,
+        campaign_home=paths.live_home,
+        wls_python=Path(sys.executable),
+    )
+    with pytest.raises(ValueError):
+        bad.validate()
+
+
+def test_campaign_lock_is_exclusive(tmp_path: Path) -> None:
+    lock_path = tmp_path / "campaign" / ".campaign.lock"
+    with CampaignLock(lock_path):
+        with pytest.raises(RuntimeError):
+            with CampaignLock(lock_path):
+                pass
+
+
+def test_runner_executes_r01_to_r13_against_disposable_campaign_home(
+    tmp_path: Path,
+) -> None:
+    paths, live_config = _make_fake_install(tmp_path)
+    runner = CampaignRunner(
+        REPO_ROOT / "source" / "verification" / "life_campaign_30.json",
+        paths,
+        execute=True,
+    )
+    result = runner.run([f"R{index:02d}" for index in range(1, 14)])
+    assert [item["status"] for item in result["results"]] == ["PASS"] * 13
+    assert result["automation_level"] == "LEVEL_1"
+    campaign_config = load_json(paths.campaign_home / "config.json")
+    assert campaign_config["home"] == str(paths.campaign_home.resolve())
+    assert campaign_config["read_only"] is True
+    assert load_json(live_config)["home"] == str(paths.live_home)
+    manifest = load_json(paths.campaign_home / "campaign_evidence" / "manifest.json")
+    assert any(record["kind"] == "command" for record in manifest["records"])
+    assert (paths.campaign_home / "state" / "wls.db").exists()
+    assert any(record["round_id"] == "R13" for record in manifest["records"])
+
+
+def test_single_software_tail_check_preserves_live_hashes(
+    tmp_path: Path,
+) -> None:
+    install_root = tmp_path / "install"
+    live_home = install_root / "home"
+    campaign_home = tmp_path / "campaign"
+    (live_home / "state").mkdir(parents=True)
+    (campaign_home / "campaign_evidence" / "R30").mkdir(parents=True)
+    (live_home / "config.json").write_text(
+        json.dumps({"home": str(live_home)}),
+        encoding="utf-8",
+    )
+    (live_home / "state" / "wls.db").write_bytes(b"live-db")
+    (campaign_home / "config.json").write_text(
+        json.dumps({"home": str(campaign_home)}),
+        encoding="utf-8",
+    )
+    (campaign_home / "campaign_evidence" / "R30" / "epoch_audit.json").write_text(
+        json.dumps({"status": "PASS"}),
+        encoding="utf-8",
+    )
+
+    receipt = run_tail_check(
+        install_root=install_root,
+        campaign_home=campaign_home,
+    )
+
+    assert receipt["status"] == "PASS_WITH_LIMITS"
+    assert receipt["checks"]["campaign_not_live_home"] is True
+    assert receipt["checks"]["campaign_not_runtime_live_home"] is True
+    assert receipt["checks"]["campaign_config_points_to_campaign_home"] is True
+    assert receipt["checks"]["live_config_present"] is True
+    assert receipt["checks"]["live_db_present"] is True
+    assert receipt["checks"]["live_config_unchanged"] is True
+    assert receipt["checks"]["live_db_unchanged"] is True
+    assert receipt["status_smoke"]["executed"] is False
+
+
+def test_single_software_tail_check_rejects_live_home_as_campaign_home(
+    tmp_path: Path,
+) -> None:
+    install_root = tmp_path / "install"
+    live_home = install_root / "home"
+    (live_home / "state").mkdir(parents=True)
+    (live_home / "config.json").write_text(
+        json.dumps({"home": str(live_home)}),
+        encoding="utf-8",
+    )
+    (live_home / "state" / "wls.db").write_bytes(b"live-db")
+
+    receipt = run_tail_check(
+        install_root=install_root,
+        campaign_home=live_home,
+    )
+
+    assert receipt["status"] == "FAIL"
+    assert receipt["checks"]["campaign_not_runtime_live_home"] is False
+
+
+def test_single_software_tail_check_records_manifest_without_duplicates(
+    tmp_path: Path,
+) -> None:
+    campaign_home = tmp_path / "campaign"
+    output = campaign_home / "campaign_evidence" / "tail_checks" / "receipt.json"
+    output.parent.mkdir(parents=True)
+    output.write_text(
+        json.dumps(
+            {
+                "receipt_type": "SINGLE_SOFTWARE_TAIL_CHECK",
+                "status": "PASS_WITH_LIMITS",
+                "status_smoke": {"executed": True, "ok": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    first = record_tail_check_manifest(campaign_home=campaign_home, output=output)
+    second = record_tail_check_manifest(campaign_home=campaign_home, output=output)
+
+    manifest = load_json(campaign_home / "campaign_evidence" / "manifest.json")
+    assert first["recorded"] is True
+    assert second["recorded"] is False
+    assert first["record_id"] == second["record_id"]
+    assert len(manifest["records"]) == 1
+    assert manifest["records"][0]["round_id"] == "R30"
+    assert manifest["records"][0]["label"] == "single_software_tail_check"
+    assert manifest["records"][0]["metadata"]["status_smoke_executed"] is True
+
+
+def test_runner_blocks_after_failed_round(tmp_path: Path) -> None:
+    paths, _ = _make_fake_install(tmp_path)
+    (paths.live_home / "wls.py").write_text(
+        "raise SystemExit(3)\n",
+        encoding="utf-8",
+    )
+    runner = CampaignRunner(
+        REPO_ROOT / "source" / "verification" / "life_campaign_30.json",
+        paths,
+        execute=True,
+    )
+    result = runner.run(["R01", "R02"])
+    assert result["results"][0]["status"] == "FAIL"
+    state = load_json(paths.campaign_home / "campaign_state.json")
+    assert state["rounds"]["R02"]["status"] == "BLOCKED"
+
+
+def test_repair_reset_preserves_failure_history_and_allows_rerun(tmp_path: Path) -> None:
+    paths, _ = _make_fake_install(tmp_path)
+    broken = paths.live_home / "wls.py"
+    original = broken.read_text(encoding="utf-8")
+    broken.write_text("raise SystemExit(3)\n", encoding="utf-8")
+    runner = CampaignRunner(
+        REPO_ROOT / "source" / "verification" / "life_campaign_30.json",
+        paths,
+        execute=True,
+    )
+    first = runner.run(["R01", "R02"])
+    assert first["results"][0]["status"] == "FAIL"
+    broken.write_text(original, encoding="utf-8")
+    campaign_copy = paths.campaign_home / "wls.py"
+    if campaign_copy.exists():
+        campaign_copy.write_text(original, encoding="utf-8")
+    reset = runner.reset_from_round("R01", "test repair")
+    assert reset["reset_from"] == "R01"
+    second = runner.run(["R01"])
+    assert second["results"][0]["status"] == "PASS"
+    state = load_json(paths.campaign_home / "campaign_state.json")
+    assert state["rounds"]["R01"]["repair_history"]
+
+
+def test_duplicate_action_check_allows_idempotent_reuse(tmp_path: Path) -> None:
+    paths, _ = _make_fake_install(tmp_path)
+    runner = CampaignRunner(
+        REPO_ROOT / "source" / "verification" / "life_campaign_30.json",
+        paths,
+        execute=True,
+    )
+    runner._prepare_campaign_home()
+    connection = sqlite3.connect(paths.campaign_home / "state" / "wls.db")
+    connection.execute(
+        "INSERT INTO actions(action_id,idempotency_key,status) VALUES (?,?,?)",
+        ("act-real", "same-key", "SUCCEEDED"),
+    )
+    connection.execute("UPDATE actions SET started_at='started' WHERE action_id='act-real'")
+    connection.execute(
+        "INSERT INTO actions(action_id,idempotency_key,status,started_at,finished_at) VALUES (?,?,?,?,?)",
+        ("act-reused", "same-key", "SUCCEEDED", None, "finished"),
+    )
+    connection.commit()
+    connection.close()
+    evidence_id = runner._record_duplicate_action_check("R03")
+    assert evidence_id
+
+
+def test_dry_run_prepares_owner_command_without_runtime_claim(tmp_path: Path) -> None:
+    paths, _ = _make_fake_install(tmp_path)
+    runner = CampaignRunner(
+        REPO_ROOT / "source" / "verification" / "life_campaign_30.json",
+        paths,
+        execute=False,
+    )
+    result = runner.run(["R01"])
+    assert result["results"][0]["status"] == "OWNER_REVIEW"
+    assert "-StartRound R01 -EndRound R01 -Execute" in result["results"][0]["owner_command"]
+    state = load_json(paths.campaign_home / "campaign_state.json")
+    assert state["rounds"]["R01"]["status"] == "PENDING"
+
+
+def test_powershell_wrapper_uses_file_runner_not_source_module() -> None:
+    script = (REPO_ROOT / "scripts" / "run_life_campaign_30.ps1").read_text(
+        encoding="utf-8"
+    )
+    assert "source\\scripts\\run_life_campaign_30.py" in script
+    assert "python -m source.scripts.run_life_campaign_30" not in script
+    assert "venv\\Scripts\\python.exe" in script
+    assert "--authorize-level2" in script
+
+
+def test_runner_executes_r14_with_level2_authorization(tmp_path: Path) -> None:
+    paths, _ = _make_fake_install(tmp_path)
+    runner = CampaignRunner(
+        REPO_ROOT / "source" / "verification" / "life_campaign_30.json",
+        paths,
+        execute=True,
+        authorize_level2=True,
+    )
+    result = runner.run([f"R{index:02d}" for index in range(1, 15)])
+    assert result["results"][-1]["round_id"] == "R14"
+    assert result["results"][-1]["status"] == "PASS"
+    assert result["automation_level"] == "LEVEL_2"
+    state = load_json(paths.campaign_home / "campaign_state.json")
+    assert state["rounds"]["R14"]["status"] == "PASS"
+
+
+def test_runner_executes_short_r15_minimum_life(tmp_path: Path) -> None:
+    paths, _ = _make_fake_install(tmp_path)
+    runner = CampaignRunner(
+        REPO_ROOT / "source" / "verification" / "life_campaign_30.json",
+        paths,
+        execute=True,
+        authorize_level2=True,
+        r15_duration_seconds=1,
+        r15_heartbeat_seconds=1,
+    )
+    result = runner.run([f"R{index:02d}" for index in range(1, 16)])
+    assert result["results"][-1]["round_id"] == "R15"
+    assert result["results"][-1]["status"] == "PASS"
+    assert result["automation_level"] == "LEVEL_3"
+    run_state = load_json(paths.campaign_home / "campaign_evidence" / "R15" / "r15_run.json")
+    assert run_state["heartbeats"]
+
+
+def test_owner_stop_preserves_partial_r15_without_pass(tmp_path: Path) -> None:
+    paths, _ = _make_fake_install(tmp_path)
+    runner = CampaignRunner(
+        REPO_ROOT / "source" / "verification" / "life_campaign_30.json",
+        paths,
+        execute=True,
+        authorize_level2=True,
+    )
+    runner.run([f"R{index:02d}" for index in range(1, 15)])
+    runner.state.mark_running("R15")
+    run_path = paths.campaign_home / "campaign_evidence" / "R15" / "r15_run.json"
+    run_path.parent.mkdir(parents=True, exist_ok=True)
+    run_path.write_text(
+        json.dumps(
+            {
+                "started_at": "2026-06-30T00:53:00+00:00",
+                "duration_seconds": 86400,
+                "heartbeat_seconds": 300,
+                "heartbeats": [{"index": 1, "status": "PASS"}],
+                "restarts": [],
+                "recoveries": [],
+                "failures": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    result = runner.owner_stop_round("R15", "Owner stopped 24-hour round")
+    state = load_json(paths.campaign_home / "campaign_state.json")
+    assert result["status"] == "OWNER_REVIEW"
+    assert state["rounds"]["R15"]["status"] == "OWNER_REVIEW"
+    assert state["rounds"]["R16"]["status"] == "BLOCKED"
+    assert state["automation_level"] == "LEVEL_2"
+    assert state["rounds"]["R15"]["evidence"]
+    assert "not PASS" in state["rounds"]["R15"]["verdict"]["claim_ceiling"]
+
+
+def test_owner_authorizes_r15_partial_continuation_path(tmp_path: Path) -> None:
+    paths, _ = _make_fake_install(tmp_path)
+    runner = CampaignRunner(
+        REPO_ROOT / "source" / "verification" / "life_campaign_30.json",
+        paths,
+        execute=True,
+        authorize_level2=True,
+    )
+    runner.run([f"R{index:02d}" for index in range(1, 15)])
+    runner.state.mark_running("R15")
+    run_path = paths.campaign_home / "campaign_evidence" / "R15" / "r15_run.json"
+    run_path.parent.mkdir(parents=True, exist_ok=True)
+    run_path.write_text(
+        json.dumps(
+            {
+                "started_at": "2026-06-30T00:53:00+00:00",
+                "duration_seconds": 86400,
+                "heartbeat_seconds": 300,
+                "heartbeats": [{"index": 1, "status": "PASS"}],
+                "restarts": [{"index": 1}],
+                "recoveries": [],
+                "failures": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    runner.owner_stop_round("R15", "Owner stopped 24-hour round")
+    result = runner.authorize_partial_continuation(
+        "R15",
+        "Owner authorized new continuation path after partial R15",
+    )
+    state = load_json(paths.campaign_home / "campaign_state.json")
+    assert result["continuation_authorized"] is True
+    assert state["rounds"]["R15"]["status"] == "OWNER_REVIEW"
+    assert state["rounds"]["R15"]["verdict"]["continuation_authorized"] is True
+    assert state["rounds"]["R15"]["verdict"]["partial_continuation_from"] == "R15"
+    assert state["rounds"]["R16"]["status"] == "PENDING"
+    assert state["automation_level"] == "LEVEL_2"
+    ready, reason = runner.state.can_start("R16")
+    assert ready is True, reason
+
+
+def test_r16_preflight_preserves_owner_gate_after_partial_continuation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paths, _ = _make_fake_install(tmp_path)
+    runner = CampaignRunner(
+        DEFAULT_SPEC,
+        paths,
+        execute=True,
+        fresh_snapshot=True,
+        authorize_level2=True,
+    )
+    runner._prepare_campaign_home()
+    for index in range(1, 15):
+        runner.state.mark_pass(
+            f"R{index:02d}",
+            {"status": "PASS", "claim_ceiling": "test prior round"},
+        )
+    runner.state.mark_running("R15")
+    run_path = paths.campaign_home / "campaign_evidence" / "R15" / "r15_run.json"
+    run_path.parent.mkdir(parents=True, exist_ok=True)
+    run_path.write_text(
+        json.dumps(
+            {
+                "started_at": "2026-06-30T00:00:00+00:00",
+                "duration_seconds": 86400,
+                "heartbeat_seconds": 300,
+                "heartbeats": [{"index": 1}],
+                "restarts": [{"index": 1}],
+                "recoveries": [],
+                "failures": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    runner.owner_stop_round("R15", "Owner stopped 24-hour round")
+    runner.authorize_partial_continuation(
+        "R15", "Owner authorized new continuation path after partial R15"
+    )
+
+    def fake_architecture_validation(round_id: str, label: str) -> dict[str, object]:
+        assert round_id == "R16"
+        assert label == "capability_admission_validation"
+        return {
+            "evidence_id": "ev-architecture-validation",
+            "payload": {
+                "task_id": "WLS-LIVING-AGENT-OS-CAPABILITIES-001",
+                "claim_ceiling": "test validation only",
+                "results": [
+                    {
+                        "pass_id": f"P{index:02d}",
+                        "verdict": "ADMIT" if index == 1 else "ADMIT_SHADOW_ONLY",
+                        "evidence": [f"p{index:02d}-evidence"],
+                        "notes": [f"p{index:02d}-note"],
+                    }
+                    for index in range(1, 11)
+                ],
+            },
+        }
+
+    monkeypatch.setattr(
+        runner, "_run_architecture_validation", fake_architecture_validation
+    )
+    result = runner.run(["R16"])
+    assert result["results"][0]["status"] == "OWNER_REVIEW"
+    state = load_json(paths.campaign_home / "campaign_state.json")
+    assert state["rounds"]["R16"]["status"] == "OWNER_REVIEW"
+    assert state["rounds"]["R17"]["status"] == "BLOCKED"
+    report = load_json(
+        paths.campaign_home / "campaign_evidence" / "R16" / "r16_capability_preflight.json"
+    )
+    assert report["r16_owner_gate"]["required"] is True
+    assert report["owner_decision_required"]["decision_id"] == "R16_LEVEL_3_REAL_FAILURE_CAPTURE"
+    assert report["owner_decision_required"]["authorization_level"] == "LEVEL_3"
+    assert "-StartRound R16 -EndRound R16 -Execute" in report["owner_decision_required"]["command_after_authorization"]
+    assert "R16 PASS before three real owner-host failures are bound" in report["owner_decision_required"]["must_not_claim"]
+    assert report["negative_control_signatures"]
+    assert "not PASS" in state["rounds"]["R16"]["verdict"]["claim_ceiling"]
+
+
+def test_r16_level3_authorization_still_requires_real_repeated_failures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner, paths = _prepared_r16_runner(tmp_path, monkeypatch, authorize_level3=True)
+    result = runner.run(["R16"])
+    assert result["automation_level"] == "LEVEL_3"
+    assert result["results"][0]["status"] == "OWNER_REVIEW"
+    state = load_json(paths.campaign_home / "campaign_state.json")
+    assert state["automation_level"] == "LEVEL_3"
+    report = load_json(
+        paths.campaign_home / "campaign_evidence" / "R16" / "r16_repeated_failure_scan.json"
+    )
+    assert report["pass_ready"] is False
+    assert report["real_failure_count"] == 0
+
+
+def test_r16_passes_with_three_real_repeated_failure_records(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner, paths = _prepared_r16_runner(tmp_path, monkeypatch, authorize_level3=True)
+    for index in range(3):
+        result = runner.record_real_failure(
+            source_type="owner_host_disposable_activity",
+            normalized_signature="sqlite.database_locked",
+            raw_evidence_ids=[f"raw-ev-{index}"],
+            reproduction_status="REPRODUCED",
+            environment="pytest-disposable-campaign",
+            input_hash=f"sha256:input-{index}",
+            output_hash=f"sha256:output-{index}",
+            repair_status="UNREPAIRED",
+            note="pytest real repeated failure fixture",
+        )
+    assert result["status"] == "PASS"
+    assert result["normalized_signature"] == "sqlite.database_locked"
+    state = load_json(paths.campaign_home / "campaign_state.json")
+    assert state["rounds"]["R16"]["status"] == "PASS"
+    assert state["rounds"]["R17"]["status"] == "PENDING"
+
+
+def test_r17_generates_failure_candidate_from_r16_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner, paths = _prepared_r16_runner(tmp_path, monkeypatch, authorize_level3=True)
+    for index in range(3):
+        runner.record_real_failure(
+            source_type="owner_host_disposable_activity",
+            normalized_signature="http.loopback_outage_timeout",
+            raw_evidence_ids=[f"raw-ev-{index}"],
+            reproduction_status="REPRODUCED",
+            environment="pytest-disposable-campaign",
+            input_hash=f"sha256:input-{index}",
+            output_hash=f"sha256:output-{index}",
+            repair_status="UNREPAIRED",
+            note="pytest real repeated failure fixture",
+        )
+    result = runner.run(["R17"])
+    assert result["results"][0]["status"] == "PASS"
+    assert result["results"][0]["candidate_id"] == "r17_http_loopback_outage_timeout_candidate"
+    candidate = load_json(
+        paths.campaign_home / "campaign_evidence" / "R17" / "failure_candidate.json"
+    )
+    assert candidate["normalized_signature"] == "http.loopback_outage_timeout"
+    assert candidate["baseline_frozen"]["campaign_config_sha256"]
+    assert candidate["proposed_intervention"]["live_state_modified"] is False
+    assert "candidate changes live install, live config, live database, main branch, or production data" in candidate["rejection_criteria"]
+    state = load_json(paths.campaign_home / "campaign_state.json")
+    assert state["rounds"]["R17"]["status"] == "PASS"
+    assert state["rounds"]["R18"]["status"] == "PENDING"
+
+
+def test_r18_runs_isolated_recovery_experiment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner, paths = _prepared_r16_runner(tmp_path, monkeypatch, authorize_level3=True)
+    for index in range(3):
+        runner.record_real_failure(
+            source_type="owner_host_disposable_activity",
+            normalized_signature="http.loopback_outage_timeout",
+            raw_evidence_ids=[f"raw-ev-{index}"],
+            reproduction_status="REPRODUCED",
+            environment="pytest-disposable-campaign",
+            input_hash=f"sha256:input-{index}",
+            output_hash=f"sha256:output-{index}",
+            repair_status="UNREPAIRED",
+            note="pytest real repeated failure fixture",
+        )
+    events_path = paths.campaign_home / "campaign_evidence" / "R16" / "r16_outage_events.json"
+    events_path.write_text(
+        json.dumps(
+            [
+                {
+                    "event_id": f"evt-{index}",
+                    "subject": f"r16-outage-{index}",
+                    "value": {"healthy": False, "error": "<urlopen error timed out>"},
+                }
+                for index in range(3)
+            ]
+        ),
+        encoding="utf-8",
+    )
+    runner.run(["R17"])
+    result = runner.run(["R18"])
+    assert result["results"][0]["status"] == "PASS"
+    assert result["results"][0]["diagnostic_improvement_count"] == 3
+    experiment = load_json(
+        paths.campaign_home / "campaign_evidence" / "R18" / "recovery_experiment.json"
+    )
+    assert experiment["service_recovery_proven"] is False
+    assert experiment["baseline_immutable"]
+    assert experiment["candidate_results"][0]["classification"] == "RECOVERABLE_SERVICE_HEALTH_OUTAGE"
+    state = load_json(paths.campaign_home / "campaign_state.json")
+    assert state["rounds"]["R18"]["status"] == "PASS"
+    assert state["rounds"]["R19"]["status"] == "PENDING"
+
+
+def test_r19_creates_unpromoted_skill_candidate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner, paths = _prepared_r18_runner(tmp_path, monkeypatch)
+    result = runner.run(["R19"])
+    assert result["results"][0]["status"] == "PASS"
+    assert result["results"][0]["promotion_state"] == "NOT_PROMOTED"
+    skill = load_json(
+        paths.campaign_home / "campaign_evidence" / "R19" / "skill_candidate.json"
+    )
+    assert skill["state"] == "PROPOSED_NOT_PROMOTED"
+    assert skill["lineage"]["source_rounds"] == ["R16", "R17", "R18"]
+    assert skill["validation"]["result"] == "PASS"
+    assert "promote skill" in skill["applicability"]["forbidden_actions"]
+    state = load_json(paths.campaign_home / "campaign_state.json")
+    assert state["rounds"]["R19"]["status"] == "PASS"
+    assert state["rounds"]["R20"]["status"] == "PENDING"
+
+
+def test_r20_creates_canary_packet_without_promotion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner, paths = _prepared_r18_runner(tmp_path, monkeypatch)
+    runner.run(["R19"])
+    result = runner.run(["R20"])
+    assert result["results"][0]["status"] == "PASS"
+    assert result["results"][0]["promotion_executed"] is False
+    packet = load_json(
+        paths.campaign_home / "campaign_evidence" / "R20" / "canary_packet.json"
+    )
+    assert packet["canary_scope"]["status"] == "PROPOSED_ONLY"
+    assert packet["canary_scope"]["enabled_globally"] is False
+    assert packet["owner_decision_required"].startswith("Approve or reject")
+    preflight = load_json(
+        paths.campaign_home / "campaign_evidence" / "R20" / "canary_preflight.json"
+    )
+    assert preflight["checks"]["owner_promotion_required"] is True
+    assert preflight["checks"]["global_enablement_absent"] is True
+    state = load_json(paths.campaign_home / "campaign_state.json")
+    assert state["rounds"]["R20"]["status"] == "PASS"
+    assert state["rounds"]["R21"]["status"] == "PENDING"
+
+
+def test_r21_requires_level4_authorization(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner, paths = _prepared_r20_runner(tmp_path, monkeypatch, authorize_level4=False)
+    result = runner.run(["R21"])
+    assert result["results"][0]["status"] == "OWNER_REVIEW"
+    assert "LEVEL_4" in result["results"][0]["reason"]
+    state = load_json(paths.campaign_home / "campaign_state.json")
+    assert state["rounds"]["R21"]["status"] == "OWNER_REVIEW"
+
+
+def test_r21_to_r25_generate_m3_unified_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner, paths = _prepared_r20_runner(tmp_path, monkeypatch, authorize_level4=True)
+    result = runner.run(["R21", "R22", "R23", "R24", "R25"])
+    assert [item["status"] for item in result["results"]] == ["PASS"] * 5
+    state = load_json(paths.campaign_home / "campaign_state.json")
+    assert state["automation_level"] == "LEVEL_4"
+    assert state["rounds"]["R25"]["status"] == "PASS"
+    assert state["rounds"]["R26"]["status"] == "PENDING"
+    reuse = load_json(
+        paths.campaign_home / "campaign_evidence" / "R21" / "reuse_transfer_experiment.json"
+    )
+    assert reuse["global_promotion_executed"] is False
+    assert reuse["benefit_measured"]["diagnostic_improvement_count"] == 1
+    rollback = load_json(
+        paths.campaign_home / "campaign_evidence" / "R22" / "rollback_drill.json"
+    )
+    assert rollback["rollback"]["lineage_preserved"] is True
+    handoff = load_json(
+        paths.campaign_home / "campaign_evidence" / "R23" / "multi_agent_handoff.json"
+    )
+    assert handoff["single_integration_authority"] is True
+    provider = load_json(
+        paths.campaign_home / "campaign_evidence" / "R24" / "provider_failure_recovery.json"
+    )
+    assert provider["fallback"]["sourced"] is True
+    assert provider["automatic_payment"] is False
+    security = load_json(
+        paths.campaign_home / "campaign_evidence" / "R25" / "tool_security_matrix.json"
+    )
+    assert security["all_rejected_or_owner_gated"] is True
+    assert security["credential_exposure"] == "NONE"
+    assert security["live_pollution"] is False
+    assert "no second authority" in security["m3_unified_conclusion"]
+
+
+def test_r26_to_r30_generate_phase1_epoch_audit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner, paths = _prepared_r25_runner(tmp_path, monkeypatch)
+    result = runner.run(["R26", "R27", "R28", "R29", "R30"])
+    assert [item["status"] for item in result["results"]] == ["PASS"] * 5
+    assert result["results"][-1]["allowed_conclusion"] == "FUNCTIONAL_RUNTIME_ONLY"
+    assert "finalized_epoch_audit_evidence_id" in result["results"][-1]
+    research = load_json(
+        paths.campaign_home / "campaign_evidence" / "R26" / "research_workbench_package.json"
+    )
+    assert research["fact_check"]["claims_traceable"] is True
+    assert research["fact_check"]["fabricated_citation_count"] == 0
+    public_package = load_json(
+        paths.campaign_home / "campaign_evidence" / "R27" / "public_account_package.json"
+    )
+    assert public_package["fact_audit"]["public_publish_executed"] is False
+    video = load_json(
+        paths.campaign_home / "campaign_evidence" / "R28" / "video_workbench_artifact.json"
+    )
+    assert video["qc"]["provenance_complete"] is True
+    assert video["candidate_only"] is True
+    workflow = load_json(
+        paths.campaign_home / "campaign_evidence" / "R29" / "innovation_social_research_workflow.json"
+    )
+    assert workflow["minimum_candidate"]["can_be_rejected"] is True
+    assert workflow["social_research"]["raw_data_separated_from_interpretation"] is True
+    owner_surface = load_json(
+        paths.campaign_home / "campaign_evidence" / "R29" / "owner_surface_w0_w1_fixture.json"
+    )
+    assert owner_surface["owner_console"]["writes_canonical_state"] is False
+    assert owner_surface["wechat"]["direct_tool_execution"] is False
+    audit = load_json(paths.campaign_home / "campaign_evidence" / "R30" / "epoch_audit.json")
+    assert audit["status"] == "PASS"
+    assert audit["allowed_conclusion"] == "FUNCTIONAL_RUNTIME_ONLY"
+    assert audit["round_states"]["R30"]["status"] == "PASS"
+    assert audit["round_states"]["R30"]["finalized_after_round_pass"] is True
+    assert audit["evidence_coverage"]["post_pass_round_status_consistent"] is True
+    assert audit["capability_state"]["second_authority_admitted"] is False
+    assert audit["phase2_admission_decision"]["status"] == "ADMIT_LOW_RISK_PREPARATION_ONLY"
+    state = load_json(paths.campaign_home / "campaign_state.json")
+    assert state["rounds"]["R30"]["status"] == "PASS"
+    manifest = load_json(paths.campaign_home / "campaign_evidence" / "manifest.json")
+    assert any(
+        record["label"] == "epoch_audit_post_pass" and record["round_id"] == "R30"
+        for record in manifest["records"]
+    )
+
+
+def test_r31_blocks_without_real_24_hour_active_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner, paths = _prepared_r30_runner(tmp_path, monkeypatch)
+    result = runner.run(["R31"])
+    assert result["results"][0]["status"] == "OWNER_REVIEW"
+    assert result["results"][0]["required_active_elapsed_seconds"] == 86400
+    state = load_json(paths.campaign_home / "campaign_state.json")
+    assert state["rounds"]["R31"]["status"] == "OWNER_REVIEW"
+    assert state["rounds"]["R32"]["status"] == "BLOCKED"
+    audit = load_json(
+        paths.campaign_home
+        / "campaign_evidence"
+        / "R31"
+        / "r31_minimum_life_gap_audit.json"
+    )
+    assert audit["source_r15_status"] == "OWNER_REVIEW"
+    assert audit["partial_or_failed_history_preserved"] is True
+    assert audit["live_install_mutated"] is False
+
+
+def test_r31_does_not_count_planned_duration_as_active_elapsed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner, paths = _prepared_r30_runner(tmp_path, monkeypatch)
+    run_path = paths.campaign_home / "campaign_evidence" / "R15" / "r15_run.json"
+    run_path.parent.mkdir(parents=True, exist_ok=True)
+    run_path.write_text(
+        json.dumps(
+            {
+                "duration_seconds": 86400,
+                "heartbeats": [
+                    {
+                        "index": 1,
+                        "started_at": "2026-06-30T00:00:00+00:00",
+                        "finished_at": "2026-06-30T00:05:00+00:00",
+                    },
+                    {
+                        "index": 2,
+                        "started_at": "2026-06-30T00:05:00+00:00",
+                        "finished_at": "2026-06-30T00:10:00+00:00",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    result = runner.run(["R31"])
+    assert result["results"][0]["status"] == "OWNER_REVIEW"
+    assert result["results"][0]["active_elapsed_seconds"] == 600
+    audit = load_json(
+        paths.campaign_home
+        / "campaign_evidence"
+        / "R31"
+        / "r31_minimum_life_gap_audit.json"
+    )
+    assert audit["active_elapsed_seconds"] == 600
+    assert audit["planned_duration_seconds"] == 86400
+
+
+def test_r31_passes_only_with_prior_r15_pass_and_active_elapsed_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner, paths = _prepared_r30_runner(tmp_path, monkeypatch)
+    runner.state.mark_pass(
+        "R15",
+        {"status": "PASS", "claim_ceiling": "test full 24-hour R15 evidence"},
+    )
+    run_path = paths.campaign_home / "campaign_evidence" / "R15" / "r15_run.json"
+    run_path.parent.mkdir(parents=True, exist_ok=True)
+    run_path.write_text(
+        json.dumps(
+            {
+                "active_elapsed_seconds": 86400,
+                "duration_seconds": 86400,
+                "heartbeats": [{"index": 1}, {"index": 2}, {"index": 3}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    result = runner.run(["R31"])
+    assert result["results"][0]["status"] == "PASS"
+    audit = load_json(
+        paths.campaign_home
+        / "campaign_evidence"
+        / "R31"
+        / "r31_minimum_life_gap_audit.json"
+    )
+    assert audit["status"] == "PASS"
+    assert audit["heartbeat_indexes_unique"] is True
+
+
+def test_r40_final_audit_requires_r31_to_r39_pass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner, paths = _prepared_r30_runner(tmp_path, monkeypatch)
+    for index in range(31, 40):
+        runner.state.mark_pass(
+            f"R{index:02d}",
+            {"status": "PASS", "claim_ceiling": f"test R{index:02d} evidence"},
+        )
+    result = runner.run(["R40"])
+    assert result["results"][0]["status"] == "PASS"
+    audit = load_json(
+        paths.campaign_home
+        / "campaign_evidence"
+        / "R40"
+        / "final_epoch_claim_audit.json"
+    )
+    assert audit["unresolved_real_world_rounds"] == []
+    assert audit["partial_and_failed_history_preserved"] is True
+    assert audit["claim_recomputable_from_evidence_packet"] is True
+    assert audit["live_install_mutated"] is False
+
+
+def _prepared_r30_runner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[CampaignRunner, CampaignPaths]:
+    runner, paths = _prepared_r25_runner(tmp_path, monkeypatch)
+    runner.run(["R26", "R27", "R28", "R29", "R30"])
+    return runner, paths
+
+
+def _prepared_r25_runner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[CampaignRunner, CampaignPaths]:
+    runner, paths = _prepared_r20_runner(tmp_path, monkeypatch, authorize_level4=True)
+    runner.run(["R21", "R22", "R23", "R24", "R25"])
+    return runner, paths
+
+
+def _prepared_r20_runner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, authorize_level4: bool
+) -> tuple[CampaignRunner, CampaignPaths]:
+    runner, paths = _prepared_r18_runner(tmp_path, monkeypatch)
+    runner.authorize_level4 = authorize_level4
+    runner.run(["R19", "R20"])
+    return runner, paths
+
+
+def _prepared_r18_runner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[CampaignRunner, CampaignPaths]:
+    runner, paths = _prepared_r16_runner(tmp_path, monkeypatch, authorize_level3=True)
+    for index in range(3):
+        runner.record_real_failure(
+            source_type="owner_host_disposable_activity",
+            normalized_signature="http.loopback_outage_timeout",
+            raw_evidence_ids=[f"raw-ev-{index}"],
+            reproduction_status="REPRODUCED",
+            environment="pytest-disposable-campaign",
+            input_hash=f"sha256:input-{index}",
+            output_hash=f"sha256:output-{index}",
+            repair_status="UNREPAIRED",
+            note="pytest real repeated failure fixture",
+        )
+    events_path = paths.campaign_home / "campaign_evidence" / "R16" / "r16_outage_events.json"
+    events_path.write_text(
+        json.dumps(
+            [
+                {
+                    "event_id": f"evt-{index}",
+                    "subject": f"r16-outage-{index}",
+                    "value": {"healthy": False, "error": "<urlopen error timed out>"},
+                }
+                for index in range(3)
+            ]
+        ),
+        encoding="utf-8",
+    )
+    runner.run(["R17"])
+    runner.run(["R18"])
+    return runner, paths
+
+
+def _prepared_r16_runner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, authorize_level3: bool
+) -> tuple[CampaignRunner, CampaignPaths]:
+    paths, _ = _make_fake_install(tmp_path)
+    runner = CampaignRunner(
+        DEFAULT_SPEC,
+        paths,
+        execute=True,
+        fresh_snapshot=True,
+        authorize_level2=True,
+        authorize_level3=authorize_level3,
+        authorize_level4=False,
+    )
+    runner._prepare_campaign_home()
+    for index in range(1, 15):
+        runner.state.mark_pass(
+            f"R{index:02d}",
+            {"status": "PASS", "claim_ceiling": "test prior round"},
+        )
+    runner.state.mark_running("R15")
+    run_path = paths.campaign_home / "campaign_evidence" / "R15" / "r15_run.json"
+    run_path.parent.mkdir(parents=True, exist_ok=True)
+    run_path.write_text(
+        json.dumps(
+            {
+                "started_at": "2026-06-30T00:00:00+00:00",
+                "duration_seconds": 86400,
+                "heartbeat_seconds": 300,
+                "heartbeats": [{"index": 1}],
+                "restarts": [{"index": 1}],
+                "recoveries": [],
+                "failures": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    runner.owner_stop_round("R15", "Owner stopped 24-hour round")
+    runner.authorize_partial_continuation(
+        "R15", "Owner authorized new continuation path after partial R15"
+    )
+
+    def fake_architecture_validation(round_id: str, label: str) -> dict[str, object]:
+        assert round_id == "R16"
+        assert label == "capability_admission_validation"
+        return {
+            "evidence_id": "ev-architecture-validation",
+            "payload": {
+                "task_id": "WLS-LIVING-AGENT-OS-CAPABILITIES-001",
+                "claim_ceiling": "test validation only",
+                "results": [
+                    {
+                        "pass_id": f"P{index:02d}",
+                        "verdict": "ADMIT" if index == 1 else "ADMIT_SHADOW_ONLY",
+                        "evidence": [f"p{index:02d}-evidence"],
+                        "notes": [f"p{index:02d}-note"],
+                    }
+                    for index in range(1, 11)
+                ],
+            },
+        }
+
+    monkeypatch.setattr(
+        runner, "_run_architecture_validation", fake_architecture_validation
+    )
+    return runner, paths
+def test_repository_integration_cli_dry_run(tmp_path: Path) -> None:
+    paths, _ = _make_fake_install(tmp_path)
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(REPO_ROOT / "source" / "scripts" / "run_life_campaign_30.py"),
+            "--install-root",
+            str(paths.install_root),
+            "--live-home",
+            str(paths.live_home),
+            "--campaign-home",
+            str(paths.campaign_home),
+            "--wls-python",
+            sys.executable,
+            "--start-round",
+            "R01",
+            "--end-round",
+            "R01",
+        ],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["results"][0]["status"] == "OWNER_REVIEW"

@@ -23,12 +23,16 @@ dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11", "bandit>=1.7", "build>=1.2"]
 
 [project.scripts]
 wls = "wls.cli:main"
+wls-ui = "wls.ui_server:main"
 
 [tool.setuptools]
 package-dir = {"" = "source/src"}
 
 [tool.setuptools.packages.find]
 where = ["source/src"]
+
+[tool.setuptools.package-data]
+"wls.ui_static" = ["*.html", "*.css", "*.js"]
 
 [tool.setuptools.dynamic]
 version = {attr = "wls._version.__version__"}

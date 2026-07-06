@@ -15,6 +15,7 @@ from .schemas import (
     GoalStatus,
     MemoryItem,
     Observation,
+    RiskLevel,
     utc_now,
 )
 
@@ -284,8 +285,9 @@ class GoalStore:
                 """
                 INSERT INTO goals(
                     goal_id,title,description,priority,success_criteria_json,source,autonomous,
-                    parent_goal_id,deadline,status,progress,created_at,updated_at
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    parent_goal_id,deadline,status,progress,created_at,updated_at,
+                    rationale,origin,task_spec_json,risk
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     goal.goal_id,
@@ -301,6 +303,10 @@ class GoalStore:
                     goal.progress,
                     goal.created_at,
                     goal.updated_at,
+                    goal.rationale,
+                    goal.origin,
+                    json.dumps(goal.task_spec, ensure_ascii=False, sort_keys=True),
+                    goal.risk.value,
                 ),
             )
             self.ledger.append("goal_created", {"goal": goal.to_dict()}, connection)
@@ -312,6 +318,10 @@ class GoalStore:
             (GoalStatus.ACTIVE.value, GoalStatus.BLOCKED.value, limit),
         )
         return [self._row(row) for row in rows]
+
+    def get(self, goal_id: str) -> Goal | None:
+        row = self.db.query_one("SELECT * FROM goals WHERE goal_id=?", (goal_id,))
+        return self._row(row) if row is not None else None
 
     def update_progress(
         self, goal_id: str, progress: float, status: GoalStatus | None = None
@@ -358,6 +368,10 @@ class GoalStore:
             progress=float(row["progress"]),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            rationale=row["rationale"],
+            origin=row["origin"],
+            task_spec=json.loads(row["task_spec_json"]),
+            risk=RiskLevel(row["risk"]),
         )
 
 

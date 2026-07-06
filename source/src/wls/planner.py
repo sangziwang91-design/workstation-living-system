@@ -12,6 +12,7 @@ import os
 from .cognition import CognitiveEngine
 from .config import RuntimeConfig
 from .evidence import EvidenceLedger
+from .provider_router import ProviderRouter, RouteRequest
 from .schemas import ActionSpec, Plan, RiskLevel
 
 
@@ -251,6 +252,20 @@ class Planner:
     ):
         provider_type = str(config.provider.get("type", "cognitive"))
         self.provider_type = provider_type
+        self.provider_router = ProviderRouter.from_config(config)
+        route_request = RouteRequest(
+            required_capability="planning",
+            privacy=str(config.provider.get("privacy", "local_only")),
+            max_cost_class=str(config.provider.get("max_cost_class", "free")),
+            risk_ceiling="READ",
+            fallback_chain=[str(config.provider.get("fallback", "deterministic"))],
+        )
+        self.provider_route = self.provider_router.choose(route_request)
+        if self.provider_route.provider_id != provider_type:
+            raise PermissionError(
+                f"provider route selected {self.provider_route.provider_id}, "
+                f"but config requested {provider_type}"
+            )
         if provider_type == "cognitive":
             if cognition is None:
                 raise ValueError("cognitive provider requires CognitiveEngine")
@@ -279,6 +294,9 @@ class Planner:
             )
         else:
             raise ValueError(f"unknown provider type: {provider_type}")
+
+    def route_summary(self) -> dict[str, Any]:
+        return self.provider_route.to_dict()
 
     def plan(self, context: dict[str, Any]) -> Plan:
         raw = self.provider.create_plan(context)

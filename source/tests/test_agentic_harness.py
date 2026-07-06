@@ -1,0 +1,1856 @@
+from __future__ import annotations
+
+import hashlib
+import json
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+import pytest
+
+from wls.agentic_harness import AgenticHarness
+from wls.agentic_mailbox import AgenticFileMailbox, ResultEnvelope
+from wls.config import default_config
+from wls.evidence import EvidenceLedger
+from wls.db import Database
+from wls.runtime import LivingSystem
+from wls.schemas import MemoryItem, RiskLevel, TaskNodeStatus
+from wls.task_admission import TaskAdmissionClassifier
+from wls.task_graph import TaskGraph, TaskNode
+from wls.ui_projection import OwnerConsoleProductProjection
+from wls.worker_registry import WorkerProfile
+
+
+def _harness(tmp_path: Path) -> AgenticHarness:
+    db = Database(tmp_path / "state.sqlite3")
+    ledger = EvidenceLedger(db, tmp_path / "evidence.key")
+    return AgenticHarness(db, ledger)
+
+
+def test_task_admission_risk_floor_cannot_be_lowered_by_model_hint() -> None:
+    intent = TaskAdmissionClassifier().admit(
+        "Delete production records after sending the external release email",
+        model_hints={"risk": "READ", "operation": "ANSWER"},
+    )
+
+    assert intent.risk_floor is RiskLevel.IRREVERSIBLE
+    assert intent.owner_gate_required is True
+
+
+def test_task_admission_rejects_missing_acceptance() -> None:
+    with pytest.raises(ValueError, match="acceptance"):
+        TaskAdmissionClassifier().admit(
+            "inspect repository state",
+            acceptance=[],
+            evidence_required=["intent"],
+        )
+
+
+def test_task_graph_rejects_missing_dependencies_and_cycles() -> None:
+    graph = TaskGraph(intent_id="intent")
+    with pytest.raises(ValueError, match="missing dependencies"):
+        graph.add_nodes([TaskNode("a", "A", "planner", ["done"], {"missing"})])
+
+    graph = TaskGraph(intent_id="intent")
+    with pytest.raises(ValueError, match="cycle"):
+        graph.add_nodes(
+            [
+                TaskNode("a", "A", "planner", ["done"], {"b"}),
+                TaskNode("b", "B", "planner", ["done"], {"a"}),
+            ]
+        )
+
+
+def test_agentic_harness_persists_graph_and_reloads_after_restart(
+    tmp_path: Path,
+) -> None:
+    harness = _harness(tmp_path)
+    receipt = harness.admit_and_compile(
+        "Inspect repository docs in parallel",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+        model_hints={"allow_parallel": True, "domain": "RESEARCH"},
+    )
+    graph_id = receipt["graph"]["graph_id"]
+
+    restarted = AgenticHarness(harness.db, harness.ledger)
+    graph = restarted.load_graph(graph_id)
+
+    assert graph.graph_id == graph_id
+    assert [node.node_id for node in graph.ready_frontier()] == ["scope"]
+    assert receipt["context_manifest"]["graph_id"] == graph_id
+    assert receipt["route"]["worker_registry"] == "LOCAL_PROFILE_REGISTRY_V1"
+
+
+def test_agentic_harness_allows_one_active_lease_per_conflict_domain(
+    tmp_path: Path,
+) -> None:
+    harness = _harness(tmp_path)
+    receipt = harness.admit_and_compile(
+        "Inspect repository docs in parallel",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+        model_hints={"allow_parallel": True, "domain": "RESEARCH"},
+    )
+    graph_id = receipt["graph"]["graph_id"]
+
+    first = harness.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector", limit=2
+    )
+    second = harness.acquire_ready_leases(
+        graph_id, worker_id="planner-shadow", limit=2
+    )
+
+    assert len(first) == 1
+    assert first[0].conflict_domain == "readonly"
+    assert second == []
+
+
+def test_agentic_harness_failure_blocks_dependents(tmp_path: Path) -> None:
+    harness = _harness(tmp_path)
+    receipt = harness.admit_and_compile(
+        "Inspect repository docs in parallel",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+        model_hints={"allow_parallel": True, "domain": "RESEARCH"},
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    lease = harness.acquire_ready_leases(graph_id, worker_id="readonly-inspector")[0]
+
+    harness.fail_node(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        error="fixture failure",
+    )
+    failure_rows = harness.db.query_all("SELECT * FROM agentic_failure_attributions")
+    assert len(failure_rows) == 1
+    assert failure_rows[0]["failure_class"] == "LOCAL"
+    graph = harness.load_graph(graph_id)
+
+    assert graph.nodes["scope"].status is TaskNodeStatus.FAILED
+    assert graph.nodes["gather"].status is TaskNodeStatus.BLOCKED
+    assert graph.nodes["synthesize"].status is TaskNodeStatus.BLOCKED
+
+
+def test_high_risk_node_waits_for_approval_without_lease(tmp_path: Path) -> None:
+    harness = _harness(tmp_path)
+    receipt = harness.admit_and_compile(
+        "Publish release to an external system",
+        acceptance=["owner approval is present"],
+        evidence_required=["approval receipt"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+
+    leases = harness.acquire_ready_leases(
+        graph_id, worker_id="owner-gated-executor-shadow", limit=3
+    )
+    graph = harness.load_graph(graph_id)
+
+    assert leases[0].node_id == "plan"
+    harness.complete_node(
+        graph_id,
+        leases[0].node_id,
+        lease_id=leases[0].lease_id,
+        result={"ok": True},
+    )
+    waiting = harness.acquire_ready_leases(
+        graph_id, worker_id="owner-gated-executor-shadow", limit=3
+    )
+    graph = harness.load_graph(graph_id)
+    assert waiting == []
+    assert graph.nodes["execute"].status is TaskNodeStatus.WAITING_APPROVAL
+
+
+def test_living_system_exposes_agentic_tasks_without_second_authority(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+
+    status = runtime.status()
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(status)["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+
+    assert status["agentic_task_receipts"][0]["graph_id"] == receipt["graph"]["graph_id"]
+    assert panel["status"]["canonical_runtime"] == "LivingSystem"
+    assert panel["status"]["second_authority_created"] is False
+    assert panel["status"]["context_manifest_v1"]["receipt_count"] == 1
+    assert panel["status"]["worker_registry_v1"]["receipt_count"] >= 3
+
+
+def test_context_manifest_selects_scoped_canonical_records(tmp_path: Path) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    memory_id = runtime.memories.add(
+        MemoryItem(
+            memory_type="project_note",
+            content={
+                "project_ids": ["wls"],
+                "summary": "repository context survives restart",
+            },
+            importance=0.8,
+            confidence=0.9,
+            source_ids=["test"],
+            tags=["agentic_context"],
+        )
+    )
+
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    records = receipt["context_manifest"]["records"]
+
+    assert receipt["context_manifest"]["selection_policy"]["name"] == "CONTEXT_MANIFEST_V1"
+    assert any(item["record_id"] == memory_id for item in records)
+    assert runtime.status()["agentic_context_manifest_receipts"][0]["graph_id"] == receipt["graph"]["graph_id"]
+
+
+def test_role_context_packet_filters_sensitive_records_and_records_receipt(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    safe_memory_id = runtime.memories.add(
+        MemoryItem(
+            memory_type="project_note",
+            content={"summary": "Use the repository architecture note as context."},
+            importance=0.9,
+            confidence=0.8,
+            source_ids=["test://safe-context"],
+            tags=["agentic_context"],
+        )
+    )
+    secret_memory_id = runtime.memories.add(
+        MemoryItem(
+            memory_type="project_note",
+            content={"summary": "temporary token should never leave the runtime"},
+            importance=1.0,
+            confidence=0.9,
+            source_ids=["test://sensitive-context"],
+            tags=["agentic_context"],
+        )
+    )
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+
+    packet_receipt = runtime.agentic.render_context_packet(
+        graph_id,
+        role="executor",
+        token_budget=1200,
+        reason="unit test role-scoped context packet",
+    )
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+
+    packet = packet_receipt["packet"]
+    assert safe_memory_id in packet["included_record_ids"]
+    assert secret_memory_id not in packet["included_record_ids"]
+    assert {
+        "record_id": secret_memory_id,
+        "reason": "sensitive_context_filter",
+    } in packet["suppressed_records"]
+    assert packet["role"] == "executor"
+    assert packet["secret_material_present"] is False
+    assert packet["raw_database_export"] is False
+    assert packet_receipt["worker_execution"] is False
+    assert runtime.status()["agentic_context_packet_receipts"][0]["graph_id"] == graph_id
+    assert panel["status"]["role_context_packets_v1"]["receipt_count"] == 1
+    assert panel["status"]["role_context_packets_v1"]["raw_database_export"] is False
+
+
+def test_context_epoch_preserves_packet_and_evidence_references(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    planner_packet = runtime.agentic.render_context_packet(
+        graph_id,
+        role="planner",
+        reason="unit test planner context packet",
+    )
+    reviewer_packet = runtime.agentic.render_context_packet(
+        graph_id,
+        role="reviewer",
+        reason="unit test reviewer context packet",
+    )
+
+    epoch = runtime.agentic.record_context_epoch(
+        graph_id,
+        reason="unit test context epoch checkpoint",
+    )
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+
+    assert epoch["graph_id"] == graph_id
+    assert epoch["manifest_ref"]["manifest_digest"] == receipt["context_manifest"]["manifest_digest"]
+    assert {
+        planner_packet["packet_digest"],
+        reviewer_packet["packet_digest"],
+    } == {item["packet_digest"] for item in epoch["packet_refs"]}
+    assert epoch["critical_evidence_ref_count"] >= 3
+    assert epoch["safe_boundary"] is True
+    assert epoch["raw_transcript_replaced"] is False
+    assert epoch["original_receipts_preserved"] is True
+    assert epoch["worker_execution"] is False
+    assert runtime.status()["agentic_context_epoch_receipts"][0]["graph_id"] == graph_id
+    assert panel["status"]["context_epoch_v1"]["receipt_count"] == 1
+    assert panel["status"]["context_epoch_v1"]["original_receipts_preserved"] is True
+    assert panel["status"]["context_epoch_v1"]["memory_write"] is False
+
+
+def test_worker_registry_rejects_unknown_and_overrisk_workers(tmp_path: Path) -> None:
+    harness = _harness(tmp_path)
+    receipt = harness.admit_and_compile(
+        "Publish release to an external system",
+        acceptance=["owner approval is present"],
+        evidence_required=["approval receipt"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+
+    with pytest.raises(PermissionError, match="unknown or inactive worker"):
+        harness.acquire_ready_leases(graph_id, worker_id="not-registered")
+
+    low_risk_lease = harness.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector", limit=1
+    )[0]
+    harness.complete_node(
+        graph_id,
+        low_risk_lease.node_id,
+        lease_id=low_risk_lease.lease_id,
+        result={"ok": True},
+    )
+    with pytest.raises(PermissionError, match="max risk"):
+        harness.acquire_ready_leases(
+            graph_id,
+            worker_id="readonly-inspector",
+            owner_authorized_node_ids={"execute"},
+        )
+
+
+def test_living_system_binds_leased_agentic_node_to_canonical_action(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector"
+    )[0]
+
+    binding = runtime.bind_agentic_node_to_action(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        reason="test policy-bound mapping",
+    )
+
+    assert binding["action_status"] == "PLANNED"
+    assert binding["policy_decision"]["allowed"] is True
+    assert binding["direct_tool_execution"] is False
+    action = runtime.db.query_one(
+        "SELECT * FROM actions WHERE action_id=?", (binding["action_id"],)
+    )
+    assert action is not None
+    assert action["tool"] == "noop"
+    assert action["status"] == "PLANNED"
+    assert runtime.agentic.load_graph(graph_id).nodes[lease.node_id].status is TaskNodeStatus.LEASED
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+    assert panel["status"]["policy_bound_actions"]["receipt_count"] == 1
+
+
+def test_agentic_node_action_binding_preserves_owner_gate_for_high_risk(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Publish release to an external system",
+        acceptance=["owner approval is present"],
+        evidence_required=["approval receipt"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    plan_lease = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="owner-gated-executor-shadow"
+    )[0]
+    runtime.agentic.complete_node(
+        graph_id,
+        plan_lease.node_id,
+        lease_id=plan_lease.lease_id,
+        result={"ok": True},
+    )
+    execute_lease = runtime.agentic.acquire_ready_leases(
+        graph_id,
+        worker_id="owner-gated-executor-shadow",
+        owner_authorized_node_ids={"execute"},
+    )[0]
+
+    binding = runtime.bind_agentic_node_to_action(
+        graph_id, execute_lease.node_id, lease_id=execute_lease.lease_id
+    )
+
+    assert binding["action_status"] == "WAITING_APPROVAL"
+    assert binding["policy_decision"]["requires_approval"] is True
+    action = runtime.db.query_one(
+        "SELECT status FROM actions WHERE action_id=?", (binding["action_id"],)
+    )
+    assert action["status"] == "WAITING_APPROVAL"
+
+
+def test_living_system_executes_bound_readonly_agentic_node_action(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector"
+    )[0]
+    binding = runtime.bind_agentic_node_to_action(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+    )
+
+    execution = runtime.execute_bound_agentic_node_action(binding["binding_id"])
+
+    assert execution["status"] == "SUCCEEDED"
+    assert execution["execution_scope"] == "READ/no-side-effect shadow node action"
+    graph = runtime.agentic.load_graph(graph_id)
+    assert graph.nodes[lease.node_id].status is TaskNodeStatus.SUCCEEDED
+    binding_row = runtime.db.query_one(
+        "SELECT status FROM agentic_node_action_bindings WHERE binding_id=?",
+        (binding["binding_id"],),
+    )
+    assert binding_row["status"] == "SUCCEEDED"
+
+
+def test_agentic_node_acceptance_trace_completes_only_when_checks_pass(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    artifact_root = tmp_path / "artifacts"
+    artifact_root.mkdir()
+    artifact = artifact_root / "summary.txt"
+    artifact.write_text("agentic acceptance trace fixture\n", encoding="utf-8")
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector"
+    )[0]
+
+    completion = runtime.agentic.complete_node_with_acceptance(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        result={
+            "status": "SUCCEEDED",
+            "summary": "inspection result is recorded",
+            "evidence": ["agentic_task_graph_compiled"],
+            "payload": {"ok": True, "artifact": "summary.txt"},
+            "metrics": {"source_count": 2},
+        },
+        acceptance_checks=[
+            {"check_id": "status", "type": "result_status"},
+            {
+                "check_id": "summary",
+                "type": "regex",
+                "config": {"field": "summary", "pattern": "recorded"},
+            },
+            {
+                "check_id": "artifact",
+                "type": "artifact_exists",
+                "config": {"path": "summary.txt"},
+            },
+            {
+                "check_id": "metric",
+                "type": "metric_range",
+                "config": {"name": "source_count", "min": 1, "max": 3},
+            },
+        ],
+        artifact_root=artifact_root,
+    )
+
+    assert completion["acceptance_report"]["passed"] is True
+    assert completion["trace_event"]["payload_digest"]
+    graph = runtime.agentic.load_graph(graph_id)
+    assert graph.nodes[lease.node_id].status is TaskNodeStatus.SUCCEEDED
+    receipts = runtime.status()["agentic_acceptance_trace_receipts"]
+    assert receipts[0]["graph_id"] == graph_id
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+    assert panel["status"]["acceptance_trace_v1"]["receipt_count"] == 1
+
+
+def test_agentic_acceptance_metric_range_failure_is_visible(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector"
+    )[0]
+
+    completion = runtime.agentic.complete_node_with_acceptance(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        result={
+            "status": "SUCCEEDED",
+            "summary": "inspection result is recorded",
+            "evidence": ["agentic_task_graph_compiled"],
+            "metrics": {"source_count": 0},
+        },
+        acceptance_checks=[
+            {
+                "check_id": "metric",
+                "type": "metric_range",
+                "config": {"name": "source_count", "min": 1},
+            },
+        ],
+    )
+
+    assert completion["acceptance_report"]["passed"] is False
+    assert completion["acceptance_report"]["critical_failures"] == ["metric"]
+    assert "source_count=0.0" in completion["acceptance_report"]["checks"][0]["detail"]
+
+
+def test_agentic_node_acceptance_failure_blocks_dependents(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs in parallel",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+        model_hints={"allow_parallel": True, "domain": "RESEARCH"},
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector"
+    )[0]
+
+    completion = runtime.agentic.complete_node_with_acceptance(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        result={"status": "SUCCEEDED", "summary": "missing proof", "evidence": []},
+        acceptance_checks=[
+            {
+                "check_id": "evidence",
+                "type": "evidence_min",
+                "config": {"minimum": 1},
+            }
+        ],
+    )
+
+    assert completion["acceptance_report"]["passed"] is False
+    graph = runtime.agentic.load_graph(graph_id)
+    assert graph.nodes[lease.node_id].status is TaskNodeStatus.FAILED
+    assert graph.nodes["gather"].status is TaskNodeStatus.BLOCKED
+
+
+def test_agentic_process_auditor_flags_green_nodes_without_acceptance_trace(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    passed_receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    passed_graph_id = passed_receipt["graph"]["graph_id"]
+    passed_lease = runtime.agentic.acquire_ready_leases(
+        passed_graph_id, worker_id="readonly-inspector"
+    )[0]
+    runtime.agentic.complete_node_with_acceptance(
+        passed_graph_id,
+        passed_lease.node_id,
+        lease_id=passed_lease.lease_id,
+        result={
+            "status": "SUCCEEDED",
+            "summary": "inspection result is recorded",
+            "evidence": ["agentic_task_graph_compiled"],
+        },
+        acceptance_checks=[
+            {"check_id": "status", "type": "result_status"},
+            {
+                "check_id": "evidence",
+                "type": "evidence_min",
+                "config": {"minimum": 1},
+            },
+        ],
+    )
+    passed = runtime.agentic.audit_graph_process(
+        passed_graph_id, reason="unit test process audit pass"
+    )
+
+    review_receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    review_graph_id = review_receipt["graph"]["graph_id"]
+    review_lease = runtime.agentic.acquire_ready_leases(
+        review_graph_id, worker_id="readonly-inspector"
+    )[0]
+    runtime.agentic.complete_node(
+        review_graph_id,
+        review_lease.node_id,
+        lease_id=review_lease.lease_id,
+        result={"status": "SUCCEEDED", "summary": "inspection result is recorded"},
+    )
+    review = runtime.agentic.audit_graph_process(
+        review_graph_id, reason="unit test process audit review"
+    )
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+
+    assert passed["status"] == "PASS"
+    assert passed["issues"] == []
+    assert review["status"] == "REVIEW_REQUIRED"
+    assert review["critical_count"] == 0
+    assert review["issues"][0]["type"] == "succeeded_without_acceptance_trace"
+    assert runtime.status()["agentic_process_audit_receipts"][0]["graph_id"] == review_graph_id
+    assert panel["status"]["process_auditor_v1"]["receipt_count"] == 2
+    assert panel["status"]["process_auditor_v1"]["worker_execution"] is False
+
+
+def test_agentic_repair_candidate_preserves_failed_node_state(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector"
+    )[0]
+    runtime.agentic.fail_node(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        error="fixture validation mismatch: inspection evidence missing",
+    )
+
+    candidate = runtime.agentic.propose_repair_candidate(
+        graph_id,
+        lease.node_id,
+        reason="unit test failed node needs bounded repair candidate",
+    )
+
+    graph = runtime.agentic.load_graph(graph_id)
+    receipts = runtime.status()["agentic_repair_candidate_receipts"]
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+    event_types = {
+        row["event_type"]
+        for row in runtime.db.query_all(
+            "SELECT event_type FROM evidence WHERE event_type='agentic_repair_candidate_proposed'"
+        )
+    }
+    assert candidate["policy_decision"]["decision"] == "REPAIR_CANDIDATE_ONLY"
+    assert candidate["provenance"]["failure_attribution"]["failure_class"] in {
+        "LOCAL",
+        "STRUCTURAL",
+    }
+    assert (
+        candidate["trigger"]["failure_class"]
+        == candidate["provenance"]["failure_attribution"]["failure_class"]
+    )
+    assert candidate["state_mutated"] is False
+    assert candidate["node_reset"] is False
+    assert candidate["direct_execution"] is False
+    assert graph.nodes[lease.node_id].status is TaskNodeStatus.FAILED
+    assert len(receipts) == 1
+    assert panel["status"]["repair_candidates_v1"]["receipt_count"] == 1
+    assert event_types == {"agentic_repair_candidate_proposed"}
+
+
+def test_agentic_node_budget_gate_records_reserve_and_block(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector"
+    )[0]
+
+    reserved = runtime.agentic.reserve_node_budget(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        request={"tokens": 100, "seconds": 1, "calls": 1, "cost_usd": 0.0},
+        limit={"max_tokens": 150, "max_seconds": 10, "max_calls": 1, "max_cost_usd": 0.0},
+        reason="unit test bounded budget",
+    )
+    blocked = runtime.agentic.reserve_node_budget(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        request={"tokens": 75, "seconds": 1, "calls": 1, "cost_usd": 0.0},
+        limit={"max_tokens": 150, "max_seconds": 10, "max_calls": 1, "max_cost_usd": 0.0},
+        reason="unit test over-budget budget",
+    )
+
+    graph = runtime.agentic.load_graph(graph_id)
+    receipts = runtime.status()["agentic_budget_receipts"]
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+    assert reserved["status"] == "RESERVED"
+    assert blocked["status"] == "BLOCKED"
+    assert blocked["prior_usage"]["tokens"] == 100
+    assert set(blocked["exceeded"]) == {"tokens", "calls"}
+    assert graph.nodes[lease.node_id].status is TaskNodeStatus.LEASED
+    assert len(receipts) == 2
+    assert panel["status"]["budget_gate_v1"]["receipt_count"] == 2
+    assert panel["status"]["budget_gate_v1"]["provider_calls"] is False
+
+
+def test_agentic_checkpoint_resume_releases_expired_lease_after_restart(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id,
+        worker_id="readonly-inspector",
+        ttl_seconds=1,
+    )[0]
+    checkpoint = runtime.agentic.record_graph_checkpoint(
+        graph_id,
+        reason="unit test checkpoint before restart",
+    )
+    resume_at = (datetime.now(UTC) + timedelta(seconds=2)).isoformat()
+
+    resume = runtime.agentic.resume_expired_leases(
+        graph_id,
+        reason="unit test resume expired lease",
+        now=resume_at,
+    )
+    restarted = AgenticHarness(runtime.db, runtime.ledger)
+    reacquired = restarted.acquire_ready_leases(
+        graph_id,
+        worker_id="readonly-inspector",
+    )
+
+    graph = restarted.load_graph(graph_id)
+    receipts = runtime.status()["agentic_checkpoint_resume_receipts"]
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+    assert checkpoint["active_lease_count"] == 1
+    assert resume["resumed_node_count"] == 1
+    assert resume["resumed_nodes"][0]["expired_lease_id"] == lease.lease_id
+    assert reacquired[0].node_id == lease.node_id
+    assert reacquired[0].lease_id != lease.lease_id
+    assert graph.nodes[lease.node_id].status is TaskNodeStatus.LEASED
+    assert len(receipts) == 2
+    assert panel["status"]["checkpoint_resume_v1"]["receipt_count"] == 2
+    assert panel["status"]["checkpoint_resume_v1"]["retry_execution"] is False
+
+
+def test_agentic_retry_gate_requires_repair_candidate_and_prepares_new_lease(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector"
+    )[0]
+    runtime.agentic.fail_node(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        error="fixture validation mismatch: inspection evidence missing",
+    )
+    with pytest.raises(ValueError, match="repair candidate"):
+        runtime.agentic.prepare_node_retry(
+            graph_id,
+            lease.node_id,
+            reason="unit test retry without repair candidate",
+        )
+    repair = runtime.agentic.propose_repair_candidate(
+        graph_id,
+        lease.node_id,
+        reason="unit test retry repair candidate",
+    )
+
+    retry = runtime.agentic.prepare_node_retry(
+        graph_id,
+        lease.node_id,
+        repair_id=repair["repair_id"],
+        reason="unit test prepare retry",
+    )
+    reacquired = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector"
+    )
+
+    graph = runtime.agentic.load_graph(graph_id)
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+    assert retry["new_status"] == "READY"
+    assert retry["attempts_remaining"] == 1
+    assert retry["retry_executed"] is False
+    assert retry["downstream_unblocked"] is False
+    assert reacquired[0].node_id == lease.node_id
+    assert reacquired[0].lease_id != lease.lease_id
+    assert graph.nodes[lease.node_id].status is TaskNodeStatus.LEASED
+    assert panel["status"]["retry_gate_v1"]["receipt_count"] == 1
+
+
+def test_agentic_replan_candidate_preserves_failed_graph_state(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector"
+    )[0]
+    runtime.agentic.fail_node(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        error="fixture validation mismatch: inspection evidence missing",
+    )
+    before = runtime.agentic.load_graph(graph_id).snapshot()["graph_digest"]
+
+    replan = runtime.agentic.propose_replan_candidate(
+        graph_id,
+        trigger_node_id=lease.node_id,
+        reason="unit test replan candidate",
+    )
+
+    graph = runtime.agentic.load_graph(graph_id)
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+    assert replan["graph_revision"]["can_revise"] is True
+    assert replan["state_mutated"] is False
+    assert replan["graph_changed"] is False
+    assert replan["problem_nodes"][0]["node_id"] == lease.node_id
+    assert graph.snapshot()["graph_digest"] == before
+    assert graph.nodes[lease.node_id].status is TaskNodeStatus.FAILED
+    assert panel["status"]["replan_candidates_v1"]["receipt_count"] == 1
+
+
+def test_agentic_worker_lifecycle_marks_stale_worker_and_blocks_lease(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    worker = WorkerProfile(
+        worker_id="pytest-stale-worker",
+        worker_type="LOCAL_SHADOW",
+        label="Pytest stale worker",
+        allowed_domains=["RESEARCH", "MIXED", "CODE"],
+        max_risk=RiskLevel.READ,
+    )
+    registered = runtime.agentic.worker_registry.register_profile(
+        worker,
+        reason="unit test worker registration",
+    )
+    heartbeat = runtime.agentic.worker_registry.record_heartbeat(
+        worker.worker_id,
+        details={"phase": "unit-test"},
+    )
+    stale_cutoff = (datetime.now(UTC) + timedelta(seconds=1)).isoformat()
+    stale = runtime.agentic.worker_registry.mark_stale_workers(
+        stale_before=stale_cutoff,
+        reason="unit test stale cutoff",
+    )
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+
+    with pytest.raises(PermissionError, match="inactive worker"):
+        runtime.agentic.acquire_ready_leases(
+            graph_id,
+            worker_id=worker.worker_id,
+        )
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id,
+        worker_id="readonly-inspector",
+    )[0]
+
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+    assert registered["worker_id"] == worker.worker_id
+    assert heartbeat["status"] == "ACTIVE"
+    assert stale["stale_count"] == 1
+    assert stale["stale_workers"][0]["worker_id"] == worker.worker_id
+    assert lease.worker_id == "readonly-inspector"
+    assert panel["status"]["worker_lifecycle_v1"]["receipt_count"] == 3
+    assert panel["status"]["worker_lifecycle_v1"]["worker_execution"] is False
+
+
+def test_agentic_worker_lease_recovery_returns_stale_worker_node_to_ready(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    worker = WorkerProfile(
+        worker_id="pytest-recover-worker",
+        worker_type="LOCAL_SHADOW",
+        label="Pytest recover worker",
+        allowed_domains=["RESEARCH", "MIXED", "CODE"],
+        max_risk=RiskLevel.READ,
+    )
+    runtime.agentic.worker_registry.register_profile(
+        worker,
+        reason="unit test recovery worker registration",
+    )
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect stale worker recovery",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id,
+        worker_id=worker.worker_id,
+        ttl_seconds=30,
+    )[0]
+    heartbeat = runtime.agentic.record_lease_heartbeat(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        extend_seconds=60,
+        reason="unit test lease heartbeat",
+    )
+    runtime.agentic.worker_registry.mark_stale_workers(
+        stale_before=(datetime.now(UTC) + timedelta(seconds=1)).isoformat(),
+        reason="unit test mark worker stale",
+    )
+    runtime.agentic.worker_registry.record_heartbeat(
+        "readonly-inspector",
+        details={"phase": "unit-test-reacquire-worker-active"},
+    )
+    recovery = runtime.agentic.recover_stale_worker_leases(
+        graph_id,
+        worker_id=worker.worker_id,
+        reason="unit test stale worker lease recovery",
+    )
+    reacquired = runtime.agentic.acquire_ready_leases(
+        graph_id,
+        worker_id="readonly-inspector",
+    )[0]
+
+    graph = runtime.agentic.load_graph(graph_id)
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+    assert heartbeat["lease_id"] == lease.lease_id
+    assert heartbeat["expires_at"] != heartbeat["previous_expires_at"]
+    assert recovery["recovered_lease_count"] == 1
+    assert recovery["recovered_nodes"][0]["expired_lease_id"] == lease.lease_id
+    assert reacquired.node_id == lease.node_id
+    assert reacquired.lease_id != lease.lease_id
+    assert graph.nodes[lease.node_id].status is TaskNodeStatus.LEASED
+    assert graph.nodes[lease.node_id].worker_id == "readonly-inspector"
+    assert panel["status"]["worker_lease_recovery_v1"]["receipt_count"] == 2
+    assert panel["status"]["worker_lease_recovery_v1"]["retry_execution"] is False
+
+
+def test_agentic_worker_capability_arbitration_does_not_create_lease(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect worker capability card routing",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    graph = runtime.agentic.load_graph(graph_id)
+    node = graph.ready_frontier()[0]
+    runtime.agentic.worker_registry.register_profile(
+        WorkerProfile(
+            worker_id="pytest-incompatible-worker",
+            worker_type="LOCAL_SHADOW",
+            label="Pytest incompatible worker",
+            allowed_domains=["CODE"],
+            max_risk=RiskLevel.READ,
+            metadata={"version": "pytest-1", "auth_scheme": "none"},
+        ),
+        status="STALE",
+        reason="unit test incompatible worker card",
+    )
+
+    arbitration = runtime.agentic.propose_worker_candidates(
+        graph_id,
+        node.node_id,
+        reason="unit test worker capability arbitration",
+    )
+
+    after = runtime.agentic.load_graph(graph_id)
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+    assert arbitration["eligible_count"] >= 1
+    assert arbitration["rejected_count"] >= 1
+    assert arbitration["recommended_worker_id"] is not None
+    assert arbitration["lease_created"] is False
+    assert arbitration["selection_executed"] is False
+    assert (
+        arbitration["eligible_workers"][0]["card"]["schema_version"]
+        == "wls.worker_card.v1"
+    )
+    assert arbitration["eligible_workers"][0]["card"]["secret_material_present"] is False
+    assert after.nodes[node.node_id].status is TaskNodeStatus.READY
+    assert panel["status"]["worker_arbitration_v1"]["receipt_count"] == 1
+    assert panel["status"]["worker_arbitration_v1"]["worker_execution"] is False
+
+
+def test_agentic_file_mailbox_handoff_imports_through_canonical_harness(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    mailbox_root = tmp_path / "mailbox"
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector"
+    )[0]
+    exported = runtime.agentic.export_node_task_envelope(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        mailbox_root=mailbox_root,
+        recipient="local-worker-shadow",
+    )
+    mailbox = AgenticFileMailbox(mailbox_root)
+    task = mailbox.read_task(exported["message_id"])
+    result = ResultEnvelope.create(
+        message_id="result-1",
+        in_reply_to=task.message_id,
+        graph_id=task.graph_id,
+        node_id=task.node_id,
+        lease_id=task.lease_id,
+        sender="local-worker-shadow",
+        recipient=task.sender,
+        status="SUCCEEDED",
+        payload={"summary": "inspection result is recorded"},
+    )
+    mailbox.write_result(result)
+
+    imported = runtime.agentic.import_node_result_envelope(
+        mailbox_root=mailbox_root,
+        message_id=result.message_id,
+        acceptance_checks=[
+            {
+                "check_id": "summary",
+                "type": "regex",
+                "config": {"field": "payload", "pattern": "recorded"},
+            }
+        ],
+    )
+
+    assert imported["status"] == "SUCCEEDED"
+    assert imported["completion"]["acceptance_report"]["passed"] is True
+    graph = runtime.agentic.load_graph(graph_id)
+    assert graph.nodes[lease.node_id].status is TaskNodeStatus.SUCCEEDED
+    assert not (mailbox_root / "results" / "result-1.json").exists()
+    assert (mailbox_root / "processed" / "result-1.json").exists()
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+    assert panel["status"]["file_mailbox_v1"]["receipt_count"] == 2
+
+
+def test_agentic_file_mailbox_rejects_payload_digest_mismatch(tmp_path: Path) -> None:
+    mailbox = AgenticFileMailbox(tmp_path / "mailbox")
+    result = ResultEnvelope.create(
+        message_id="bad-result",
+        in_reply_to="task-1",
+        graph_id="graph",
+        node_id="node",
+        lease_id="lease",
+        sender="worker",
+        recipient="harness",
+        status="SUCCEEDED",
+        payload={"ok": True},
+    ).to_dict()
+    result["payload"]["ok"] = False
+    (tmp_path / "mailbox" / "results" / "bad-result.json").write_text(
+        json.dumps(result),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="payload digest mismatch"):
+        mailbox.read_result("bad-result")
+
+
+def test_agentic_file_mailbox_quarantines_duplicate_result_replay(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    mailbox_root = tmp_path / "mailbox"
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect duplicate result replay",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id,
+        worker_id="readonly-inspector",
+    )[0]
+    exported = runtime.agentic.export_node_task_envelope(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        mailbox_root=mailbox_root,
+        recipient="pytest-worker",
+    )
+    result = ResultEnvelope.create(
+        message_id="result-replay-1",
+        in_reply_to=exported["message_id"],
+        graph_id=graph_id,
+        node_id=lease.node_id,
+        lease_id=lease.lease_id,
+        sender="pytest-worker",
+        recipient="LivingSystem.AgenticHarness",
+        status="SUCCEEDED",
+        payload={"summary": "first import"},
+    )
+    mailbox = AgenticFileMailbox(mailbox_root)
+    mailbox.write_result(result)
+    imported = runtime.agentic.import_node_result_envelope(
+        mailbox_root=mailbox_root,
+        message_id=result.message_id,
+    )
+
+    mailbox.write_result(result)
+    quarantined = runtime.agentic.import_node_result_envelope(
+        mailbox_root=mailbox_root,
+        message_id=result.message_id,
+    )
+
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+    assert imported["receipt_type"] == "AGENTIC_RESULT_ENVELOPE_IMPORTED"
+    assert quarantined["receipt_type"] == "AGENTIC_RESULT_ENVELOPE_QUARANTINED"
+    assert quarantined["reason"] == "duplicate_result_replay"
+    assert quarantined["completion_attempted"] is False
+    assert not (mailbox_root / "results" / "result-replay-1.json").exists()
+    assert (mailbox_root / "rejected" / "result-replay-1.json").exists()
+    assert panel["status"]["file_mailbox_v1"]["receipt_count"] == 3
+
+
+def test_agentic_file_mailbox_quarantines_late_stale_lease_result(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    mailbox_root = tmp_path / "mailbox"
+    worker = WorkerProfile(
+        worker_id="pytest-fenced-worker",
+        worker_type="LOCAL_SHADOW",
+        label="Pytest fenced worker",
+        allowed_domains=["RESEARCH", "MIXED", "CODE"],
+        max_risk=RiskLevel.READ,
+    )
+    runtime.agentic.worker_registry.register_profile(
+        worker,
+        reason="unit test fenced worker registration",
+    )
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect stale lease fencing",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    old_lease = runtime.agentic.acquire_ready_leases(
+        graph_id,
+        worker_id=worker.worker_id,
+        ttl_seconds=30,
+    )[0]
+    exported = runtime.agentic.export_node_task_envelope(
+        graph_id,
+        old_lease.node_id,
+        lease_id=old_lease.lease_id,
+        mailbox_root=mailbox_root,
+        recipient=worker.worker_id,
+    )
+    mailbox = AgenticFileMailbox(mailbox_root)
+    task = mailbox.read_task(exported["message_id"])
+    runtime.agentic.worker_registry.mark_stale_workers(
+        stale_before=(datetime.now(UTC) + timedelta(seconds=1)).isoformat(),
+        reason="unit test stale worker before late result",
+    )
+    runtime.agentic.worker_registry.record_heartbeat(
+        "readonly-inspector",
+        details={"phase": "unit-test-fencing-reacquire-worker-active"},
+    )
+    runtime.agentic.recover_stale_worker_leases(
+        graph_id,
+        worker_id=worker.worker_id,
+        reason="unit test stale lease fencing recovery",
+    )
+    new_lease = runtime.agentic.acquire_ready_leases(
+        graph_id,
+        worker_id="readonly-inspector",
+    )[0]
+    late_result = ResultEnvelope.create(
+        message_id="late-result-1",
+        in_reply_to=task.message_id,
+        graph_id=graph_id,
+        node_id=old_lease.node_id,
+        lease_id=old_lease.lease_id,
+        sender=worker.worker_id,
+        recipient="LivingSystem.AgenticHarness",
+        status="SUCCEEDED",
+        payload={
+            "summary": "late stale worker result",
+            "lease_fencing_token": task.payload["lease_fencing_token"],
+        },
+    )
+    mailbox.write_result(late_result)
+    quarantined = runtime.agentic.import_node_result_envelope(
+        mailbox_root=mailbox_root,
+        message_id=late_result.message_id,
+    )
+
+    graph = runtime.agentic.load_graph(graph_id)
+    assert quarantined["receipt_type"] == "AGENTIC_RESULT_ENVELOPE_QUARANTINED"
+    assert quarantined["reason"] == "inactive_lease"
+    assert quarantined["completion_attempted"] is False
+    assert quarantined["fencing"]["worker_id"] == worker.worker_id
+    assert not (mailbox_root / "results" / "late-result-1.json").exists()
+    assert (mailbox_root / "rejected" / "late-result-1.json").exists()
+    assert new_lease.node_id == old_lease.node_id
+    assert graph.nodes[old_lease.node_id].status is TaskNodeStatus.LEASED
+    assert graph.nodes[old_lease.node_id].lease_id == new_lease.lease_id
+
+
+def test_agentic_mailbox_artifact_finalize_then_acceptance(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    mailbox_root = tmp_path / "mailbox"
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect finalized mailbox artifact",
+        acceptance=["finalized artifact digest is accepted"],
+        evidence_required=["agentic_mailbox_artifact_finalized"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id,
+        worker_id="readonly-inspector",
+    )[0]
+    exported = runtime.agentic.export_node_task_envelope(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        mailbox_root=mailbox_root,
+        recipient="pytest-artifact-worker",
+    )
+    mailbox = AgenticFileMailbox(mailbox_root)
+    task = mailbox.read_task(exported["message_id"])
+    artifact_id = "pytest-artifact"
+    chunks = [b"pytest finalized ", b"artifact evidence\n"]
+    expected_sha256 = hashlib.sha256(b"".join(chunks)).hexdigest()
+    for index, chunk in enumerate(chunks):
+        mailbox.write_artifact_chunk(artifact_id, index, chunk)
+    finalized = runtime.agentic.finalize_mailbox_artifact(
+        mailbox_root=mailbox_root,
+        artifact_id=artifact_id,
+        chunk_count=len(chunks),
+        expected_sha256=expected_sha256,
+        reason="unit test finalized artifact",
+    )
+    result = ResultEnvelope.create(
+        message_id="artifact-result-1",
+        in_reply_to=task.message_id,
+        graph_id=graph_id,
+        node_id=lease.node_id,
+        lease_id=lease.lease_id,
+        sender="pytest-artifact-worker",
+        recipient="LivingSystem.AgenticHarness",
+        status="SUCCEEDED",
+        payload={
+            "summary": "finalized artifact result",
+            "artifact_id": artifact_id,
+            "lease_fencing_token": task.payload["lease_fencing_token"],
+        },
+    )
+    mailbox.write_result(result)
+    imported = runtime.agentic.import_node_result_envelope(
+        mailbox_root=mailbox_root,
+        message_id=result.message_id,
+        acceptance_checks=[
+            {
+                "check_id": "artifact-sha256",
+                "type": "artifact_sha256",
+                "config": {"path": f"{artifact_id}.bin", "sha256": expected_sha256},
+                "critical": True,
+            }
+        ],
+        artifact_root=mailbox_root / "artifacts",
+    )
+
+    graph = runtime.agentic.load_graph(graph_id)
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+    assert finalized["sha256"] == expected_sha256
+    assert finalized["completion_attempted"] is False
+    assert (mailbox_root / "artifacts" / f"{artifact_id}.bin").is_file()
+    assert imported["completion"]["acceptance_report"]["passed"] is True
+    assert graph.nodes[lease.node_id].status is TaskNodeStatus.SUCCEEDED
+    assert panel["status"]["file_mailbox_v1"]["receipt_count"] == 3
+
+
+def test_agentic_mailbox_artifact_finalize_rejects_digest_mismatch(
+    tmp_path: Path,
+) -> None:
+    mailbox = AgenticFileMailbox(tmp_path / "mailbox")
+    artifact_id = "bad-artifact"
+    mailbox.write_artifact_chunk(artifact_id, 0, b"wrong")
+
+    with pytest.raises(ValueError, match="artifact digest mismatch"):
+        mailbox.finalize_artifact(
+            artifact_id,
+            chunk_count=1,
+            expected_sha256=hashlib.sha256(b"right").hexdigest(),
+        )
+
+    assert not (tmp_path / "mailbox" / "artifacts" / f"{artifact_id}.bin").exists()
+
+
+def test_agentic_worker_trust_review_quarantines_protocol_violator(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    mailbox_root = tmp_path / "mailbox"
+    worker = WorkerProfile(
+        worker_id="pytest-trust-worker",
+        worker_type="LOCAL_SHADOW",
+        label="Pytest trust worker",
+        allowed_domains=["RESEARCH", "MIXED", "CODE"],
+        max_risk=RiskLevel.READ,
+    )
+    runtime.agentic.worker_registry.register_profile(
+        worker,
+        reason="unit test trust worker registration",
+    )
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect worker trust quarantine",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_worker_trust_reviewed"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    old_lease = runtime.agentic.acquire_ready_leases(
+        graph_id,
+        worker_id=worker.worker_id,
+        ttl_seconds=30,
+    )[0]
+    exported = runtime.agentic.export_node_task_envelope(
+        graph_id,
+        old_lease.node_id,
+        lease_id=old_lease.lease_id,
+        mailbox_root=mailbox_root,
+        recipient=worker.worker_id,
+    )
+    mailbox = AgenticFileMailbox(mailbox_root)
+    task = mailbox.read_task(exported["message_id"])
+    runtime.agentic.worker_registry.mark_stale_workers(
+        stale_before=(datetime.now(UTC) + timedelta(seconds=1)).isoformat(),
+        reason="unit test trust worker stale",
+    )
+    runtime.agentic.worker_registry.record_heartbeat(
+        "readonly-inspector",
+        details={"phase": "unit-test-trust-reacquire-worker-active"},
+    )
+    runtime.agentic.recover_stale_worker_leases(
+        graph_id,
+        worker_id=worker.worker_id,
+        reason="unit test trust recovery",
+    )
+    runtime.agentic.acquire_ready_leases(
+        graph_id,
+        worker_id="readonly-inspector",
+    )
+    late_result = ResultEnvelope.create(
+        message_id="trust-late-result-1",
+        in_reply_to=task.message_id,
+        graph_id=graph_id,
+        node_id=old_lease.node_id,
+        lease_id=old_lease.lease_id,
+        sender=worker.worker_id,
+        recipient="LivingSystem.AgenticHarness",
+        status="SUCCEEDED",
+        payload={
+            "summary": "late trust review result",
+            "lease_fencing_token": task.payload["lease_fencing_token"],
+        },
+    )
+    mailbox.write_result(late_result)
+    runtime.agentic.import_node_result_envelope(
+        mailbox_root=mailbox_root,
+        message_id=late_result.message_id,
+    )
+    trust = runtime.agentic.worker_registry.review_worker_trust(
+        worker.worker_id,
+        reason="unit test trust quarantine review",
+    )
+
+    blocked_receipt = runtime.agentic.admit_and_compile(
+        "Inspect disabled worker lease block",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    with pytest.raises(PermissionError, match="inactive worker"):
+        runtime.agentic.acquire_ready_leases(
+            blocked_receipt["graph"]["graph_id"],
+            worker_id=worker.worker_id,
+        )
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+    assert trust["trust_state"] == "QUARANTINED"
+    assert trust["status_after_review"] == "DISABLED"
+    assert trust["quarantine_count"] >= 1
+    assert trust["self_report_used"] is False
+    assert panel["status"]["worker_trust_v1"]["receipt_count"] == 1
+    assert panel["status"]["worker_trust_v1"]["promotion_allowed"] is False
+
+
+def test_bound_agentic_node_action_execution_rejects_owner_gated_binding(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Publish release to an external system",
+        acceptance=["owner approval is present"],
+        evidence_required=["approval receipt"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    plan_lease = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="owner-gated-executor-shadow"
+    )[0]
+    runtime.agentic.complete_node(
+        graph_id,
+        plan_lease.node_id,
+        lease_id=plan_lease.lease_id,
+        result={"ok": True},
+    )
+    execute_lease = runtime.agentic.acquire_ready_leases(
+        graph_id,
+        worker_id="owner-gated-executor-shadow",
+        owner_authorized_node_ids={"execute"},
+    )[0]
+    binding = runtime.bind_agentic_node_to_action(
+        graph_id,
+        execute_lease.node_id,
+        lease_id=execute_lease.lease_id,
+    )
+
+    with pytest.raises(PermissionError, match="not executable"):
+        runtime.execute_bound_agentic_node_action(binding["binding_id"])
+
+    graph = runtime.agentic.load_graph(graph_id)
+    assert graph.nodes[execute_lease.node_id].status is TaskNodeStatus.LEASED
+
+
+def test_agentic_harness_epoch_audit_records_safety_invariants(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    read_receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    read_graph_id = read_receipt["graph"]["graph_id"]
+    read_lease = runtime.agentic.acquire_ready_leases(
+        read_graph_id, worker_id="readonly-inspector"
+    )[0]
+    read_binding = runtime.bind_agentic_node_to_action(
+        read_graph_id,
+        read_lease.node_id,
+        lease_id=read_lease.lease_id,
+    )
+    runtime.execute_bound_agentic_node_action(read_binding["binding_id"])
+    trace_receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    trace_graph_id = trace_receipt["graph"]["graph_id"]
+    trace_lease = runtime.agentic.acquire_ready_leases(
+        trace_graph_id, worker_id="readonly-inspector"
+    )[0]
+    runtime.agentic.complete_node_with_acceptance(
+        trace_graph_id,
+        trace_lease.node_id,
+        lease_id=trace_lease.lease_id,
+        result={
+            "status": "SUCCEEDED",
+            "summary": "inspection result is recorded",
+            "evidence": ["agentic_task_graph_compiled"],
+        },
+        acceptance_checks=[
+            {"check_id": "status", "type": "result_status"},
+            {
+                "check_id": "evidence",
+                "type": "evidence_min",
+                "config": {"minimum": 1},
+            },
+        ],
+    )
+    runtime.agentic.render_context_packet(
+        trace_graph_id,
+        role="reviewer",
+        reason="unit test epoch audit reviewer packet",
+    )
+    runtime.agentic.record_context_epoch(
+        trace_graph_id,
+        reason="unit test epoch audit context checkpoint",
+    )
+    runtime.agentic.audit_graph_process(
+        trace_graph_id,
+        reason="unit test epoch audit process auditor",
+    )
+    mailbox_root = tmp_path / "audit-mailbox"
+    mailbox_receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    mailbox_graph_id = mailbox_receipt["graph"]["graph_id"]
+    mailbox_lease = runtime.agentic.acquire_ready_leases(
+        mailbox_graph_id, worker_id="readonly-inspector"
+    )[0]
+    exported = runtime.agentic.export_node_task_envelope(
+        mailbox_graph_id,
+        mailbox_lease.node_id,
+        lease_id=mailbox_lease.lease_id,
+        mailbox_root=mailbox_root,
+        recipient="local-worker-shadow",
+    )
+    mailbox = AgenticFileMailbox(mailbox_root)
+    mailbox.write_result(
+        ResultEnvelope.create(
+            message_id="audit-result-1",
+            in_reply_to=exported["message_id"],
+            graph_id=mailbox_graph_id,
+            node_id=mailbox_lease.node_id,
+            lease_id=mailbox_lease.lease_id,
+            sender="local-worker-shadow",
+            recipient="LivingSystem.AgenticHarness",
+            status="SUCCEEDED",
+            payload={"summary": "inspection result is recorded"},
+        )
+    )
+    runtime.agentic.import_node_result_envelope(
+        mailbox_root=mailbox_root,
+        message_id="audit-result-1",
+    )
+    repair_receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    repair_graph_id = repair_receipt["graph"]["graph_id"]
+    repair_lease = runtime.agentic.acquire_ready_leases(
+        repair_graph_id, worker_id="readonly-inspector"
+    )[0]
+    runtime.agentic.fail_node(
+        repair_graph_id,
+        repair_lease.node_id,
+        lease_id=repair_lease.lease_id,
+        error="fixture validation mismatch: inspection evidence missing",
+    )
+    runtime.agentic.propose_repair_candidate(
+        repair_graph_id,
+        repair_lease.node_id,
+        reason="unit test epoch audit failed node repair candidate",
+    )
+
+    risky_receipt = runtime.agentic.admit_and_compile(
+        "Publish release to an external system",
+        acceptance=["owner approval is present"],
+        evidence_required=["approval receipt"],
+    )
+    risky_graph_id = risky_receipt["graph"]["graph_id"]
+    plan_lease = runtime.agentic.acquire_ready_leases(
+        risky_graph_id, worker_id="owner-gated-executor-shadow"
+    )[0]
+    runtime.agentic.complete_node(
+        risky_graph_id,
+        plan_lease.node_id,
+        lease_id=plan_lease.lease_id,
+        result={"ok": True},
+    )
+    execute_lease = runtime.agentic.acquire_ready_leases(
+        risky_graph_id,
+        worker_id="owner-gated-executor-shadow",
+        owner_authorized_node_ids={"execute"},
+    )[0]
+    runtime.bind_agentic_node_to_action(
+        risky_graph_id,
+        execute_lease.node_id,
+        lease_id=execute_lease.lease_id,
+    )
+
+    audit = runtime.record_agentic_harness_epoch_audit(
+        reason="unit test agentic harness epoch audit"
+    )
+
+    assert audit["status"] == "PASS"
+    assert audit["receipt_counts"]["task_graph"] == 5
+    assert audit["receipt_counts"]["node_action_binding"] == 2
+    assert audit["receipt_counts"]["failure_attribution"] == 1
+    assert audit["receipt_counts"]["acceptance_trace"] == 1
+    assert audit["receipt_counts"]["context_packet"] == 1
+    assert audit["receipt_counts"]["context_epoch"] == 1
+    assert audit["receipt_counts"]["process_audit"] == 1
+    assert audit["receipt_counts"]["file_mailbox"] == 2
+    assert audit["receipt_counts"]["repair_candidate"] == 1
+    assert audit["invariants"]["failed_nodes_have_repair_candidates"] is True
+    assert all(audit["invariants"].values())
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "agentic_tasks"
+    )
+    assert panel["status"]["harness_epoch_audit"]["receipt_count"] == 1
+
+
+def test_single_software_convergence_audit_records_remaining_tail_gaps(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt_for_trace = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    graph_id = receipt_for_trace["graph"]["graph_id"]
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector"
+    )[0]
+    runtime.agentic.complete_node_with_acceptance(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        result={
+            "status": "SUCCEEDED",
+            "summary": "inspection result is recorded",
+            "evidence": ["agentic_task_graph_compiled"],
+        },
+        acceptance_checks=[{"check_id": "status", "type": "result_status"}],
+    )
+    runtime.agentic.render_context_packet(
+        graph_id,
+        role="reviewer",
+        reason="unit test convergence reviewer packet",
+    )
+    runtime.agentic.record_context_epoch(
+        graph_id,
+        reason="unit test convergence context checkpoint",
+    )
+    runtime.agentic.audit_graph_process(
+        graph_id,
+        reason="unit test convergence process audit",
+    )
+    mailbox_root = tmp_path / "convergence-mailbox"
+    mailbox_receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+    )
+    mailbox_graph_id = mailbox_receipt["graph"]["graph_id"]
+    mailbox_lease = runtime.agentic.acquire_ready_leases(
+        mailbox_graph_id, worker_id="readonly-inspector"
+    )[0]
+    exported = runtime.agentic.export_node_task_envelope(
+        mailbox_graph_id,
+        mailbox_lease.node_id,
+        lease_id=mailbox_lease.lease_id,
+        mailbox_root=mailbox_root,
+        recipient="local-worker-shadow",
+    )
+    mailbox = AgenticFileMailbox(mailbox_root)
+    mailbox.write_result(
+        ResultEnvelope.create(
+            message_id="convergence-result-1",
+            in_reply_to=exported["message_id"],
+            graph_id=mailbox_graph_id,
+            node_id=mailbox_lease.node_id,
+            lease_id=mailbox_lease.lease_id,
+            sender="local-worker-shadow",
+            recipient="LivingSystem.AgenticHarness",
+            status="SUCCEEDED",
+            payload={"summary": "inspection result is recorded"},
+        )
+    )
+    runtime.agentic.import_node_result_envelope(
+        mailbox_root=mailbox_root,
+        message_id="convergence-result-1",
+    )
+    runtime.record_agentic_harness_epoch_audit(
+        reason="seed convergence audit with harness epoch receipt"
+    )
+
+    receipt = runtime.record_single_software_convergence_audit(
+        reason="unit test convergence map",
+        source_branch="living-agent-os-capabilities-001",
+        required_live_tail_tests=["disposable install smoke", "30-round replay"],
+    )
+
+    assert receipt["status"] == "CONVERGENCE_INCOMPLETE"
+    assert receipt["target_state"] == "ONE_WLS_SOFTWARE"
+    assert receipt["source_branch"] == "living-agent-os-capabilities-001"
+    assert receipt["required_live_tail_tests"] == [
+        "disposable install smoke",
+        "30-round replay",
+    ]
+    assert receipt["invariants"]["branch_is_not_final_state"] is True
+    assert receipt["invariants"]["single_living_system_authority"] is True
+    assert receipt["receipt_counts"]["agentic_acceptance_trace"] == 1
+    assert receipt["receipt_counts"]["agentic_context_packet"] == 1
+    assert receipt["receipt_counts"]["agentic_context_epoch"] == 1
+    assert receipt["receipt_counts"]["agentic_process_audit"] == 1
+    assert receipt["receipt_counts"]["agentic_file_mailbox"] == 2
+    assert "candidate branch not yet packaged" in receipt["blocking_gaps"][0]
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "capability_epoch"
+    )
+    assert (
+        panel["status"]["single_software_convergence"]["receipt_count"] == 1
+    )
+
+
+def test_failure_attribution_classifies_policy_and_environment(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    receipt = runtime.agentic.admit_and_compile(
+        "Inspect repository docs in parallel",
+        acceptance=["inspection result is recorded"],
+        evidence_required=["agentic_task_graph_compiled"],
+        model_hints={"allow_parallel": True, "domain": "RESEARCH"},
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    lease = runtime.agentic.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector"
+    )[0]
+
+    payload = runtime.agentic.fail_node(
+        graph_id,
+        lease.node_id,
+        lease_id=lease.lease_id,
+        error="PermissionError: policy approval missing",
+    )
+
+    assert payload["failure_attribution"]["failure_class"] == "POLICY"
+    receipts = runtime.status()["agentic_failure_attribution_receipts"]
+    assert receipts[0]["failure_class"] == "POLICY"

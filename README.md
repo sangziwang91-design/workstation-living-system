@@ -67,7 +67,7 @@ python -m pytest source/tests -q
 python source/scripts/verify_evolution_target_001.py
 python -m ruff check source/src source/tests source/scripts
 python -m mypy source/src/wls source/tests source/scripts --ignore-missing-imports
-python -m bandit -q -r source/src/wls source/scripts
+python -m bandit -q --ini .bandit -r source/src/wls source/scripts
 python -m build .
 ```
 

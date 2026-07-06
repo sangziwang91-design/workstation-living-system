@@ -6,7 +6,9 @@ from typing import Any, Callable
 from urllib.error import HTTPError
 from urllib.parse import urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
+import hashlib
 import json
+import mimetypes
 import os
 
 # Command execution is allowlisted and always uses shell=False.
@@ -79,6 +81,14 @@ class ToolRegistry:
         self.register(ToolDefinition("list_directory", self._list_directory, "none"))
         self.register(ToolDefinition("write_file", self._write_file, "reversible"))
         self.register(ToolDefinition("http_get", self._http_get, "none"))
+        self.register(ToolDefinition("inspect_asset", self._inspect_asset, "none"))
+        self.register(
+            ToolDefinition(
+                "inspect_coding_candidate",
+                self._inspect_coding_candidate,
+                "none",
+            )
+        )
         self.register(ToolDefinition("run_command", self._run_command, "external"))
         self.register(ToolDefinition("emit_note", self._emit_note, "reversible"))
         self.register(
@@ -130,8 +140,9 @@ class ToolRegistry:
             raise ValueError("content exceeds max_bytes")
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_name(path.name + f".wls-{os.getpid()}.tmp")
-        temporary.write_bytes(encoded)
-        with temporary.open("rb") as stream:
+        with temporary.open("wb") as stream:
+            stream.write(encoded)
+            stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)
         return {"path": str(path), "bytes": len(encoded)}
@@ -168,6 +179,39 @@ class ToolRegistry:
                 "body": data,
                 "latency_ms": round((time.monotonic() - started) * 1000, 2),
             }
+
+    def _inspect_asset(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        path = Path(str(arguments["path"])).expanduser().resolve(strict=True)
+        max_bytes = int(arguments.get("max_bytes", 10 * 1024 * 1024))
+        stat = path.stat()
+        if stat.st_size > max_bytes:
+            raise ValueError("asset exceeds max_bytes")
+        data = path.read_bytes()
+        mime_type, encoding = mimetypes.guess_type(path.name)
+        return {
+            "path": str(path),
+            "name": path.name,
+            "size": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(),
+            "mime_type": mime_type or "application/octet-stream",
+            "encoding": encoding,
+            "header_hex": data[:64].hex(),
+        }
+
+    def _inspect_coding_candidate(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        from .coding_adapter import CodingTaskContract
+
+        contract = CodingTaskContract(
+            task_id=str(arguments["task_id"]),
+            base_sha=str(arguments["base_sha"]),
+            worktree=Path(str(arguments["path"])).expanduser().resolve(strict=True),
+            changed_files=[
+                str(item) for item in arguments.get("changed_files", [])
+            ],
+            tests=[str(item) for item in arguments.get("tests", [])],
+            rollback=[str(item) for item in arguments.get("rollback", [])],
+        )
+        return contract.candidate_artifact()
 
     def _run_command(self, arguments: dict[str, Any]) -> dict[str, Any]:
         command = list(arguments["command"])

@@ -85,6 +85,8 @@ class PolicyEngine:
             "write_file",
             "delete_file",
             "emit_note",
+            "inspect_coding_candidate",
+            "inspect_asset",
         }:
             raw_path = action.arguments.get("path")
             if not isinstance(raw_path, str) or not raw_path.strip():

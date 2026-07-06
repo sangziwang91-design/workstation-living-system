@@ -85,6 +85,47 @@ class CandidateStatus(StrEnum):
     ROLLED_BACK = "ROLLED_BACK"
 
 
+class TaskOperation(StrEnum):
+    ANSWER = "ANSWER"
+    INSPECT = "INSPECT"
+    CHANGE = "CHANGE"
+    EXECUTE = "EXECUTE"
+    PUBLISH = "PUBLISH"
+
+
+class TaskDomain(StrEnum):
+    CODE = "CODE"
+    RESEARCH = "RESEARCH"
+    DOCUMENT = "DOCUMENT"
+    OPERATIONS = "OPERATIONS"
+    PERSONAL = "PERSONAL"
+    SYSTEM = "SYSTEM"
+    MIXED = "MIXED"
+
+
+class TaskHorizon(StrEnum):
+    SHORT = "SHORT"
+    SESSION = "SESSION"
+    LONG = "LONG"
+
+
+class TaskParallelism(StrEnum):
+    SERIAL = "SERIAL"
+    PARALLEL_READ_ONLY = "PARALLEL_READ_ONLY"
+    PARALLEL_MIXED = "PARALLEL_MIXED"
+
+
+class TaskNodeStatus(StrEnum):
+    PENDING = "PENDING"
+    READY = "READY"
+    LEASED = "LEASED"
+    WAITING_APPROVAL = "WAITING_APPROVAL"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    BLOCKED = "BLOCKED"
+    CANCELLED = "CANCELLED"
+
+
 @dataclass(slots=True)
 class Observation:
     source: str
@@ -163,6 +204,10 @@ class Goal:
     progress: float = 0.0
     created_at: str = field(default_factory=utc_now)
     updated_at: str = field(default_factory=utc_now)
+    rationale: str = ""
+    origin: str = "owner"
+    task_spec: dict[str, Any] = field(default_factory=dict)
+    risk: RiskLevel = RiskLevel.READ
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.priority <= 1.0:
@@ -171,10 +216,13 @@ class Goal:
             raise ValueError("progress must be within [0, 1]")
         if not self.title.strip():
             raise ValueError("goal title is required")
+        if not isinstance(self.risk, RiskLevel):
+            self.risk = RiskLevel(str(self.risk))
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["status"] = self.status.value
+        data["risk"] = self.risk.value
         return data
 
 
