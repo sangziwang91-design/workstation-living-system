@@ -541,6 +541,11 @@ fields such as `memory_id`/`active`.
   R31-R40 campaign route, source ledger, and claim rules into canonical runtime
   evidence while preserving R31-R40 as Owner-host campaign gates and avoiding a
   second runtime, merge, promotion, or package install.
+- P88 is a shadow-level runtime admission for source artifact inventory
+  receipts. It maps the `D:\WLS-Dev` update artifacts, hashes, absorbed,
+  superseded, partial, and Owner-gated coverage states into canonical evidence
+  without installing artifacts, mutating the live instance, merging, deploying,
+  or treating Owner-host campaign work as complete.
 
 ## Projection Rule
 

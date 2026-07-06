@@ -82,6 +82,7 @@ from wls.architecture_validation import (
     validate_phase2_release_handoff_summary,
     validate_phase2_scheduler_due_event_runtime_intake,
     validate_phase2_skill_candidate_extraction_receipts,
+    validate_phase2_source_artifact_inventory_audit,
     validate_phase2_learning_epoch_review_receipts,
     validate_phase2_local_notification_draft_receipts,
     validate_phase2_screen_snapshot_ingress_receipts,
@@ -4192,6 +4193,49 @@ def test_final_route_absorption_preserves_owner_campaign_gates(
     assert receipt["promotion_executed"] is False
     assert panel["status"]["final_route_absorption"]["receipt_count"] == 1
     assert panel["status"]["final_route_absorption"]["created_second_runtime"] is False
+
+
+def test_architecture_validation_checks_source_artifact_inventory_audit(
+    tmp_path: Path,
+) -> None:
+    result = validate_phase2_source_artifact_inventory_audit(
+        tmp_path / "source-artifact-inventory-validation-home"
+    )
+    assert result.pass_id == "P88"
+    assert result.verdict == "ADMIT_SHADOW_ONLY"
+    assert "source_artifacts_mapped_as_candidate_evidence" in result.evidence
+    assert "owner_host_artifacts_preserved_as_gates" in result.evidence
+
+
+def test_source_artifact_inventory_blocks_missing_or_untracked_artifacts(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    ready = runtime.record_source_artifact_inventory(
+        artifact_hashes={"artifact.zip": "1" * 64},
+        coverage={"artifact.zip": "ABSORBED"},
+        owner_host_gates={"owner_host_campaign": False},
+        reason="unit test source artifact inventory ready",
+    )
+    blocked = runtime.record_source_artifact_inventory(
+        artifact_hashes={"artifact.zip": "1" * 64, "untracked.zip": "2" * 64},
+        coverage={"artifact.zip": "MISSING"},
+        owner_host_gates={},
+        reason="unit test source artifact inventory block",
+    )
+    panel = next(
+        item
+        for item in OwnerConsoleProductProjection().project(runtime.status())["panels"]
+        if item["panel_id"] == "capability_epoch"
+    )
+
+    assert ready["status"] == "SOURCE_ARTIFACTS_MAPPED_AS_CANDIDATE_EVIDENCE"
+    assert ready["failure_groups"]["owner_host_gates"] == ["owner_host_campaign"]
+    assert ready["artifact_install_executed"] is False
+    assert blocked["status"] == "SOURCE_ARTIFACT_INVENTORY_BLOCKED"
+    assert blocked["failure_groups"]["missing_artifacts"] == ["artifact.zip"]
+    assert blocked["failure_groups"]["untracked_hashes"] == ["untracked.zip"]
+    assert panel["status"]["source_artifact_inventory"]["receipt_count"] == 2
 
 
 def test_release_state_audit_blocks_missing_evidence(

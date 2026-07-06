@@ -1064,6 +1064,7 @@ class LivingSystem:
             "ui_hardening_audit": len(self.ui_hardening_audit_receipts(100)),
             "ui_package_absorption": len(self.ui_package_absorption_receipts(100)),
             "final_route_absorption": len(self.final_route_absorption_receipts(100)),
+            "source_artifact_inventory": len(self.source_artifact_inventory_receipts(100)),
             "delivery_gap_audit": len(self.delivery_gap_audit_receipts(100)),
         }
         branch_only_scaffolding = [
@@ -1484,6 +1485,14 @@ class LivingSystem:
         self, limit: int = 20
     ) -> list[dict[str, Any]]:
         receipts = self.db.get_runtime("final_route_absorption_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
+    def source_artifact_inventory_receipts(
+        self, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("source_artifact_inventory_receipts", [])
         if not isinstance(receipts, list):
             return []
         return receipts[: max(0, int(limit))]
@@ -2164,6 +2173,80 @@ class LivingSystem:
                 "final_route_absorption_receipts", updated, connection
             )
             self.ledger.append("final_route_absorption_recorded", receipt, connection)
+        return receipt
+
+    def record_source_artifact_inventory(
+        self,
+        *,
+        artifact_hashes: dict[str, str],
+        coverage: dict[str, str],
+        owner_host_gates: dict[str, bool],
+        reason: str,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("source artifact inventory reason is required")
+        allowed_states = {"ABSORBED", "SUPERSEDED", "OWNER_GATE", "PARTIAL", "MISSING", "CONFLICT"}
+        invalid_hashes = [
+            key
+            for key, value in artifact_hashes.items()
+            if len(str(value).strip()) != 64
+            or any(item not in "0123456789abcdef" for item in str(value).strip().lower())
+        ]
+        invalid_coverage = {
+            key: value for key, value in coverage.items() if value not in allowed_states
+        }
+        missing_artifacts = [
+            key for key, value in coverage.items() if value in {"MISSING", "CONFLICT"}
+        ]
+        untracked_hashes = sorted(set(artifact_hashes) - set(coverage))
+        owner_gate_failures = [
+            key for key, value in owner_host_gates.items() if value is not True
+        ]
+        failure_groups = {
+            "invalid_hashes": sorted(invalid_hashes),
+            "invalid_coverage": sorted(invalid_coverage),
+            "missing_artifacts": sorted(missing_artifacts),
+            "untracked_hashes": untracked_hashes,
+            "owner_host_gates": sorted(owner_gate_failures),
+        }
+        candidate_ready = not (
+            invalid_hashes or invalid_coverage or missing_artifacts or untracked_hashes
+        )
+        receipt = {
+            "receipt_type": "SOURCE_ARTIFACT_INVENTORY",
+            "status": "SOURCE_ARTIFACTS_MAPPED_AS_CANDIDATE_EVIDENCE"
+            if candidate_ready
+            else "SOURCE_ARTIFACT_INVENTORY_BLOCKED",
+            "audit_id": new_id("source_artifact_inventory"),
+            "artifact_hashes": {
+                key: str(value).strip().lower() for key, value in artifact_hashes.items()
+            },
+            "coverage": coverage,
+            "owner_host_gates": owner_host_gates,
+            "failure_groups": failure_groups,
+            "allowed_conclusion": (
+                "local source artifacts mapped into repository candidate evidence"
+                if candidate_ready
+                else "source artifact inventory requires repair before handoff"
+            ),
+            "live_install_modified": False,
+            "artifact_install_executed": False,
+            "merge_executed": False,
+            "deploy_executed": False,
+            "claim_ceiling": (
+                "source artifact inventory receipt only; hashes and coverage states "
+                "are mapped into repository evidence while Owner-host gates remain separate"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.source_artifact_inventory_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime(
+                "source_artifact_inventory_receipts", updated, connection
+            )
+            self.ledger.append("source_artifact_inventory_recorded", receipt, connection)
         return receipt
 
     def record_installed_tail_check_audit(
@@ -5298,6 +5381,7 @@ class LivingSystem:
             "ui_hardening_audit_receipts": self.ui_hardening_audit_receipts(),
             "ui_package_absorption_receipts": self.ui_package_absorption_receipts(),
             "final_route_absorption_receipts": self.final_route_absorption_receipts(),
+            "source_artifact_inventory_receipts": self.source_artifact_inventory_receipts(),
             "delivery_gap_audit_receipts": self.delivery_gap_audit_receipts(),
             "installed_tail_check_receipts": self.installed_tail_check_receipts(),
             "operational_preflight_receipts": self.operational_preflight_receipts(),

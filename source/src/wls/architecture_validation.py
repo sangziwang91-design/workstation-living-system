@@ -7993,6 +7993,116 @@ def validate_phase2_final_route_absorption_audit(home: Path) -> ArchitecturePass
     )
 
 
+def validate_phase2_source_artifact_inventory_audit(home: Path) -> ArchitecturePassResult:
+    runtime = LivingSystem(default_config(home / "runtime"))
+    artifact_hashes = {
+        "WLS_30_ROUND_DIRECT_ITERATION_TASK.md": "e491809d9c739a8a142868471e4b28bc3066d2b1dd360a78876cf63668972223",
+        "WLS_LIVING_AGENT_OS_CAPABILITY_EVOLUTION_v1.0.zip": "a57417d578a16a167e4dc3608cf0617457a339027abc2e0d67a8a65602074433",
+        "WLS_AGENTIC_DEEP_LEAP_v1.0.zip": "0943912ae20a2bc13a8734abd42b6a9a11bb690be1fd90f0f953f31e71167e8c",
+        "WLS_DEEP_LEAP_PACK_2026-07-03.zip": "a9ca7d482670da8158844a1bed36cf22b52b3bccd8e2691a949e155eafce34b4",
+        "WLS_DEEP_LEAP_20260703.zip": "302901fbcc8a3a9129b5268fc26c090272b0c33d772ade87e0653684bf46a3f9",
+        "WLS-OFFSPRING-EVOLUTION-001.zip": "0bce1172f619e1c7eeab15c4ffccde01badb6751cbea767cf95ce7e5b4ee56f7",
+        "wls_offspring_evolution-0.1.0-py3-none-any.whl": "206b9f1e36b9379305df5482a869c9fea1ca1cde897db47949ac11cd51d8d997",
+        "WLS_UI_RUNTIME_V1_WORK_PACKAGE.zip": "1b33889aab0debd8410f9fe612cc7069a1435a4f53e6a82e6113eaa854b450b6",
+        "WLS_UI_RUNTIME_V1_1_HARDENED_CONTINUATION_INSTALL_PACKAGE.zip": "f3e9db08862849faf430b3301ee9ee7e76089f762a1739f3dbe4c4b2ed6f32a4",
+        "WLS-CODEX-FINAL-ROUTE-001.zip": "c58fcde5dbb2be2e6dfb51e297bd61d8f0242cc92e3b0644548136ce9c972c5f",
+        "WLS_OWNER_HOST_LIFE_CAMPAIGN_30_CODEX_TASK.md": "ad56dc98f2a4f79ac7b085dc1dcaf4f4dd7a4aa2ce9ed2ce49a080c1bb0f7279",
+    }
+    # Owner previously accepted the v2.0 source, but the current D:\WLS-Dev
+    # scan only gives partial local evidence, so keep coverage without a hash.
+    coverage = {
+        "WLS_30_ROUND_DIRECT_ITERATION_TASK.md": "ABSORBED",
+        "WLS_LIVING_AGENT_OS_CAPABILITY_EVOLUTION_v1.0.zip": "ABSORBED",
+        "WLS_EVOLUTIONARY_FUTURE_PACKAGE_v2.0.zip": "PARTIAL",
+        "WLS_AGENTIC_DEEP_LEAP_v1.0.zip": "ABSORBED",
+        "WLS_DEEP_LEAP_PACK_2026-07-03.zip": "ABSORBED",
+        "WLS_DEEP_LEAP_20260703.zip": "SUPERSEDED",
+        "WLS-OFFSPRING-EVOLUTION-001.zip": "ABSORBED",
+        "wls_offspring_evolution-0.1.0-py3-none-any.whl": "SUPERSEDED",
+        "WLS_UI_RUNTIME_V1_WORK_PACKAGE.zip": "SUPERSEDED",
+        "WLS_UI_RUNTIME_V1_1_HARDENED_CONTINUATION_INSTALL_PACKAGE.zip": "ABSORBED",
+        "WLS-CODEX-FINAL-ROUTE-001.zip": "ABSORBED",
+        "WLS_OWNER_HOST_LIFE_CAMPAIGN_30_CODEX_TASK.md": "OWNER_GATE",
+    }
+    ready = runtime.record_source_artifact_inventory(
+        artifact_hashes=artifact_hashes,
+        coverage=coverage,
+        owner_host_gates={
+            "owner_host_r31_r40_campaigns": False,
+            "real_browser_e2e": False,
+            "external_independent_benchmark": False,
+        },
+        reason="architecture validation source artifact inventory audit",
+    )
+    blocked = runtime.record_source_artifact_inventory(
+        artifact_hashes={
+            "WLS_30_ROUND_DIRECT_ITERATION_TASK.md": artifact_hashes[
+                "WLS_30_ROUND_DIRECT_ITERATION_TASK.md"
+            ],
+            "untracked.zip": "1" * 64,
+        },
+        coverage={"WLS_30_ROUND_DIRECT_ITERATION_TASK.md": "MISSING"},
+        owner_host_gates={"real_browser_e2e": False},
+        reason="architecture validation source artifact inventory block",
+    )
+    panel = next(
+        (
+            item
+            for item in OwnerConsoleProductProjection().project(runtime.status())[
+                "panels"
+            ]
+            if item.get("panel_id") == "capability_epoch"
+        ),
+        None,
+    )
+    event_types = {
+        str(row["event_type"])
+        for row in runtime.db.query_all(
+            """
+            SELECT event_type FROM evidence
+            WHERE event_type='source_artifact_inventory_recorded'
+            """
+        )
+    }
+    capability_status = panel["status"] if panel is not None else {}
+    inventory_status = capability_status.get("source_artifact_inventory", {})
+    if (
+        ready["status"] != "SOURCE_ARTIFACTS_MAPPED_AS_CANDIDATE_EVIDENCE"
+        or ready["coverage"]["WLS_OWNER_HOST_LIFE_CAMPAIGN_30_CODEX_TASK.md"]
+        != "OWNER_GATE"
+        or ready["artifact_install_executed"] is not False
+        or blocked["status"] != "SOURCE_ARTIFACT_INVENTORY_BLOCKED"
+        or blocked["failure_groups"]["missing_artifacts"]
+        != ["WLS_30_ROUND_DIRECT_ITERATION_TASK.md"]
+        or blocked["failure_groups"]["untracked_hashes"] != ["untracked.zip"]
+        or panel is None
+        or inventory_status.get("receipt_count") != 2
+        or inventory_status.get("artifact_install_executed") is not False
+        or inventory_status.get("live_install_modified") is not False
+        or inventory_status.get("owner_host_gates_required") is not True
+        or event_types != {"source_artifact_inventory_recorded"}
+    ):
+        return ArchitecturePassResult(
+            "P88",
+            "BLOCKED",
+            [str(ready), str(blocked)],
+            ["source artifact inventory audit validation failed"],
+        )
+    return ArchitecturePassResult(
+        "P88",
+        "ADMIT_SHADOW_ONLY",
+        [
+            str(ready["audit_id"]),
+            "source_artifacts_mapped_as_candidate_evidence",
+            "owner_host_artifacts_preserved_as_gates",
+            "source_artifact_inventory_recorded",
+        ],
+        [
+            "Source artifact inventory maps the D:\\WLS-Dev update packages into canonical coverage evidence, keeps superseded artifacts explicit, and preserves Owner-host artifacts as gates without installing or mutating live state",
+        ],
+    )
+
+
 def _insert_waiting_write_action(
     runtime: LivingSystem, path: Path, body: str
 ) -> ActionSpec:

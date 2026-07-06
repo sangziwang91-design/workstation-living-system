@@ -105,6 +105,20 @@ def build_handoff(
             "campaign_rounds": "R31-R40 preserved as Owner-host gates",
             "creates_second_runtime": False,
         },
+        "source_artifact_inventory": {
+            "scope": "D:\\WLS-Dev local update artifacts",
+            "mapped_artifacts": [
+                "WLS_30_ROUND_DIRECT_ITERATION_TASK.md",
+                "WLS_LIVING_AGENT_OS_CAPABILITY_EVOLUTION_v1.0.zip",
+                "WLS_AGENTIC_DEEP_LEAP_v1.0.zip",
+                "WLS_DEEP_LEAP_PACK_2026-07-03.zip",
+                "WLS-OFFSPRING-EVOLUTION-001.zip",
+                "WLS_UI_RUNTIME_V1_1_HARDENED_CONTINUATION_INSTALL_PACKAGE.zip",
+                "WLS-CODEX-FINAL-ROUTE-001.zip",
+            ],
+            "owner_host_artifacts_preserved_as_gates": True,
+            "artifact_install_executed": False,
+        },
         "owner_host_gates": [
             "real_browser_e2e",
             "owner_host_longitudinal",
@@ -123,7 +137,7 @@ def build_handoff(
         "delivery_gap_summary": delivery_gap_summary,
         "owner_commands": commands,
         "test_results": [
-            {"name": "architecture_validation_p81_p87", "status": "PASS"},
+            {"name": "architecture_validation_p81_p88", "status": "PASS"},
             {"name": "ui_projection_and_server", "status": "PASS"},
             {"name": "life_campaign_and_packaging_contracts", "status": "PASS"},
         ],

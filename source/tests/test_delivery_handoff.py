@@ -48,11 +48,17 @@ def test_build_delivery_handoff_outputs_owner_commands() -> None:
     assert payload["delivery_gap_summary"]["final_route_absorption"][
         "creates_second_runtime"
     ] is False
+    assert payload["delivery_gap_summary"]["source_artifact_inventory"][
+        "artifact_install_executed"
+    ] is False
+    assert "WLS-CODEX-FINAL-ROUTE-001.zip" in payload["delivery_gap_summary"][
+        "source_artifact_inventory"
+    ]["mapped_artifacts"]
     assert "real_browser_e2e" in payload["delivery_gap_summary"]["owner_host_gates"]
     assert "run_life_campaign_30.ps1" in payload["owner_commands"]["R01_R05"]
     assert "-StartRound R01" in payload["owner_commands"]["R01_R05"]
     assert "-EndRound R05" in payload["owner_commands"]["R01_R05"]
     assert "--execute" in payload["owner_commands"]["R01_R40"]
-    assert payload["test_results"][0]["name"] == "architecture_validation_p81_p87"
+    assert payload["test_results"][0]["name"] == "architecture_validation_p81_p88"
     assert payload["boundaries"]["live_install_modified"] is False
     assert payload["boundaries"]["deploy_executed"] is False
