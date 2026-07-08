@@ -136,6 +136,31 @@ class CapabilityRegistry:
             if manifest.declares_authority:
                 raise ValueError(f"duplicate authority: {manifest.capability_id}")
 
+    def detect_duplicate_authorities(self) -> list[dict[str, Any]]:
+        findings: list[dict[str, Any]] = []
+        owner_map: dict[str, list[str]] = {}
+        for manifest in self._items.values():
+            owner_map.setdefault(manifest.canonical_owner, []).append(manifest.capability_id)
+        for owner, caps in owner_map.items():
+            if owner not in CANONICAL_AUTHORITIES:
+                findings.append({
+                    "severity": "critical",
+                    "owner": owner,
+                    "capabilities": caps,
+                    "detail": f"owner {owner} not in CANONICAL_AUTHORITIES",
+                })
+        return findings
+
+    def validate_authority_model(self) -> dict[str, Any]:
+        duplicates = self.detect_duplicate_authorities()
+        return {
+            "valid": len(duplicates) == 0,
+            "duplicate_authorities": duplicates,
+            "canonical_count": len(CANONICAL_AUTHORITIES),
+            "registered_count": len(self._items),
+            "authority_model": "canonical WLS owners only",
+        }
+
 
 def baseline_registry() -> CapabilityRegistry:
     registry = CapabilityRegistry()
