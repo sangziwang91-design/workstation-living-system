@@ -91,6 +91,18 @@ class BaseCodingWorker:
                 tests=[],
                 error=f"timeout after {self.timeout_seconds}s",
             )
+        except (FileNotFoundError, OSError) as exc:
+            elapsed = time.monotonic() - start
+            return CodingWorkerResult(
+                worker_id=self.worker_id,
+                task_id=contract.task_id,
+                exit_code=-1,
+                stdout="",
+                stderr="",
+                elapsed_seconds=round(elapsed, 2),
+                tests=[],
+                error=f"{self._cli_name()} execution failed: {exc}",
+            )
 
         changed = self._detect_changes(contract)
         test_passed = self._parse_test_results(result.stdout, result.stderr)
