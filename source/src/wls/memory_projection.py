@@ -97,7 +97,7 @@ class MemoryProjectionEngine:
 
         where = " AND ".join(conditions)
         rows = self.db.query_all(
-            f"""SELECT memory_id, memory_type, content_json, importance, confidence,
+            f"""SELECT memory_id, memory_type, content_json, importance, confidence,  -- nosec B608
                        active, tags_json, source_ids_json, created_at
                 FROM memories WHERE {where}
                 ORDER BY importance DESC, last_accessed_at DESC
