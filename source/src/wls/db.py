@@ -31,7 +31,12 @@ class Database:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self._connections: list[sqlite3.Connection] = []
         self.initialize()
+
+    def _track(self, connection: sqlite3.Connection) -> sqlite3.Connection:
+        self._connections.append(connection)
+        return connection
 
     def connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=30.0, isolation_level=None)
@@ -40,7 +45,7 @@ class Database:
         connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("PRAGMA synchronous=FULL")
         connection.execute("PRAGMA busy_timeout=30000")
-        return connection
+        return self._track(connection)
 
     @contextmanager
     def transaction(self, immediate: bool = True) -> Iterator[sqlite3.Connection]:
@@ -545,3 +550,26 @@ class Database:
             connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         finally:
             connection.close()
+
+    def close_all(self) -> None:
+        """Close all open connections and force WAL checkpoint. Call before
+        deleting the database file to prevent file-lock issues on Windows."""
+        with self._lock:
+            for conn in list(self._connections):
+                try:
+                    if conn.in_transaction:
+                        conn.execute("ROLLBACK")
+                    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                except Exception:
+                    pass
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            self._connections.clear()
+
+    def __del__(self) -> None:
+        try:
+            self.close_all()
+        except Exception:
+            pass
