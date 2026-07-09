@@ -1,93 +1,50 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "2.0",
   "chain_id": "WLS-REPO-NATIVE-EVOLUTION-001",
-  "status": "ACTIVE_CI_VERIFIED",
-  "updated_at": "2026-06-24T11:58:18+08:00",
+  "status": "ACTIVE_SINGLE_TRUNK_ET004_COMPLETE",
+  "updated_at": "2026-07-08",
   "authority": {
     "owner": "sangziwang91-design",
     "repository": "sangziwang91-design/workstation-living-system-private",
     "canonical_runtime": "source/src/wls/runtime.py::LivingSystem",
     "engineering_truth": "GITHUB_AND_RUNTIME_EVIDENCE",
-    "semantic_context": "NOTION_EXP_082",
     "approval_authority": "OWNER"
   },
-  "notion_anchor": {
-    "page_id": "38940ff6ad6281b6bd69d700c9322d77",
-    "page_url": "https://app.notion.com/p/38940ff6ad6281b6bd69d700c9322d77",
-    "title": "EXP-082 · Repo-Native Model Labor & WLS Evolution Chain · GitHub × Notion AI × ChatGPT · 2026-06-24",
-    "role": "LONG_HORIZON_SEMANTIC_AND_EXPERIMENT_GOVERNANCE"
-  },
-  "worker_state": {
-    "primary_code_worker_id": "chatgpt_interactive",
-    "primary_status": "ACTIVE",
-    "context_worker_id": "notion_ai_context",
-    "context_status": "ACTIVE_CONTEXT_ONLY",
-    "other_provider_admission": "PENDING_NOT_ACTIVATED"
-  },
   "canonical_baseline": {
-    "main_commit_at_bootstrap": "cf3e60d70d6c679891a560effabe89fd30da6709",
+    "main_head": "75786a5",
     "development_version": "0.9.0.dev2",
+    "tag": "v0.9.0.dev2",
     "completed_targets": [
       "EVOLUTION-TARGET-001",
       "EVOLUTION-TARGET-002",
-      "EVOLUTION-TARGET-003"
+      "EVOLUTION-TARGET-003",
+      "EVOLUTION-TARGET-004"
     ],
-    "claim_boundary": "ET001-ET003 have code and controlled local/CI evidence; owner-host longitudinal proof remains pending."
+    "claim_boundary": "ET001-ET004 have code and controlled local verification; owner-host longitudinal proof remains pending."
   },
   "current_target": {
-    "target_id": "EVOLUTION-TARGET-004",
-    "title": "Persistent Goal System and Long-Horizon Continuity",
-    "state": "DRAFT_PULL_REQUEST_IN_FLIGHT_AND_BEHIND_MAIN",
-    "pull_request": 8,
-    "base_commit": "cf3e60d70d6c679891a560effabe89fd30da6709",
-    "observed_head_at_completion": "643b65409b324b54f6fbc65845158d8cee605c52",
-    "ownership": "EXISTING_PR8_BRANCH",
-    "collision_policy": "DO_NOT_CREATE_DUPLICATE_ET004_IMPLEMENTATION"
-  },
-  "bootstrap_change": {
-    "branch": "evolution-infra-001-repo-native-chain",
-    "pull_request": 9,
-    "pull_request_url": "https://github.com/sangziwang91-design/workstation-living-system-private/pull/9",
-    "merged": true,
-    "merge_commit": "6e8a20d74e5e5d36eeefbfb9220dfc203c77bb71",
-    "packet": "CHAIN-BOOTSTRAP-001",
-    "completion_packet": "CHAIN-BOOTSTRAP-001-COMPLETION",
-    "state": "MERGED_CI_VERIFIED"
+    "target_id": "EVOLUTION-TARGET-005",
+    "title": "Owner-Host Longitudinal Validation",
+    "state": "PENDING_OWNER_HOST_EVIDENCE",
+    "objective": "Run genuine owner-authorized task sequences on the intended host, measure benefit and regressions over weeks, verify memory validity and contradiction handling outside controlled verifier."
   },
   "verification": {
-    "repo_native_chain": {
-      "workflow_run": 28073884899,
-      "conclusion": "success",
-      "platforms": ["ubuntu-latest / Python 3.11", "windows-latest / Python 3.11"]
+    "architecture_validation": {
+      "passes": 89,
+      "failures": 0,
+      "instance": "v0.9.0.dev2 installed"
     },
-    "wls_ci": {
-      "workflow_run": 28073884881,
-      "conclusion": "success"
-    },
-    "evolution_target_001": {
-      "workflow_run": 28073884896,
-      "conclusion": "success"
-    },
-    "evolution_target_002": {
-      "workflow_run": 28073884887,
-      "conclusion": "success"
-    },
-    "evolution_target_003": {
-      "workflow_run": 28073884876,
-      "conclusion": "success_after_failed_job_rerun",
-      "note": "The initial Windows 3.11 test job failed; rerunning failed jobs completed successfully across the matrix."
-    }
+    "module_count": 86,
+    "test_file_count": 41,
+    "integration_pipelines": 6
   },
   "next_action": {
-    "mode": "WAIT_FOR_ET004_IMPLEMENTATION_THEN_HEAD_PINNED_AUDIT",
-    "instruction": "Do not create a duplicate ET004 branch. Wait until PR #8 contains a complete implementation and current CI evidence, then re-read its exact head, audit its diff and verification boundary, and update the blocked handoff packet through a superseding record.",
-    "required_worker_capability": "architecture_and_review"
+    "mode": "OWNER_HOST_LONGITUDINAL_VALIDATION",
+    "instruction": "Deploy v0.9.0.dev2 to owner host, run longitudinal protocol (source/src/wls/longitudinal.py), collect real-world evidence over weeks before claiming production-ready status."
   },
   "claim_ceiling": [
-    "The GitHub/Notion/ChatGPT repo-native control plane is merged and CI-verified.",
-    "ChatGPT is the sole active code worker in the current registry.",
-    "Notion AI is deployed as a context, contradiction-audit, enrichment, archive and curriculum-candidate role contract, not an unattended code worker.",
-    "Gemini, Claude, GLM and DeepSeek are registered only as pending candidates with no write authority.",
-    "No unattended evolution, production-host longitudinal benefit, multi-provider advantage or local-model training result is proven."
+    "Repository is single-trunk, architecture-validated (P01-P89), and locally verified.",
+    "86 modules, 41 test files, 6 integration pipelines pass.",
+    "No unattended evolution, production-host longitudinal benefit, or multi-provider advantage is proven."
   ]
 }

@@ -101,7 +101,35 @@ wls --config CONFIG growth-status
 
 ## Remaining proof boundary
 
-The next accepted proof is a real owner-authorized run on the intended Windows host: reproduce a genuine failure, approve and promote the resulting skill, reuse it on a later non-synthetic task, record benefit and regressions, and retain or roll back from evidence. Until that run exists, WLS may claim a **verified bounded growth-cycle implementation**, not verified long-term self-improvement or a complete software life-form.
+WLS v0.9.0.dev2 has 86 source modules, 41 test files, and P01-P89 architecture validation all passing. The next accepted proof is a real owner-authorized longitudinal run on the intended Windows host.
+
+## Module inventory (86 modules)
+
+**Core runtime:** `runtime.py`, `config.py`, `schemas.py`, `db.py`, `stores.py`, `tools.py`, `planner.py`, `policy.py`, `approval.py`, `evidence.py`, `skills.py`, `growth_cycle.py`, `learning.py`, `cognition.py`, `world.py`, `temporal_world.py`, `drives.py`, `attention.py`, `autonomy.py`, `goal_runtime.py`, `self_model.py`, `relationships.py`, `sleep.py`, `cli.py`, `_version.py`
+
+**Agentic execution:** `agentic_harness.py`, `agentic_mailbox.py`, `task_admission.py`, `task_classifier.py`, `task_graph.py`, `context_manifest.py`, `execution_trace.py`, `loop_control.py`, `worker_registry.py`, `failure_attribution.py`, `experiment_decision.py`, `experiments.py`, `scheduler.py`
+
+**Security & governance:** `security.py`, `acceptance.py`, `evidence_gates.py`, `architecture_validation.py`, `lease.py`, `bounded_recovery.py`, `read_only_organs.py`
+
+**Memory & learning:** `memory_projection.py`, `memory_index.py`, `memory_attribution.py`, `memory_ablation.py`, `external_memory.py`, `decision_memory.py`, `compaction.py`, `anti_repeat.py`
+
+**Review & quality:** `reviewer.py`, `benchmark.py`, `evaluator.py`, `qos_router.py`, `fault_injection.py`, `graph_recovery.py`, `longitudinal.py`, `skill_compiler.py`
+
+**Adapters:** `coding_adapter.py`, `coding_workers.py`, `browser_adapter.py`, `computer_adapter.py`, `mcp_adapter.py`, `a2a_adapter.py`, `channel_gateway.py`, `wechat_adapter.py`, `sandbox_adapter.py`, `multimodal.py`, `provider_router.py`
+
+**UI:** `ui_projection.py`, `ui_server.py`, `ui_static/`
+
+**Evolution:** `offspring.py`, `merge_node.py`, `result_promotion.py`, `repo_explorer.py`, `workbench.py`, `capabilities.py`, `adaptive_growth.py`
+
+**Tests:** 41 test files covering unit + 6 integration pipelines
+
+## Architecture validation
+
+P01-P89 all pass on installed instance (v0.9.0.dev2). See `source/verification/` for records.
+
+```bash
+python source/scripts/run_architecture_validation.py --output acceptance/p01_p89.json
+```
 
 ## EVOLUTION-TARGET-002: bounded local cognition
 

@@ -1,0 +1,56 @@
+{
+  "target_id": "EVOLUTION-TARGET-004",
+  "title": "Capability Gaps Closure and Single-Trunk Consolidation",
+  "status": "IMPLEMENTED_LOCAL_VERIFIED",
+  "version": "0.9.0.dev2",
+  "head": "75786a5",
+  "branch": "main",
+  "verified_at": "2026-07-08",
+  "module_count": 86,
+  "test_file_count": 41,
+  "architecture_validation": {
+    "passes": 89,
+    "failures": 0,
+    "acceptable_verdicts": ["ADMIT", "ADMIT_SHADOW_ONLY"]
+  },
+  "modules_added": [
+    "acceptance.py — Acceptance oracle with schema/hash/threshold/regression checks",
+    "scheduler.py — Persistent DB-backed scheduler with CRUD, backoff, recovery",
+    "security.py — Security firewall with path/host/credential/injection detection",
+    "benchmark.py — Benchmark suite with regression detection",
+    "memory_projection.py — Memory projection with working-set cache",
+    "compaction.py — Session compaction with immutable/checkpoint/recent tiering",
+    "reviewer.py — Heterogeneous reviewer with disagreement preservation",
+    "graph_recovery.py — Graph recovery with replay/quarantine/escalate engine",
+    "qos_router.py — QoS router with cost/privacy/latency selection",
+    "fault_injection.py — Fault injection matrix with 8 fault kinds",
+    "skill_compiler.py — Skill compiler with propose/compile/validate/reject lifecycle",
+    "longitudinal.py — Longitudinal protocol with measurement and regression detection",
+    "repo_explorer.py — Repository file/symbol/dependency explorer",
+    "merge_node.py — Multi-worker artifact merge with conflict detection",
+    "result_promotion.py — Cross-agent result-to-memory gated promotion",
+    "anti_repeat.py — Failure signature deduplication with cooldown",
+    "coding_workers.py — Claude Code / Codex / OpenCode worker adapters"
+  ],
+  "modules_enhanced": [
+    "capabilities.py — Duplicate authority detector",
+    "config.py — Daemon config fields (8 keys)",
+    "db.py — Schedules table migration (schema v4)"
+  ],
+  "integration_pipelines": [
+    "Agentic harness: admit_and_compile → acquire_ready_leases → complete_node → audit",
+    "Coding workers: factory → contract validation → receipt generation",
+    "Offspring: draft_birth_contract → lifecycle gates",
+    "Security + acceptance + promotion: firewall → oracle → result gate",
+    "Memory + compaction: projection → compaction → resume verification",
+    "Fault + recovery + merge + review + benchmark: 5-module cross-pipeline"
+  ],
+  "infrastructure": {
+    "disk_cleanup": "1,128 MB → 142 MB (87% reduction)",
+    "branches_consolidated": "124+ commits merged to single main trunk",
+    "installed_instance": "D:\\WLS\\wls-0.9.0.dev1-ui-20260706 (v0.9.0.dev2 wheel)",
+    "wheel_built": "workstation_living_system-0.9.0.dev2-py3-none-any.whl"
+  },
+  "regressions": 0,
+  "claim_boundary": "ET-004 closes 6 capability gaps and consolidates the repository into a single canonical main trunk. Architecture validation P01-P89 passes at repository level. This does not prove production-host longitudinal learning or unattended evolution."
+}

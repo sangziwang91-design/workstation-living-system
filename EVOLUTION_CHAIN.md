@@ -1,84 +1,65 @@
 # WLS Repo-Native Evolution Chain
 
-**Status:** ACTIVE_CI_VERIFIED  
-**Merged bootstrap:** PR #9 / `6e8a20d74e5e5d36eeefbfb9220dfc203c77bb71`  
-**Canonical runtime remains:** `source/src/wls/runtime.py::LivingSystem`  
-**Primary external worker:** ChatGPT  
-**Notion experiment anchor:** [EXP-082 · Repo-Native Model Labor & WLS Evolution Chain](https://app.notion.com/p/38940ff6ad6281b6bd69d700c9322d77)
+**Status:** ACTIVE_SINGLE_TRUNK_ET004_COMPLETE
+**Canonical runtime remains:** `source/src/wls/runtime.py::LivingSystem`
+**Current head:** `75786a5` (main, v0.9.0.dev2)
 
-## Purpose
+## Completed waves
 
-This chain turns platform-provided interactive model labor into durable, auditable WLS increments without making any model vendor the system of record.
+| Wave | Title | Status |
+|---|---|---|
+| ET-001 | Verified failure-to-skill-to-reuse loop | MERGED_CI_VERIFIED |
+| ET-002 | Bounded local cognition vertical slice | MERGED_CI_VERIFIED |
+| ET-003 | Causal Memory Retrieval and Measurable Learning Advantage | MERGED_CI_VERIFIED |
+| ET-004 | Capability Gaps Closure and Single-Trunk Consolidation | IMPLEMENTED_LOCAL_VERIFIED |
 
-GitHub stores code, task packets, queue state, diffs, CI, evidence and promotion history. Notion stores long-horizon rationale, cross-project context and contradiction audits. WLS retains runtime identity, governed action, memory and real-world outcomes. The owner retains approval, merge and stop authority.
+## ET-004 summary
+
+Closed 6 real capability gaps identified by ZIP iteration audit:
+- `repo_explorer.py` — Repository file/symbol/dependency explorer
+- `merge_node.py` — Multi-worker artifact merge with conflict detection
+- `result_promotion.py` — Cross-agent result-to-memory gated promotion
+- `anti_repeat.py` — Failure signature deduplication with cooldown
+- `capabilities.py` — Duplicate authority detector
+- `coding_workers.py` — Claude Code / Codex / OpenCode worker adapters
+
+Added `acceptance.py`, `security.py`, `benchmark.py`, `fault_injection.py`, `scheduler.py` (persistent), `memory_projection.py`, `compaction.py`, `reviewer.py`, `graph_recovery.py`, `qos_router.py`, `skill_compiler.py`, `longitudinal.py`.
+
+Consolidated all branches into a single canonical `main` trunk. P01-P89 architecture validation all green. 6 integration pipelines tested end-to-end.
 
 ## Authority order
 
 1. Runtime evidence and governed tool outcomes.
 2. GitHub commits, pull requests, Actions and versioned verification records.
 3. `.evolution/CURRENT_CHAIN.json` and validated evolution packets.
-4. Notion EXP-082 and related semantic context.
-5. Model-generated proposals.
-
-Notion and model output may add context or candidates. They may not promote a claim to `VERIFIED` without runtime or GitHub evidence.
-
-## Execution loop
-
-```text
-Notion AI retrieves history and candidate context
-        -> GitHub packet defines the bounded task
-        -> an ACTIVE worker claims one task
-        -> isolated branch / change / tests / PR
-        -> CI and WLS verifiers accept or reject
-        -> owner reviews and merges or closes
-        -> GitHub state advances
-        -> Notion receives a post-merge semantic archive
-```
-
-Model conversations are disposable. The repository is not.
+4. Model-generated proposals (context only).
 
 ## Current worker policy
 
-- `chatgpt_interactive` is the only ACTIVE code worker.
-- ChatGPT may operate in high-capability or degraded/low-capability mode.
-- Low-capability mode is restricted to deterministic, bounded tasks with explicit paths and tests.
-- Notion AI is ACTIVE_CONTEXT_ONLY: retrieval, contradiction audit, packet enrichment, post-merge archival and curriculum-candidate mining only.
-- Gemini, Claude, GLM and DeepSeek are PENDING_NOT_ACTIVATED.
-- No external provider receives automatic routing, credentials or write authority from this chain.
+- `readonly-inspector`, `planner-shadow`, `owner-gated-executor-shadow` are default LOCAL_SHADOW workers.
+- ChatGPT may operate as external worker through A2A adapter.
+- Coding workers (Claude Code, Codex, OpenCode) are available via `CodingWorkerFactory` when installed.
+- No external provider receives automatic routing, credentials, or write authority.
 
 ## Queue states
 
 - `ready`: dependencies satisfied; a compatible ACTIVE worker may claim.
 - `claimed`: one worker owns the task lease.
 - `blocked`: a named dependency or owner decision is missing.
-- `verification`: implementation exists and awaits deterministic gates or review.
+- `verification`: implementation exists and awaits deterministic gates.
 - `completed`: evidence and final disposition are recorded.
 
-Packets are immutable historical records after completion. Corrections create a superseding packet rather than silently rewriting evidence.
+## Verified evidence
 
-## Verified bootstrap evidence
-
-- Repo-native chain workflow `28073884899`: success on Ubuntu and Windows.
-- WLS CI workflow `28073884881`: success.
-- ET001 workflow `28073884896`: success.
-- ET002 workflow `28073884887`: success.
-- ET003 workflow `28073884876`: success after one failed Windows 3.11 job was rerun successfully.
-- Bootstrap PR #9 was squash-merged as `6e8a20d74e5e5d36eeefbfb9220dfc203c77bb71`.
-
-This evidence verifies the repository control plane and regression compatibility. It does not prove unattended evolution or real-host longitudinal learning.
-
-## Standard handoff command
-
-A new ChatGPT conversation can start with:
-
-> Read `EVOLUTION_CHAIN.md`, `.evolution/CURRENT_CHAIN.json`, `.evolution/worker_registry.json`, and the highest-priority eligible packet under `.evolution/queue/`. Verify GitHub current state before acting. Complete only the bounded task, run its acceptance gates, preserve evidence, and update the packet handoff. Do not create a parallel runtime or widen scope.
+- P01-P89 architecture validation: 89/89 passes on installed v0.9.0.dev2 instance.
+- 41 test files, all unit + integration tests pass locally.
+- Installed instance: self-check, verify, and WLS once all pass.
+- ET-001, ET-002, ET-003 previously CI-verified on GitHub Actions.
 
 ## Current handoff
 
-PR #8 remains the sole ET004 implementation line. It is still a draft and was observed at head `643b65409b324b54f6fbc65845158d8cee605c52`. The chain must not create a duplicate ET004 branch. It waits for a complete implementation and current CI evidence, then performs a head-pinned audit.
+All ET-001 through ET-004 have been completed. The canonical repository is a single main trunk at head `75786a5` tagged `v0.9.0.dev2`. The next target is ET-005 (owner-host longitudinal validation).
 
 ## Activation boundary
 
-The repository control plane is active and CI-verified. It does not claim unattended evolution, provider-independent autonomy, production-host longitudinal learning, multi-provider benefit or a trained local model.
-
-See `.evolution/roadmap/WLS_EVOLUTION_ROADMAP.md` for the ordered candidate route.
+The repository is single-trunk, architecture-validated, and locally verified. It does not claim unattended evolution, provider-independent autonomy, production-host longitudinal learning, or a trained local model.
