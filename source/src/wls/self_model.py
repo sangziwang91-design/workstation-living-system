@@ -16,38 +16,46 @@ class SelfModel:
         self.ledger = ledger
 
     def set(
-        self, key: str, value: Any, confidence: float, evidence_ids: list[str]
+        self,
+        key: str,
+        value: Any,
+        confidence: float,
+        evidence_ids: list[str],
+        connection=None,
     ) -> None:
         if not evidence_ids:
             raise ValueError("self-model updates require evidence")
         confidence = max(0.0, min(1.0, confidence))
-        with self.db.transaction() as connection:
-            connection.execute(
-                """
-                INSERT INTO self_model(key,value_json,confidence,evidence_ids_json,updated_at)
-                VALUES (?,?,?,?,?)
-                ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,
-                    confidence=excluded.confidence,evidence_ids_json=excluded.evidence_ids_json,
-                    updated_at=excluded.updated_at
-                """,
-                (
-                    key,
-                    json.dumps(value, ensure_ascii=False, sort_keys=True),
-                    confidence,
-                    json.dumps(evidence_ids, ensure_ascii=False),
-                    utc_now(),
-                ),
-            )
-            self.ledger.append(
-                "self_model_updated",
-                {
-                    "key": key,
-                    "value": value,
-                    "confidence": confidence,
-                    "evidence_ids": evidence_ids,
-                },
-                connection,
-            )
+        if connection is None:
+            with self.db.transaction() as owned_connection:
+                self.set(key, value, confidence, evidence_ids, owned_connection)
+            return
+        connection.execute(
+            """
+            INSERT INTO self_model(key,value_json,confidence,evidence_ids_json,updated_at)
+            VALUES (?,?,?,?,?)
+            ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,
+                confidence=excluded.confidence,evidence_ids_json=excluded.evidence_ids_json,
+                updated_at=excluded.updated_at
+            """,
+            (
+                key,
+                json.dumps(value, ensure_ascii=False, sort_keys=True),
+                confidence,
+                json.dumps(evidence_ids, ensure_ascii=False),
+                utc_now(),
+            ),
+        )
+        self.ledger.append(
+            "self_model_updated",
+            {
+                "key": key,
+                "value": value,
+                "confidence": confidence,
+                "evidence_ids": evidence_ids,
+            },
+            connection,
+        )
 
     def snapshot(self) -> dict[str, Any]:
         rows = self.db.query_all("SELECT * FROM self_model ORDER BY key")
@@ -62,11 +70,26 @@ class SelfModel:
         }
 
     def record_action_outcome(
-        self, action: ActionSpec, result: ActionResult, evidence_id: str
+        self,
+        action: ActionSpec,
+        result: ActionResult,
+        evidence_id: str,
+        connection=None,
     ) -> None:
         key = f"capability.tool.{action.tool}"
-        current = self.snapshot().get(
-            key, {"value": {"successes": 0, "failures": 0}, "confidence": 0.5}
+        if connection is None:
+            row = self.db.query_one("SELECT * FROM self_model WHERE key=?", (key,))
+        else:
+            row = connection.execute(
+                "SELECT * FROM self_model WHERE key=?", (key,)
+            ).fetchone()
+        current = (
+            {
+                "value": json.loads(row["value_json"]),
+                "confidence": float(row["confidence"]),
+            }
+            if row is not None
+            else {"value": {"successes": 0, "failures": 0}, "confidence": 0.5}
         )
         value = dict(current["value"])
         value["successes"] = int(value.get("successes", 0)) + int(result.success)
@@ -74,7 +97,7 @@ class SelfModel:
         total = value["successes"] + value["failures"]
         value["observed_success_rate"] = value["successes"] / max(1, total)
         confidence = min(0.98, 0.35 + 0.08 * total)
-        self.set(key, value, confidence, [evidence_id])
+        self.set(key, value, confidence, [evidence_id], connection)
 
     def initialize_identity(self, name: str, evidence_id: str) -> None:
         if "identity" not in self.snapshot():

@@ -199,8 +199,9 @@ class CausalMemoryIndex:
         if enabled and not frozen:
             self._expire_due()
         normalized_context = self._normalize_query_context(context or {})
-        rows = self.db.query_all(
-            """SELECT m.*,i.* FROM memories m JOIN causal_memory_index i ON i.memory_id=m.memory_id WHERE m.active=1"""
+        rows = self._candidate_rows(query, normalized_context, limit)
+        rolled_back_skills, rolled_back_candidates = (
+            (set(), set()) if frozen else self._rolled_back_reference_sets()
         )
         selected: list[tuple[float, sqlite3.Row, list[str], float]] = []
         suppressed: list[dict[str, Any]] = []
@@ -211,7 +212,11 @@ class CausalMemoryIndex:
             if not enabled:
                 suppressed.append(self._suppressed(row, "memory_disabled_baseline", state))
                 continue
-            rollback_reason = None if frozen else self._linked_rollback_reason(row)
+            rollback_reason = None if frozen else self._linked_rollback_reason(
+                row,
+                rolled_back_skills=rolled_back_skills,
+                rolled_back_candidates=rolled_back_candidates,
+            )
             if rollback_reason and state not in TERMINAL_MEMORY_STATES:
                 self.set_state(memory_id, "SUPERSEDED", rollback_reason, [rollback_reason])
                 state = "SUPERSEDED"
@@ -264,14 +269,100 @@ class CausalMemoryIndex:
             "query_context": normalized_context,
         }
 
+    def _candidate_rows(
+        self,
+        query: str,
+        context: dict[str, Any],
+        limit: int,
+    ) -> list[sqlite3.Row]:
+        candidate_limit = max(160, min(1000, int(limit) * 40))
+        rows: list[sqlite3.Row] = []
+        seen: set[str] = set()
+        clauses: list[str] = []
+        params: list[str] = []
+        structured_fields = {
+            "project_ids": "i.project_ids_json",
+            "context_ids": "i.context_ids_json",
+            "entity_ids": "i.entity_ids_json",
+            "entity_names": "i.entity_names_json",
+            "failure_signatures": "i.failure_signatures_json",
+            "causal_hypothesis_ids": "i.causal_hypothesis_ids_json",
+            "prediction_ids": "i.prediction_ids_json",
+            "skill_ids": "i.skill_ids_json",
+            "outcome_types": "i.outcome_type",
+        }
+        for context_key, column in structured_fields.items():
+            values = context.get(context_key, [])
+            if not isinstance(values, list):
+                continue
+            for value in values[:20]:
+                text = str(value).strip()
+                if not text:
+                    continue
+                if context_key == "outcome_types":
+                    clauses.append(f"{column}=?")
+                    params.append(text)
+                else:
+                    clauses.append(f"{column} LIKE ?")
+                    params.append(f'%"{text}"%')
+        if clauses:
+            structured_rows = self.db.query_all(
+                f"""
+                SELECT m.*,i.* FROM memories m
+                JOIN causal_memory_index i ON i.memory_id=m.memory_id
+                WHERE m.active=1 AND ({' OR '.join(clauses)})
+                ORDER BY m.importance DESC, m.created_at DESC
+                LIMIT ?
+                """,
+                (*params, candidate_limit),
+            )
+            for row in structured_rows:
+                memory_id = str(row["memory_id"])
+                if memory_id not in seen:
+                    rows.append(row)
+                    seen.add(memory_id)
+        fallback_limit = candidate_limit - len(rows)
+        if fallback_limit > 0:
+            fallback_rows = self.db.query_all(
+                """
+                SELECT m.*,i.* FROM memories m
+                JOIN causal_memory_index i ON i.memory_id=m.memory_id
+                WHERE m.active=1
+                ORDER BY m.importance DESC, m.created_at DESC
+                LIMIT ?
+                """,
+                (fallback_limit,),
+            )
+            for row in fallback_rows:
+                memory_id = str(row["memory_id"])
+                if memory_id not in seen:
+                    rows.append(row)
+                    seen.add(memory_id)
+        return rows
+
     def record_outcome(self, memory_ids: Iterable[str], *, success: bool | None, prediction_statuses: Iterable[str], source_ids: Iterable[str]) -> list[dict[str, Any]]:
         if success is None:
             return []
         transitions: list[dict[str, Any]] = []
         statuses = [str(value) for value in prediction_statuses]
         evidence_ids = [str(value) for value in source_ids if str(value)]
-        for memory_id in dict.fromkeys(str(value) for value in memory_ids if str(value)):
-            row = self.db.query_one("SELECT * FROM causal_memory_index WHERE memory_id=?", (memory_id,))
+        ordered_memory_ids = list(
+            dict.fromkeys(str(value) for value in memory_ids if str(value))
+        )
+        if not ordered_memory_ids:
+            return []
+        placeholders = ",".join("?" for _ in ordered_memory_ids)
+        rows = {
+            str(row["memory_id"]): row
+            for row in self.db.query_all(
+                f"SELECT * FROM causal_memory_index WHERE memory_id IN ({placeholders})",
+                tuple(ordered_memory_ids),
+            )
+        }
+        now = utc_now()
+        updates: list[dict[str, Any]] = []
+        for memory_id in ordered_memory_ids:
+            row = rows.get(memory_id)
             if row is None:
                 continue
             previous = str(row["validity_state"])
@@ -295,32 +386,62 @@ class CausalMemoryIndex:
                 else:
                     new_state, new_refutation = "WEAKENED", "PENDING"
                     reason = "attributed decision failure weakened memory"
-            now = utc_now()
-            with self.db.transaction() as connection:
-                connection.execute(
-                    """UPDATE causal_memory_index SET validity_state=?,refutation_state=?,positive_outcomes=?,negative_outcomes=?,consecutive_negative=?,last_outcome_at=?,updated_at=? WHERE memory_id=?""",
-                    (new_state, new_refutation, positive, negative, consecutive, now, now, memory_id),
-                )
-                if new_state != previous:
-                    connection.execute(
-                        """INSERT INTO memory_state_events(memory_id,previous_state,new_state,reason,source_ids_json,created_at) VALUES (?,?,?,?,?,?)""",
-                        (memory_id, previous, new_state, reason, self._dump(evidence_ids), now),
-                    )
-                self.ledger.append(
-                    "memory_outcome_attributed",
-                    {
-                        "memory_id": memory_id, "success": success,
-                        "prediction_statuses": statuses, "previous_state": previous,
-                        "new_state": new_state, "positive_outcomes": positive,
-                        "negative_outcomes": negative, "source_ids": evidence_ids,
-                    },
-                    connection,
-                )
+            updates.append(
+                {
+                    "memory_id": memory_id,
+                    "previous": previous,
+                    "new_state": new_state,
+                    "new_refutation": new_refutation,
+                    "positive": positive,
+                    "negative": negative,
+                    "consecutive": consecutive,
+                    "reason": reason,
+                }
+            )
             transitions.append({
                 "memory_id": memory_id, "previous_state": previous,
                 "new_state": new_state, "positive_outcomes": positive,
                 "negative_outcomes": negative,
             })
+        if not updates:
+            return transitions
+        with self.db.transaction() as connection:
+            for update in updates:
+                connection.execute(
+                    """UPDATE causal_memory_index SET validity_state=?,refutation_state=?,positive_outcomes=?,negative_outcomes=?,consecutive_negative=?,last_outcome_at=?,updated_at=? WHERE memory_id=?""",
+                    (
+                        update["new_state"],
+                        update["new_refutation"],
+                        update["positive"],
+                        update["negative"],
+                        update["consecutive"],
+                        now,
+                        now,
+                        update["memory_id"],
+                    ),
+                )
+                if update["new_state"] != update["previous"]:
+                    connection.execute(
+                        """INSERT INTO memory_state_events(memory_id,previous_state,new_state,reason,source_ids_json,created_at) VALUES (?,?,?,?,?,?)""",
+                        (
+                            update["memory_id"],
+                            update["previous"],
+                            update["new_state"],
+                            update["reason"],
+                            self._dump(evidence_ids),
+                            now,
+                        ),
+                    )
+                self.ledger.append(
+                    "memory_outcome_attributed",
+                    {
+                        "memory_id": update["memory_id"], "success": success,
+                        "prediction_statuses": statuses, "previous_state": update["previous"],
+                        "new_state": update["new_state"], "positive_outcomes": update["positive"],
+                        "negative_outcomes": update["negative"], "source_ids": evidence_ids,
+                    },
+                    connection,
+                )
         return transitions
 
     def set_state(self, memory_id: str, state: str, reason: str, source_ids: Iterable[str]) -> None:
@@ -489,7 +610,36 @@ class CausalMemoryIndex:
             matches += 1
         return matches / max(1, len(conditions)), False
 
-    def _linked_rollback_reason(self, row: sqlite3.Row) -> str | None:
+    def _rolled_back_reference_sets(self) -> tuple[set[str], set[str]]:
+        skills = {
+            str(row["skill_id"])
+            for row in self.db.query_all(
+                "SELECT skill_id FROM skills WHERE status='ROLLED_BACK'"
+            )
+        }
+        candidates = {
+            str(row["candidate_id"])
+            for row in self.db.query_all(
+                "SELECT candidate_id FROM evolution_candidates WHERE status='ROLLED_BACK'"
+            )
+        }
+        return skills, candidates
+
+    def _linked_rollback_reason(
+        self,
+        row: sqlite3.Row,
+        *,
+        rolled_back_skills: set[str] | None = None,
+        rolled_back_candidates: set[str] | None = None,
+    ) -> str | None:
+        if rolled_back_skills is not None and rolled_back_candidates is not None:
+            for skill_id in json.loads(row["skill_ids_json"]):
+                if str(skill_id) in rolled_back_skills:
+                    return f"linked_skill_rolled_back:{skill_id}"
+            for context_id in json.loads(row["context_ids_json"]):
+                if str(context_id) in rolled_back_candidates:
+                    return f"linked_candidate_rolled_back:{context_id}"
+            return None
         for skill_id in json.loads(row["skill_ids_json"]):
             skill = self.db.query_one("SELECT status FROM skills WHERE skill_id=?", (skill_id,))
             if skill is not None and str(skill["status"]) == "ROLLED_BACK":

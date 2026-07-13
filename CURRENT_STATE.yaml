@@ -9,9 +9,9 @@ system:
   canonical_runtime: "source/src/wls/runtime.py::LivingSystem"
 
 state_record:
-  updated_at: "2026-07-08"
+  updated_at: "2026-07-10"
   time_zone: "Asia/Singapore"
-  update_type: "et004-capability-gaps-closed-and-canonical-single-trunk"
+  update_type: "et005-deployed-and-continuation-zips-absorbed"
   evidence_basis:
     - type: "VERIFIED"
       source: "P01-P89 architecture validation"
@@ -31,8 +31,11 @@ state_record:
     - type: "VERIFIED"
       source: "integration tests"
       note: "6 end-to-end pipelines (agentic harness, coding workers, offspring, security+acceptance, memory+compaction, fault+merge+review+benchmark) pass."
+    - type: "DIRECT"
+      source: "Desktop continuation packages + live process audit"
+      note: "WLS-GapLedger-50Iterations and WLS-Phase2-Integration were absorbed as source material, not bulk-imported. Old hung pytest and stale live daemon were stopped because they blocked the mainline lease without fresh evidence."
 
-workflow_state: "CANONICAL_SINGLE_TRUNK_ET004_COMPLETE"
+workflow_state: "CANONICAL_SINGLE_TRUNK_ET005_DEPLOYED_ZIP_ABSORBED"
 phase_chain:
   scoped: true
   read: true
@@ -55,9 +58,9 @@ mission_status:
   capability_gaps_et004_closed: true
 
 current_capabilities:
-  status: "86_MODULES_41_TESTS_ALL_GREEN"
+  status: "86_MODULES_42_TESTS_HEALTH_PREFLIGHT_DEPLOYED_ZIP_ABSORBED"
   module_count: 86
-  test_file_count: 41
+  test_file_count: 42
   architecture_passes: 89
   verified:
     - "The authoritative runtime remains source/src/wls/runtime.py::LivingSystem."
@@ -83,6 +86,11 @@ current_capabilities:
     - "Duplicate authority detector in capabilities registry."
     - "Coding worker adapters for Claude Code, Codex, and OpenCode."
     - "6 integration pipelines covering full system workflow."
+    - "Bounded operational health snapshot for owner-host checks without full runtime status expansion."
+    - "Daemon health gate stops before the next cycle when database size or kill switch blocks safe progress."
+    - "Installed owner-host instance reports wls health OK after historical DB compaction and one successful canonical cycle."
+    - "Desktop continuation ZIPs are absorbed into the single trunk as evidence/backlog material; standalone gap prototypes are not parallel authorities."
+    - "Read-only garbage audit module identifies cleanup candidates and records owner-review receipts without deleting files."
   inherited_not_comprehensively_reverified_in_this_wave:
     - perception_connector_breadth
     - autonomous_goal_depth
@@ -146,6 +154,194 @@ completed_evolution_targets:
       - scheduler.py (persistent scheduling)
       - db.py (schedules table)
 
+  - id: "EVOLUTION-TARGET-005"
+    title: "Owner-Host Operational Health and Longitudinal Validation"
+    status: "DEPLOYED_OWNER_HOST_HEALTH_OK"
+    implementation_head: "uncommitted"
+    objective: >-
+      Replace stale long-running process evidence with a bounded owner-host
+      health snapshot that can detect database growth, lease presence, pending
+      action pressure, sensor errors, pause/kill state, and latest cycle state
+      without invoking the heavyweight full status projection.
+    completed_acceptance_conditions:
+      - "Stale opencode full pytest and stale live daemon were stopped after process audit."
+      - "WLS-GapLedger-50Iterations and WLS-Phase2 packages were treated as source material, not bulk-imported."
+      - "runtime.health_snapshot() added as lightweight operational preflight surface."
+      - "UI /api/health now returns the bounded runtime health snapshot when available."
+      - "CLI has wls health for owner-host health checks."
+      - "Daemon health gate stops before the next cycle when health is BLOCKED."
+      - "Targeted health/UI tests pass locally (15 passed)."
+      - "CLI wls health returns OK on a clean temporary home."
+      - "Patched v0.9.0.dev2 wheel deployed to D:\\WLS\\wls-0.9.0.dev1-ui-20260706."
+      - "Installed DB historical workspace payloads compacted from about 3.34 GB to about 119 MB."
+      - "Stale RUNNING cycle recovered to INTERRUPTED during runtime initialization."
+      - "One canonical installed cycle completed with latest status SUCCEEDED."
+      - "Installed wls health returns OK with zero criticals, zero warnings, no lock files, and pending_action_count 0."
+      - "Health snapshot is non-mutating for absent lock files."
+      - "Continuation packages: 81 Python files syntax-checked, 11 pycache directories removed, no standalone gap route imported."
+      - "garbage-audit CLI and runtime receipt path added; cleanup remains owner-decision only."
+    remaining_acceptance_conditions:
+      - "Restart only one canonical daemon when owner-host validation resumes."
+      - "Collect longitudinal evidence from real owner tasks before advancing claims."
+
+package_absorption:
+  desktop_packages:
+    - path: "C:\\Users\\DELL\\Desktop\\WLS-GapLedger-50Iterations.zip"
+      extracted_path: "D:\\WLS\\WLS-GapLedger-50Iterations"
+      role: "Phase 1 gap ledger and prototype implementation library."
+      absorbed_as: "Backlog/evidence; not bulk-imported."
+    - path: "C:\\Users\\DELL\\Desktop\\WLS-Phase2-Integration.zip"
+      extracted_path: "D:\\WLS\\WLS-Phase2-Integration"
+      role: "Phase 2 integration, tests, validation, and maturity framework."
+      absorbed_as: "ET005 health/preflight, DB compaction, deployment gate, and validation guidance."
+  verification:
+    python_files_syntax_checked: 81
+    syntax_errors: 0
+    removed_cache_dirs: 11
+  trunk_decision: >-
+    Keep one canonical LivingSystem trunk. Do not import gapXX standalone modules
+    wholesale; promote only concrete capabilities that replace a measured owner-host
+    blocker and have local tests plus installed-instance evidence.
+
+garbage_self_audit:
+  status: "DEPLOYED_READ_ONLY_OWNER_REVIEW"
+  module: "source/src/wls/garbage_audit.py"
+  cli: "wls garbage-audit"
+  authority: "Scan and record candidates by default; deletion requires explicit owner approval reference and is limited to audited candidates."
+  candidate_kinds:
+    - "cache_dir"
+    - "build_artifact_dir"
+    - "temporary_file"
+    - "stale_lock_file"
+  latest_installed_audit:
+    audit_id: "garbage_audit_b60975718ef141b497b3eb84c54b5645"
+    root: "D:\\WLS\\wls-0.9.0.dev1-ui-20260706\\home"
+    status: "CLEAN"
+    candidate_count: 0
+    cleanup_executed: false
+  verification:
+    targeted_tests: "17 passed"
+    installed_health_includes_garbage_audit: true
+
+commercial_maturity_assessment:
+  updated_at: "2026-07-10"
+  current_grade: "ENGINEERING_PROTOTYPE_WITH_STRONG_LOCAL_GUARDS"
+  summary: >-
+    WLS has a broad canonical runtime, durable SQLite state, evidence ledger,
+    owner-gated actions, health/preflight, garbage audit, and many architecture
+    validations. It is not yet a mature commercial system because longitudinal
+    owner-task evidence, performance budgets, upgrade/rollback drills, UI
+    operator workflows, and production-scale memory/search behavior remain
+    under-tested.
+  actual_execution:
+    installed_health_status: "OK"
+    installed_self_check: "OK"
+    installed_db_bytes: 123138048
+    evidence_records: 24759
+    latest_cycle_status: "SUCCEEDED"
+    garbage_audit_status: "CLEAN"
+    garbage_quarantine_status: "QUARANTINE_AND_CLEAR_DRILL_PASSED"
+    upgrade_drill_status: "DISPOSABLE_CLONE_ROLLBACK_DRILL_PASSED"
+    performance_budget_status: "PERFORMANCE_BUDGET_PASSED"
+    longitudinal_status: "FIRST_QUALIFIED_MEASUREMENT_RECORDED"
+    owner_review_garbage_workflow: "DEPLOYED_AND_TESTED"
+    owner_review_write_budget: "PASSED_ON_DISPOSABLE_RUNTIME"
+    rollback_workflow_budget: "PASSED_ON_DISPOSABLE_RUNTIME"
+    retention_audit_status: "RETENTION_AUDIT_PASSED"
+  efficiency_findings:
+    - "Full LivingSystem cold init on a new temporary home is about 6.8s because initial SQLite schema creation and many durable transactions are expensive on Windows."
+    - "Existing DB runtime init is about 0.7s, acceptable but still worth monitoring."
+    - "CLI health no longer needs full LivingSystem initialization."
+  efficiency_improvements_completed:
+    - "LivingSystem.build_health_snapshot(config, db) extracted for lightweight health."
+    - "CLI wls health now opens config+Database only and skips full subsystem construction."
+    - "Installed wls health measured at about 0.27s average over 5 runs."
+    - "Performance budget audit records bounded owner-host timings and is exposed through wls health."
+    - "Bounded soak audit records before/after health, DB growth, evidence growth, and per-cycle latency."
+    - "Health now warns on stale lock files; ET006 soak-generated stale runtime.lock was removed after process audit showed no active WLS process."
+    - "run_cycle now records phase timings into cycle metrics; bounded soak records slowest phases."
+    - "ProcessLease now removes its own lock file on normal release, preventing false stale_runtime_lock WARN after one-shot cycles."
+    - "Causal memory retrieval now uses bounded candidate selection and batched rollback reference checks instead of scoring every active memory every cycle."
+    - "System resource sensor now suppresses stable/noisy resource observations and omits python_pid by default, reducing world-model churn."
+    - "Predictions table now has idx_predictions_status_key for status/subject/predicate lookup."
+  deep_test_results:
+    - "Installed self-check passed."
+    - "Installed verify passed with DB integrity OK and no orphan cognition/memory attribution rows."
+    - "Commercial smoke pytest subset passed: 109 tests in about 118s."
+    - "Health/garbage/UI/CLI regression subset passed: 18 tests."
+    - "ET006 performance/soak regression subset passed: 15 tests."
+    - "Installed performance budget audit passed: health_snapshot max 0.0166s, runtime_init 1.1331s, garbage_audit 0.357s, self_check 1.3211s."
+    - "Installed one-cycle bounded soak passed: cycle SUCCEEDED in 58.4166s, DB +315392 bytes, evidence +47, health OK before and after."
+    - "Installed phase-profile baseline found 65.5303s one-cycle latency: memory_retrieval 33.1572s, sensor_polling 13.7856s, cognition_learning_appraisal 8.9425s."
+    - "After causal memory candidate optimization, installed one-cycle latency improved to 25.3332s and memory_retrieval fell to 0.8646s."
+    - "Sensor profiling found system_resources observation assimilation took 9.5925s for 6 observations."
+    - "After system sensor noise gating, installed one-cycle latency improved to 16.0082s, sensor_polling fell to 0.6373s, DB growth fell to 131072 bytes, and evidence growth fell to 26 records."
+    - "After cognitive trace transaction consolidation, installed one-cycle latency improved to 14.4555s and planning_and_plan_persistence fell to 3.3245s."
+    - "After batched memory attribution outcome updates, installed one-cycle latency improved to 12.0474s and memory_attribution_resolve fell from 3.2483s to 1.1919s."
+    - "Material memory attribution threshold now suppresses tiny positive attribution deltas below 0.01 while preserving negative/refuting feedback; latest small-delta positive cycle recorded no memory state transitions."
+    - "After episodic workspace compaction, installed one-cycle latency improved to 10.9746s, DB growth fell to 86016 bytes, evidence growth fell to 16 records, and latest episodic memory size fell from about 15.2KB to 6.9KB."
+    - "After removing memory attribution write-after-read and batching sensor_state writes, installed one-cycle latency improved to 10.7404s; sensor_polling fell to 0.4499s and memory_attribution_record fell to 0.4984s."
+    - "After merging cognition plan attachment into the plan persistence transaction, installed one-cycle latency improved to 10.2351s; planning_and_plan_persistence fell to 2.5302s with health OK before and after."
+    - "After merging action completion and self-model capability update into one transaction, action_execution improved on comparable owner-host soak from 0.9655s to 0.8405s while preserving action_completed -> self_model_updated evidence order."
+    - "After throttling full autonomy contradiction scans and adding event_goal_timings to cycle/soak receipts, installed owner-host one-cycle latency improved to 9.4670s; event_goal_intake fell to 0.3915s, action_execution fell to 0.5518s, and autonomy_consider measured 0.0014s."
+    - "Latest installed bounded soak receipt bounded_soak_audit_732ffbc3ddca46fdab5b42d943c7fd03 passed with health OK before and after, DB growth +86016 bytes, evidence growth +16 records."
+    - "Latest installed garbage audit garbage_audit_d6c9f4f490164f91b89f41c7805d853d reported CLEAN with 0 candidates."
+    - "Commercial readiness gates are now documented in docs/COMMERCIAL_READINESS_GATES.md with operational health, performance, data growth, upgrade/rollback, authority, value, and owner UI gates."
+    - "Three-cycle owner-host soak bounded_soak_audit_8c298f8557534167a0d4bd41d7dce2e5 passed before the reserve-limit change: health OK before/after, DB growth +311296 bytes, evidence growth +58 records."
+    - "Event reserve limit now follows workspace capacity instead of reserving 50 events per cycle; default owner-host reserve limit is 16 and idx_events_status_salience_time supports the pending-event ordering."
+    - "After reserve limit and cognition token-cache changes, three-cycle owner-host soak bounded_soak_audit_c141e460bf294e11a97fb37eb25087b2 passed with health OK before/after, DB growth +212992 bytes, evidence growth +48 records, and per-cycle elapsed times 10.8630s, 9.4035s, 10.8916s."
+    - "Latest installed garbage audit garbage_audit_8d1c57a5f5de4db0aa48f9dd21c52baf reported CLEAN with 0 candidates."
+    - "Owner-approved cleanup execution is implemented behind --execute-cleanup plus --approval-reference and records garbage_cleanup_executed evidence."
+    - "Owner-host cleanup drill garbage_audit_22ccd2f5865c41469030e1e1dafff050 deleted 2 audited LOW-risk candidates (21 bytes) from a sandbox drill root and preserved the non-candidate keep.txt file."
+    - "Post-cleanup smoke soak bounded_soak_audit_4ba0d834b3e6406e8e6b8711ced1a973 passed with health OK before/after."
+    - "Post-drill home garbage audit garbage_audit_2348fa4a68204bf29a0e191bf9be96cf reported CLEAN with 0 candidates."
+    - "ET006 focused regression subset passed after final changes: bounded soak, system sensor, DB schema, health snapshot, and lease tests all green."
+    - "Upgrade/rollback drill command is implemented and tested. It records wheel metadata, online DB backup metadata, restore-check integrity, foreign-key validation, before/after health, and an explicit claim ceiling."
+    - "Owner-host upgrade drill upgrade_drill_11e80b82704c4150a119bda4f0bec3c4 passed after reinstalling the v0.9.0.dev2 wheel: backup 123138048 bytes in 10.9434s, restore-check integrity ok, 0 foreign-key violations, health OK before and after."
+    - "Performance audit now includes owner-console read API probes for /api/health, /api/bootstrap, and /api/product, started through an ephemeral loopback UI server with bearer-token authorization."
+    - "Owner-host UI/API performance receipt performance_budget_audit_365ba262bd0b4be1a8cd291063854de0 passed with 7 measurements: health_snapshot max 0.0148s, runtime_init 1.0129s, garbage_audit 0.4532s, self_check 1.3969s, ui_api_health 0.0368s, ui_api_bootstrap 0.6587s, ui_api_product 0.4902s."
+    - "Longitudinal owner-task protocol receipts are now runtime/CLI/evidence-backed via longitudinal-start, longitudinal-record, and longitudinal-report."
+    - "Owner-host longitudinal protocol long_9f0a7520d7c64d1d88b2df1c9c863ab6 started with frozen baseline 077f416 and 30-day duration."
+    - "Initial owner-host longitudinal report long_report_c6079a9232884215885a9552ec69f697 is exposed through wls health and correctly reports LONGITUDINAL_REPORT_NEEDS_MORE_EVIDENCE with 0 measurements."
+    - "Owner-approved cleanup now quarantines audited candidates where possible instead of directly deleting them, and garbage-clear-quarantine provides the second owner-approved clear decision."
+    - "Owner-host quarantine drill garbage_audit_782e4038f2a2479bbc2b49309df14c39 quarantined 2 audited LOW-risk candidates, deleted 0 candidates, and preserved keep.txt."
+    - "Owner-host quarantine clear garbage_quarantine_clear_7bf8cf834e26425594be21926844a8a1 cleared the drill quarantine after explicit approval, and post-clear home audit garbage_audit_b60975718ef141b497b3eb84c54b5645 reported CLEAN with 0 candidates."
+    - "Architectural hardening pass fixed operator-facing and boundary defects: quarantine input validation, safe audit-id names, quarantine manifest, quarantine clear path gating, visible quarantine-clear health/status receipts, bounded longitudinal fields, legacy boolean parsing, performance sample clamp, and .whl-only upgrade drill inputs."
+    - "Architectural hardening regression subset passed: 26 focused tests across garbage audit, longitudinal reporting, upgrade drill, and performance audit."
+    - "Owner Review garbage workflow is implemented in UI/API: GET /api/garbage-audit is read-only, POST /api/garbage-audit/scan records explicit scans, POST /api/garbage-audit/cleanup requires approval reference and owner write gate, and POST /api/garbage-audit/quarantine-clear requires the second owner approval."
+    - "Owner Review regression subset passed after the GET side-effect fix: 36 tests across UI server, UI projection, garbage audit, and performance audit."
+    - "Owner-host v0.9.0.dev2 wheel was reinstalled with the Review UI assets present in site-packages."
+    - "Latest owner-host health after Review UI deployment is OK; latest garbage audit garbage_audit_a0dff67750124dcc9b1d4e1291cf3bb2 reported CLEAN with 0 candidates."
+    - "Latest owner-host UI/API performance receipt performance_budget_audit_ea7fed9eb28a4b1c8dea00d4a708ad73 passed with 7 measurements: health_snapshot max 0.0197s, runtime_init 0.8931s, garbage_audit 0.4011s, self_check 1.3920s, ui_api_health 0.0167s, ui_api_bootstrap 0.5273s, ui_api_product 0.5070s."
+    - "Performance audit now supports --include-write-workflows; it measures owner-gated garbage Review scan, cleanup/quarantine, and quarantine-clear APIs on a disposable temporary runtime home while recording the receipt in the configured owner-host."
+    - "Disposable Review write workflow regression passed: 25 tests across performance audit, UI server, and garbage audit; supplemental UI projection/performance subset passed 16 tests; py_compile passed for CLI, performance, UI server, and garbage audit."
+    - "Owner-host disposable write workflow performance receipt performance_budget_audit_01ef484bdd92480cb68c2d545a3a2b94 passed with 10 measurements: health_snapshot max 0.0235s, runtime_init 1.2218s, garbage_audit 0.4684s, self_check 1.4653s, ui_api_health 0.0177s, ui_api_bootstrap 0.5638s, ui_api_product 0.5335s, ui_api_garbage_scan 0.3742s, ui_api_garbage_cleanup 0.4987s, ui_api_garbage_clear 0.3895s."
+    - "Latest owner-host health after disposable write workflow audit remains OK; latest home garbage audit garbage_audit_319599317225401291448a2ce27408a0 reported CLEAN with 0 candidates."
+    - "Runtime receipt retention audit is implemented and CLI-backed through wls retention-audit; it audits *_receipts runtime_state lists by count, JSON size, invalid state, and owner-review requirement without deleting receipts or evidence rows."
+    - "Retention audit regression passed: 7 tests across retention audit, CLI health, and performance audit; supplemental retention/UI-server subset passed 12 tests; py_compile passed for runtime, CLI, and performance."
+    - "Owner-host retention audit retention_audit_875771e18ef841788d57964c114a2222 passed: 7 receipt lists, 42 receipts, 90091 JSON bytes, no invalid keys, no over-count keys, no oversized keys, cleanup_executed false."
+    - "Latest owner-host health after retention audit remains OK and exposes retention_audit in the health snapshot."
+    - "Upgrade drill now supports --disposable-clone; it writes a simulated upgrade marker to a temporary cloned home, verifies clone health, restores the clone DB from backup, verifies integrity, confirms marker removal, and deletes the temporary clone without modifying the live install or restoring the live database."
+    - "Disposable clone rollback regression passed: 8 tests across upgrade drill, retention audit, and CLI health; supplemental upgrade/performance subset passed 9 tests; py_compile passed for runtime, CLI, and performance."
+    - "Owner-host disposable clone rollback drill upgrade_drill_0d35becebd224aa287549c3b48b2f2ad passed: backup 123138048 bytes in 7.8045s, restore-check integrity ok, 0 foreign-key violations, clone marker written before rollback, marker removed after rollback, rollback hash matched backup, clone_home_removed true, health OK before/after."
+    - "Latest owner-host health after disposable clone rollback remains OK and exposes upgrade_drill_0d35becebd224aa287549c3b48b2f2ad as the current upgrade drill receipt."
+    - "Performance audit now supports --include-rollback-workflow; it measures a disposable clone rollback drill and records rollback_disposable_clone under the same budget receipt as health, UI, garbage, and owner-review write workflows."
+    - "Rollback workflow performance regression passed: 12 tests across performance audit, upgrade drill, and CLI health; supplemental retention/garbage subset passed 13 tests; py_compile passed for CLI, performance, and runtime."
+    - "Owner-host full optional workflow performance receipt performance_budget_audit_a8897e044943443dbd8f53b8293cf769 passed with 11 measurements: health_snapshot max 0.0177s, runtime_init 0.8872s, garbage_audit 0.6139s, self_check 1.3265s, ui_api_health 0.0184s, ui_api_bootstrap 0.5062s, ui_api_product 0.6095s, ui_api_garbage_scan 0.3835s, ui_api_garbage_cleanup 0.2977s, ui_api_garbage_clear 0.3765s, rollback_disposable_clone 1.3785s against a 30s budget."
+    - "Latest owner-host health after full optional workflow performance audit remains OK; latest garbage audit garbage_audit_ea5a19a3f1794c8089289f5edb02e9b1 reported CLEAN with 0 candidates."
+    - "Longitudinal report quality gate now requires qualified owner-task evidence; measurements without both task_reference and owner_review are PARTIAL_OWNER_TASK and cannot make a report pass."
+    - "Longitudinal quality regression passed: 11 tests across longitudinal and CLI health; supplemental performance/retention subset passed 8 tests; py_compile passed for runtime, longitudinal, and CLI."
+    - "First qualified owner-host measurement meas_27d88947206142499a87780d5c8922ec was recorded for the ET006 commercial-readiness iteration with task_reference and owner_review bound to real receipts/tests; evidence_quality QUALIFIED_OWNER_TASK, success true, skill_reuse true."
+    - "Latest owner-host longitudinal report long_report_f433092b98c24dc7a524cd75f9b89b84 reports LONGITUDINAL_REPORT_PASSED for 1 qualified measurement, 0 unqualified measurements, success_rate 1.0, skill_reuse_rate 1.0, and no regressions, with claim ceiling limited to the recorded workload."
+    - "Latest owner-host health after the qualified longitudinal report remains OK and exposes measurement_count 1 plus qualified_measurement_count 1."
+  maturity_gaps_to_close_next:
+    - "Tighten multi-cycle latency toward an explicit commercial target; next hotspots are planner_plan, cognition_learning_appraisal, memory_retrieval, appraisal_attention, and reserve_events transaction cost."
+    - "Run multi-cycle bounded soak and inspect whether DB growth remains linear and compact."
+    - "Add owner-facing approval workflow for live rollback before any live rollback claim."
+    - "Keep live rollback claims blocked until an explicit owner-approved live rollback is requested and verified."
+    - "Add owner-approved retention compaction only after repeated retention audits show real pressure."
+    - "Record repeated real owner-task longitudinal measurements across distinct task classes instead of relying on a single successful measurement."
+
 verification:
   architecture_validation:
     pass_count: 89
@@ -166,7 +362,7 @@ known_unknowns:
     status: "UNKNOWN"
   - id: "KU-004"
     item: "Real Windows upgrade, backup, restore, host integration"
-    status: "UNKNOWN"
+    status: "PARTIALLY_VERIFIED_DISPOSABLE_CLONE_ROLLBACK_PASSED_LIVE_ROLLBACK_PENDING"
   - id: "KU-005"
     item: "Long-running soak, resource exhaustion, fault-injection at scale"
     status: "UNKNOWN"
@@ -185,6 +381,10 @@ completed:
   - "P01-P89 architecture validation all green."
   - "12/30 DL task specifications implemented as modules."
   - "6 integration pipelines tested end-to-end."
+  - "ET005 started with lightweight health/preflight path instead of importing Phase2 prototype code wholesale."
+  - "ET005 health snapshot, UI health endpoint, CLI health command, daemon BLOCKED gate, stale-cycle recovery, and workspace persistence compaction are locally verified and deployed."
+  - "Owner-host installed WLS health is OK after compaction and one successful canonical cycle."
+  - "Desktop continuation ZIPs absorbed into CURRENT_STATE as mainline evidence/backlog; package pycache garbage removed."
   - "Disk cleanup: 1,128 MB → 142 MB (87% reduction)."
 
 not_completed:
@@ -194,6 +394,7 @@ not_completed:
   - "Owner-authorized production-host longitudinal learning advantage."
   - "Long-duration survival and fault-injection validation."
   - "External provider and cross-worker longitudinal proof."
+  - "Longitudinal owner-host proof after ET005 deployment."
 
 branches:
   - name: "main"
@@ -203,23 +404,28 @@ branches:
     tag: "v0.9.0.dev2"
 
 current_limitations:
-  - "Verification uses isolated temporary runtime homes, not the owner's production workstation."
+  - "ET005 deployment and one-cycle health were verified on the owner-host instance, but longitudinal owner-task evidence is still pending."
   - "Decision guidance remains bounded deterministic engineering logic."
   - "Memory scale and multi-project interference remain unverified at production load."
   - "Long-running tests (cognition, memory_ablation) may hang due to SQLite locking."
 
 next_evolution_target:
-  id: "EVOLUTION-TARGET-005"
-  title: "Owner-Host Longitudinal Validation"
-  status: "PENDING_OWNER_HOST_EVIDENCE"
+  id: "EVOLUTION-TARGET-006"
+  title: "Commercial Readiness Performance and Longitudinal Reliability"
+  status: "IN_PROGRESS_OWNER_REVIEW_GARBAGE_WORKFLOW_DEPLOYED"
   objective: >-
-    Run genuine owner-authorized task sequences on the intended host,
-    measure benefit and regressions over weeks, verify that memory validity
-    and contradiction handling remain correct outside controlled verifier.
+    Turn the current guarded prototype into a commercially credible local
+    workstation system by enforcing performance budgets, bounded soak evidence,
+    owner-approved cleanup execution, upgrade/rollback drills, and real
+    owner-task longitudinal measurement.
 
 unique_next_action: >-
-  Deploy v0.9.0.dev2 to owner host, run longitudinal protocol, and collect
-  real-world evidence before claiming production-ready status.
+  Continue ET006 from the owner-host cleanup, upgrade, UI/API performance,
+  owner review garbage workflow, and the first qualified longitudinal owner-task
+  receipt: record repeated real owner-task measurements across distinct task
+  classes and keep lowering measured cycle latency before advancing commercial
+  maturity claims; live rollback remains blocked until an owner-facing approval
+  workflow and explicit owner-approved live drill exist.
 
 stop_conditions:
   - "Stop if any change bypasses evidence provenance, policy gates, or human authority."

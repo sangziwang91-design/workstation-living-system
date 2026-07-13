@@ -141,8 +141,11 @@ class CognitiveEngine:
 
     def create_plan(self, context: dict[str, Any]) -> dict[str, Any]:
         cycle_id = str(context.get("cycle_id") or new_id("cycle"))
-        actual = self._rank(context, include_memories=True)
-        counterfactual = self._rank(context, include_memories=False)
+        token_views = self._token_views(context)
+        actual = self._rank(context, include_memories=True, token_views=token_views)
+        counterfactual = self._rank(
+            context, include_memories=False, token_views=token_views
+        )
         selected = actual[0]
         counter_selected = counterfactual[0]
         max_actions = max(0, int(context.get("budget", {}).get("max_actions", 0)))
@@ -166,6 +169,18 @@ class CognitiveEngine:
             for item in actual[1 : self.maximum_hypotheses]
         ]
         decomposition = self._decomposition(selected, actions)
+        hypothesis_records: list[tuple[HypothesisCandidate, str, dict[str, Any], bool]] = []
+        selected_id: str | None = None
+        for index, candidate in enumerate(actual[: self.maximum_hypotheses]):
+            temporal = (
+                self._temporalize(candidate, cycle_id)
+                if index == 0 and candidate.support_ids
+                else {}
+            )
+            hypothesis_id = new_id("hyp")
+            if index == 0:
+                selected_id = hypothesis_id
+            hypothesis_records.append((candidate, hypothesis_id, temporal, index == 0))
         with self.db.transaction() as connection:
             connection.execute(
                 """
@@ -190,12 +205,7 @@ class CognitiveEngine:
                     now,
                 ),
             )
-
-        selected_id: str | None = None
-        for index, candidate in enumerate(actual[: self.maximum_hypotheses]):
-            temporal = self._temporalize(candidate, cycle_id) if index == 0 and candidate.support_ids else {}
-            hypothesis_id = new_id("hyp")
-            with self.db.transaction() as connection:
+            for candidate, hypothesis_id, temporal, is_selected in hypothesis_records:
                 connection.execute(
                     """
                     INSERT INTO cognitive_hypotheses(
@@ -213,7 +223,7 @@ class CognitiveEngine:
                         candidate.claim,
                         candidate.rationale,
                         candidate.score,
-                        int(index == 0),
+                        int(is_selected),
                         json.dumps(candidate.support_ids, ensure_ascii=False),
                         json.dumps(candidate.opposing_ids, ensure_ascii=False),
                         json.dumps(candidate.memory_ids, ensure_ascii=False),
@@ -223,11 +233,15 @@ class CognitiveEngine:
                         now,
                     ),
                 )
-            if index == 0:
-                selected_id = hypothesis_id
-                self._create_predictions(trace_id, hypothesis_id, actions, candidate.score, now)
-
-        with self.db.transaction() as connection:
+                if is_selected:
+                    self._create_predictions(
+                        trace_id,
+                        hypothesis_id,
+                        actions,
+                        candidate.score,
+                        now,
+                        connection=connection,
+                    )
             connection.execute(
                 "UPDATE cognitive_traces SET selected_hypothesis_id=? WHERE trace_id=?",
                 (selected_id, trace_id),
@@ -261,18 +275,21 @@ class CognitiveEngine:
             ])),
         }
 
-    def attach_plan(self, cycle_id: str, plan: Plan) -> None:
-        with self.db.transaction() as connection:
-            updated = connection.execute(
-                "UPDATE cognitive_traces SET plan_id=?,status='PLANNED' WHERE cycle_id=? AND plan_id IS NULL",
-                (plan.plan_id, cycle_id),
-            ).rowcount
-            if updated:
-                self.ledger.append(
-                    "cognitive_plan_attached",
-                    {"cycle_id": cycle_id, "plan_id": plan.plan_id},
-                    connection,
-                )
+    def attach_plan(self, cycle_id: str, plan: Plan, connection=None) -> None:
+        if connection is None:
+            with self.db.transaction() as owned_connection:
+                self.attach_plan(cycle_id, plan, owned_connection)
+            return
+        updated = connection.execute(
+            "UPDATE cognitive_traces SET plan_id=?,status='PLANNED' WHERE cycle_id=? AND plan_id IS NULL",
+            (plan.plan_id, cycle_id),
+        ).rowcount
+        if updated:
+            self.ledger.append(
+                "cognitive_plan_attached",
+                {"cycle_id": cycle_id, "plan_id": plan.plan_id},
+                connection,
+            )
 
     def resolve_cycle(
         self,
@@ -295,6 +312,7 @@ class CognitiveEngine:
         resolved: list[dict[str, Any]] = []
         successes: list[bool] = []
         actual: dict[str, Any]
+        prediction_updates: list[tuple[str, str, str]] = []
         for row in predictions:
             index = int(row["action_index"])
             if index >= len(plan.actions):
@@ -317,11 +335,13 @@ class CognitiveEngine:
                         "status": outcome.get("status"),
                         "evaluation": outcome.get("evaluation", {}),
                     }
-            with self.db.transaction() as connection:
-                connection.execute(
-                    "UPDATE cognitive_predictions SET status=?,actual_json=?,resolved_at=? WHERE prediction_id=?",
-                    (status, json.dumps(actual, ensure_ascii=False, sort_keys=True), utc_now(), row["prediction_id"]),
+            prediction_updates.append(
+                (
+                    str(row["prediction_id"]),
+                    status,
+                    json.dumps(actual, ensure_ascii=False, sort_keys=True),
                 )
+            )
             resolved.append({"prediction_id": row["prediction_id"], "status": status, "actual": actual})
 
         calibration = self._calibrate(trace, successes, plan, outcomes)
@@ -331,10 +351,16 @@ class CognitiveEngine:
             "successful_actions": sum(successes),
             "observed_actions": len(successes),
         }
+        resolved_at = utc_now()
         with self.db.transaction() as connection:
+            for prediction_id, status, actual_json in prediction_updates:
+                connection.execute(
+                    "UPDATE cognitive_predictions SET status=?,actual_json=?,resolved_at=? WHERE prediction_id=?",
+                    (status, actual_json, resolved_at, prediction_id),
+                )
             connection.execute(
                 "UPDATE cognitive_traces SET status='RESOLVED',outcome_json=?,resolved_at=? WHERE trace_id=?",
-                (json.dumps(outcome_record, ensure_ascii=False, sort_keys=True), utc_now(), trace["trace_id"]),
+                (json.dumps(outcome_record, ensure_ascii=False, sort_keys=True), resolved_at, trace["trace_id"]),
             )
             self.ledger.append(
                 "cognitive_trace_resolved",
@@ -418,10 +444,22 @@ class CognitiveEngine:
             counts[name] = int(row["n"]) if row else 0
         return all(value == 0 for value in counts.values()), counts
 
-    def _rank(self, context: dict[str, Any], *, include_memories: bool) -> list[HypothesisCandidate]:
+    def _rank(
+        self,
+        context: dict[str, Any],
+        *,
+        include_memories: bool,
+        token_views: dict[str, Any] | None = None,
+    ) -> list[HypothesisCandidate]:
         candidates = self._candidates(context, include_memories=include_memories)
+        token_views = token_views or self._token_views(context)
         for candidate in candidates:
-            candidate.score = self._score(candidate, context, include_memories=include_memories)
+            candidate.score = self._score(
+                candidate,
+                context,
+                include_memories=include_memories,
+                token_views=token_views,
+            )
             if not include_memories:
                 candidate.memory_ids = []
         unique: dict[str, HypothesisCandidate] = {}
@@ -754,11 +792,54 @@ class CognitiveEngine:
         ))
         return candidates
 
-    def _score(self, candidate: HypothesisCandidate, context: dict[str, Any], *, include_memories: bool) -> float:
+    def _token_views(self, context: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "memories": [
+                (
+                    memory,
+                    tokens(
+                        json.dumps(
+                            memory.get("content", {}),
+                            ensure_ascii=False,
+                            sort_keys=True,
+                        )
+                    ),
+                )
+                for memory in context.get("memories", [])
+                if isinstance(memory, dict)
+            ],
+            "facts": [
+                (
+                    fact,
+                    tokens(
+                        f"{fact.get('subject')} {fact.get('predicate')} {fact.get('value')}"
+                    ),
+                )
+                for fact in context.get("world_facts", [])
+                if isinstance(fact, dict)
+            ],
+            "goals": [
+                (
+                    goal,
+                    tokens(f"{goal.get('title')} {goal.get('description')}"),
+                )
+                for goal in context.get("goals", [])
+                if isinstance(goal, dict)
+            ],
+        }
+
+    def _score(
+        self,
+        candidate: HypothesisCandidate,
+        context: dict[str, Any],
+        *,
+        include_memories: bool,
+        token_views: dict[str, Any],
+    ) -> float:
         score = candidate.base_score
         query = tokens(f"{candidate.subject} {candidate.claim} {candidate.rationale}")
         if include_memories:
-            for memory in context.get("memories", []):
+            for memory, memory_tokens in token_views.get("memories", []):
                 content = memory.get("content", {})
                 if candidate.key.startswith("causal_memory_"):
                     continue
@@ -769,13 +850,7 @@ class CognitiveEngine:
                     continue
                 overlap = self._overlap(
                     query,
-                    tokens(
-                        json.dumps(
-                            content,
-                            ensure_ascii=False,
-                            sort_keys=True,
-                        )
-                    ),
+                    memory_tokens,
                 )
                 if overlap <= 0:
                     continue
@@ -783,16 +858,16 @@ class CognitiveEngine:
                 memory_id = str(memory.get("memory_id", ""))
                 if memory_id:
                     candidate.memory_ids.append(memory_id)
-        for fact in context.get("world_facts", []):
-            overlap = self._overlap(query, tokens(f"{fact.get('subject')} {fact.get('predicate')} {fact.get('value')}"))
+        for fact, fact_tokens in token_views.get("facts", []):
+            overlap = self._overlap(query, fact_tokens)
             if overlap <= 0:
                 continue
             score += 0.12 * overlap * float(fact.get("confidence", 0.5))
             fact_id = str(fact.get("fact_id", ""))
             if fact_id:
                 candidate.fact_ids.append(fact_id)
-        for goal in context.get("goals", []):
-            overlap = self._overlap(query, tokens(f"{goal.get('title')} {goal.get('description')}"))
+        for goal, goal_tokens in token_views.get("goals", []):
+            overlap = self._overlap(query, goal_tokens)
             if overlap > 0:
                 score += 0.15 * overlap * float(goal.get("priority", 0.5))
         penalty = 0.0
@@ -810,22 +885,41 @@ class CognitiveEngine:
         penalty *= 1.0 + 0.5 * float(context.get("affect", {}).get("safety_tension", 0.0))
         return max(0.0, min(1.0, score - penalty))
 
-    def _create_predictions(self, trace_id: str, hypothesis_id: str, actions: list[dict[str, Any]], confidence: float, created_at: str) -> None:
-        with self.db.transaction() as connection:
-            for index, action in enumerate(actions):
-                connection.execute(
-                    """
-                    INSERT INTO cognitive_predictions(
-                        prediction_id,trace_id,hypothesis_id,action_index,expected_json,
-                        confidence,status,actual_json,created_at,resolved_at
-                    ) VALUES (?,?,?,?,?,?,'OPEN',NULL,?,NULL)
-                    """,
-                    (
-                        new_id("cogpred"), trace_id, hypothesis_id, index,
-                        json.dumps({"tool": action.get("tool"), "accepted": True, "acceptance": action.get("acceptance", [])}, ensure_ascii=False, sort_keys=True),
-                        confidence, created_at,
-                    ),
+    def _create_predictions(
+        self,
+        trace_id: str,
+        hypothesis_id: str,
+        actions: list[dict[str, Any]],
+        confidence: float,
+        created_at: str,
+        *,
+        connection: Any | None = None,
+    ) -> None:
+        if connection is None:
+            with self.db.transaction() as owned_connection:
+                self._create_predictions(
+                    trace_id,
+                    hypothesis_id,
+                    actions,
+                    confidence,
+                    created_at,
+                    connection=owned_connection,
                 )
+            return
+        for index, action in enumerate(actions):
+            connection.execute(
+                """
+                INSERT INTO cognitive_predictions(
+                    prediction_id,trace_id,hypothesis_id,action_index,expected_json,
+                    confidence,status,actual_json,created_at,resolved_at
+                ) VALUES (?,?,?,?,?,?,'OPEN',NULL,?,NULL)
+                """,
+                (
+                    new_id("cogpred"), trace_id, hypothesis_id, index,
+                    json.dumps({"tool": action.get("tool"), "accepted": True, "acceptance": action.get("acceptance", [])}, ensure_ascii=False, sort_keys=True),
+                    confidence, created_at,
+                ),
+            )
 
     def _temporalize(self, candidate: HypothesisCandidate, cycle_id: str) -> dict[str, Any]:
         source_ids = list(dict.fromkeys([*candidate.support_ids, cycle_id]))

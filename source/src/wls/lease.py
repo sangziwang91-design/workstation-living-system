@@ -46,6 +46,12 @@ class ProcessLease(AbstractContextManager):
     def release(self) -> None:
         if self._file is None:
             return
+        owner_pid = str(os.getpid()).encode("ascii")
+        try:
+            self._file.seek(0)
+            file_pid = self._file.read().strip()
+        except OSError:
+            file_pid = b""
         if os.name == "nt":
             import msvcrt
 
@@ -63,6 +69,14 @@ class ProcessLease(AbstractContextManager):
                 pass
         self._file.close()
         self._file = None
+        if file_pid != owner_pid:
+            return
+        try:
+            current_pid = self.path.read_bytes().strip()
+            if current_pid == owner_pid:
+                self.path.unlink()
+        except OSError:
+            pass
 
     def __enter__(self):
         self.acquire()

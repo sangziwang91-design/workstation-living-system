@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 
 from .config import RuntimeConfig
 from .db import Database
@@ -29,24 +30,37 @@ class AutonomySystem:
         self.config = config
 
     def consider(self) -> list[str]:
-        if self.goals.autonomous_count() >= self.config.max_autonomous_goals:
+        autonomous_count = self.goals.autonomous_count()
+        if autonomous_count >= self.config.max_autonomous_goals:
             return []
+        now = datetime.now(UTC)
+        last_considered = self.db.get_runtime("autonomy_last_considered_at", None)
+        due = True
+        if last_considered:
+            try:
+                elapsed = (
+                    now - datetime.fromisoformat(str(last_considered))
+                ).total_seconds()
+                due = elapsed >= self.config.autonomy_consider_interval_seconds
+            except ValueError:
+                due = True
         proposals: list[Goal] = []
-        contradictions = self.world.unresolved_contradictions(limit=3)
-        for item in contradictions:
-            title = f"Clarify contradiction: {item['subject']} / {item['predicate']}"
-            proposals.append(
-                Goal(
-                    title=title,
-                    description="Collect additional direct evidence and avoid choosing a fact by narrative preference.",
-                    priority=0.65,
-                    success_criteria=[
-                        "contradiction has one verified active interpretation or remains explicitly UNKNOWN"
-                    ],
-                    source="autonomy.reality_coherence",
-                    autonomous=True,
+        if due:
+            contradictions = self.world.unresolved_contradictions(limit=3)
+            for item in contradictions:
+                title = f"Clarify contradiction: {item['subject']} / {item['predicate']}"
+                proposals.append(
+                    Goal(
+                        title=title,
+                        description="Collect additional direct evidence and avoid choosing a fact by narrative preference.",
+                        priority=0.65,
+                        success_criteria=[
+                            "contradiction has one verified active interpretation or remains explicitly UNKNOWN"
+                        ],
+                        source="autonomy.reality_coherence",
+                        autonomous=True,
+                    )
                 )
-            )
         failed_sensor = self.db.query_one(
             "SELECT sensor_name,last_error FROM sensor_state WHERE last_error IS NOT NULL ORDER BY last_polled_at DESC LIMIT 1"
         )
@@ -94,4 +108,6 @@ class AutonomySystem:
             created.append(self.goals.add(goal))
         if created:
             self.ledger.append("autonomous_goals_created", {"goal_ids": created})
+        if due or created:
+            self.db.set_runtime("autonomy_last_considered_at", now.isoformat())
         return created

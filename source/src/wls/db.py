@@ -61,7 +61,7 @@ class Database:
                     connection.execute("ROLLBACK")
                 raise
             finally:
-                connection.close()
+                self._untrack_and_close(connection)
 
     def initialize(self) -> None:
         with self.transaction() as connection:
@@ -88,6 +88,8 @@ class Database:
                     last_error TEXT
                 );
                 CREATE INDEX IF NOT EXISTS idx_events_status_time ON events(status, occurred_at);
+                CREATE INDEX IF NOT EXISTS idx_events_status_salience_time
+                ON events(status, salience_hint DESC, occurred_at ASC);
 
                 CREATE TABLE IF NOT EXISTS observations (
                     observation_id TEXT PRIMARY KEY,
@@ -139,6 +141,8 @@ class Database:
                     actual_value_json TEXT,
                     error_score REAL
                 );
+                CREATE INDEX IF NOT EXISTS idx_predictions_status_key
+                ON predictions(status, subject, predicate, expected_value_json, created_at);
 
                 CREATE TABLE IF NOT EXISTS goals (
                     goal_id TEXT PRIMARY KEY,
@@ -504,14 +508,24 @@ class Database:
         try:
             return connection.execute(sql, parameters).fetchone()
         finally:
-            connection.close()
+            self._untrack_and_close(connection)
 
     def query_all(self, sql: str, parameters: Sequence[Any] = ()) -> list[sqlite3.Row]:
         connection = self.connect()
         try:
             return list(connection.execute(sql, parameters).fetchall())
         finally:
+            self._untrack_and_close(connection)
+
+    def _untrack_and_close(self, connection: sqlite3.Connection) -> None:
+        try:
+            self._connections.remove(connection)
+        except ValueError:
+            pass
+        try:
             connection.close()
+        except Exception:
+            pass
 
     def set_runtime(
         self, key: str, value: Any, connection: sqlite3.Connection | None = None
@@ -542,14 +556,14 @@ class Database:
                 return False, f"foreign_key_violations={len(foreign_rows)}"
             return True, "ok"
         finally:
-            connection.close()
+            self._untrack_and_close(connection)
 
     def checkpoint(self) -> None:
         connection = self.connect()
         try:
             connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         finally:
-            connection.close()
+            self._untrack_and_close(connection)
 
     def close_all(self) -> None:
         """Close all open connections and force WAL checkpoint. Call before

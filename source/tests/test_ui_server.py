@@ -91,6 +91,31 @@ def test_product_projection_endpoint_exposes_read_only_owner_panels() -> None:
         server.shutdown()
 
 
+def test_health_endpoint_uses_bounded_runtime_snapshot() -> None:
+    runtime = FakeRuntime()
+    runtime.health_snapshot = lambda: {  # type: ignore[attr-defined]
+        "ok": False,
+        "status": "WARN",
+        "warnings": ["database_size_over_daemon_limit"],
+        "projection_only": False,
+    }
+    _, server = make_server(runtime)
+    connection = HTTPConnection("127.0.0.1", server.bound_port, timeout=5)
+    try:
+        status, _, payload = request(
+            connection, "GET", "/api/health", token=server.token
+        )
+        health = json.loads(payload)
+        assert status == 200
+        assert health["status"] == "WARN"
+        assert health["warnings"] == ["database_size_over_daemon_limit"]
+        assert health["cycle_request_active"] is False
+        assert health["projection_only"] is False
+    finally:
+        connection.close()
+        server.shutdown()
+
+
 def test_invalid_host_and_cross_site_write_are_rejected() -> None:
     _, server = make_server()
     connection = HTTPConnection("127.0.0.1", server.bound_port, timeout=5)
@@ -188,6 +213,84 @@ def test_action_endpoints_follow_state_specific_operations() -> None:
         server.shutdown()
 
 
+def test_garbage_review_endpoints_require_owner_write_gate() -> None:
+    runtime = FakeRuntime()
+    _, server = make_server(runtime)
+    connection = HTTPConnection("127.0.0.1", server.bound_port, timeout=5)
+    try:
+        status, _, payload = request(
+            connection, "GET", "/api/garbage-audit", token=server.token
+        )
+        assert status == 200
+        assert json.loads(payload)["status"] == "NO_AUDIT"
+        assert runtime.garbage_receipts == []
+
+        status, _, payload = request(
+            connection,
+            "POST",
+            "/api/garbage-audit/scan",
+            token=server.token,
+            body={"reason": "owner scan"},
+        )
+        audit = json.loads(payload)
+        assert status == 200
+        assert audit["status"] == "OWNER_REVIEW_REQUIRED"
+        assert audit["cleanup_executed"] is False
+        assert len(runtime.garbage_receipts) == 1
+
+        status, _, _ = request(
+            connection,
+            "POST",
+            "/api/garbage-audit/cleanup",
+            token=server.token,
+            body={"reason": "owner cleanup"},
+        )
+        assert status == 403
+
+        status, _, payload = request(
+            connection,
+            "POST",
+            "/api/garbage-audit/cleanup",
+            token=server.token,
+            body={
+                "reason": "owner cleanup",
+                "approval_reference": "pytest://owner-approval",
+            },
+        )
+        cleanup = json.loads(payload)
+        assert status == 200
+        assert cleanup["cleanup_executed"] is True
+        assert cleanup["approval_reference"] == "pytest://owner-approval"
+
+        status, _, payload = request(
+            connection,
+            "GET",
+            f"/api/garbage-audit/{cleanup['audit_id']}",
+            token=server.token,
+        )
+        assert status == 200
+        assert json.loads(payload)["audit_id"] == cleanup["audit_id"]
+
+        status, _, payload = request(
+            connection,
+            "POST",
+            "/api/garbage-audit/quarantine-clear",
+            token=server.token,
+            body={
+                "audit_id": cleanup["audit_id"],
+                "approval_reference": "pytest://owner-clear",
+                "reason": "owner clear",
+            },
+        )
+        clear = json.loads(payload)
+        assert status == 200
+        assert clear["status"] == "QUARANTINE_CLEARED"
+        assert clear["audit_id"] == cleanup["audit_id"]
+    finally:
+        connection.close()
+        server.shutdown()
+
+
 def test_cycle_endpoint_rejects_concurrent_cycle() -> None:
     runtime = FakeRuntime()
     entered = threading.Event()
@@ -235,9 +338,12 @@ def test_static_ui_respects_strict_csp_without_inline_style() -> None:
         assert "style-src 'self'" in headers["Content-Security-Policy"]
         assert b"style=" not in payload
         assert b'data-view="panels"' in payload
+        assert b'data-view="review"' in payload
         status, _, js = request(connection, "GET", "/assets/app.js", token=server.token)
         assert status == 200
         assert b"/api/product" in js
+        assert b"/api/garbage-audit" in js
+        assert b"/api/garbage-audit/scan" in js
         assert b"Delivery Readiness" in js
         assert b"OPERATIONAL_PREFLIGHT_PASSED" not in js
         assert b"readinessCards" in js

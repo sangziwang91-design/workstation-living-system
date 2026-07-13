@@ -20,6 +20,7 @@ const state = {
   runs: [],
   library: null,
   product: null,
+  garbage: null,
 };
 
 const main = document.querySelector("#main");
@@ -214,6 +215,46 @@ async function renderPanels() {
   bindSelectable();
 }
 
+async function renderReview() {
+  if (!state.garbage) state.garbage = await api("/api/garbage-audit");
+  const candidates = Array.isArray(state.garbage.candidates) ? state.garbage.candidates : [];
+  const cleanupEnabled = candidates.length > 0 && !state.garbage.cleanup_executed;
+  const clearEnabled = Boolean(state.garbage.quarantine_root);
+  main.innerHTML = pageHead("Owner Review", "Garbage Review", "Review cleanup candidates, quarantine approved items, and clear quarantine with a second approval.") + `
+    <div class="grid cols-4">
+      ${metricCard("Status", state.garbage.status || "-", "audit")}
+      ${metricCard("Candidates", candidates.length, "items")}
+      ${metricCard("Bytes", state.garbage.total_candidate_bytes || state.garbage.quarantined_bytes || 0, "detected")}
+      ${metricCard("Cleanup", state.garbage.cleanup_executed ? "Done" : "Pending", "owner")}
+    </div>
+    <div class="action-row">
+      <button class="secondary-action" id="scan-garbage" type="button">Scan</button>
+      <button class="primary-action" id="quarantine-garbage" type="button" ${cleanupEnabled ? "" : "disabled"}>Quarantine</button>
+      <button class="danger-action" id="clear-quarantine" type="button" ${clearEnabled ? "" : "disabled"}>Clear Quarantine</button>
+    </div>
+    <div class="section-title"><h2>Candidates</h2><small>${escapeHtml(state.garbage.audit_id || "-")}</small></div>
+    <div class="list">${candidates.map(garbageCandidateCard).join("") || `<div class="empty">No cleanup candidates in the latest scan.</div>`}</div>
+  `;
+  document.querySelector("#scan-garbage")?.addEventListener("click", scanGarbage);
+  document.querySelector("#quarantine-garbage")?.addEventListener("click", quarantineGarbage);
+  document.querySelector("#clear-quarantine")?.addEventListener("click", clearGarbageQuarantine);
+  bindSelectable();
+}
+
+function garbageCandidateCard(candidate) {
+  return `<button class="row-card selectable" data-type="garbage-candidate" data-json="${encodeURIComponent(JSON.stringify(candidate))}" type="button">
+    <div>
+      <h3>${escapeHtml(candidate.kind || candidate.candidate_id || "candidate")}</h3>
+      <p>${escapeHtml(candidate.path || "")}</p>
+      <div class="meta">
+        <span class="pill ${statusClass(candidate.risk)}">${escapeHtml(candidate.risk || "-")}</span>
+        <span class="pill">${escapeHtml(candidate.bytes || 0)} bytes</span>
+      </div>
+    </div>
+    <div>${escapeHtml(candidate.recommended_action || "review")}</div>
+  </button>`;
+}
+
 function readinessCards() {
   const summary = state.product.delivery_readiness || {};
   const items = Array.isArray(summary.items) ? summary.items : [];
@@ -293,6 +334,7 @@ function render() {
   else if (state.view === "projects") renderProjects();
   else if (state.view === "runs") renderRuns();
   else if (state.view === "panels") renderPanels().catch(handleError);
+  else if (state.view === "review") renderReview().catch(handleError);
   else if (state.view === "library") renderLibrary().catch(handleError);
 }
 
@@ -387,6 +429,65 @@ async function refreshInboxRuns() {
   state.runs = await api("/api/runs");
   state.product = null;
   document.querySelector("#inbox-badge").textContent = state.inbox.count || "";
+  render();
+}
+
+async function scanGarbage() {
+  state.garbage = await api("/api/garbage-audit/scan", {
+    method: "POST",
+    body: JSON.stringify({ reason: "Owner UI garbage review scan" }),
+  });
+  showToast("Garbage scan recorded.");
+  render();
+}
+
+async function quarantineGarbage() {
+  if (!state.garbage || !state.garbage.candidate_count) return;
+  const approval = prompt("Approval reference required", "owner-ui-cleanup");
+  if (!approval || !approval.trim()) {
+    showToast("Approval reference is required.", true);
+    return;
+  }
+  const reason = prompt("Reason", "Owner approved garbage quarantine from WLS UI");
+  if (!reason || !reason.trim()) {
+    showToast("Reason is required.", true);
+    return;
+  }
+  state.garbage = await api("/api/garbage-audit/cleanup", {
+    method: "POST",
+    body: JSON.stringify({
+      approval_reference: approval.trim(),
+      reason: reason.trim(),
+    }),
+  });
+  state.product = null;
+  showToast("Candidates quarantined.");
+  render();
+}
+
+async function clearGarbageQuarantine() {
+  if (!state.garbage || !state.garbage.audit_id) return;
+  const approval = prompt("Second approval reference required", "owner-ui-clear");
+  if (!approval || !approval.trim()) {
+    showToast("Approval reference is required.", true);
+    return;
+  }
+  const reason = prompt("Reason", "Owner approved garbage quarantine clear from WLS UI");
+  if (!reason || !reason.trim()) {
+    showToast("Reason is required.", true);
+    return;
+  }
+  const result = await api("/api/garbage-audit/quarantine-clear", {
+    method: "POST",
+    body: JSON.stringify({
+      audit_id: state.garbage.audit_id,
+      approval_reference: approval.trim(),
+      reason: reason.trim(),
+    }),
+  });
+  state.garbage = { ...state.garbage, quarantine_clear: result, quarantine_root: null };
+  state.product = null;
+  showToast(`Quarantine clear: ${result.status || "recorded"}`);
   render();
 }
 

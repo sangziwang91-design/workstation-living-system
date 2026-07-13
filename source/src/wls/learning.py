@@ -53,7 +53,7 @@ class LearningSystem:
                 "plan_id": plan_id,
                 "outcomes": outcomes,
                 "prediction_errors": prediction_errors,
-                "workspace": workspace,
+                "workspace": self._compact_episode_workspace(workspace),
             },
             importance=importance,
             confidence=1.0,
@@ -61,6 +61,48 @@ class LearningSystem:
             tags=["cycle", "success" if failure_count == 0 else "failure"],
         )
         return self.memories.add(memory)
+
+    @staticmethod
+    def _compact_episode_workspace(
+        workspace: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        compact: list[dict[str, Any]] = []
+        for item in workspace:
+            payload = item.get("payload", {})
+            compact_payload: dict[str, Any] = {}
+            if item.get("item_type") == "event" and isinstance(payload, dict):
+                observation = payload.get("payload", {}).get("observation", {})
+                if isinstance(observation, dict):
+                    compact_payload = {
+                        "payload": {
+                            "observation": {
+                                "kind": observation.get("kind"),
+                                "subject": observation.get("subject"),
+                                "predicate": observation.get("predicate"),
+                                "value": observation.get("value"),
+                                "confidence": observation.get("confidence"),
+                                "observation_id": observation.get("observation_id"),
+                            }
+                        }
+                    }
+            if not compact_payload:
+                compact_payload = {
+                    "digest": digest_json(payload) if isinstance(payload, dict) else None,
+                    "keys": sorted(payload)[:20] if isinstance(payload, dict) else [],
+                }
+            compact.append(
+                {
+                    "item_type": item.get("item_type"),
+                    "reference_id": item.get("reference_id"),
+                    "summary": str(item.get("summary", ""))[:500],
+                    "salience": item.get("salience"),
+                    "reasons": list(item.get("reasons", []))[:5]
+                    if isinstance(item.get("reasons", []), list)
+                    else [],
+                    "payload": compact_payload,
+                }
+            )
+        return compact
 
     def create_failure_candidates(
         self, minimum_repeats: int = 3, lookback_days: int = 30

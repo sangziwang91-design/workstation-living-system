@@ -703,7 +703,7 @@ class OffspringRegistry:
             raise ValueError("offspring checkpoint verification reason is required")
         checkpoint_receipt = self._find_checkpoint_receipt(offspring_id, checkpoint_id)
         if checkpoint_receipt is None:
-            raise KeyError(f"unknown offspring checkpoint: {checkpoint_id}")
+            raise KeyError(f"unknown offspring checkpoint: {checkpoint_id} for offspring {offspring_id}")
         checkpoint = checkpoint_receipt["checkpoint"]
         mismatches = {}
         state_root = Path(str(checkpoint["state_root"]))

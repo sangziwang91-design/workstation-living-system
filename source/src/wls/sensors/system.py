@@ -82,8 +82,9 @@ class SystemSensor(Sensor):
             "memory_used_ratio": mem_ratio,
             "load_1m": cpu_load,
             "platform": platform.platform(),
-            "python_pid": os.getpid(),
         }
+        if bool(self.settings.get("emit_python_pid", False)):
+            values["python_pid"] = os.getpid()
         observations = [
             Observation(
                 source=self.name,
@@ -98,8 +99,32 @@ class SystemSensor(Sensor):
                 },
             )
             for key, value in values.items()
+            if self._should_emit(key, value, previous_state)
         ]
         return observations, values
+
+    def _should_emit(
+        self, key: str, value: Any, previous_state: dict[str, Any]
+    ) -> bool:
+        if key not in previous_state:
+            return True
+        previous = previous_state.get(key)
+        if self._warning(key, value) != self._warning(key, previous):
+            return True
+        if value is None or previous is None:
+            return value != previous
+        if key in {"disk_used_ratio", "memory_used_ratio"}:
+            epsilon = float(self.settings.get("ratio_change_epsilon", 0.02))
+            return abs(float(value) - float(previous)) >= epsilon
+        if key == "disk_free_bytes":
+            epsilon_bytes = int(
+                self.settings.get("disk_free_change_bytes", 512 * 1024 * 1024)
+            )
+            return abs(int(value) - int(previous)) >= epsilon_bytes
+        if key == "load_1m":
+            epsilon = float(self.settings.get("load_change_epsilon", 0.2))
+            return abs(float(value) - float(previous)) >= epsilon
+        return value != previous
 
     def _warning(self, key: str, value: Any) -> bool:
         if value is None:

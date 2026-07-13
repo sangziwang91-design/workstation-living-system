@@ -216,6 +216,7 @@ class EventStore:
                 if int(row["attempts"]) >= max_attempts
                 else EventStatus.PENDING
             )
+            truncated = len(error) > 4000
             connection.execute(
                 """
                 UPDATE events SET status=?, reserved_by=NULL, reserved_at=NULL, last_error=?
@@ -225,7 +226,12 @@ class EventStore:
             )
             self.ledger.append(
                 "event_failed",
-                {"event_id": event_id, "status": status.value, "error": error[:1000]},
+                {
+                    "event_id": event_id,
+                    "status": status.value,
+                    "error": error[:1000],
+                    "error_truncated": len(error) > 1000,
+                },
                 connection,
             )
 

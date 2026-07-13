@@ -3,10 +3,17 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 import argparse
+import http.client
 import json
 import os
+import tempfile
 
-from .config import default_config, save_config
+from .config import default_config, load_or_create_config, save_config
+from .db import Database
+from .performance import (
+    DEFAULT_PERFORMANCE_BUDGETS_SECONDS,
+    PerformanceMeasurement,
+)
 from .runtime import LivingSystem
 from .schemas import CandidateStatus, Event, Goal
 from .server import WLSServer
@@ -48,10 +55,148 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("once", help="Run one observe-learn-act cycle")
     daemon = sub.add_parser("daemon", help="Run persistent cycles")
     daemon.add_argument("--max-cycles", type=int)
+    sub.add_parser("health", help="Show bounded operational health")
     sub.add_parser("status", help="Show current state")
     sub.add_parser("sleep", help="Run offline memory and skill consolidation")
     sub.add_parser("verify", help="Verify database and evidence chain")
     sub.add_parser("self-check", help="Run installation and runtime self-check")
+    garbage_audit = sub.add_parser(
+        "garbage-audit",
+        help="Read-only self-audit for cleanup candidates; does not delete files",
+    )
+    garbage_audit.add_argument(
+        "--path",
+        action="append",
+        default=[],
+        help="Root to scan; defaults to WLS home. May be repeated.",
+    )
+    garbage_audit.add_argument("--max-candidates", type=int, default=500)
+    garbage_audit.add_argument("--reason", default="owner requested garbage audit")
+    garbage_audit.add_argument(
+        "--execute-cleanup",
+        action="store_true",
+        help="Quarantine only audited cleanup candidates; requires --approval-reference",
+    )
+    garbage_audit.add_argument(
+        "--approval-reference",
+        default="",
+        help="Owner approval reference required with --execute-cleanup",
+    )
+    garbage_clear = sub.add_parser(
+        "garbage-clear-quarantine",
+        help="Owner-approved clear of one garbage audit quarantine directory",
+    )
+    garbage_clear.add_argument("--audit-id", required=True)
+    garbage_clear.add_argument("--approval-reference", required=True)
+    garbage_clear.add_argument(
+        "--reason", default="owner requested garbage quarantine clear"
+    )
+
+    performance_audit = sub.add_parser(
+        "performance-audit",
+        help="Measure commercial readiness performance budgets and record a receipt",
+    )
+    performance_audit.add_argument("--samples", type=int, default=3)
+    performance_audit.add_argument(
+        "--reason", default="owner requested performance budget audit"
+    )
+    performance_audit.add_argument(
+        "--include-write-workflows",
+        action="store_true",
+        help=(
+            "Also measure owner-gated garbage review write APIs on a disposable "
+            "temporary runtime home"
+        ),
+    )
+    performance_audit.add_argument(
+        "--include-rollback-workflow",
+        action="store_true",
+        help="Also measure disposable clone rollback drill performance",
+    )
+    retention_audit = sub.add_parser(
+        "retention-audit",
+        help="Audit runtime receipt retention pressure without deleting anything",
+    )
+    retention_audit.add_argument("--max-items", type=int, default=100)
+    retention_audit.add_argument("--max-json-bytes", type=int, default=1_000_000)
+    retention_audit.add_argument(
+        "--reason", default="owner requested retention pressure audit"
+    )
+
+    soak_audit = sub.add_parser(
+        "soak-audit",
+        help="Run a bounded canonical-cycle reliability soak and record a receipt",
+    )
+    soak_audit.add_argument("--cycles", type=int, default=1)
+    soak_audit.add_argument("--max-cycle-seconds", type=float)
+    soak_audit.add_argument("--reason", default="owner requested bounded soak audit")
+
+    upgrade_drill = sub.add_parser(
+        "upgrade-drill",
+        help="Back up the live DB and verify a restored copy without modifying the live install",
+    )
+    upgrade_drill.add_argument("--wheel", required=True, help="Wheel planned for upgrade")
+    upgrade_drill.add_argument(
+        "--disposable-clone",
+        action="store_true",
+        help="Also simulate upgrade and rollback on a temporary cloned home",
+    )
+    upgrade_drill.add_argument(
+        "--reason", default="owner requested upgrade rollback drill"
+    )
+
+    commercial_readiness = sub.add_parser(
+        "commercial-readiness-audit",
+        help="Audit personal commercial Beta/RC readiness from local receipts",
+    )
+    commercial_readiness.add_argument(
+        "--rc-min-qualified-measurements", type=int, default=8
+    )
+    commercial_readiness.add_argument(
+        "--reason", default="owner requested commercial readiness audit"
+    )
+
+    longitudinal_start = sub.add_parser(
+        "longitudinal-start",
+        help="Start a receipt-bound owner-task longitudinal protocol",
+    )
+    longitudinal_start.add_argument("--host-id", required=True)
+    longitudinal_start.add_argument("--baseline-commit", required=True)
+    longitudinal_start.add_argument("--duration-days", type=int, default=30)
+    longitudinal_start.add_argument(
+        "--reason", default="owner requested longitudinal protocol"
+    )
+
+    longitudinal_record = sub.add_parser(
+        "longitudinal-record",
+        help="Record one owner-task longitudinal measurement",
+    )
+    longitudinal_record.add_argument("--protocol-id", required=True)
+    longitudinal_record.add_argument("--task-class", required=True)
+    outcome = longitudinal_record.add_mutually_exclusive_group(required=True)
+    outcome.add_argument("--success", action="store_true")
+    outcome.add_argument("--failed", action="store_true")
+    longitudinal_record.add_argument("--corrections", type=int, default=0)
+    longitudinal_record.add_argument("--cost", type=float, default=0.0)
+    longitudinal_record.add_argument("--latency-seconds", type=float, default=0.0)
+    longitudinal_record.add_argument("--memory-benefit", action="store_true")
+    longitudinal_record.add_argument("--skill-reuse", action="store_true")
+    longitudinal_record.add_argument("--task-reference", default="")
+    longitudinal_record.add_argument("--owner-review", default="")
+    longitudinal_record.add_argument(
+        "--reason", default="owner recorded longitudinal measurement"
+    )
+
+    longitudinal_report = sub.add_parser(
+        "longitudinal-report",
+        help="Compile a receipt-bound owner-task longitudinal report",
+    )
+    longitudinal_report.add_argument("--protocol-id", required=True)
+    longitudinal_report.add_argument("--baseline-success-rate", type=float, default=1.0)
+    longitudinal_report.add_argument("--max-regression", type=float, default=0.1)
+    longitudinal_report.add_argument(
+        "--reason", default="owner requested longitudinal report"
+    )
 
     goal = sub.add_parser("add-goal", help="Add a human-authored goal")
     goal.add_argument("title")
@@ -227,6 +372,19 @@ def main(argv: list[str] | None = None) -> int:
                 }
             )
             return 0
+        if args.command == "health":
+            config_path = Path(args.config or default_config_path())
+            config = load_or_create_config(config_path)
+            db = Database(config.db_path)
+            try:
+                result = LivingSystem.build_health_snapshot(config, db)
+            finally:
+                db.close_all()
+            print_json(result)
+            return 0 if result["status"] in {"OK", "WARN"} else 2
+        if args.command == "performance-audit":
+            print_json(run_performance_audit(args))
+            return 0
         runtime = runtime_from_args(args)
         if args.command == "once":
             print_json(runtime.run_cycle())
@@ -244,6 +402,89 @@ def main(argv: list[str] | None = None) -> int:
             result = self_check(runtime)
             print_json(result)
             return 0 if result["ok"] else 2
+        elif args.command == "garbage-audit":
+            print_json(
+                runtime.garbage_audit(
+                    roots=[Path(item) for item in args.path] if args.path else None,
+                    max_candidates=args.max_candidates,
+                    reason=args.reason,
+                    execute_cleanup=args.execute_cleanup,
+                    approval_reference=args.approval_reference,
+                )
+            )
+        elif args.command == "garbage-clear-quarantine":
+            print_json(
+                runtime.clear_garbage_quarantine(
+                    audit_id=args.audit_id,
+                    approval_reference=args.approval_reference,
+                    reason=args.reason,
+                )
+            )
+        elif args.command == "retention-audit":
+            print_json(
+                runtime.record_retention_audit(
+                    reason=args.reason,
+                    max_items=args.max_items,
+                    max_json_bytes=args.max_json_bytes,
+                )
+            )
+        elif args.command == "soak-audit":
+            print_json(
+                runtime.run_bounded_soak(
+                    cycles=args.cycles,
+                    reason=args.reason,
+                    max_cycle_seconds=args.max_cycle_seconds,
+                )
+            )
+        elif args.command == "upgrade-drill":
+            print_json(
+                runtime.run_upgrade_drill(
+                    wheel_path=args.wheel,
+                    reason=args.reason,
+                    disposable_clone=args.disposable_clone,
+                )
+            )
+        elif args.command == "commercial-readiness-audit":
+            print_json(
+                runtime.record_commercial_readiness_audit(
+                    reason=args.reason,
+                    rc_min_qualified_measurements=args.rc_min_qualified_measurements,
+                )
+            )
+        elif args.command == "longitudinal-start":
+            print_json(
+                runtime.start_longitudinal_protocol(
+                    host_id=args.host_id,
+                    baseline_commit=args.baseline_commit,
+                    duration_days=args.duration_days,
+                    reason=args.reason,
+                )
+            )
+        elif args.command == "longitudinal-record":
+            print_json(
+                runtime.record_longitudinal_measurement(
+                    protocol_id=args.protocol_id,
+                    task_class=args.task_class,
+                    success=bool(args.success),
+                    corrections=args.corrections,
+                    cost=args.cost,
+                    latency_seconds=args.latency_seconds,
+                    memory_benefit=args.memory_benefit,
+                    skill_reuse=args.skill_reuse,
+                    task_reference=args.task_reference,
+                    owner_review=args.owner_review,
+                    reason=args.reason,
+                )
+            )
+        elif args.command == "longitudinal-report":
+            print_json(
+                runtime.compile_longitudinal_report(
+                    protocol_id=args.protocol_id,
+                    baseline_success_rate=args.baseline_success_rate,
+                    max_regression=args.max_regression,
+                    reason=args.reason,
+                )
+            )
         elif args.command == "add-goal":
             goal = Goal(
                 title=args.title,
@@ -491,6 +732,274 @@ def self_check(runtime: LivingSystem) -> dict[str, Any]:
         and checks["growth_tables"]
     )
     return {"ok": bool(ok), "checks": checks}
+
+
+def run_performance_audit(args) -> dict[str, Any]:
+    from time import perf_counter
+    from .ui_server import WLSUIServer
+
+    config_path = Path(args.config or default_config_path())
+    config = load_or_create_config(config_path)
+    if not str(args.reason).strip():
+        raise ValueError("performance audit reason is required")
+    samples = max(1, min(20, int(args.samples)))
+    budgets = DEFAULT_PERFORMANCE_BUDGETS_SECONDS
+
+    health_samples: list[float] = []
+    for _ in range(samples):
+        db = Database(config.db_path)
+        try:
+            started = perf_counter()
+            LivingSystem.build_health_snapshot(config, db)
+            health_samples.append(perf_counter() - started)
+        finally:
+            db.close_all()
+
+    runtime = None
+    try:
+        started = perf_counter()
+        runtime = LivingSystem(config)
+        runtime_init_seconds = perf_counter() - started
+        started = perf_counter()
+        runtime.garbage_audit(max_candidates=200, reason=args.reason)
+        garbage_audit_seconds = perf_counter() - started
+
+        started = perf_counter()
+        self_check(runtime)
+        self_check_seconds = perf_counter() - started
+
+        def request_ui(
+            server: WLSUIServer,
+            method: str,
+            path: str,
+            *,
+            body: dict[str, Any] | None = None,
+        ) -> tuple[float, dict[str, Any]]:
+            headers = {"Authorization": f"Bearer {server.token}"}
+            payload = None
+            if body is not None:
+                payload = json.dumps(body).encode("utf-8")
+                headers.update(
+                    {
+                        "Content-Type": "application/json",
+                        "X-WLS-UI": "1",
+                        "Origin": f"http://127.0.0.1:{server.bound_port}",
+                    }
+                )
+            connection = http.client.HTTPConnection(
+                "127.0.0.1", server.bound_port, timeout=10
+            )
+            try:
+                started = perf_counter()
+                connection.request(method, path, body=payload, headers=headers)
+                response = connection.getresponse()
+                raw = response.read()
+                elapsed = perf_counter() - started
+                if response.status >= 400:
+                    raise RuntimeError(f"{path} returned HTTP {response.status}")
+                data = json.loads(raw.decode("utf-8")) if raw else {}
+                return elapsed, data
+            finally:
+                connection.close()
+
+        ui_server = WLSUIServer(runtime, port=0)
+        ui_server.start_in_thread()
+        ui_measurements: dict[str, float] = {}
+        try:
+            for name, path in (
+                ("ui_api_health", "/api/health"),
+                ("ui_api_bootstrap", "/api/bootstrap"),
+                ("ui_api_product", "/api/product"),
+            ):
+                elapsed, _ = request_ui(ui_server, "GET", path)
+                ui_measurements[name] = elapsed
+        finally:
+            ui_server.shutdown()
+
+        measurements = [
+            PerformanceMeasurement(
+                "health_snapshot",
+                health_samples,
+                budgets["health_snapshot"],
+            ),
+            PerformanceMeasurement(
+                "runtime_init",
+                [runtime_init_seconds],
+                budgets["runtime_init"],
+            ),
+            PerformanceMeasurement(
+                "garbage_audit",
+                [garbage_audit_seconds],
+                budgets["garbage_audit"],
+            ),
+            PerformanceMeasurement(
+                "self_check",
+                [self_check_seconds],
+                budgets["self_check"],
+            ),
+            PerformanceMeasurement(
+                "ui_api_health",
+                [ui_measurements["ui_api_health"]],
+                budgets["ui_api_health"],
+            ),
+            PerformanceMeasurement(
+                "ui_api_bootstrap",
+                [ui_measurements["ui_api_bootstrap"]],
+                budgets["ui_api_bootstrap"],
+            ),
+            PerformanceMeasurement(
+                "ui_api_product",
+                [ui_measurements["ui_api_product"]],
+                budgets["ui_api_product"],
+            ),
+        ]
+        if bool(getattr(args, "include_write_workflows", False)):
+            write_measurements = _measure_disposable_garbage_review_writes(
+                request_ui=request_ui,
+                reason=args.reason,
+                budgets=budgets,
+            )
+            measurements.extend(write_measurements)
+        if bool(getattr(args, "include_rollback_workflow", False)):
+            measurements.extend(
+                _measure_disposable_rollback_workflow(
+                    reason=args.reason,
+                    budgets=budgets,
+                )
+            )
+
+        return runtime.record_performance_budget_audit(
+            measurements=measurements,
+            reason=args.reason,
+        )
+    finally:
+        if runtime is not None:
+            runtime.db.close_all()
+
+
+def _measure_disposable_garbage_review_writes(
+    *,
+    request_ui,
+    reason: str,
+    budgets: dict[str, float],
+) -> list[PerformanceMeasurement]:
+    from .ui_server import WLSUIServer
+
+    with tempfile.TemporaryDirectory(prefix="wls-write-workflow-") as temp_root:
+        home = Path(temp_root) / "home"
+        config = default_config(home)
+        (home / "build" / "artifact").mkdir(parents=True, exist_ok=True)
+        (home / "build" / "artifact" / "bundle.tmp").write_text(
+            "temporary build output", encoding="utf-8"
+        )
+        (home / ".pytest_cache").mkdir(parents=True, exist_ok=True)
+        (home / ".pytest_cache" / "README.log").write_text(
+            "temporary cache output", encoding="utf-8"
+        )
+        runtime = LivingSystem(config)
+        try:
+            ui_server = WLSUIServer(runtime, port=0)
+            ui_server.start_in_thread()
+            try:
+                scan_seconds, audit = request_ui(
+                    ui_server,
+                    "POST",
+                    "/api/garbage-audit/scan",
+                    body={
+                        "reason": f"{reason} disposable write scan",
+                        "max_candidates": 20,
+                    },
+                )
+                if int(audit.get("candidate_count", 0)) < 1:
+                    raise RuntimeError("disposable garbage scan found no candidates")
+                cleanup_seconds, cleanup = request_ui(
+                    ui_server,
+                    "POST",
+                    "/api/garbage-audit/cleanup",
+                    body={
+                        "reason": f"{reason} disposable write cleanup",
+                        "approval_reference": "performance-audit-disposable-owner",
+                        "max_candidates": 20,
+                    },
+                )
+                if cleanup.get("cleanup_executed") is not True:
+                    raise RuntimeError("disposable garbage cleanup was not executed")
+                clear_seconds, clear = request_ui(
+                    ui_server,
+                    "POST",
+                    "/api/garbage-audit/quarantine-clear",
+                    body={
+                        "audit_id": str(cleanup.get("audit_id", "")),
+                        "approval_reference": "performance-audit-disposable-clear",
+                        "reason": f"{reason} disposable quarantine clear",
+                    },
+                )
+                if clear.get("status") not in {
+                    "QUARANTINE_CLEARED",
+                    "QUARANTINE_ALREADY_ABSENT",
+                }:
+                    raise RuntimeError("disposable quarantine clear did not finish")
+            finally:
+                ui_server.shutdown()
+        finally:
+            runtime.db.close_all()
+    return [
+        PerformanceMeasurement(
+            "ui_api_garbage_scan",
+            [scan_seconds],
+            budgets["ui_api_garbage_scan"],
+        ),
+        PerformanceMeasurement(
+            "ui_api_garbage_cleanup",
+            [cleanup_seconds],
+            budgets["ui_api_garbage_cleanup"],
+        ),
+        PerformanceMeasurement(
+            "ui_api_garbage_clear",
+            [clear_seconds],
+            budgets["ui_api_garbage_clear"],
+        ),
+    ]
+
+
+def _measure_disposable_rollback_workflow(
+    *,
+    reason: str,
+    budgets: dict[str, float],
+) -> list[PerformanceMeasurement]:
+    from time import perf_counter
+
+    with tempfile.TemporaryDirectory(prefix="wls-rollback-workflow-") as temp_root:
+        root = Path(temp_root)
+        home = root / "home"
+        wheel = root / "dist" / "workstation_living_system-test.whl"
+        wheel.parent.mkdir(parents=True, exist_ok=True)
+        wheel.write_bytes(b"disposable rollback performance wheel")
+        runtime = LivingSystem(default_config(home))
+        try:
+            started = perf_counter()
+            receipt = runtime.run_upgrade_drill(
+                wheel_path=wheel,
+                reason=f"{reason} disposable rollback performance",
+                disposable_clone=True,
+            )
+            elapsed = perf_counter() - started
+            clone = receipt.get("disposable_clone_rollback")
+            if receipt.get("status") != "UPGRADE_DRILL_PASSED":
+                raise RuntimeError("disposable rollback performance drill failed")
+            if not isinstance(clone, dict) or clone.get("passed") is not True:
+                raise RuntimeError("disposable clone rollback did not pass")
+            if clone.get("clone_home_removed") is not True:
+                raise RuntimeError("disposable clone rollback left a clone home")
+        finally:
+            runtime.db.close_all()
+    return [
+        PerformanceMeasurement(
+            "rollback_disposable_clone",
+            [elapsed],
+            budgets["rollback_disposable_clone"],
+        )
+    ]
 
 
 if __name__ == "__main__":

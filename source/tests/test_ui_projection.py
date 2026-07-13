@@ -140,6 +140,8 @@ class FakeRuntime:
         self.resumed: list[str] = []
         self.resolved: list[tuple[str, str, dict]] = []
         self.cycle_result = {"status": "COMPLETED"}
+        self.garbage_receipts: list[dict] = []
+        self.garbage_clear_receipts: list[dict] = []
 
     def status(self):
         return {
@@ -154,6 +156,8 @@ class FakeRuntime:
             "pending_actions": [],
             "active_goals": [],
             "next_focus": [],
+            "garbage_audit_receipts": self.garbage_receipts,
+            "garbage_quarantine_clear_receipts": self.garbage_clear_receipts,
         }
 
     def add_goal(self, goal: Goal) -> str:
@@ -168,6 +172,48 @@ class FakeRuntime:
 
     def resolve_unknown_action(self, action_id: str, resolution: str, evidence: dict):
         self.resolved.append((action_id, resolution, evidence))
+        return {"resolved": True}
+
+    def garbage_audit(
+        self,
+        *,
+        max_candidates=500,
+        reason="",
+        execute_cleanup=False,
+        approval_reference=None,
+        roots=None,
+    ):
+        receipt = {
+            "audit_id": f"garbage_audit_{len(self.garbage_receipts) + 1}",
+            "status": "CLEANUP_EXECUTED" if execute_cleanup else "OWNER_REVIEW_REQUIRED",
+            "candidate_count": 1,
+            "candidates": [{"candidate_id": "candidate-1", "kind": "temporary_file"}],
+            "cleanup_executed": execute_cleanup,
+            "reason": reason,
+            "approval_reference": approval_reference,
+            "max_candidates": max_candidates,
+            "quarantine_root": "/tmp/wls/.wls_quarantine/audit"
+            if execute_cleanup
+            else None,
+        }
+        self.garbage_receipts.insert(0, receipt)
+        return receipt
+
+    def garbage_audit_receipts(self, limit=100):
+        return self.garbage_receipts[:limit]
+
+    def clear_garbage_quarantine(self, *, audit_id, approval_reference, reason):
+        receipt = {
+            "clear_id": (
+                f"garbage_quarantine_clear_{len(self.garbage_clear_receipts) + 1}"
+            ),
+            "audit_id": audit_id,
+            "approval_reference": approval_reference,
+            "reason": reason,
+            "status": "QUARANTINE_CLEARED",
+        }
+        self.garbage_clear_receipts.insert(0, receipt)
+        return receipt
 
 
 def add_action(
@@ -371,6 +417,21 @@ def test_owner_console_product_projection_summarizes_delivery_readiness() -> Non
     ]
     assert ready["delivery_readiness"]["writes_canonical_state"] is False
     assert ready["release_handoff"]["writes_canonical_state"] is False
+
+
+def test_owner_console_product_projection_includes_garbage_review_panel() -> None:
+    runtime = FakeRuntime()
+    runtime.garbage_audit(reason="unit test garbage panel")
+    projection = OwnerConsoleProductProjection()
+
+    payload = projection.project(runtime.status())
+    panels = {panel["panel_id"]: panel for panel in payload["panels"]}
+
+    assert "garbage_review" in payload["panel_ids"]
+    panel = panels["garbage_review"]
+    assert panel["status"]["latest_status"] == "OWNER_REVIEW_REQUIRED"
+    assert panel["status"]["latest_candidate_count"] == 1
+    assert panel["status"]["cleanup_mode"] == "quarantine_first"
 
 
 def test_task_requires_project_id() -> None:

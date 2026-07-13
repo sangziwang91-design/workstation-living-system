@@ -587,6 +587,7 @@ class OwnerConsoleProductProjection:
         "screen_snapshots",
         "browser_form_drafts",
         "download_quarantine",
+        "garbage_review",
         "document_ingress",
         "task_previews",
         "execution_preflight",
@@ -620,6 +621,7 @@ class OwnerConsoleProductProjection:
             self._screen_snapshots_panel(status),
             self._browser_form_drafts_panel(status),
             self._download_quarantine_panel(status),
+            self._garbage_review_panel(status),
             self._document_ingress_panel(status),
             self._task_previews_panel(status),
             self._execution_preflight_panel(status),
@@ -990,6 +992,30 @@ class OwnerConsoleProductProjection:
                 "file_materialized": False,
                 "external_write_executed": False,
                 "approval_required_for_fetch": True,
+            },
+        }
+
+    @staticmethod
+    def _garbage_review_panel(status: dict[str, Any]) -> dict[str, Any]:
+        audits = status.get("garbage_audit_receipts", [])
+        clears = status.get("garbage_quarantine_clear_receipts", [])
+        latest = audits[0] if isinstance(audits, list) and audits else {}
+        if not isinstance(latest, dict):
+            latest = {}
+        return {
+            "panel_id": "garbage_review",
+            "title": "Garbage Review",
+            "status": {
+                "audit_count": len(audits) if isinstance(audits, list) else 0,
+                "quarantine_clear_count": len(clears) if isinstance(clears, list) else 0,
+                "latest_audit": latest,
+                "latest_status": latest.get("status", "NO_AUDIT"),
+                "latest_candidate_count": latest.get("candidate_count", 0),
+                "items": audits if isinstance(audits, list) else [],
+                "clear_items": clears if isinstance(clears, list) else [],
+                "cleanup_requires_owner_approval": True,
+                "cleanup_mode": "quarantine_first",
+                "clear_requires_second_owner_approval": True,
             },
         }
 

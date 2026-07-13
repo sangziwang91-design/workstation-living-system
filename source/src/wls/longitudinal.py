@@ -23,7 +23,9 @@ class LongitudinalProtocol:
             "host_id": self.host_id,
             "baseline_commit": self.baseline_commit,
             "config_digest": self.config_digest,
+            "started_at": self.started_at,
             "duration_days": self.duration_days,
+            "measurement_interval_hours": self.measurement_interval_hours,
             "frozen_baseline": self.frozen_baseline,
         }
 
@@ -44,6 +46,7 @@ class MeasurementPoint:
     def to_dict(self) -> dict[str, Any]:
         return {
             "point_id": self.point_id,
+            "protocol_id": self.protocol_id,
             "task_class": self.task_class,
             "success": self.success,
             "correction_count": self.correction_count,

@@ -26,6 +26,7 @@ _PROJECT_DETAIL = re.compile(r"^/api/projects/([^/]+)$")
 _ACTION_APPROVAL = re.compile(r"^/api/actions/([^/]+)/(approve|reject)$")
 _ACTION_RESUME = re.compile(r"^/api/actions/([^/]+)/resume$")
 _ACTION_RESOLVE = re.compile(r"^/api/actions/([^/]+)/resolve$")
+_GARBAGE_AUDIT_DETAIL = re.compile(r"^/api/garbage-audit/([^/]+)$")
 LOGGER = logging.getLogger("wls.ui")
 
 _STATIC_CONTENT_TYPES = {
@@ -268,14 +269,41 @@ class WLSUIServer:
                             200, product_projection.project(projection.runtime.status())
                         )
                     elif path == "/api/health":
+                        health = (
+                            projection.runtime.health_snapshot()
+                            if hasattr(projection.runtime, "health_snapshot")
+                            else {"ok": True, "projection_only": True}
+                        )
                         self._json(
                             200,
                             {
-                                "ok": True,
-                                "projection_only": True,
+                                **health,
                                 "cycle_request_active": cycle_lock.locked(),
                             },
                         )
+                    elif path == "/api/garbage-audit":
+                        receipts = projection.runtime.garbage_audit_receipts(limit=1)
+                        latest = receipts[0] if receipts else None
+                        self._json(
+                            200,
+                            latest
+                            or {
+                                "status": "NO_AUDIT",
+                                "candidate_count": 0,
+                                "candidates": [],
+                                "cleanup_executed": False,
+                                "owner_review_required": False,
+                            },
+                        )
+                    elif match := _GARBAGE_AUDIT_DETAIL.match(path):
+                        audit_id = match.group(1)
+                        receipts = projection.runtime.garbage_audit_receipts(limit=100)
+                        found = [
+                            item for item in receipts if item.get("audit_id") == audit_id
+                        ]
+                        if not found:
+                            raise KeyError(audit_id)
+                        self._json(200, found[0])
                     elif match := _RUN_DETAIL.match(path):
                         self._json(200, projection.run_detail(match.group(1)))
                     elif match := _PROJECT_DETAIL.match(path):
@@ -303,6 +331,17 @@ class WLSUIServer:
                     body = self._read_json()
                     if path == "/api/goals":
                         self._json(201, projection.create_goal(body))
+                    elif path == "/api/garbage-audit/scan":
+                        max_candidates = int(body.get("max_candidates", 500))
+                        self._json(
+                            200,
+                            projection.runtime.garbage_audit(
+                                max_candidates=max_candidates,
+                                reason=str(
+                                    body.get("reason", "owner UI garbage review scan")
+                                ),
+                            ),
+                        )
                     elif path == "/api/cycle":
                         if not cycle_lock.acquire(blocking=False):
                             self._json(409, {"error": "cycle already running"})
@@ -334,6 +373,34 @@ class WLSUIServer:
                                 match.group(1),
                                 resolution=str(body.get("resolution", "")),
                                 evidence=evidence,
+                            ),
+                        )
+                    elif path == "/api/garbage-audit/cleanup":
+                        approval_reference = str(body.get("approval_reference", "")).strip()
+                        reason = str(body.get("reason", "")).strip()
+                        if not approval_reference:
+                            raise PermissionError("approval_reference is required")
+                        if not reason:
+                            raise ValueError("reason is required")
+                        max_candidates = int(body.get("max_candidates", 500))
+                        self._json(
+                            200,
+                            projection.runtime.garbage_audit(
+                                max_candidates=max_candidates,
+                                reason=reason,
+                                execute_cleanup=True,
+                                approval_reference=approval_reference,
+                            ),
+                        )
+                    elif path == "/api/garbage-audit/quarantine-clear":
+                        self._json(
+                            200,
+                            projection.runtime.clear_garbage_quarantine(
+                                audit_id=str(body.get("audit_id", "")).strip(),
+                                approval_reference=str(
+                                    body.get("approval_reference", "")
+                                ).strip(),
+                                reason=str(body.get("reason", "")).strip(),
                             ),
                         )
                     else:

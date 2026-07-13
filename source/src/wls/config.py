@@ -32,6 +32,7 @@ class RuntimeConfig:
     memory_decay_days: int = 30
     sleep_after_idle_cycles: int = 5
     max_autonomous_goals: int = 3
+    autonomy_consider_interval_seconds: float = 120.0
     daemon_max_pending_events: int = 10000
     daemon_max_database_bytes: int = 2147483648
     daemon_max_cycle_seconds: float = 300.0
@@ -80,6 +81,8 @@ class RuntimeConfig:
             raise ValueError("max_events_per_cycle must be within 1..1000")
         if not 0 <= self.max_actions_per_cycle <= 32:
             raise ValueError("max_actions_per_cycle must be within 0..32")
+        if self.autonomy_consider_interval_seconds <= 0:
+            raise ValueError("autonomy_consider_interval_seconds must be positive")
         if not 1 <= self.full_integrity_check_every <= 100000:
             raise ValueError("full_integrity_check_every must be within 1..100000")
         names: set[str] = set()

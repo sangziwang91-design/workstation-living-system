@@ -303,8 +303,12 @@ class Planner:
         if not isinstance(raw, dict):
             raise ValueError("planner output must be an object")
         required = {"rationale", "actions", "memory_ids", "world_fact_ids", "unknowns"}
-        if set(raw) - required:
-            raise ValueError(f"unexpected plan keys: {sorted(set(raw) - required)}")
+        extra = set(raw) - required
+        if extra:
+            raise ValueError(f"unexpected plan keys: {sorted(extra)}")
+        missing = required - set(raw)
+        if missing:
+            raise ValueError(f"missing required plan keys: {sorted(missing)}")
         if not isinstance(raw.get("rationale"), str):
             raise ValueError("rationale must be a string")
         if not isinstance(raw.get("actions"), list):

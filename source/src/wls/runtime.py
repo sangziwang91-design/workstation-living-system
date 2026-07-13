@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,9 @@ import json
 import mimetypes
 import os
 import signal
+import shutil
+import sqlite3
+import tempfile
 import time
 
 from ._version import __version__
@@ -25,11 +29,14 @@ from .db import Database
 from .drives import DriveSystem
 from .evaluator import Evaluator
 from .evidence import EvidenceLedger
+from .garbage_audit import GarbageAuditor
 from .growth_cycle import GrowthCycleManager
 from .learning import LearningSystem
 from .memory_attribution import MemoryAttributionStore
 from .lease import ProcessLease
+from .longitudinal import LongitudinalEvaluator, LongitudinalProtocol, MeasurementPoint
 from .offspring import OffspringRegistry
+from .performance import PerformanceMeasurement, evaluate_performance_budget
 from .planner import Planner
 from .policy import PolicyEngine
 from .relationships import RelationshipMemory
@@ -48,6 +55,7 @@ from .schemas import (
     Plan,
     RiskLevel,
     VerificationStatus,
+    WorkspaceItem,
     digest_json,
     new_id,
     utc_now,
@@ -67,6 +75,8 @@ from .world import WorldModel
 
 class LivingSystem:
     """Persistent observe-model-attend-plan-act-learn-consolidate runtime."""
+
+    MAX_PERSISTED_WORKSPACE_PAYLOAD_CHARS = 1200
 
     def __init__(self, config: RuntimeConfig):
         config.validate()
@@ -154,10 +164,44 @@ class LivingSystem:
         self.self_model.initialize_identity(self.config.identity_name, evidence_id)
         self.db.set_runtime("version", __version__)
         self.db.set_runtime("read_only", self.config.read_only)
+        self._recover_cycles()
         self._recover_actions()
         self.events.recover_stale_reservations(
             (datetime.now(UTC) - timedelta(minutes=10)).isoformat()
         )
+
+    def _recover_cycles(self) -> dict[str, int]:
+        rows = self.db.query_all(
+            "SELECT cycle_id FROM cycles WHERE status='RUNNING' ORDER BY started_at"
+        )
+        if not rows:
+            return {"interrupted": 0}
+        recovered_at = utc_now()
+        cycle_ids = [str(row["cycle_id"]) for row in rows]
+        with self.db.transaction() as connection:
+            for cycle_id in cycle_ids:
+                connection.execute(
+                    """
+                    UPDATE cycles
+                    SET status='INTERRUPTED',finished_at=?,error=?
+                    WHERE cycle_id=? AND status='RUNNING'
+                    """,
+                    (
+                        recovered_at,
+                        "runtime initialized after prior process ended mid-cycle",
+                        cycle_id,
+                    ),
+                )
+            self.ledger.append(
+                "cycle_recovery",
+                {
+                    "interrupted": len(cycle_ids),
+                    "cycle_ids": cycle_ids[:50],
+                    "truncated": len(cycle_ids) > 50,
+                },
+                connection,
+            )
+        return {"interrupted": len(cycle_ids)}
 
     def _recover_actions(self) -> dict[str, int]:
         rows = self.db.query_all(
@@ -1360,6 +1404,14 @@ class LivingSystem:
             return []
         return receipts[: max(0, int(limit))]
 
+    def commercial_readiness_audit_receipts(
+        self, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("commercial_readiness_audit_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return [dict(item) for item in receipts[:limit] if isinstance(item, dict)]
+
     def packaging_layout_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         receipts = self.db.get_runtime("packaging_layout_receipts", [])
         if not isinstance(receipts, list):
@@ -1523,6 +1575,809 @@ class LivingSystem:
         if not isinstance(receipts, list):
             return []
         return receipts[: max(0, int(limit))]
+
+    def performance_budget_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("performance_budget_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
+    def retention_audit_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("retention_audit_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return [dict(item) for item in receipts[:limit] if isinstance(item, dict)]
+
+    def record_retention_audit(
+        self,
+        *,
+        reason: str,
+        max_items: int = 100,
+        max_json_bytes: int = 1_000_000,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("retention audit reason is required")
+        if max_items < 1:
+            raise ValueError("max_items must be positive")
+        if max_json_bytes < 1:
+            raise ValueError("max_json_bytes must be positive")
+        rows = self.db.query_all(
+            """
+            SELECT key,value_json,updated_at
+            FROM runtime_state
+            WHERE key LIKE ?
+            ORDER BY key
+            """,
+            ("%_receipts",),
+        )
+        items: list[dict[str, Any]] = []
+        oversized_keys: list[str] = []
+        over_count_keys: list[str] = []
+        invalid_keys: list[str] = []
+        total_receipts = 0
+        total_json_bytes = 0
+        for row in rows:
+            key = str(row["key"])
+            raw = str(row["value_json"])
+            size_bytes = len(raw.encode("utf-8"))
+            total_json_bytes += size_bytes
+            try:
+                value = json.loads(raw)
+            except json.JSONDecodeError:
+                invalid_keys.append(key)
+                items.append(
+                    {
+                        "key": key,
+                        "status": "INVALID_JSON",
+                        "count": 0,
+                        "json_bytes": size_bytes,
+                        "updated_at": row["updated_at"],
+                    }
+                )
+                continue
+            if not isinstance(value, list):
+                invalid_keys.append(key)
+                items.append(
+                    {
+                        "key": key,
+                        "status": "NOT_A_LIST",
+                        "count": 0,
+                        "json_bytes": size_bytes,
+                        "updated_at": row["updated_at"],
+                    }
+                )
+                continue
+            count = len(value)
+            total_receipts += count
+            over_count = count > max_items
+            oversized = size_bytes > max_json_bytes
+            if over_count:
+                over_count_keys.append(key)
+            if oversized:
+                oversized_keys.append(key)
+            items.append(
+                {
+                    "key": key,
+                    "status": "OVER_LIMIT"
+                    if over_count or oversized
+                    else "WITHIN_LIMIT",
+                    "count": count,
+                    "max_items": max_items,
+                    "json_bytes": size_bytes,
+                    "max_json_bytes": max_json_bytes,
+                    "updated_at": row["updated_at"],
+                    "over_item_limit": over_count,
+                    "over_size_limit": oversized,
+                }
+            )
+        status = "RETENTION_AUDIT_PASSED"
+        if invalid_keys:
+            status = "RETENTION_AUDIT_INVALID_RUNTIME_STATE"
+        elif over_count_keys or oversized_keys:
+            status = "RETENTION_AUDIT_REVIEW_REQUIRED"
+        receipt = {
+            "receipt_type": "RETENTION_AUDIT",
+            "audit_id": new_id("retention_audit"),
+            "status": status,
+            "reason": reason,
+            "key_count": len(items),
+            "total_receipts": total_receipts,
+            "total_json_bytes": total_json_bytes,
+            "max_items": max_items,
+            "max_json_bytes": max_json_bytes,
+            "over_count_keys": over_count_keys,
+            "oversized_keys": oversized_keys,
+            "invalid_keys": invalid_keys,
+            "items": items,
+            "cleanup_executed": False,
+            "owner_review_required": status != "RETENTION_AUDIT_PASSED",
+            "claim_ceiling": (
+                "read-only runtime receipt retention audit only; no receipts, "
+                "evidence rows, or projection payloads were deleted or compacted"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.retention_audit_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("retention_audit_receipts", updated, connection)
+            self.db.set_runtime("retention_audit_last", receipt, connection)
+            self.ledger.append("retention_audit_recorded", receipt, connection)
+        return receipt
+
+    def record_performance_budget_audit(
+        self,
+        *,
+        measurements: list[PerformanceMeasurement],
+        reason: str,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("performance budget audit reason is required")
+        evaluation = evaluate_performance_budget(measurements)
+        receipt = {
+            "receipt_type": "PERFORMANCE_BUDGET_AUDIT",
+            "audit_id": new_id("performance_budget_audit"),
+            "status": "PERFORMANCE_BUDGET_PASSED"
+            if evaluation["passed"]
+            else "PERFORMANCE_BUDGET_FAILED",
+            "reason": reason,
+            "evaluation": evaluation,
+            "measurement_count": len(measurements),
+            "live_install_modified": False,
+            "cleanup_executed": False,
+            "daemon_started": False,
+            "claim_ceiling": (
+                "performance budget receipt only; it measures bounded local "
+                "operations and does not prove long-run uptime or business task quality"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.performance_budget_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("performance_budget_receipts", updated, connection)
+            self.db.set_runtime("performance_budget_last", receipt, connection)
+            self.ledger.append("performance_budget_audit_recorded", receipt, connection)
+        return receipt
+
+    def longitudinal_protocol_receipts(
+        self, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("longitudinal_protocol_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return [dict(item) for item in receipts[:limit] if isinstance(item, dict)]
+
+    def longitudinal_measurement_receipts(
+        self, protocol_id: str | None = None, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("longitudinal_measurement_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        items = [dict(item) for item in receipts if isinstance(item, dict)]
+        if protocol_id:
+            items = [item for item in items if item.get("protocol_id") == protocol_id]
+        return items[: max(0, int(limit))]
+
+    def longitudinal_report_receipts(
+        self, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("longitudinal_report_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return [dict(item) for item in receipts[:limit] if isinstance(item, dict)]
+
+    def start_longitudinal_protocol(
+        self,
+        *,
+        host_id: str,
+        baseline_commit: str,
+        duration_days: int = 30,
+        reason: str,
+    ) -> dict[str, Any]:
+        if not host_id.strip():
+            raise ValueError("host_id is required")
+        if not baseline_commit.strip():
+            raise ValueError("baseline_commit is required")
+        if not reason.strip():
+            raise ValueError("longitudinal protocol reason is required")
+        if len(host_id) > 160:
+            raise ValueError("host_id is too long")
+        if len(baseline_commit) > 160:
+            raise ValueError("baseline_commit is too long")
+        evaluator = LongitudinalEvaluator()
+        config_payload = json.loads(
+            json.dumps(asdict(self.config), ensure_ascii=False, default=str)
+        )
+        protocol = evaluator.start_protocol(
+            host_id.strip(),
+            baseline_commit.strip(),
+            config_payload,
+            duration_days=max(1, min(3650, int(duration_days))),
+        )
+        receipt = {
+            "receipt_type": "LONGITUDINAL_PROTOCOL_STARTED",
+            **protocol.to_dict(),
+            "reason": reason,
+            "daemon_started": False,
+            "cleanup_executed": False,
+            "claim_ceiling": (
+                "protocol receipt only; no business value claim is made until "
+                "owner-task measurements and reports are recorded"
+            ),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.longitudinal_protocol_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("longitudinal_protocol_receipts", updated, connection)
+            self.db.set_runtime("longitudinal_protocol_last", receipt, connection)
+            self.ledger.append("longitudinal_protocol_started", receipt, connection)
+        return receipt
+
+    def record_longitudinal_measurement(
+        self,
+        *,
+        protocol_id: str,
+        task_class: str,
+        success: bool,
+        corrections: int = 0,
+        cost: float = 0.0,
+        latency_seconds: float = 0.0,
+        memory_benefit: bool = False,
+        skill_reuse: bool = False,
+        task_reference: str = "",
+        owner_review: str = "",
+        reason: str,
+    ) -> dict[str, Any]:
+        if not protocol_id.strip():
+            raise ValueError("protocol_id is required")
+        if not task_class.strip():
+            raise ValueError("task_class is required")
+        if not reason.strip():
+            raise ValueError("longitudinal measurement reason is required")
+        protocol = self._longitudinal_protocol_from_receipt(protocol_id)
+        evaluator = LongitudinalEvaluator()
+        point = evaluator.record_measurement(
+            protocol,
+            task_class.strip(),
+            bool(success),
+            corrections=max(0, int(corrections)),
+            cost=max(0.0, float(cost)),
+            latency=max(0.0, float(latency_seconds)),
+            memory_benefit=bool(memory_benefit),
+            skill_reuse=bool(skill_reuse),
+        )
+        bounded_task_reference = self._bounded_text(task_reference, 500)
+        bounded_owner_review = self._bounded_text(owner_review, 1000)
+        owner_evidence_complete = bool(
+            bounded_task_reference and bounded_owner_review
+        )
+        receipt = {
+            "receipt_type": "LONGITUDINAL_MEASUREMENT_RECORDED",
+            **point.to_dict(),
+            "task_reference": bounded_task_reference,
+            "owner_review": bounded_owner_review,
+            "owner_evidence_complete": owner_evidence_complete,
+            "evidence_quality": "QUALIFIED_OWNER_TASK"
+            if owner_evidence_complete
+            else "PARTIAL_OWNER_TASK",
+            "reason": reason,
+            "daemon_started": False,
+            "cleanup_executed": False,
+            "claim_ceiling": (
+                "single owner-task measurement only; trends require repeated "
+                "measurements and a compiled report"
+            ),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.longitudinal_measurement_receipts(limit=500)
+        updated = [receipt, *current][:500]
+        with self.db.transaction() as connection:
+            self.db.set_runtime(
+                "longitudinal_measurement_receipts", updated, connection
+            )
+            self.db.set_runtime("longitudinal_measurement_last", receipt, connection)
+            self.ledger.append("longitudinal_measurement_recorded", receipt, connection)
+        return receipt
+
+    def compile_longitudinal_report(
+        self,
+        *,
+        protocol_id: str,
+        baseline_success_rate: float = 1.0,
+        max_regression: float = 0.1,
+        reason: str,
+    ) -> dict[str, Any]:
+        if not protocol_id.strip():
+            raise ValueError("protocol_id is required")
+        if not reason.strip():
+            raise ValueError("longitudinal report reason is required")
+        protocol = self._longitudinal_protocol_from_receipt(protocol_id)
+        measurement_receipts = self.longitudinal_measurement_receipts(
+            protocol_id=protocol_id, limit=500
+        )
+        measurements = [
+            self._longitudinal_measurement_from_receipt(item)
+            for item in measurement_receipts
+        ]
+        qualified_measurement_count = sum(
+            1 for item in measurement_receipts if self._owner_task_evidence_complete(item)
+        )
+        unqualified_measurement_count = max(
+            0, len(measurement_receipts) - qualified_measurement_count
+        )
+        evaluator = LongitudinalEvaluator()
+        report = evaluator.compile_report(
+            protocol,
+            measurements,
+            baseline_success_rate=max(0.0, min(1.0, float(baseline_success_rate))),
+            max_regression=max(0.0, min(1.0, float(max_regression))),
+            claim_ceiling=(
+                "claims limited to the recorded owner-task workload for this "
+                "protocol; not a general autonomy or commercial-product proof"
+            ),
+        )
+        receipt = {
+            "receipt_type": "LONGITUDINAL_REPORT_COMPILED",
+            **report.to_dict(),
+            "reason": reason,
+            "baseline_success_rate": max(0.0, min(1.0, float(baseline_success_rate))),
+            "max_regression": max(0.0, min(1.0, float(max_regression))),
+            "qualified_measurement_count": qualified_measurement_count,
+            "unqualified_measurement_count": unqualified_measurement_count,
+            "status": "LONGITUDINAL_REPORT_PASSED"
+            if not report.regressions and measurements and qualified_measurement_count > 0
+            else "LONGITUDINAL_REPORT_NEEDS_MORE_EVIDENCE"
+            if not measurements or qualified_measurement_count == 0
+            else "LONGITUDINAL_REPORT_REGRESSION_FOUND",
+            "daemon_started": False,
+            "cleanup_executed": False,
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.longitudinal_report_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("longitudinal_report_receipts", updated, connection)
+            self.db.set_runtime("longitudinal_report_last", receipt, connection)
+            self.ledger.append("longitudinal_report_compiled", receipt, connection)
+        return receipt
+
+    def _longitudinal_protocol_from_receipt(
+        self, protocol_id: str
+    ) -> LongitudinalProtocol:
+        for item in self.longitudinal_protocol_receipts(limit=100):
+            if item.get("protocol_id") == protocol_id:
+                return LongitudinalProtocol(
+                    protocol_id=str(item["protocol_id"]),
+                    host_id=str(item["host_id"]),
+                    baseline_commit=str(item["baseline_commit"]),
+                    config_digest=str(item["config_digest"]),
+                    started_at=str(item["started_at"]),
+                    duration_days=int(item.get("duration_days", 30)),
+                    measurement_interval_hours=int(
+                        item.get("measurement_interval_hours", 24)
+                    ),
+                    frozen_baseline=bool(item.get("frozen_baseline", True)),
+                )
+        raise KeyError(f"longitudinal protocol not found: {protocol_id}")
+
+    @staticmethod
+    def _longitudinal_measurement_from_receipt(
+        item: dict[str, Any]
+    ) -> MeasurementPoint:
+        return MeasurementPoint(
+            point_id=str(item["point_id"]),
+            protocol_id=str(item["protocol_id"]),
+            task_class=str(item["task_class"]),
+            success=LivingSystem._truthy(item.get("success", False)),
+            correction_count=int(item.get("correction_count", 0)),
+            cost=float(item.get("cost", 0.0)),
+            latency_seconds=float(item.get("latency_seconds", 0.0)),
+            memory_benefit=LivingSystem._truthy(item.get("memory_benefit", False)),
+            skill_reuse=LivingSystem._truthy(item.get("skill_reuse", False)),
+            recorded_at=str(item.get("recorded_at", utc_now())),
+        )
+
+    @staticmethod
+    def _bounded_text(value: str, limit: int) -> str:
+        text = str(value or "").strip()
+        return text[:limit]
+
+    @staticmethod
+    def _owner_task_evidence_complete(item: dict[str, Any]) -> bool:
+        if "owner_evidence_complete" in item:
+            return LivingSystem._truthy(item.get("owner_evidence_complete"))
+        return bool(
+            str(item.get("task_reference", "")).strip()
+            and str(item.get("owner_review", "")).strip()
+        )
+
+    @staticmethod
+    def _truthy(value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        return str(value).strip().lower() in {"1", "true", "yes", "y", "passed"}
+
+    def bounded_soak_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("bounded_soak_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return receipts[: max(0, int(limit))]
+
+    def run_bounded_soak(
+        self,
+        *,
+        cycles: int = 1,
+        reason: str,
+        max_cycle_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("bounded soak reason is required")
+        if cycles < 0 or cycles > 20:
+            raise ValueError("bounded soak cycles must be within 0..20")
+        cycle_budget = (
+            float(max_cycle_seconds)
+            if max_cycle_seconds is not None
+            else float(self.config.daemon_max_cycle_seconds)
+        )
+        started_at = utc_now()
+        before_health = self.health_snapshot()
+        before_db_bytes = int(before_health["database"]["bytes"])
+        before_evidence = int(
+            self.db.query_one("SELECT COUNT(*) AS n FROM evidence")["n"]  # type: ignore[index]
+        )
+        before_cycle_count = int(self.db.get_runtime("cycle_count", 0))
+        cycle_results: list[dict[str, Any]] = []
+        failures: list[str] = []
+        for _ in range(cycles):
+            started = time.monotonic()
+            try:
+                result = self.run_cycle()
+                elapsed = time.monotonic() - started
+                status = str(result.get("status", "UNKNOWN"))
+                if status != "SUCCEEDED":
+                    failures.append(f"cycle_status_{status.lower()}")
+                if elapsed > cycle_budget:
+                    failures.append("cycle_time_budget_exceeded")
+                phase_timings = result.get("phase_timings", [])
+                cycle_results.append(
+                    {
+                        "cycle_id": result.get("cycle_id"),
+                        "status": status,
+                        "elapsed_seconds": round(elapsed, 4),
+                        "budget_seconds": cycle_budget,
+                        "sensor_summaries": result.get("sensors", [])
+                        if isinstance(result.get("sensors", []), list)
+                        else [],
+                        "planning_timings": result.get("planning_timings", [])
+                        if isinstance(result.get("planning_timings", []), list)
+                        else [],
+                        "event_goal_timings": result.get("event_goal_timings", [])
+                        if isinstance(result.get("event_goal_timings", []), list)
+                        else [],
+                        "cognition_learning_timings": result.get(
+                            "cognition_learning_timings", []
+                        )
+                        if isinstance(
+                            result.get("cognition_learning_timings", []), list
+                        )
+                        else [],
+                        "phase_timings": phase_timings
+                        if isinstance(phase_timings, list)
+                        else [],
+                        "slowest_phases": self._slowest_cycle_phases(phase_timings),
+                    }
+                )
+            except Exception as exc:
+                elapsed = time.monotonic() - started
+                failures.append(type(exc).__name__)
+                cycle_results.append(
+                    {
+                        "cycle_id": None,
+                        "status": "FAILED",
+                        "elapsed_seconds": round(elapsed, 4),
+                        "budget_seconds": cycle_budget,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+                )
+                break
+        after_health = self.health_snapshot()
+        after_db_bytes = int(after_health["database"]["bytes"])
+        after_evidence = int(
+            self.db.query_one("SELECT COUNT(*) AS n FROM evidence")["n"]  # type: ignore[index]
+        )
+        after_cycle_count = int(self.db.get_runtime("cycle_count", 0))
+        if after_health["status"] == "BLOCKED":
+            failures.append("post_soak_health_blocked")
+        if after_db_bytes > int(self.config.daemon_max_database_bytes):
+            failures.append("database_size_over_daemon_limit")
+        receipt = {
+            "receipt_type": "BOUNDED_SOAK_AUDIT",
+            "audit_id": new_id("bounded_soak_audit"),
+            "status": "BOUNDED_SOAK_PASSED" if not failures else "BOUNDED_SOAK_FAILED",
+            "reason": reason,
+            "requested_cycles": cycles,
+            "completed_cycles": sum(
+                1 for item in cycle_results if item.get("status") == "SUCCEEDED"
+            ),
+            "cycle_results": cycle_results,
+            "before": {
+                "health_status": before_health["status"],
+                "db_bytes": before_db_bytes,
+                "evidence_records": before_evidence,
+                "cycle_count": before_cycle_count,
+            },
+            "after": {
+                "health_status": after_health["status"],
+                "db_bytes": after_db_bytes,
+                "evidence_records": after_evidence,
+                "cycle_count": after_cycle_count,
+            },
+            "growth": {
+                "db_bytes": after_db_bytes - before_db_bytes,
+                "evidence_records": after_evidence - before_evidence,
+                "cycle_count": after_cycle_count - before_cycle_count,
+            },
+            "failures": failures,
+            "daemon_started": False,
+            "cleanup_executed": False,
+            "claim_ceiling": (
+                "bounded soak receipt only; it runs a limited number of canonical "
+                "cycles and does not prove long-run uptime or business task quality"
+            ),
+            "started_at": started_at,
+            "finished_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.bounded_soak_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("bounded_soak_receipts", updated, connection)
+            self.db.set_runtime("bounded_soak_last", receipt, connection)
+            self.ledger.append("bounded_soak_audit_recorded", receipt, connection)
+        return receipt
+
+    def upgrade_drill_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("upgrade_drill_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return [dict(item) for item in receipts[:limit] if isinstance(item, dict)]
+
+    def run_upgrade_drill(
+        self,
+        *,
+        wheel_path: str | Path,
+        reason: str = "owner requested upgrade rollback drill",
+        disposable_clone: bool = False,
+    ) -> dict[str, Any]:
+        wheel = Path(wheel_path).expanduser().resolve()
+        if not wheel.is_file():
+            raise FileNotFoundError(f"wheel not found: {wheel}")
+        if wheel.suffix.lower() != ".whl":
+            raise ValueError("upgrade drill requires a .whl file")
+        drill_id = new_id("upgrade_drill")
+        started_at = utc_now()
+        backup_dir = self.config.home_path / "backups" / drill_id
+        backup_dir.mkdir(parents=True, exist_ok=False)
+        backup_db = backup_dir / "wls.db"
+        restore_check_db = backup_dir / "restore_check.db"
+        before_health = self.health_snapshot()
+        backup_started = time.monotonic()
+        source = self.db.connect()
+        destination = sqlite3.connect(backup_db)
+        try:
+            source.backup(destination)
+        finally:
+            destination.close()
+            source.close()
+        backup_seconds = round(time.monotonic() - backup_started, 4)
+        shutil.copy2(backup_db, restore_check_db)
+        restore_connection = sqlite3.connect(restore_check_db)
+        try:
+            integrity = str(
+                restore_connection.execute("PRAGMA integrity_check").fetchone()[0]
+            )
+            foreign_rows = restore_connection.execute(
+                "PRAGMA foreign_key_check"
+            ).fetchall()
+            restore_ok = integrity.lower() == "ok" and not foreign_rows
+        finally:
+            restore_connection.close()
+        after_health = self.health_snapshot()
+        clone_rollback = (
+            self._run_disposable_clone_rollback_drill(
+                drill_id=drill_id,
+                wheel=wheel,
+                backup_db=backup_db,
+            )
+            if disposable_clone
+            else None
+        )
+        clone_ok = (
+            True
+            if clone_rollback is None
+            else clone_rollback.get("passed") is True
+        )
+        receipt = {
+            "receipt_type": "UPGRADE_ROLLBACK_DRILL",
+            "drill_id": drill_id,
+            "status": "UPGRADE_DRILL_PASSED"
+            if restore_ok and clone_ok
+            else "UPGRADE_DRILL_FAILED",
+            "reason": reason,
+            "wheel": {
+                "path": str(wheel),
+                "bytes": wheel.stat().st_size,
+                "sha256": self._file_sha256(wheel),
+            },
+            "backup": {
+                "path": str(backup_db),
+                "bytes": backup_db.stat().st_size,
+                "sha256": self._file_sha256(backup_db),
+                "seconds": backup_seconds,
+            },
+            "restore_check": {
+                "path": str(restore_check_db),
+                "integrity_check": integrity,
+                "foreign_key_violations": len(foreign_rows),
+                "passed": restore_ok,
+            },
+            "before": {
+                "health_status": before_health["status"],
+                "db_bytes": before_health["database"]["bytes"],
+                "cycle_count": before_health["cycle_count"],
+            },
+            "after": {
+                "health_status": after_health["status"],
+                "db_bytes": after_health["database"]["bytes"],
+                "cycle_count": after_health["cycle_count"],
+            },
+            "live_install_modified": False,
+            "live_database_restored": False,
+            "disposable_clone_executed": bool(disposable_clone),
+            "disposable_clone_rollback": clone_rollback,
+            "cleanup_executed": False,
+            "claim_ceiling": (
+                "backup, restore-check, and optional disposable clone rollback drill "
+                "only; it proves the current DB can be backed up, opened as a "
+                "restored copy, and rolled back inside a temporary clone when "
+                "requested, not that a live package rollback was executed"
+            ),
+            "started_at": started_at,
+            "finished_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.upgrade_drill_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("upgrade_drill_receipts", updated, connection)
+            self.db.set_runtime("upgrade_drill_last", receipt, connection)
+            self.ledger.append("upgrade_rollback_drill_recorded", receipt, connection)
+        return receipt
+
+    def _run_disposable_clone_rollback_drill(
+        self,
+        *,
+        drill_id: str,
+        wheel: Path,
+        backup_db: Path,
+    ) -> dict[str, Any]:
+        clone_home_text = ""
+        with tempfile.TemporaryDirectory(prefix=f"wls-upgrade-clone-{drill_id}-") as temp:
+            clone_home = Path(temp) / "home"
+            clone_home_text = str(clone_home)
+            clone_config = replace(self.config, home=str(clone_home), read_only=True)
+            clone_config.ensure_directories()
+            shutil.copy2(backup_db, clone_config.db_path)
+            backup_sha256 = self._file_sha256(backup_db)
+            clone_before_sha256 = self._file_sha256(clone_config.db_path)
+            clone_db = Database(clone_config.db_path)
+            try:
+                before_health = self.build_health_snapshot(clone_config, clone_db)
+                marker = {
+                    "drill_id": drill_id,
+                    "wheel_path": str(wheel),
+                    "wheel_sha256": self._file_sha256(wheel),
+                    "simulated_at": utc_now(),
+                    "scope": "disposable_clone_only",
+                }
+                clone_db.set_runtime("disposable_upgrade_marker", marker)
+                marker_after_upgrade = clone_db.get_runtime(
+                    "disposable_upgrade_marker", None
+                )
+                after_upgrade_health = self.build_health_snapshot(clone_config, clone_db)
+            finally:
+                clone_db.close_all()
+            clone_upgraded_sha256 = self._file_sha256(clone_config.db_path)
+            shutil.copy2(backup_db, clone_config.db_path)
+            clone_rollback_sha256 = self._file_sha256(clone_config.db_path)
+            rollback_db = Database(clone_config.db_path)
+            try:
+                after_rollback_health = self.build_health_snapshot(
+                    clone_config, rollback_db
+                )
+                marker_after_rollback = rollback_db.get_runtime(
+                    "disposable_upgrade_marker", None
+                )
+                integrity_ok, integrity_detail = rollback_db.integrity_check()
+            finally:
+                rollback_db.close_all()
+            marker_removed = marker_after_rollback is None
+            marker_written = isinstance(marker_after_upgrade, dict)
+            rollback_matches_backup = clone_rollback_sha256 == backup_sha256
+            passed = bool(
+                integrity_ok
+                and before_health["status"] != "BLOCKED"
+                and after_upgrade_health["status"] != "BLOCKED"
+                and after_rollback_health["status"] != "BLOCKED"
+                and clone_before_sha256 == backup_sha256
+                and marker_written
+                and rollback_matches_backup
+                and marker_removed
+            )
+            result = {
+                "passed": passed,
+                "clone_home": clone_home_text,
+                "clone_home_removed": False,
+                "backup_sha256": backup_sha256,
+                "clone_before_sha256": clone_before_sha256,
+                "clone_upgraded_sha256": clone_upgraded_sha256,
+                "clone_rollback_sha256": clone_rollback_sha256,
+                "rollback_matches_backup": rollback_matches_backup,
+                "marker_written_before_rollback": marker_written,
+                "marker_removed_after_rollback": marker_removed,
+                "integrity_check": integrity_detail,
+                "integrity_passed": integrity_ok,
+                "before_health_status": before_health["status"],
+                "after_upgrade_health_status": after_upgrade_health["status"],
+                "after_rollback_health_status": after_rollback_health["status"],
+                "live_install_modified": False,
+                "live_database_restored": False,
+                "claim_ceiling": (
+                    "disposable clone rollback drill only; simulated upgrade marker "
+                    "is written to a temporary clone and removed by restoring the "
+                    "clone DB from backup"
+                ),
+            }
+        result["clone_home_removed"] = not Path(clone_home_text).exists()
+        return result
+
+    @staticmethod
+    def _slowest_cycle_phases(phases: object, limit: int = 5) -> list[dict[str, Any]]:
+        if not isinstance(phases, list):
+            return []
+        normalized: list[dict[str, Any]] = []
+        for phase in phases:
+            if not isinstance(phase, dict):
+                continue
+            try:
+                elapsed = float(phase.get("elapsed_seconds", 0.0))
+            except (TypeError, ValueError):
+                elapsed = 0.0
+            normalized.append(
+                {
+                    "phase": str(phase.get("phase", "unknown")),
+                    "elapsed_seconds": round(elapsed, 4),
+                }
+            )
+        return sorted(
+            normalized,
+            key=lambda item: float(item["elapsed_seconds"]),
+            reverse=True,
+        )[: max(0, int(limit))]
+
+    @staticmethod
+    def _file_sha256(path: Path) -> str:
+        hasher = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                hasher.update(chunk)
+        return hasher.hexdigest()
 
     def record_operational_preflight_audit(
         self,
@@ -2639,6 +3494,161 @@ class LivingSystem:
             self.db.set_runtime("final_delivery_audit_receipts", updated, connection)
             self.ledger.append("final_delivery_audit_recorded", receipt, connection)
         return receipt
+
+    def record_commercial_readiness_audit(
+        self,
+        *,
+        reason: str,
+        rc_min_qualified_measurements: int = 8,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("commercial readiness audit reason is required")
+        if rc_min_qualified_measurements < 1:
+            raise ValueError("rc_min_qualified_measurements must be positive")
+
+        health = self.health_snapshot()
+        report = health.get("longitudinal_report")
+        measurements = self.longitudinal_measurement_receipts(limit=500)
+        qualified_measurement_count = sum(
+            1 for item in measurements if self._owner_task_evidence_complete(item)
+        )
+        task_classes = sorted(
+            {
+                str(item.get("task_class"))
+                for item in measurements
+                if self._owner_task_evidence_complete(item) and item.get("task_class")
+            }
+        )
+        performance = health.get("performance_budget")
+        soak = health.get("bounded_soak")
+        garbage = health.get("garbage_audit")
+        retention = health.get("retention_audit")
+        upgrade = health.get("upgrade_drill")
+
+        def status_is(item: Any, allowed: set[str]) -> bool:
+            return isinstance(item, dict) and str(item.get("status")) in allowed
+
+        beta_gates = {
+            "health_ok": health.get("status") == "OK",
+            "no_pending_owner_actions": int(health.get("pending_action_count", 0)) == 0,
+            "garbage_audit_present": isinstance(garbage, dict),
+            "performance_budget_passed": status_is(
+                performance, {"PERFORMANCE_BUDGET_PASSED", "PASSED"}
+            ),
+            "retention_audit_passed": status_is(
+                retention, {"RETENTION_AUDIT_PASSED", "PASSED"}
+            ),
+            "bounded_soak_passed": status_is(
+                soak, {"BOUNDED_SOAK_PASSED", "SOAK_AUDIT_PASSED", "PASSED"}
+            ),
+            "rollback_drill_passed": status_is(
+                upgrade, {"UPGRADE_DRILL_PASSED", "PASSED"}
+            ),
+            "first_owner_task_measurement": qualified_measurement_count >= 1,
+        }
+        rc_gates = {
+            **beta_gates,
+            "repeated_owner_task_measurements": (
+                qualified_measurement_count >= rc_min_qualified_measurements
+            ),
+            "owner_task_class_coverage": len(task_classes) >= 4,
+            "longitudinal_report_passed": status_is(
+                report, {"LONGITUDINAL_REPORT_PASSED", "PASSED"}
+            ),
+            "disposable_clone_rollback_verified": (
+                isinstance(upgrade, dict)
+                and upgrade.get("disposable_clone_executed") is True
+                and (
+                    upgrade.get("disposable_clone_rollback", {}).get("passed")
+                    is True
+                )
+            ),
+            "readiness_runbook_present": (
+                self._commercial_readiness_runbook_path() is not None
+            ),
+        }
+        beta_missing = [key for key, passed in beta_gates.items() if not passed]
+        rc_missing = [key for key, passed in rc_gates.items() if not passed]
+        receipt = {
+            "receipt_type": "COMMERCIAL_READINESS_AUDIT",
+            "audit_id": new_id("commercial_readiness_audit"),
+            "status": "RC_PASSED"
+            if not rc_missing
+            else "BETA_PASSED_RC_BLOCKED"
+            if not beta_missing
+            else "BETA_BLOCKED",
+            "reason": reason,
+            "beta": {
+                "status": "BETA_PASSED" if not beta_missing else "BETA_BLOCKED",
+                "gates": beta_gates,
+                "missing": beta_missing,
+            },
+            "rc": {
+                "status": "RC_PASSED" if not rc_missing else "RC_BLOCKED",
+                "gates": rc_gates,
+                "missing": rc_missing,
+                "required_qualified_measurements": rc_min_qualified_measurements,
+            },
+            "evidence": {
+                "health_status": health.get("status"),
+                "garbage_audit_id": garbage.get("audit_id")
+                if isinstance(garbage, dict)
+                else None,
+                "performance_budget_id": performance.get("audit_id")
+                if isinstance(performance, dict)
+                else None,
+                "bounded_soak_id": soak.get("audit_id")
+                if isinstance(soak, dict)
+                else None,
+                "retention_audit_id": retention.get("audit_id")
+                if isinstance(retention, dict)
+                else None,
+                "upgrade_drill_id": upgrade.get("drill_id")
+                if isinstance(upgrade, dict)
+                else None,
+                "longitudinal_report_id": report.get("report_id")
+                if isinstance(report, dict)
+                else None,
+                "qualified_measurement_count": qualified_measurement_count,
+                "task_classes": task_classes,
+            },
+            "live_install_modified": False,
+            "cleanup_executed": False,
+            "claim_ceiling": (
+                "commercial readiness audit reads local WLS receipts only; RC "
+                "requires repeated owner-task measurements and does not claim "
+                "external multi-user product readiness"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.commercial_readiness_audit_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime(
+                "commercial_readiness_audit_receipts", updated, connection
+            )
+            self.db.set_runtime("commercial_readiness_audit_last", receipt, connection)
+            self.ledger.append(
+                "commercial_readiness_audit_recorded", receipt, connection
+            )
+        return receipt
+
+    def _commercial_readiness_runbook_path(self) -> Path | None:
+        candidates = [
+            Path.cwd() / "docs" / "COMMERCIAL_READINESS_GATES.md",
+            self.config.home_path / "docs" / "COMMERCIAL_READINESS_GATES.md",
+            self.config.home_path / "COMMERCIAL_READINESS_GATES.md",
+        ]
+        module_path = Path(__file__).resolve()
+        candidates.extend(
+            parent / "docs" / "COMMERCIAL_READINESS_GATES.md"
+            for parent in module_path.parents
+        )
+        for path in candidates:
+            if path.is_file():
+                return path
+        return None
 
     def record_transfer_efficiency_audit(
         self,
@@ -4725,10 +5735,27 @@ class LivingSystem:
     def _run_cycle_locked(self) -> dict[str, Any]:
         cycle_id = new_id("cycle")
         started_at = utc_now()
+        cycle_started = time.monotonic()
+        phase_started = cycle_started
+        phase_timings: list[dict[str, Any]] = []
+        event_goal_timings: list[dict[str, Any]] = []
+
+        def finish_phase(phase: str) -> None:
+            nonlocal phase_started
+            now = time.monotonic()
+            phase_timings.append(
+                {
+                    "phase": phase,
+                    "elapsed_seconds": round(now - phase_started, 4),
+                }
+            )
+            phase_started = now
+
         self.db.execute(
             "INSERT INTO cycles(cycle_id,started_at,status) VALUES (?,?,?)",
             (cycle_id, started_at, "RUNNING"),
         )
+        finish_phase("cycle_record_start")
         prediction_errors: list[dict[str, Any]] = []
         sensor_summary: list[dict[str, Any]] = []
         reserved: list[Event] = []
@@ -4736,13 +5763,45 @@ class LivingSystem:
         plan_persisted = False
         try:
             recovery_outcomes = self._resume_durable_actions()
+            finish_phase("durable_action_recovery")
             sensor_summary, prediction_errors = self._poll_due_sensors()
-            reserved = self.events.reserve(
-                self.worker_id, self.config.max_events_per_cycle
+            finish_phase("sensor_polling")
+            step_started = time.monotonic()
+            reserve_limit = self._event_reserve_limit()
+            reserved = self.events.reserve(self.worker_id, reserve_limit)
+            event_goal_timings.append(
+                {
+                    "step": "reserve_events",
+                    "elapsed_seconds": round(time.monotonic() - step_started, 4),
+                    "limit": reserve_limit,
+                    "reserved": len(reserved),
+                }
             )
+            step_started = time.monotonic()
             autonomous_goal_ids = self.autonomy.consider()
+            event_goal_timings.append(
+                {
+                    "step": "autonomy_consider",
+                    "elapsed_seconds": round(time.monotonic() - step_started, 4),
+                }
+            )
+            step_started = time.monotonic()
             active_goals = self.goals.active(limit=20)
+            event_goal_timings.append(
+                {
+                    "step": "active_goals",
+                    "elapsed_seconds": round(time.monotonic() - step_started, 4),
+                }
+            )
+            step_started = time.monotonic()
             query_text = self._query_text(reserved, active_goals)
+            event_goal_timings.append(
+                {
+                    "step": "query_text",
+                    "elapsed_seconds": round(time.monotonic() - step_started, 4),
+                }
+            )
+            finish_phase("event_goal_intake")
             memory_mode = str(
                 self.config.provider.get("memory_mode", "enabled")
             ).lower()
@@ -4757,6 +5816,7 @@ class LivingSystem:
                 frozen=memory_mode == "frozen",
             )
             retrieved_memories = memory_retrieval["selected"]
+            finish_phase("memory_retrieval")
             resource_snapshot = self._resource_snapshot()
             meaningful_input = bool(
                 reserved
@@ -4777,11 +5837,13 @@ class LivingSystem:
             workspace = self.attention.select(
                 reserved, active_goals, retrieved_memories, drives, affect
             )
+            persisted_workspace = self._compact_workspace(workspace)
             selected_event_ids = self.attention.event_ids(workspace)
             self.events.release_unselected(self.worker_id, selected_event_ids)
             selected_events = [
                 event for event in reserved if event.event_id in selected_event_ids
             ]
+            finish_phase("appraisal_attention")
             world_facts = (
                 self.world.query(query_text, limit=30)
                 if query_text
@@ -4815,42 +5877,105 @@ class LivingSystem:
                     "outbox": str(self.config.outbox_path),
                 },
             }
+            finish_phase("context_assembly")
             if meaningful_input:
+                planning_timings: list[dict[str, Any]] = []
+                planning_started = time.monotonic()
                 plan = self.planner.plan(context)
+                planning_timings.append(
+                    {
+                        "step": "planner_plan",
+                        "elapsed_seconds": round(time.monotonic() - planning_started, 4),
+                    }
+                )
+                step_started = time.monotonic()
                 self.memory_attribution.record(
                     cycle_id, plan.memory_ids, memory_retrieval
                 )
+                planning_timings.append(
+                    {
+                        "step": "memory_attribution_record",
+                        "elapsed_seconds": round(time.monotonic() - step_started, 4),
+                    }
+                )
                 plan.actions = plan.actions[: int(budget["max_actions"])]
+                step_started = time.monotonic()
                 self._persist_plan_and_ack_events(
                     cycle_id, plan, [event.event_id for event in selected_events]
                 )
-                self.cognition.attach_plan(cycle_id, plan)
+                planning_timings.append(
+                    {
+                        "step": "persist_plan_ack_events_attach_cognition",
+                        "elapsed_seconds": round(time.monotonic() - step_started, 4),
+                    }
+                )
                 plan_persisted = True
+                finish_phase("planning_and_plan_persistence")
                 outcomes = [*recovery_outcomes, *self._execute_plan(plan)]
+                finish_phase("action_execution")
+                cognition_learning_timings: list[dict[str, Any]] = []
+                step_started = time.monotonic()
                 cognition_result = self.cognition.resolve_cycle(cycle_id, plan, outcomes)
+                cognition_learning_timings.append(
+                    {
+                        "step": "cognition_resolve_cycle",
+                        "elapsed_seconds": round(time.monotonic() - step_started, 4),
+                    }
+                )
+                step_started = time.monotonic()
                 memory_resolution = self.memory_attribution.resolve(
                     cycle_id,
                     outcomes,
                     cognition_result,
                     frozen=memory_mode == "frozen",
                 )
+                cognition_learning_timings.append(
+                    {
+                        "step": "memory_attribution_resolve",
+                        "elapsed_seconds": round(time.monotonic() - step_started, 4),
+                    }
+                )
                 if cognition_result is not None and memory_resolution is not None:
                     cognition_result["memory_attribution"] = memory_resolution
+                step_started = time.monotonic()
                 plan_status = self._plan_status(plan.plan_id)
+                cognition_learning_timings.append(
+                    {
+                        "step": "plan_status_refresh",
+                        "elapsed_seconds": round(time.monotonic() - step_started, 4),
+                    }
+                )
+                step_started = time.monotonic()
                 episode_id = self.learning.record_episode(
                     cycle_id=cycle_id,
                     event_ids=[event.event_id for event in selected_events],
                     plan_id=plan.plan_id,
                     outcomes=outcomes,
                     prediction_errors=prediction_errors,
-                    workspace=[item.to_dict() for item in workspace],
+                    workspace=persisted_workspace,
                 )
+                cognition_learning_timings.append(
+                    {
+                        "step": "learning_record_episode",
+                        "elapsed_seconds": round(time.monotonic() - step_started, 4),
+                    }
+                )
+                step_started = time.monotonic()
                 drives, affect, post_appraisal = self.drives.appraise(
                     selected_events,
                     outcomes=outcomes,
                     resource_snapshot=resource_snapshot,
                 )
+                cognition_learning_timings.append(
+                    {
+                        "step": "post_action_appraisal",
+                        "elapsed_seconds": round(time.monotonic() - step_started, 4),
+                    }
+                )
+                finish_phase("cognition_learning_appraisal")
             else:
+                planning_timings = []
+                cognition_learning_timings = []
                 plan = Plan(
                     rationale="Idle cycle: no external change, active goal, recovery, or prediction error.",
                     actions=[],
@@ -4860,6 +5985,7 @@ class LivingSystem:
                 plan_status = "IDLE"
                 episode_id = None
                 post_appraisal = {"idle": True}
+                finish_phase("idle_plan")
             idle_cycles = int(self.db.get_runtime("idle_cycles", 0))
             if selected_events or plan.actions:
                 idle_cycles = 0
@@ -4871,6 +5997,10 @@ class LivingSystem:
                 self.drives.decay(rate=0.05)
                 sleep_result = self.sleep.run()
                 self.db.set_runtime("idle_cycles", 0)
+            finish_phase("idle_sleep_maintenance")
+            phase_total_seconds = round(sum(
+                float(item["elapsed_seconds"]) for item in phase_timings
+            ), 4)
             metrics = {
                 "sensors": sensor_summary,
                 "autonomous_goal_ids": autonomous_goal_ids,
@@ -4894,17 +6024,19 @@ class LivingSystem:
                 "appraisal": appraisal,
                 "post_appraisal": post_appraisal,
                 "sleep": sleep_result,
+                "phase_timings": phase_timings,
+                "event_goal_timings": event_goal_timings,
+                "planning_timings": planning_timings,
+                "cognition_learning_timings": cognition_learning_timings,
+                "phase_total_seconds": phase_total_seconds,
+                "cycle_wall_seconds": round(time.monotonic() - cycle_started, 4),
             }
             self.db.execute(
                 "UPDATE cycles SET finished_at=?,status=?,workspace_json=?,metrics_json=? WHERE cycle_id=?",
                 (
                     utc_now(),
                     "SUCCEEDED",
-                    json.dumps(
-                        [item.to_dict() for item in workspace],
-                        ensure_ascii=False,
-                        sort_keys=True,
-                    ),
+                    json.dumps(persisted_workspace, ensure_ascii=False, sort_keys=True),
                     json.dumps(metrics, ensure_ascii=False, sort_keys=True),
                     cycle_id,
                 ),
@@ -4933,6 +6065,34 @@ class LivingSystem:
                 {"cycle_id": cycle_id, "error": f"{type(exc).__name__}: {exc}"[:2000]},
             )
             raise
+
+    @classmethod
+    def _compact_workspace(cls, workspace: list[WorkspaceItem]) -> list[dict[str, Any]]:
+        return [cls._compact_workspace_item(item) for item in workspace]
+
+    @classmethod
+    def _compact_workspace_item(cls, item: WorkspaceItem) -> dict[str, Any]:
+        payload = item.payload
+        payload_json = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        if len(payload_json) <= cls.MAX_PERSISTED_WORKSPACE_PAYLOAD_CHARS:
+            compact_payload: dict[str, Any] = payload
+        else:
+            compact_payload = {
+                "truncated": True,
+                "digest": digest_json(payload),
+                "preview_json": payload_json[
+                    : cls.MAX_PERSISTED_WORKSPACE_PAYLOAD_CHARS
+                ],
+                "top_level_keys": sorted(payload)[:50],
+            }
+        return {
+            "item_type": item.item_type,
+            "reference_id": item.reference_id,
+            "summary": item.summary[:1000],
+            "salience": item.salience,
+            "reasons": item.reasons[:10],
+            "payload": compact_payload,
+        }
 
     def _resume_durable_actions(self) -> list[dict[str, Any]]:
         """Resume actions that were durably planned before an interrupted cycle.
@@ -4967,13 +6127,22 @@ class LivingSystem:
             self._refresh_plan_status(plan_id)
         return outcomes
 
+    def _event_reserve_limit(self) -> int:
+        attention_window = max(
+            self.config.workspace_capacity,
+            int(self.config.workspace_capacity) * 2,
+        )
+        return max(1, min(int(self.config.max_events_per_cycle), attention_window))
+
     def _poll_due_sensors(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         summaries: list[dict[str, Any]] = []
         prediction_errors: list[dict[str, Any]] = []
+        state_updates: list[tuple[str, tuple[Any, ...], dict[str, Any], str]] = []
         now = datetime.now(UTC)
         for sensor_config in self.config.sensors:
             if not sensor_config.enabled:
                 continue
+            sensor_started = time.monotonic()
             state_row = self.db.query_one(
                 "SELECT * FROM sensor_state WHERE sensor_name=?", (sensor_config.name,)
             )
@@ -4995,7 +6164,10 @@ class LivingSystem:
                 self.config.home_path,
             )
             try:
+                poll_started = time.monotonic()
                 observations, next_state = sensor.poll(previous_state)
+                poll_elapsed = time.monotonic() - poll_started
+                observation_started = time.monotonic()
                 for observation in observations:
                     self.events.add_observation(observation)
                     result = self.world.assimilate(observation)
@@ -5014,8 +6186,19 @@ class LivingSystem:
                             due_at=due_at,
                         )
                     sensor.ack(observation)
-                with self.db.transaction() as connection:
-                    connection.execute(
+                observation_elapsed = time.monotonic() - observation_started
+                summary = {
+                    "sensor": sensor_config.name,
+                    "observations": len(observations),
+                    "status": "ok",
+                    "elapsed_seconds": round(time.monotonic() - sensor_started, 4),
+                    "poll_seconds": round(poll_elapsed, 4),
+                    "observation_seconds": round(observation_elapsed, 4),
+                }
+                summaries.append(summary)
+                polled_at = utc_now()
+                state_updates.append(
+                    (
                         """
                         INSERT INTO sensor_state(sensor_name,state_json,last_polled_at,last_success_at,last_error)
                         VALUES (?,?,?,?,NULL)
@@ -5025,25 +6208,30 @@ class LivingSystem:
                         (
                             sensor_config.name,
                             json.dumps(next_state, ensure_ascii=False, sort_keys=True),
-                            utc_now(),
-                            utc_now(),
+                            polled_at,
+                            polled_at,
                         ),
+                        summary,
+                        "state_seconds",
                     )
-                summaries.append(
-                    {
-                        "sensor": sensor_config.name,
-                        "observations": len(observations),
-                        "status": "ok",
-                    }
                 )
             except Exception as exc:
+                error_started = time.monotonic()
                 error_observation = self._sensor_error_observation(
                     sensor_config.name, exc
                 )
                 self.events.add_observation(error_observation)
                 self.world.assimilate(error_observation)
-                with self.db.transaction() as connection:
-                    connection.execute(
+                summary = {
+                    "sensor": sensor_config.name,
+                    "observations": 1,
+                    "status": "error",
+                    "error": str(exc),
+                    "elapsed_seconds": round(time.monotonic() - sensor_started, 4),
+                }
+                summaries.append(summary)
+                state_updates.append(
+                    (
                         """
                         INSERT INTO sensor_state(sensor_name,state_json,last_polled_at,last_success_at,last_error)
                         VALUES (?,?,?,NULL,?)
@@ -5055,15 +6243,24 @@ class LivingSystem:
                             utc_now(),
                             f"{type(exc).__name__}: {exc}"[:4000],
                         ),
+                        summary,
+                        "error_record_seconds",
                     )
-                summaries.append(
-                    {
-                        "sensor": sensor_config.name,
-                        "observations": 1,
-                        "status": "error",
-                        "error": str(exc),
-                    }
                 )
+                summary["error_prepare_seconds"] = round(
+                    time.monotonic() - error_started, 4
+                )
+        if state_updates:
+            state_started = time.monotonic()
+            with self.db.transaction() as connection:
+                for statement, parameters, _summary, _field in state_updates:
+                    connection.execute(statement, parameters)
+            state_elapsed = time.monotonic() - state_started
+            per_sensor_elapsed = round(state_elapsed / len(state_updates), 4)
+            batch_elapsed = round(state_elapsed, 4)
+            for _statement, _parameters, summary, field in state_updates:
+                summary[field] = per_sensor_elapsed
+                summary["state_batch_seconds"] = batch_elapsed
         return summaries, prediction_errors
 
     def _sensor_error_observation(self, sensor_name: str, exc: Exception):
@@ -5132,6 +6329,7 @@ class LivingSystem:
                 },
                 connection,
             )
+            self.cognition.attach_plan(cycle_id, plan, connection)
 
     def _execute_plan(self, plan: Plan) -> list[dict[str, Any]]:
         outcomes: list[dict[str, Any]] = []
@@ -5272,7 +6470,9 @@ class LivingSystem:
                 },
                 connection,
             )
-        self.self_model.record_action_outcome(action, result, evidence_id)
+            self.self_model.record_action_outcome(
+                action, result, evidence_id, connection
+            )
         return {
             "action_id": action.action_id,
             "success": final_success,
@@ -5354,6 +6554,166 @@ class LivingSystem:
         self.db.set_runtime("kill_reason", "")
         return self.ledger.append("kill_switch_reset", {"evidence": evidence})
 
+    def garbage_audit_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("garbage_audit_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return [dict(item) for item in receipts[:limit] if isinstance(item, dict)]
+
+    def garbage_quarantine_clear_receipts(
+        self, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("garbage_quarantine_clear_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return [dict(item) for item in receipts[:limit] if isinstance(item, dict)]
+
+    def garbage_audit(
+        self,
+        *,
+        roots: list[str | Path] | None = None,
+        max_candidates: int = 500,
+        reason: str = "owner requested garbage audit",
+        execute_cleanup: bool = False,
+        approval_reference: str | None = None,
+    ) -> dict[str, Any]:
+        scan_roots = list(roots) if roots else [self.config.home_path]
+        auditor = GarbageAuditor(
+            lease_probe=self._lease_file_state,
+            max_candidates=max_candidates,
+        )
+        receipt = auditor.audit(scan_roots)
+        receipt["reason"] = reason
+        receipt["authority"] = "owner_review_required_before_cleanup"
+        if execute_cleanup:
+            receipt = auditor.execute_cleanup(
+                receipt, approval_reference=approval_reference or ""
+            )
+            receipt["reason"] = reason
+            receipt["authority"] = "owner_approved_cleanup"
+        summary = {
+            key: receipt[key]
+            for key in (
+                "audit_id",
+                "created_at",
+                "status",
+                "roots",
+                "candidate_count",
+                "total_candidate_bytes",
+                "by_kind",
+                "by_risk",
+                "truncated",
+                "owner_review_required",
+                "cleanup_executed",
+                "claim_ceiling",
+                "reason",
+                "authority",
+            )
+        }
+        if execute_cleanup:
+            summary["cleanup_executed_at"] = receipt.get("cleanup_executed_at")
+            summary["approval_reference"] = receipt.get("approval_reference")
+            summary["deleted_candidate_count"] = receipt.get(
+                "deleted_candidate_count", 0
+            )
+            summary["deleted_bytes"] = receipt.get("deleted_bytes", 0)
+            summary["quarantine_root"] = receipt.get("quarantine_root")
+            summary["quarantined_candidate_count"] = receipt.get(
+                "quarantined_candidate_count", 0
+            )
+            summary["quarantined_bytes"] = receipt.get("quarantined_bytes", 0)
+        with self.db.transaction() as connection:
+            current = self.garbage_audit_receipts(limit=20)
+            updated = [summary, *current][:20]
+            self.db.set_runtime("garbage_audit_receipts", updated, connection)
+            self.db.set_runtime("garbage_audit_last", summary, connection)
+            self.ledger.append(
+                "garbage_cleanup_executed"
+                if execute_cleanup
+                else "garbage_audit_recorded",
+                receipt,
+                connection,
+            )
+        return receipt
+
+    def clear_garbage_quarantine(
+        self, *, audit_id: str, approval_reference: str, reason: str
+    ) -> dict[str, Any]:
+        if not audit_id.strip():
+            raise ValueError("audit_id is required")
+        if not approval_reference.strip():
+            raise PermissionError("quarantine clear requires owner approval reference")
+        if not reason.strip():
+            raise ValueError("quarantine clear reason is required")
+        matching = [
+            item
+            for item in self.garbage_audit_receipts(limit=100)
+            if item.get("audit_id") == audit_id
+        ]
+        if not matching:
+            raise KeyError(f"garbage audit not found: {audit_id}")
+        audit = matching[0]
+        quarantine_root_value = audit.get("quarantine_root")
+        if not quarantine_root_value:
+            raise ValueError("garbage audit has no quarantine root")
+        quarantine_root = Path(str(quarantine_root_value)).expanduser().resolve()
+        home = self.config.home_path.resolve()
+        audit_roots = [
+            Path(str(root)).expanduser().resolve()
+            for root in audit.get("roots", [])
+            if str(root).strip()
+        ]
+        try:
+            quarantine_root.relative_to(home)
+        except ValueError as exc:
+            raise PermissionError("quarantine root is outside WLS home") from exc
+        if ".wls_quarantine" not in quarantine_root.parts:
+            raise PermissionError("quarantine clear path is not a WLS quarantine")
+        if not any(self._path_within(quarantine_root, root) for root in audit_roots):
+            raise PermissionError("quarantine root is outside the audit roots")
+        if quarantine_root == home or quarantine_root.parent == home:
+            raise PermissionError("refusing to clear broad home-level path")
+        existed = quarantine_root.exists()
+        bytes_before = GarbageAuditor._path_size(quarantine_root) if existed else 0
+        if existed:
+            shutil.rmtree(quarantine_root)
+        receipt = {
+            "receipt_type": "GARBAGE_QUARANTINE_CLEARED",
+            "clear_id": new_id("garbage_quarantine_clear"),
+            "audit_id": audit_id,
+            "approval_reference": approval_reference,
+            "reason": reason,
+            "quarantine_root": str(quarantine_root),
+            "existed": existed,
+            "status": "QUARANTINE_CLEARED" if existed else "QUARANTINE_CLEAR_NOOP",
+            "cleared_bytes": bytes_before,
+            "cleanup_executed": True,
+            "daemon_started": False,
+            "claim_ceiling": (
+                "owner-approved quarantine clear only; clears the quarantine "
+                "directory recorded for one garbage audit"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.garbage_quarantine_clear_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime(
+                "garbage_quarantine_clear_receipts", updated, connection
+            )
+            self.db.set_runtime("garbage_quarantine_clear_last", receipt, connection)
+            self.ledger.append("garbage_quarantine_cleared", receipt, connection)
+        return receipt
+
+    @staticmethod
+    def _path_within(path: Path, root: Path) -> bool:
+        try:
+            path.relative_to(root)
+            return True
+        except ValueError:
+            return False
+
     def run_daemon(self, max_cycles: int | None = None) -> None:
         self._stop = False
         previous_handlers = {}
@@ -5369,6 +6729,9 @@ class LivingSystem:
         try:
             with daemon_lease:
                 while not self._stop and (max_cycles is None or cycles < max_cycles):
+                    gate = self._daemon_health_gate()
+                    if not gate["allowed"]:
+                        return
                     started = time.monotonic()
                     try:
                         self.run_cycle()
@@ -5387,6 +6750,24 @@ class LivingSystem:
                     signal.signal(name, handler)
                 except (ValueError, OSError):
                     pass
+
+    def _daemon_health_gate(self) -> dict[str, Any]:
+        health = self.health_snapshot()
+        if health["status"] != "BLOCKED":
+            return {"allowed": True, "health": health}
+        payload = {
+            "stopped_at": utc_now(),
+            "status": health["status"],
+            "critical": health.get("critical", []),
+            "warnings": health.get("warnings", []),
+            "database": health.get("database", {}),
+            "cycle_count": health.get("cycle_count"),
+            "claim_ceiling": "daemon stopped before next cycle; no recovery or cleanup was performed",
+        }
+        with self.db.transaction() as connection:
+            self.db.set_runtime("daemon_last_stop", payload, connection)
+            self.ledger.append("daemon_health_stop", payload, connection)
+        return {"allowed": False, "health": health}
 
     def status(self) -> dict[str, Any]:
         latest_cycle = self.db.query_one(
@@ -5483,6 +6864,18 @@ class LivingSystem:
             "delivery_gap_audit_receipts": self.delivery_gap_audit_receipts(),
             "installed_tail_check_receipts": self.installed_tail_check_receipts(),
             "operational_preflight_receipts": self.operational_preflight_receipts(),
+            "upgrade_drill_receipts": self.upgrade_drill_receipts(),
+            "garbage_quarantine_clear_receipts": (
+                self.garbage_quarantine_clear_receipts()
+            ),
+            "longitudinal_protocol_receipts": self.longitudinal_protocol_receipts(),
+            "longitudinal_measurement_receipts": (
+                self.longitudinal_measurement_receipts()
+            ),
+            "longitudinal_report_receipts": self.longitudinal_report_receipts(),
+            "commercial_readiness_audit_receipts": (
+                self.commercial_readiness_audit_receipts()
+            ),
             "final_delivery_audit_receipts": self.final_delivery_audit_receipts(),
             "read_only_execution_preflights": self.read_only_execution_preflights(),
             "read_only_execution_receipts": self.read_only_execution_receipts(),
@@ -5490,6 +6883,173 @@ class LivingSystem:
             "read_only_projection_reviews": self.read_only_projection_reviews(),
             "next_focus": self.db.get_runtime("next_focus", []),
         }
+
+    def health_snapshot(self) -> dict[str, Any]:
+        """Return a bounded operational health view without building full status.
+
+        This is intentionally light enough for owner-console polling and host
+        preflight checks on large live databases.
+        """
+        return self.build_health_snapshot(self.config, self.db)
+
+    @classmethod
+    def build_health_snapshot(cls, config: RuntimeConfig, db: Database) -> dict[str, Any]:
+        db_path = config.db_path
+        database_bytes = db_path.stat().st_size if db_path.exists() else 0
+        database_limit = int(config.daemon_max_database_bytes)
+        latest_cycle = db.query_one(
+            """
+            SELECT cycle_id,started_at,finished_at,status,error
+            FROM cycles
+            ORDER BY rowid DESC
+            LIMIT 1
+            """
+        )
+        pending_actions = db.query_one(
+            """
+            SELECT COUNT(*) AS n
+            FROM actions
+            WHERE status IN ('WAITING_APPROVAL','APPROVED','UNKNOWN_SIDE_EFFECT')
+            """
+        )
+        sensor_rows = db.query_all(
+            """
+            SELECT sensor_name,last_polled_at,last_success_at,last_error
+            FROM sensor_state
+            ORDER BY sensor_name
+            """
+        )
+        runtime_lock = config.home_path / "state" / "runtime.lock"
+        daemon_lock = config.home_path / "state" / "daemon.lock"
+        runtime_lock_state = cls._lease_file_state(runtime_lock)
+        daemon_lock_state = cls._lease_file_state(daemon_lock)
+        warnings: list[str] = []
+        critical: list[str] = []
+        if database_limit > 0 and database_bytes > database_limit:
+            critical.append("database_size_over_daemon_limit")
+        latest_status = str(latest_cycle["status"]) if latest_cycle else "NONE"
+        if latest_cycle and latest_status not in {
+            "COMPLETED",
+            "IDLE",
+            "NONE",
+            "SUCCEEDED",
+        }:
+            warnings.append(f"latest_cycle_{latest_status.lower()}")
+        if bool(db.get_runtime("kill_switch", False)):
+            critical.append("kill_switch_active")
+        if bool(db.get_runtime("paused", False)):
+            warnings.append("runtime_paused")
+        if runtime_lock_state["present"] and not runtime_lock_state["held"]:
+            warnings.append("stale_runtime_lock")
+        if daemon_lock_state["present"] and not daemon_lock_state["held"]:
+            warnings.append("stale_daemon_lock")
+        sensor_errors = [
+            str(row["sensor_name"]) for row in sensor_rows if row["last_error"]
+        ]
+        if sensor_errors:
+            warnings.append("sensor_errors")
+        overall = "BLOCKED" if critical else ("WARN" if warnings else "OK")
+        def latest_runtime_receipt(last_key: str, receipts_key: str) -> dict[str, Any] | None:
+            latest = db.get_runtime(last_key, None)
+            if isinstance(latest, dict):
+                return latest
+            receipts = db.get_runtime(receipts_key, [])
+            if not isinstance(receipts, list):
+                return None
+            for item in receipts:
+                if isinstance(item, dict):
+                    return item
+            return None
+
+        return {
+            "ok": overall == "OK",
+            "status": overall,
+            "version": __version__,
+            "home": str(config.home_path),
+            "read_only": config.read_only,
+            "cycle_count": int(db.get_runtime("cycle_count", 0)),
+            "latest_cycle": dict(latest_cycle) if latest_cycle else None,
+            "pending_action_count": int(pending_actions["n"]) if pending_actions else 0,
+            "database": {
+                "path": str(db_path),
+                "bytes": database_bytes,
+                "daemon_limit_bytes": database_limit,
+                "over_daemon_limit": database_limit > 0
+                and database_bytes > database_limit,
+            },
+            "locks": {
+                "runtime_lock_present": runtime_lock_state["present"],
+                "daemon_lock_present": daemon_lock_state["present"],
+                "runtime_lock_held": runtime_lock_state["held"],
+                "daemon_lock_held": daemon_lock_state["held"],
+                "runtime_lock_pid": runtime_lock_state["pid"],
+                "daemon_lock_pid": daemon_lock_state["pid"],
+            },
+            "sensors": [dict(row) for row in sensor_rows],
+            "garbage_audit": latest_runtime_receipt(
+                "garbage_audit_last", "garbage_audit_receipts"
+            ),
+            "garbage_quarantine_clear": latest_runtime_receipt(
+                "garbage_quarantine_clear_last", "garbage_quarantine_clear_receipts"
+            ),
+            "performance_budget": latest_runtime_receipt(
+                "performance_budget_last", "performance_budget_receipts"
+            ),
+            "bounded_soak": latest_runtime_receipt(
+                "bounded_soak_last", "bounded_soak_receipts"
+            ),
+            "upgrade_drill": latest_runtime_receipt(
+                "upgrade_drill_last", "upgrade_drill_receipts"
+            ),
+            "longitudinal_report": latest_runtime_receipt(
+                "longitudinal_report_last", "longitudinal_report_receipts"
+            ),
+            "retention_audit": latest_runtime_receipt(
+                "retention_audit_last", "retention_audit_receipts"
+            ),
+            "commercial_readiness": latest_runtime_receipt(
+                "commercial_readiness_audit_last",
+                "commercial_readiness_audit_receipts",
+            ),
+            "critical": critical,
+            "warnings": warnings,
+            "projection_only": False,
+        }
+
+    @staticmethod
+    def _lease_file_state(path: Path) -> dict[str, Any]:
+        present = path.exists()
+        pid: str | None = None
+        if not present:
+            return {"present": False, "held": False, "pid": None}
+        try:
+            pid_text = path.read_text(encoding="ascii").strip()
+            pid = pid_text or None
+        except OSError:
+            pid = None
+        held = False
+        handle = path.open("a+b")
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                try:
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)  # type: ignore[attr-defined]
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)  # type: ignore[attr-defined]
+                except OSError:
+                    held = True
+            else:
+                fcntl: Any = importlib.import_module("fcntl")
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                except OSError:
+                    held = True
+        finally:
+            handle.close()
+        return {"present": present, "held": held, "pid": pid}
 
     def verify_integrity(self, full: bool = True) -> dict[str, Any]:
         ledger_ok, ledger_details = self.ledger.verify()

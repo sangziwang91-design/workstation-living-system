@@ -9,6 +9,9 @@ from .memory_index import CausalMemoryIndex
 from .schemas import utc_now
 
 
+MATERIAL_MEMORY_DELTA = 0.01
+
+
 def ensure_memory_attribution_tables(db: Database) -> None:
     statements = [
         """
@@ -192,7 +195,14 @@ class MemoryAttributionStore:
                 },
                 connection,
             )
-        return self.get(cycle_id)
+        return {
+            "cycle_id": cycle_id,
+            "decision_trace_id": str(trace["trace_id"]),
+            "selected_memory_ids": selected_ids,
+            "suppressed_memory_ids": suppressed_ids,
+            "memory_changed_decision": bool(trace["memory_changed_decision"]),
+            "memory_delta": float(trace["memory_delta"]),
+        }
 
     def resolve(
         self,
@@ -224,7 +234,13 @@ class MemoryAttributionStore:
             if isinstance(item, dict)
         ]
         selected_ids = json.loads(row["selected_memory_ids_json"])
-        attributable = bool(row["memory_changed_decision"]) and bool(selected_ids)
+        memory_delta = float(row["memory_delta"])
+        negative_feedback = task_success is False or "REFUTED" in prediction_statuses
+        attributable = (
+            bool(row["memory_changed_decision"])
+            and bool(selected_ids)
+            and (negative_feedback or abs(memory_delta) >= MATERIAL_MEMORY_DELTA)
+        )
         source_ids = [
             str(item.get("action_id"))
             for item in outcomes
@@ -245,6 +261,8 @@ class MemoryAttributionStore:
             "task_success": task_success,
             "prediction_statuses": prediction_statuses,
             "attributable": attributable,
+            "attribution_threshold": MATERIAL_MEMORY_DELTA,
+            "memory_delta": memory_delta,
             "frozen": frozen,
             "memory_state_transitions": transitions,
         }
