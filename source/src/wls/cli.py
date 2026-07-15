@@ -281,6 +281,8 @@ def build_parser() -> argparse.ArgumentParser:
     ui.add_argument("--host", default="127.0.0.1")
     ui.add_argument("--port", type=int, default=8766)
     ui.add_argument("--no-browser", action="store_true")
+    ui.add_argument("--app-mode", action="store_true",
+                    help="Open in app/windowed mode (no address bar)")
 
     transition = sub.add_parser(
         "candidate", help="Advance a bounded evolution candidate"
@@ -595,7 +597,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             server.serve_forever()
         elif args.command == "ui":
-            from .ui_server import WLSUIServer
+            from .ui_server import WLSUIServer, _open_browser
 
             ui_server = WLSUIServer(runtime, args.host, args.port)
             ui_server.build()
@@ -608,9 +610,8 @@ def main(argv: list[str] | None = None) -> int:
                 }
             )
             if not args.no_browser:
-                import webbrowser
-
-                webbrowser.open(ui_server.bootstrap_url)
+                _open_browser(ui_server.bootstrap_url,
+                              app_mode=bool(getattr(args, "app_mode", False)))
             ui_server.serve_forever()
         elif args.command == "candidate":
             evidence = json.loads(args.evidence)

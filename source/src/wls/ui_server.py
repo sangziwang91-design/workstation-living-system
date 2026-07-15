@@ -12,6 +12,7 @@ import logging
 import os
 import re
 import secrets
+import subprocess
 import threading
 import webbrowser
 
@@ -456,7 +457,31 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--host", default="127.0.0.1", choices=sorted(_LOOPBACK_HOSTS))
     parser.add_argument("--port", type=int, default=8766)
     parser.add_argument("--no-browser", action="store_true")
+    parser.add_argument("--app-mode", action="store_true",
+                        help="Open in app/windowed mode (no address bar)")
     return parser
+
+
+def _open_browser(url: str, *, app_mode: bool = False) -> None:
+    if not app_mode:
+        webbrowser.open(url)
+        return
+    edge = Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / \
+           "Microsoft" / "Edge" / "Application" / "msedge.exe"
+    chrome = Path(os.environ.get("LOCALAPPDATA", "")) / "Google" / "Chrome" / "Application" / "chrome.exe"
+    if edge.exists():
+        subprocess.Popen(
+            [str(edge), f"--app={url}", "--new-window",
+             "--window-size=1400,900", f"--user-data-dir={os.environ.get('TEMP', os.environ.get('TMP', '.'))}\\wls-edge-profile"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+    elif chrome.exists():
+        subprocess.Popen(
+            [str(chrome), f"--app={url}", "--new-window", "--window-size=1400,900"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+    else:
+        webbrowser.open(url)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -477,7 +502,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     )
     if not args.no_browser:
-        webbrowser.open(server.bootstrap_url)
+        _open_browser(server.bootstrap_url, app_mode=args.app_mode)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

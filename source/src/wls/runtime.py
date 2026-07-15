@@ -1412,6 +1412,14 @@ class LivingSystem:
             return []
         return [dict(item) for item in receipts[:limit] if isinstance(item, dict)]
 
+    def external_product_audit_receipts(
+        self, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("external_product_audit_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return [dict(item) for item in receipts[:limit] if isinstance(item, dict)]
+
     def packaging_layout_receipts(self, limit: int = 20) -> list[dict[str, Any]]:
         receipts = self.db.get_runtime("packaging_layout_receipts", [])
         if not isinstance(receipts, list):
@@ -3651,6 +3659,150 @@ class LivingSystem:
             if path.is_file():
                 return path
         return None
+
+    def record_external_product_audit(
+        self,
+        *,
+        reason: str,
+        wheel_path: str | Path | None = None,
+        exclude_multi_user: bool = True,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("external product audit reason is required")
+        health = self.health_snapshot()
+        commercial = health.get("commercial_readiness")
+        upgrade = health.get("upgrade_drill")
+        retention = health.get("retention_audit")
+        performance = health.get("performance_budget")
+
+        docs = {
+            "commercial_readiness_gates": self._find_doc(
+                "COMMERCIAL_READINESS_GATES.md"
+            ),
+            "external_delivery_runbook": self._find_doc(
+                "EXTERNAL_SINGLE_USER_DELIVERY.md"
+            ),
+            "support_runbook": self._find_doc("SUPPORT_AND_DIAGNOSTICS.md"),
+            "security_boundary": self._find_doc("SECURITY_BOUNDARY.md"),
+            "recovery_runbook": self._find_doc("RECOVERY_RUNBOOK.md"),
+        }
+        wheel = self._resolve_external_product_wheel(wheel_path)
+
+        def status_is(item: Any, allowed: set[str]) -> bool:
+            return isinstance(item, dict) and str(item.get("status")) in allowed
+
+        gates = {
+            "rc_passed": status_is(commercial, {"RC_PASSED"}),
+            "health_ok": health.get("status") == "OK",
+            "wheel_present": wheel is not None,
+            "performance_budget_passed": status_is(
+                performance, {"PERFORMANCE_BUDGET_PASSED", "PASSED"}
+            ),
+            "retention_audit_passed": status_is(
+                retention, {"RETENTION_AUDIT_PASSED", "PASSED"}
+            ),
+            "rollback_drill_passed": status_is(
+                upgrade, {"UPGRADE_DRILL_PASSED", "PASSED"}
+            ),
+            "disposable_clone_rollback_verified": (
+                isinstance(upgrade, dict)
+                and upgrade.get("disposable_clone_executed") is True
+                and (
+                    upgrade.get("disposable_clone_rollback", {}).get("passed")
+                    is True
+                )
+            ),
+            "docs_complete": all(path is not None for path in docs.values()),
+            "support_diagnostics_documented": docs["support_runbook"] is not None,
+            "security_boundary_documented": docs["security_boundary"] is not None,
+            "recovery_documented": docs["recovery_runbook"] is not None,
+            "multi_user_scope_excluded": bool(exclude_multi_user),
+        }
+        missing = [key for key, passed in gates.items() if not passed]
+        receipt = {
+            "receipt_type": "EXTERNAL_SINGLE_USER_PRODUCT_AUDIT",
+            "audit_id": new_id("external_product_audit"),
+            "status": "EXTERNAL_SINGLE_USER_READY" if not missing else "EXTERNAL_SINGLE_USER_BLOCKED",
+            "reason": reason,
+            "scope": {
+                "external_user_delivery": True,
+                "single_user_only": True,
+                "multi_user_or_regional_tenant_module": "EXCLUDED_BY_OWNER",
+            },
+            "gates": gates,
+            "missing": missing,
+            "evidence": {
+                "health_status": health.get("status"),
+                "commercial_readiness_id": commercial.get("audit_id")
+                if isinstance(commercial, dict)
+                else None,
+                "performance_budget_id": performance.get("audit_id")
+                if isinstance(performance, dict)
+                else None,
+                "retention_audit_id": retention.get("audit_id")
+                if isinstance(retention, dict)
+                else None,
+                "upgrade_drill_id": upgrade.get("drill_id")
+                if isinstance(upgrade, dict)
+                else None,
+                "wheel": self._wheel_evidence(wheel),
+                "docs": {key: str(path) if path else None for key, path in docs.items()},
+            },
+            "live_install_modified": False,
+            "cleanup_executed": False,
+            "claim_ceiling": (
+                "external single-user delivery audit only; multi-user, regional "
+                "tenanting, managed support operations, and third-party compliance "
+                "certification remain explicitly out of scope"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.external_product_audit_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime(
+                "external_product_audit_receipts", updated, connection
+            )
+            self.db.set_runtime("external_product_audit_last", receipt, connection)
+            self.ledger.append("external_product_audit_recorded", receipt, connection)
+        return receipt
+
+    def _find_doc(self, name: str) -> Path | None:
+        candidates = [
+            Path.cwd() / "docs" / name,
+            self.config.home_path / "docs" / name,
+            self.config.home_path / name,
+        ]
+        module_path = Path(__file__).resolve()
+        candidates.extend(parent / "docs" / name for parent in module_path.parents)
+        for path in candidates:
+            if path.is_file():
+                return path
+        return None
+
+    def _resolve_external_product_wheel(
+        self, wheel_path: str | Path | None
+    ) -> Path | None:
+        candidates: list[Path] = []
+        if wheel_path is not None and str(wheel_path).strip():
+            candidates.append(Path(wheel_path).expanduser())
+        module_path = Path(__file__).resolve()
+        for parent in [Path.cwd(), *module_path.parents]:
+            candidates.extend(parent.glob("dist/workstation_living_system-*.whl"))
+        existing = [path.resolve() for path in candidates if path.is_file()]
+        if not existing:
+            return None
+        return max(existing, key=lambda path: path.stat().st_mtime)
+
+    def _wheel_evidence(self, wheel: Path | None) -> dict[str, Any] | None:
+        if wheel is None:
+            return None
+        return {
+            "path": str(wheel),
+            "bytes": wheel.stat().st_size,
+            "sha256": self._file_sha256(wheel),
+        }
 
     def record_transfer_efficiency_audit(
         self,
