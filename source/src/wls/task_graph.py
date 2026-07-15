@@ -54,6 +54,10 @@ _ALLOWED: dict[TaskNodeStatus, set[TaskNodeStatus]] = {
     TaskNodeStatus.CANCELLED: set(),
 }
 
+assert set(TaskNodeStatus) == set(_ALLOWED), (
+    f"TaskNodeStatus enum mismatch: {set(TaskNodeStatus) - set(_ALLOWED)} not in transition table"
+)
+
 
 @dataclass(slots=True)
 class TaskNode:

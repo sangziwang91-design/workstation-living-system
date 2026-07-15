@@ -426,7 +426,7 @@ class MemoryStore:
     def retrieve(
         self, query: str, limit: int = 8, memory_types: list[str] | None = None
     ) -> list[dict[str, Any]]:
-        tokens = self._tokens(query)
+        query_tokens = self._tokens(query)
         rows = self.db.query_all("SELECT * FROM memories WHERE active=1")
         if memory_types:
             allowed_types = set(memory_types)
@@ -434,13 +434,13 @@ class MemoryStore:
         scored: list[tuple[float, sqlite3.Row]] = []
         for row in rows:
             text_tokens = self._tokens(row["normalized_text"])
-            overlap = len(tokens & text_tokens) / max(1, len(tokens | text_tokens))
+            overlap = len(query_tokens & text_tokens) / max(1, len(query_tokens | text_tokens))
             score = (
                 0.55 * overlap
                 + 0.3 * float(row["importance"])
                 + 0.15 * float(row["confidence"])
             )
-            if score > 0.05 or not tokens:
+            if score > 0.05 or not query_tokens:
                 scored.append((score, row))
         scored.sort(key=lambda item: (item[0], item[1]["created_at"]), reverse=True)
         selected = scored[:limit]

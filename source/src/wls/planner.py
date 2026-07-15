@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 import json
@@ -203,10 +203,13 @@ class OpenAICompatibleProvider(PlanningProvider):
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
         )
         opener = build_opener(NoRedirect)
-        with opener.open(request, timeout=self.timeout) as response:
-            raw = json.loads(response.read().decode("utf-8"))
-        content = raw["choices"][0]["message"]["content"]
-        return json.loads(content)
+        try:
+            with opener.open(request, timeout=self.timeout) as response:
+                raw = json.loads(response.read().decode("utf-8"))
+            content = raw["choices"][0]["message"]["content"]
+            return json.loads(content)
+        except (URLError, OSError, ValueError, KeyError, IndexError, json.JSONDecodeError) as exc:
+            raise RuntimeError(f"OpenAI-compatible provider failed: {exc}") from exc
 
 
 class FallbackProvider(PlanningProvider):
@@ -240,7 +243,10 @@ class FallbackProvider(PlanningProvider):
                     "error": str(exc)[:1000],
                 },
             )
-            return self.fallback.create_plan(context)
+            result = self.fallback.create_plan(context)
+            if not isinstance(result, dict):
+                raise ValueError(f"fallback provider returned non-dict: {type(result).__name__}")
+            return result
 
 
 class Planner:
@@ -250,7 +256,8 @@ class Planner:
         cognition: CognitiveEngine | None = None,
         ledger: EvidenceLedger | None = None,
     ):
-        provider_type = str(config.provider.get("type", "cognitive"))
+        provider = config.provider or {}
+        provider_type = str(provider.get("type", "cognitive"))
         self.provider_type = provider_type
         self.provider_router = ProviderRouter.from_config(config)
         route_request = RouteRequest(
@@ -298,6 +305,16 @@ class Planner:
     def route_summary(self) -> dict[str, Any]:
         return self.provider_route.to_dict()
 
+    @staticmethod
+    def _safe_risk(raw: Any) -> RiskLevel:
+        try:
+            s = str(raw)
+            if s in RiskLevel.__members__:
+                return RiskLevel(s)
+        except Exception:
+            pass
+        return RiskLevel.READ
+
     def plan(self, context: dict[str, Any]) -> Plan:
         raw = self.provider.create_plan(context)
         if not isinstance(raw, dict):
@@ -330,7 +347,7 @@ class Planner:
                     arguments=dict(item.get("arguments", {})),
                     purpose=str(item["purpose"]),
                     expected_result=str(item["expected_result"]),
-                    risk=RiskLevel(str(item.get("risk", "READ"))),
+                    risk=self._safe_risk(item.get("risk", "READ")),
                     goal_id=item.get("goal_id"),
                     skill_id=item.get("skill_id"),
                     acceptance=[str(value) for value in item.get("acceptance", [])],

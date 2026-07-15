@@ -1952,7 +1952,11 @@ class AgenticHarness:
             metrics = result.get("metrics")
             if not isinstance(metrics, dict):
                 raise ValueError("metric_range requires result.metrics")
-            name = str(config["name"])
+            name = str(config.get("name", ""))
+            if not name:
+                raise ValueError("metric_range requires config.name")
+            if name not in metrics:
+                raise ValueError(f"metric_range: metric {name} not in result.metrics")
             value = float(metrics[name])
             lower = float(config.get("min", float("-inf")))
             upper = float(config.get("max", float("inf")))

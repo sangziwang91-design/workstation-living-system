@@ -487,15 +487,17 @@ class Database:
         column: str,
         declaration: str,
     ) -> None:
-        if table != "goals" or GOAL_METADATA_COLUMNS.get(column) != declaration:
-            raise ValueError("unsupported schema column migration")
+        if table != "goals":
+            raise ValueError("unsupported schema table migration: only goals allowed")
+        if column not in GOAL_METADATA_COLUMNS or GOAL_METADATA_COLUMNS[column] != declaration:
+            raise ValueError(f"unsupported column migration: {column}")
         existing = {
             str(row["name"])
             for row in connection.execute("PRAGMA table_info(goals)")
         }
         if column not in existing:
             connection.execute(
-                f"ALTER TABLE {table} ADD COLUMN {column} {declaration}"  # nosec B608
+                f"ALTER TABLE goals ADD COLUMN {column} {declaration}"  # nosec B608
             )
 
     def execute(self, sql: str, parameters: Sequence[Any] = ()) -> int:

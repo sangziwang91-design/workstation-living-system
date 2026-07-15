@@ -2169,16 +2169,18 @@ class LivingSystem:
         before_health = self.health_snapshot()
         backup_started = time.monotonic()
         source = self.db.connect()
-        destination = sqlite3.connect(backup_db)
+        destination = sqlite3.connect(str(backup_db))
         try:
+            destination.execute("PRAGMA journal_mode=WAL")
             source.backup(destination)
         finally:
             destination.close()
-            source.close()
+            self.db._untrack_and_close(source)
         backup_seconds = round(time.monotonic() - backup_started, 4)
         shutil.copy2(backup_db, restore_check_db)
-        restore_connection = sqlite3.connect(restore_check_db)
+        restore_connection = sqlite3.connect(str(restore_check_db))
         try:
+            restore_connection.execute("PRAGMA journal_mode=WAL")
             integrity = str(
                 restore_connection.execute("PRAGMA integrity_check").fetchone()[0]
             )

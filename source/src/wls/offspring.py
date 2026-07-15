@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 import hashlib
 import json
+import os
 
 from .config import RuntimeConfig
 from .db import Database
@@ -970,10 +971,10 @@ class OffspringRegistry:
 
     @staticmethod
     def _write_json(path: Path, payload: dict[str, Any]) -> None:
-        path.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
+        encoded = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(encoded, encoding="utf-8")
+        os.replace(tmp, path)
 
     @staticmethod
     def _read_json(path: Path) -> dict[str, Any]:
@@ -1008,19 +1009,19 @@ class OffspringRegistry:
             raise ValueError("termination_conditions are required")
 
     def _find_birth_receipt(self, offspring_id: str) -> dict[str, Any] | None:
-        for receipt in self.latest_receipts(limit=100):
+        for receipt in self.latest_receipts(limit=500):
             if receipt.get("offspring_id") == offspring_id:
                 return receipt
         return None
 
     def _find_state_receipt(self, offspring_id: str) -> dict[str, Any] | None:
-        for receipt in self.state_receipts(limit=100):
+        for receipt in self.state_receipts(limit=500):
             if receipt.get("offspring_id") == offspring_id:
                 return receipt
         return None
 
     def _find_retirement_receipt(self, offspring_id: str) -> dict[str, Any] | None:
-        for receipt in self.retirement_receipts(limit=100):
+        for receipt in self.retirement_receipts(limit=500):
             if receipt.get("offspring_id") == offspring_id:
                 return receipt
         return None

@@ -874,6 +874,10 @@ def run_performance_audit(args) -> dict[str, Any]:
         )
     finally:
         if runtime is not None:
+            try:
+                runtime.lease.release()
+            except Exception:
+                pass
             runtime.db.close_all()
 
 
