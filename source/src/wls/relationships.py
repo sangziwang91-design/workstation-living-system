@@ -6,6 +6,7 @@ import json
 from .db import Database
 from .evidence import EvidenceLedger
 from .schemas import new_id, utc_now
+from .text import tokens
 
 
 class RelationshipMemory:
@@ -88,4 +89,38 @@ class RelationshipMemory:
                 "updated_at": row["updated_at"],
             }
             for row in rows
+        ]
+
+    def query(self, text: str, limit: int = 20) -> list[dict[str, Any]]:
+        query_tokens = tokens(text)
+        rows = self.db.query_all("SELECT * FROM relationships WHERE active=1")
+        scored: list[tuple[float, Any]] = []
+        for row in rows:
+            haystack = (
+                f"{row['subject']} {row['relation_type']} "
+                f"{row['value_json']} {row['source_ids_json']}"
+            ).lower()
+            overlap = len(query_tokens & tokens(haystack)) / max(1, len(query_tokens))
+            stability_bonus = {"stable": 0.25, "working": 0.15, "transient": 0.05}.get(
+                str(row["stability"]),
+                0.0,
+            )
+            score = overlap + stability_bonus + 0.2 * float(row["confidence"])
+            if score > 0.05:
+                scored.append((score, row))
+        scored.sort(key=lambda item: (item[0], item[1]["updated_at"]), reverse=True)
+        return [
+            {
+                "kind": "relationship",
+                "relation_id": row["relation_id"],
+                "subject": row["subject"],
+                "relation_type": row["relation_type"],
+                "value": json.loads(row["value_json"]),
+                "stability": row["stability"],
+                "confidence": float(row["confidence"]),
+                "source_ids": json.loads(row["source_ids_json"]),
+                "updated_at": row["updated_at"],
+                "score": score,
+            }
+            for score, row in scored[: max(1, int(limit))]
         ]

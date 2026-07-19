@@ -86,6 +86,7 @@ class MergeNode:
             )
 
         first = artifacts[0]
+        merged: str | dict[str, Any]
         if first.content_type == "text":
             merged = self._merge_text(artifacts)
         elif first.content_type in ("json", "dict"):

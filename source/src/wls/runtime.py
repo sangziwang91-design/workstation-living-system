@@ -5,18 +5,23 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
+import difflib
 import hashlib
 import importlib
 import json
 import mimetypes
 import os
+import re
 import signal
 import shutil
 import sqlite3
+import subprocess
+import sys
 import tempfile
 import time
 
 from ._version import __version__
+from .action_candidate import BoundedActionCandidateBuilder
 from .approval import ApprovalManager
 from .agentic_harness import AgenticHarness
 from .autonomy import AutonomySystem
@@ -30,19 +35,24 @@ from .drives import DriveSystem
 from .evaluator import Evaluator
 from .evidence import EvidenceLedger
 from .garbage_audit import GarbageAuditor
+from .goal_pressure import GoalPressureRanker
 from .growth_cycle import GrowthCycleManager
 from .learning import LearningSystem
 from .memory_attribution import MemoryAttributionStore
+from .memory_influence import MemoryInfluenceAnalyzer
 from .lease import ProcessLease
 from .longitudinal import LongitudinalEvaluator, LongitudinalProtocol, MeasurementPoint
 from .offspring import OffspringRegistry
+from .outcome_learning import OwnerOutcomeLearner
 from .performance import PerformanceMeasurement, evaluate_performance_budget
+from .perception import PerceptionClassifier
 from .planner import Planner
 from .policy import PolicyEngine
 from .relationships import RelationshipMemory
 from .a2a_adapter import A2AAdapter, ArtifactEnvelope, TaskContract
 from .mcp_adapter import McpCandidate, McpTrustGate
 from .read_only_organs import ReadOnlyTaskReceipt, ReadOnlyTaskRequest
+from .repo_explorer import RepoExplorer
 from .schemas import (
     ActionSpec,
     ActionStatus,
@@ -54,6 +64,7 @@ from .schemas import (
     Observation,
     Plan,
     RiskLevel,
+    SkillDefinition,
     VerificationStatus,
     WorkspaceItem,
     digest_json,
@@ -77,6 +88,8 @@ class LivingSystem:
     """Persistent observe-model-attend-plan-act-learn-consolidate runtime."""
 
     MAX_PERSISTED_WORKSPACE_PAYLOAD_CHARS = 1200
+    MAX_LIFE_STATE_ITEMS = 5
+    MAX_LIFE_STATE_TEXT_CHARS = 400
 
     def __init__(self, config: RuntimeConfig):
         config.validate()
@@ -91,10 +104,13 @@ class LivingSystem:
         self.temporal_world = TemporalCausalWorld(self.db, self.ledger)
         self.drives = DriveSystem(self.db, self.ledger)
         self.policy = PolicyEngine(config)
+        self._restore_patch_mission_read_roots()
+        self._restore_patch_mission_write_roots()
         self.approvals = ApprovalManager(
             self.db, self.ledger, config.secret_path.with_name("approval.key")
         )
         self.tools = ToolRegistry(self.policy)
+        self.repo_explorer = RepoExplorer()
         self.evaluator = Evaluator()
         self.self_model = SelfModel(self.db, self.ledger)
         self.relationships = RelationshipMemory(self.db, self.ledger)
@@ -119,6 +135,11 @@ class LivingSystem:
         self.memory_attribution = MemoryAttributionStore(
             self.db, self.ledger, self.memories.causal
         )
+        self.memory_influence = MemoryInfluenceAnalyzer()
+        self.action_candidates = BoundedActionCandidateBuilder()
+        self.outcome_learning = OwnerOutcomeLearner()
+        self.perception = PerceptionClassifier()
+        self.goal_pressure = GoalPressureRanker()
         self.planner = Planner(config, self.cognition, self.ledger)
         self.growth = GrowthCycleManager(self)
         self.agentic = AgenticHarness(self.db, self.ledger)
@@ -243,6 +264,7709 @@ class LivingSystem:
 
     def add_goal(self, goal: Goal) -> str:
         return self.goals.add(goal)
+
+    def start_patch_mission(
+        self,
+        *,
+        repo_path: str | Path,
+        mission: str,
+        execute_first_action: bool = True,
+    ) -> dict[str, Any]:
+        """Start a local GitHub-style patch mission with one real read-only action."""
+
+        mission_text = str(mission).strip()
+        if not mission_text:
+            raise ValueError("patch mission text is required")
+        repo_root = Path(repo_path).expanduser().resolve(strict=True)
+        if not repo_root.is_dir():
+            raise ValueError(f"repo path is not a directory: {repo_root}")
+        self._allow_explicit_patch_mission_read_root(repo_root)
+        repo_map = self.repo_explorer.explore(repo_root)
+        mission_id = new_id("patch_mission")
+        goal_id = self.add_goal(
+            Goal(
+                title=f"Patch mission: {mission_text[:120]}",
+                description=(
+                    f"Local repo: {repo_root}\n"
+                    "Mission chain: inspect repo -> identify smallest patch -> "
+                    "draft change -> run tests -> wait for owner approval before external write."
+                ),
+                priority=0.85,
+                success_criteria=[
+                    "repository instructions inspected",
+                    "one bounded next action produced",
+                    "writes remain owner-approved",
+                ],
+                source="patch-mission",
+                autonomous=False,
+                task_spec={
+                    "mission_id": mission_id,
+                    "repo_path": str(repo_root),
+                    "mission": mission_text,
+                    "representative_task_chain": "github_patch_mission",
+                },
+                risk=RiskLevel.READ,
+            )
+        )
+        event = Event(
+            event_type="patch_mission.started",
+            source="patch-mission",
+            payload={
+                "mission_id": mission_id,
+                "repo_path": str(repo_root),
+                "mission": mission_text,
+                "goal_id": goal_id,
+                "repo_map_id": repo_map.map_id,
+            },
+            salience_hint=0.9,
+            dedupe_key=f"patch_mission:{mission_id}",
+        )
+        event_id, inserted = self.events.add_event(event)
+        action = self._patch_mission_first_action(
+            repo_root=repo_root,
+            repo_map=repo_map,
+            mission_text=mission_text,
+            goal_id=goal_id,
+        )
+        plan = Plan(
+            rationale=(
+                "Patch Mission first step: inspect local repository context with "
+                "a bounded read-only action before any code write."
+            ),
+            actions=[action],
+            unknowns=[
+                "exact bug/fix target not selected yet",
+                "write actions require owner approval",
+                "external PR/push is out of scope for this first link",
+            ],
+        )
+        cycle_id = new_id("cycle")
+        self.db.execute(
+            "INSERT INTO cycles(cycle_id,started_at,status) VALUES (?,?,?)",
+            (cycle_id, utc_now(), "RUNNING"),
+        )
+        daily_perception = self._life_state_daily_perception(self.MAX_LIFE_STATE_ITEMS)
+        goal_pressure = self._goal_pressure_summary(
+            goals=self.goals.active(limit=20),
+            daily_perception=daily_perception,
+        )
+        action_candidate = self._record_action_candidate(
+            cycle_id=cycle_id,
+            plan=plan,
+            goal_pressure=goal_pressure,
+            daily_perception=daily_perception,
+            memory_influence=None,
+        )
+        action_candidate = self._patch_mission_with_skill_action_candidate_metadata(
+            action_candidate, action
+        )
+        self.db.set_runtime("last_action_candidate", action_candidate)
+        if action_candidate.get("suppressed"):
+            plan.actions = []
+        outcomes: list[dict[str, Any]] = []
+        self._persist_plan_and_ack_events(cycle_id, plan, [])
+        if execute_first_action and plan.actions:
+            outcomes = self._execute_plan(plan)
+        else:
+            self._refresh_plan_status(plan.plan_id)
+        plan_status = self._plan_status(plan.plan_id)
+        mission_record = {
+            "mission_id": mission_id,
+            "status": "STARTED",
+            "repo_path": str(repo_root),
+            "mission": mission_text,
+            "goal_id": goal_id,
+            "event_id": event_id,
+            "event_inserted": inserted,
+            "cycle_id": cycle_id,
+            "plan_id": plan.plan_id,
+            "action_id": action.action_id,
+            "repo_map": {
+                "map_id": repo_map.map_id,
+                "root": repo_map.root,
+                "file_count": len(repo_map.files),
+                "instruction_files": repo_map.instruction_files[:10],
+                "test_hints": self._patch_mission_test_hints(repo_map),
+            },
+            "next_action_candidate": action_candidate,
+            "outcomes": outcomes,
+            "plan_status": plan_status,
+            "authority": {
+                "read_only_repo_scope": str(repo_root),
+                "writes_canonical_repo": False,
+                "push_or_pr_created": False,
+                "owner_approval_required_for_write": True,
+            },
+            "created_at": utc_now(),
+        }
+        self._record_patch_mission_state(mission_record)
+        self.db.execute(
+            "UPDATE cycles SET finished_at=?,status=?,workspace_json=?,metrics_json=? WHERE cycle_id=?",
+            (
+                utc_now(),
+                "SUCCEEDED",
+                json.dumps([], ensure_ascii=False),
+                json.dumps(
+                    {
+                        "patch_mission": mission_record,
+                        "actions": len(plan.actions),
+                        "outcomes": outcomes,
+                        "plan_status": plan_status,
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+                cycle_id,
+            ),
+        )
+        return mission_record
+
+    def patch_missions(self, limit: int = 20) -> list[dict[str, Any]]:
+        records = self.db.get_runtime("patch_missions", [])
+        if not isinstance(records, list):
+            return []
+        return [
+            self._patch_mission_with_continuity(dict(item))
+            for item in records[: max(0, int(limit))]
+            if isinstance(item, dict)
+        ]
+
+    def _patch_mission_with_continuity(
+        self, mission_record: dict[str, Any]
+    ) -> dict[str, Any]:
+        return {
+            **mission_record,
+            "continuity": self._patch_mission_continuity(mission_record),
+        }
+
+    def _patch_mission_continuity(
+        self, mission_record: dict[str, Any]
+    ) -> dict[str, Any]:
+        followups = mission_record.get("followups", [])
+        if not isinstance(followups, list):
+            followups = []
+        waiting = self._patch_mission_first_followup_with_status(
+            followups, {"WAITING_APPROVAL", "APPROVED"}
+        )
+        if waiting:
+            row = waiting["row"]
+            confidence_decision = self._patch_mission_step_confidence_decision(
+                waiting["step"]
+            )
+            summary = f"Waiting for owner action on `{waiting['mode']}`."
+            next_step = f"Approve or reject action `{waiting['action_id']}`."
+            if (
+                isinstance(confidence_decision, dict)
+                and confidence_decision.get("decision")
+                == "outcome_supported_direct_test"
+                and confidence_decision.get("level") == "recovered_outcome_supported"
+            ):
+                summary = (
+                    "Recovered promoted confidence restored a direct narrow pytest "
+                    "action, now waiting for owner approval."
+                )
+                next_step = (
+                    f"Approve or reject recovered direct pytest action `{waiting['action_id']}`."
+                )
+            return {
+                "state": "waiting_approval",
+                "summary": summary,
+                "next_step": next_step,
+                "blocking_action_id": waiting["action_id"],
+                "blocking_mode": waiting["mode"],
+                "tool": row.get("tool"),
+                "risk": row.get("risk"),
+                "reason": row.get("error") or "",
+                "confidence_decision": confidence_decision,
+            }
+        mode_states = {
+            "pr-update-next": (
+                "pr_update_decided",
+                "Follow the generated wait/review note or next CI fix plan.",
+            ),
+            "pr-update-verify": (
+                "pr_update_verified",
+                "Run `patch-mission-step --mode pr-update-next --action-id <verify_action>`.",
+            ),
+            "pr-update-status": (
+                "pr_update_status_checked",
+                "Run `patch-mission-step --mode pr-update-verify --action-id <post_update_status_action>`.",
+            ),
+            "pr-update-push-draft": (
+                "pr_branch_updated",
+                "Run `patch-mission-step --mode pr-update-status --action-id <push_action>`.",
+            ),
+            "ci-next-action": (
+                "local_repair_action_created",
+                "Approve/run the local action, then continue from its result.",
+            ),
+            "ci-fix-plan": (
+                "local_repair_planned",
+                "Run `patch-mission-step --mode ci-next-action --action-id <ci_fix_plan_action>`.",
+            ),
+            "ci-log-evidence": (
+                "ci_logs_captured",
+                "Run `patch-mission-step --mode ci-fix-plan --action-id <ci_log_evidence_action>`.",
+            ),
+            "pr-status": (
+                "pr_status_checked",
+                "Run `patch-mission-step --mode ci-log-evidence --action-id <pr_status_action>` if failures remain.",
+            ),
+            "pr-create-draft": (
+                "draft_pr_created_or_prepared",
+                "Run `patch-mission-step --mode pr-status --action-id <pr_create_action>` after PR creation succeeds.",
+            ),
+            "push-draft": (
+                "branch_pushed_or_prepared",
+                "Create or inspect the PR after the push succeeds.",
+            ),
+            "remote-live-summary": (
+                "live_remote_summary_ready",
+                "Run `patch-mission-step --mode push-draft --action-id <remote_live_summary_action>`.",
+            ),
+            "remote-live": (
+                "live_remote_checked",
+                "Run `patch-mission-step --mode remote-live-summary --action-id <remote_live_action>`.",
+            ),
+            "branch-draft": (
+                "local_branch_prepared",
+                "Run `patch-mission-step --mode remote-live` before pushing.",
+            ),
+            "remote-summary": (
+                "remote_summary_ready",
+                "Run `patch-mission-step --mode branch-draft --action-id <remote_summary_action>`.",
+            ),
+            "commit-draft": (
+                "local_commit_prepared",
+                "Run `patch-mission-step --mode git-metadata` to refresh remote/branch context.",
+            ),
+            "git-prep": (
+                "commit_checklist_ready",
+                "Run `patch-mission-step --mode commit-draft --action-id <git_prep_action>`.",
+            ),
+            "git-metadata": (
+                "git_metadata_checked",
+                "Continue with `git-prep` before commit or `remote-summary` after commit.",
+            ),
+            "pr-summary": (
+                "local_fix_verified",
+                "Prepare commit/push or owner review from the verified PR summary.",
+            ),
+            "apply-patch": (
+                "patch_applied",
+                "Run `patch-mission-step --mode test` to verify the applied change.",
+            ),
+            "from-test-result": (
+                "patch_draft_ready",
+                "Approve/apply the patch draft or inspect it manually.",
+            ),
+            "test": (
+                "local_test_result_available",
+                "Continue from the approved local test result.",
+            ),
+        }
+        for item in followups:
+            if not isinstance(item, dict) or not item.get("action_id"):
+                continue
+            mode = str(item.get("mode", "")).lower()
+            state_next = mode_states.get(mode)
+            if not state_next:
+                continue
+            row = self._patch_mission_action_row(str(item["action_id"]))
+            if row and str(row.get("status")) == ActionStatus.SUCCEEDED.value:
+                state, next_step = state_next
+                return self._patch_mission_continuity_for_succeeded_step(
+                    mission_record=mission_record,
+                    step={**item, "_action_row": row},
+                    state=state,
+                    next_step=next_step,
+                )
+        return {
+            "state": "started",
+            "summary": "Patch Mission is started and awaiting the first follow-up action.",
+            "next_step": "Run `patch-mission-step` to inspect, test, or continue the mission.",
+            "latest_mode": None,
+            "latest_action_id": mission_record.get("action_id"),
+        }
+
+    def continue_patch_mission(
+        self,
+        *,
+        mission_id: str | None = None,
+        mode: str = "auto",
+        target: str | None = None,
+        draft: str | None = None,
+        action_id: str | None = None,
+        execute: bool = True,
+    ) -> dict[str, Any]:
+        """Advance a patch mission by one bounded action under canonical policy."""
+
+        mission_record = self._patch_mission_record(mission_id)
+        repo_root = Path(str(mission_record["repo_path"])).expanduser().resolve(
+            strict=True
+        )
+        self._allow_explicit_patch_mission_read_root(repo_root)
+        repo_map = self.repo_explorer.explore(repo_root)
+        requested_mode = str(mode or "auto").strip().lower()
+        resume_next: dict[str, Any] | None = None
+        if requested_mode == "resume-next":
+            if target or draft or action_id:
+                raise ValueError(
+                    "resume-next consumes mission continuity and does not accept --target, --draft, or --action-id"
+                )
+            resume_next = self._patch_mission_resume_next_instruction(mission_record)
+            mode = str(resume_next["mode"])
+            target = resume_next.get("target")
+            action_id = resume_next.get("action_id")
+        action = self._patch_mission_followup_action(
+            mission_record=mission_record,
+            repo_root=repo_root,
+            repo_map=repo_map,
+            mode=mode,
+            target=target,
+            draft=draft,
+            action_id=action_id,
+        )
+        cycle_id = new_id("cycle")
+        plan = Plan(
+            rationale=(
+                "Patch Mission follow-up step: advance the local repo task by one "
+                "bounded action while preserving write and external approval gates."
+            ),
+            actions=[action],
+            unknowns=[
+                "patch mission is still local-only",
+                "repo writes, commits, pushes, and PR creation require owner approval",
+            ],
+        )
+        self.db.execute(
+            "INSERT INTO cycles(cycle_id,started_at,status) VALUES (?,?,?)",
+            (cycle_id, utc_now(), "RUNNING"),
+        )
+        daily_perception = self._life_state_daily_perception(self.MAX_LIFE_STATE_ITEMS)
+        goal_pressure = self._goal_pressure_summary(
+            goals=self.goals.active(limit=20),
+            daily_perception=daily_perception,
+        )
+        action_candidate = self._record_action_candidate(
+            cycle_id=cycle_id,
+            plan=plan,
+            goal_pressure=goal_pressure,
+            daily_perception=daily_perception,
+            memory_influence=None,
+        )
+        action_candidate = self._patch_mission_with_skill_action_candidate_metadata(
+            action_candidate, action
+        )
+        self.db.set_runtime("last_action_candidate", action_candidate)
+        if action_candidate.get("suppressed"):
+            plan.actions = []
+        outcomes: list[dict[str, Any]] = []
+        self._persist_plan_and_ack_events(cycle_id, plan, [])
+        if execute and plan.actions:
+            outcomes = self._execute_plan(plan)
+        else:
+            self._refresh_plan_status(plan.plan_id)
+        plan_status = self._plan_status(plan.plan_id)
+        step = {
+            "step_id": new_id("patch_step"),
+            "mission_id": mission_record["mission_id"],
+            "mode": mode,
+            "target": target,
+            "source_action_id": action_id,
+            "cycle_id": cycle_id,
+            "plan_id": plan.plan_id,
+            "action_id": action.action_id,
+            "action": action.to_dict(),
+            "next_action_candidate": action_candidate,
+            "outcomes": outcomes,
+            "plan_status": plan_status,
+            "authority": {
+                "writes_canonical_repo": self.policy._contained(
+                    Path(str(action.arguments.get("path", ""))).expanduser().resolve(
+                        strict=False
+                    ),
+                    repo_root,
+                )
+                if action.tool == "write_file"
+                else False,
+                "draft_patch_target": "wls_outbox_only"
+                if action.tool == "write_file"
+                and self.policy._contained(
+                    Path(str(action.arguments.get("path", ""))).expanduser().resolve(
+                        strict=False
+                    ),
+                    self.config.outbox_path,
+                )
+                else None,
+                "test_command_requires_policy": action.tool == "run_command"
+                and (
+                    str(mode).lower() == "test"
+                    or list(action.arguments.get("command") or [])[:3]
+                    == ["python", "-m", "pytest"]
+                ),
+                "owner_approval_required_for_write_or_external": action.risk
+                != RiskLevel.READ
+                or action.tool == "run_command",
+                "push_or_pr_created": False,
+            },
+            "created_at": utc_now(),
+        }
+        confidence_decision = self._patch_mission_action_confidence_decision(
+            action_candidate=action_candidate,
+            action=action,
+            repo_root=repo_root,
+        )
+        if confidence_decision is not None:
+            step["confidence_decision"] = confidence_decision
+        if resume_next is not None:
+            step["requested_mode"] = requested_mode
+            step["resume_next"] = resume_next
+        updated = self._update_patch_mission_record(mission_record["mission_id"], step)
+        self.db.execute(
+            "UPDATE cycles SET finished_at=?,status=?,workspace_json=?,metrics_json=? WHERE cycle_id=?",
+            (
+                utc_now(),
+                "SUCCEEDED",
+                json.dumps([], ensure_ascii=False),
+                json.dumps(
+                    {
+                        "patch_mission_step": step,
+                        "actions": len(plan.actions),
+                        "outcomes": outcomes,
+                        "plan_status": plan_status,
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+                cycle_id,
+            ),
+        )
+        return {**step, "mission": updated}
+
+    def _patch_mission_resume_next_instruction(
+        self, mission_record: dict[str, Any]
+    ) -> dict[str, Any]:
+        continuity = self._patch_mission_continuity(mission_record)
+        state = str(continuity.get("state") or "")
+        if state == "waiting_approval":
+            raise ValueError(
+                "patch mission is waiting for owner approval on "
+                f"{continuity.get('blocking_mode')} action {continuity.get('blocking_action_id')}"
+            )
+        latest_mode = str(continuity.get("latest_mode") or "")
+        latest_action_id = str(continuity.get("latest_action_id") or "")
+
+        def instruction(mode: str, action_id: str | None = None) -> dict[str, Any]:
+            return {
+                "mode": mode,
+                "action_id": action_id,
+                "target": None,
+                "from_state": state,
+                "from_mode": latest_mode or None,
+                "from_action_id": latest_action_id or None,
+                "reason": continuity.get("summary") or continuity.get("next_step") or "",
+            }
+
+        if not latest_mode:
+            return instruction("auto", None)
+        if latest_mode == "pr-update-next":
+            text = self._patch_mission_optional_write_content(latest_action_id)
+            if "# Patch Mission CI Fix Plan" in text:
+                return instruction("ci-next-action", latest_action_id)
+            raise ValueError(
+                "patch mission is ready for owner review; no automatic next action is available"
+            )
+        if latest_mode == "pr-update-verify":
+            return instruction("pr-update-next", latest_action_id)
+        if latest_mode == "pr-update-status":
+            return instruction("pr-update-verify", latest_action_id)
+        if latest_mode == "pr-update-push-draft":
+            return instruction("pr-update-status", latest_action_id)
+        if latest_mode == "ci-fix-plan":
+            return instruction("ci-next-action", latest_action_id)
+        if latest_mode == "ci-log-evidence":
+            return instruction("ci-fix-plan", latest_action_id)
+        if latest_mode == "ci-next-action":
+            confidence_decision = continuity.get("confidence_decision")
+            if (
+                isinstance(confidence_decision, dict)
+                and confidence_decision.get("decision")
+                == "safety_fallback_inspect_file"
+            ):
+                target_decision = self._patch_mission_fallback_verification_target(
+                    confidence_decision=confidence_decision,
+                    inspect_action_id=latest_action_id,
+                )
+                item = instruction("test", None)
+                item["target"] = target_decision["target"]
+                item["confidence_decision"] = confidence_decision
+                item["target_decision"] = target_decision
+                item["reason"] = (
+                    "Read-only confidence fallback inspection completed; continue "
+                    f"with owner-gated local verification target `{target_decision['target']}` "
+                    f"before drafting another repair. {target_decision['reason']}"
+                )
+                return item
+            return instruction("from-test-result", latest_action_id)
+        if latest_mode == "pr-status":
+            if int(continuity.get("failure_count") or 0) > 0:
+                return instruction("ci-log-evidence", latest_action_id)
+            raise ValueError(
+                "latest PR status has no captured failure summary; owner review or later polling is required"
+            )
+        if latest_mode == "pr-create-draft":
+            return instruction("pr-status", latest_action_id)
+        if latest_mode == "from-test-result":
+            return instruction("apply-patch", latest_action_id)
+        if latest_mode == "draft-patch":
+            return instruction("apply-patch", latest_action_id)
+        if latest_mode == "apply-patch":
+            return instruction("test", None)
+        if latest_mode == "test":
+            return instruction("from-test-result", latest_action_id)
+        publish_next = self._patch_mission_resume_publish_instruction(
+            mission_record=mission_record,
+            state=state,
+            latest_mode=latest_mode,
+            latest_action_id=latest_action_id,
+            reason=continuity.get("summary") or continuity.get("next_step") or "",
+        )
+        if publish_next is not None:
+            return publish_next
+        raise ValueError(
+            f"resume-next has no safe continuation for latest Patch Mission mode: {latest_mode}"
+        )
+
+    def _patch_mission_resume_publish_instruction(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        state: str,
+        latest_mode: str,
+        latest_action_id: str,
+        reason: str,
+    ) -> dict[str, Any] | None:
+        summary_id = self._patch_mission_latest_succeeded_action_id(
+            mission_record, "pr-summary"
+        )
+        if not summary_id:
+            return None
+
+        def item(mode: str, action_id: str | None = None) -> dict[str, Any]:
+            return {
+                "mode": mode,
+                "action_id": action_id,
+                "target": None,
+                "from_state": state,
+                "from_mode": latest_mode or None,
+                "from_action_id": latest_action_id or None,
+                "reason": reason,
+            }
+
+        push_id = self._patch_mission_latest_succeeded_action_id(
+            mission_record, "push-draft"
+        )
+        if push_id and not self._patch_mission_latest_succeeded_action_id(
+            mission_record, "pr-create-draft"
+        ):
+            if not self._patch_mission_has_github_remote_evidence(mission_record):
+                metadata_id = self._patch_mission_latest_succeeded_action_id_after(
+                    mission_record, "git-metadata", after_action_id=push_id
+                )
+                if metadata_id:
+                    return item("remote-summary", metadata_id)
+                return item("git-metadata", None)
+            return item("pr-create-draft", push_id)
+        if self._patch_mission_latest_succeeded_action_id(
+            mission_record, "pr-create-draft"
+        ):
+            return item(
+                "pr-status",
+                self._patch_mission_latest_succeeded_action_id(
+                    mission_record, "pr-create-draft"
+                ),
+            )
+
+        commit_id = self._patch_mission_latest_succeeded_action_id(
+            mission_record, "commit-draft"
+        )
+        if not commit_id:
+            prep_id = self._patch_mission_latest_succeeded_action_id(
+                mission_record, "git-prep"
+            )
+            if prep_id:
+                return item("commit-draft", prep_id)
+            metadata_id = self._patch_mission_latest_succeeded_action_id(
+                mission_record, "git-metadata"
+            )
+            if metadata_id:
+                return item("git-prep", metadata_id)
+            return item("git-metadata", None)
+
+        failed_pr_status_id = self._patch_mission_latest_failed_pr_status_action_id(
+            mission_record
+        )
+        if failed_pr_status_id and not self._patch_mission_latest_succeeded_action_id(
+            mission_record, "pr-update-push-draft"
+        ):
+            return item("pr-update-push-draft", failed_pr_status_id)
+
+        live_summary_id = self._patch_mission_latest_succeeded_action_id(
+            mission_record, "remote-live-summary"
+        )
+        if live_summary_id:
+            return item("push-draft", live_summary_id)
+        live_id = self._patch_mission_latest_succeeded_action_id(
+            mission_record, "remote-live"
+        )
+        if live_id:
+            return item("remote-live-summary", live_id)
+        branch_id = self._patch_mission_latest_succeeded_action_id(
+            mission_record, "branch-draft"
+        )
+        if branch_id:
+            return item("remote-live", None)
+        remote_summary_id = self._patch_mission_latest_succeeded_action_id(
+            mission_record, "remote-summary"
+        )
+        if remote_summary_id:
+            return item("branch-draft", remote_summary_id)
+        metadata_id = self._patch_mission_latest_succeeded_action_id_after(
+            mission_record, "git-metadata", after_action_id=commit_id
+        )
+        if metadata_id:
+            return item("remote-summary", metadata_id)
+        return item("git-metadata", None)
+
+    def _record_patch_mission_state(self, mission_record: dict[str, Any]) -> None:
+        current = [
+            self._patch_mission_without_continuity(item)
+            for item in self.patch_missions(limit=100)
+        ]
+        updated = [mission_record, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("patch_missions", updated, connection)
+            self.db.set_runtime("last_patch_mission", mission_record, connection)
+            self.ledger.append(
+                "patch_mission_started",
+                {
+                    "mission_id": mission_record["mission_id"],
+                    "repo_path": mission_record["repo_path"],
+                    "goal_id": mission_record["goal_id"],
+                    "plan_id": mission_record["plan_id"],
+                    "action_id": mission_record["action_id"],
+                    "plan_status": mission_record["plan_status"],
+                },
+                connection,
+            )
+
+    def _patch_mission_record(self, mission_id: str | None) -> dict[str, Any]:
+        records = self.patch_missions(limit=100)
+        if mission_id is None:
+            if not records:
+                raise KeyError("no patch mission has been started")
+            return dict(records[0])
+        for record in records:
+            if str(record.get("mission_id")) == str(mission_id):
+                return dict(record)
+        raise KeyError(f"unknown patch mission: {mission_id}")
+
+    def _update_patch_mission_record(
+        self, mission_id: str, step: dict[str, Any]
+    ) -> dict[str, Any]:
+        records = self.patch_missions(limit=100)
+        updated_record: dict[str, Any] | None = None
+        updated_records: list[dict[str, Any]] = []
+        for record in records:
+            item = dict(record)
+            item.pop("continuity", None)
+            if str(item.get("mission_id")) == str(mission_id):
+                followups = item.get("followups", [])
+                if not isinstance(followups, list):
+                    followups = []
+                item["followups"] = [step, *followups][:50]
+                item["latest_step_id"] = step["step_id"]
+                item["latest_plan_status"] = step["plan_status"]
+                item["updated_at"] = utc_now()
+                updated_record = item
+            updated_records.append(item)
+        if updated_record is None:
+            raise KeyError(f"unknown patch mission: {mission_id}")
+        with self.db.transaction() as connection:
+            self.db.set_runtime("patch_missions", updated_records, connection)
+            self.db.set_runtime("last_patch_mission", updated_record, connection)
+            self.ledger.append(
+                "patch_mission_step_recorded",
+                {
+                    "mission_id": mission_id,
+                    "step_id": step["step_id"],
+                    "mode": step["mode"],
+                    "action_id": step["action_id"],
+                    "plan_status": step["plan_status"],
+                },
+                connection,
+            )
+        return updated_record
+
+    @staticmethod
+    def _patch_mission_without_continuity(
+        mission_record: dict[str, Any]
+    ) -> dict[str, Any]:
+        item = dict(mission_record)
+        item.pop("continuity", None)
+        return item
+
+    def _patch_mission_first_followup_with_status(
+        self, followups: list[Any], statuses: set[str]
+    ) -> dict[str, Any] | None:
+        for item in followups:
+            if not isinstance(item, dict) or not item.get("action_id"):
+                continue
+            row = self._patch_mission_action_row(str(item["action_id"]))
+            if row and str(row.get("status")) in statuses:
+                return {
+                    "action_id": str(item["action_id"]),
+                    "mode": str(item.get("mode") or ""),
+                    "step": item,
+                    "row": row,
+                }
+        return None
+
+    def _patch_mission_first_succeeded_followup(
+        self, followups: list[Any], mode: str
+    ) -> dict[str, Any] | None:
+        for item in followups:
+            if (
+                not isinstance(item, dict)
+                or str(item.get("mode", "")).lower() != mode
+                or not item.get("action_id")
+            ):
+                continue
+            row = self._patch_mission_action_row(str(item["action_id"]))
+            if row and str(row.get("status")) == ActionStatus.SUCCEEDED.value:
+                return {**item, "_action_row": row}
+        return None
+
+    @staticmethod
+    def _patch_mission_step_confidence_decision(
+        step: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        if not isinstance(step, dict):
+            return None
+        decision = step.get("confidence_decision")
+        return decision if isinstance(decision, dict) else None
+
+    def _patch_mission_action_confidence_decision(
+        self,
+        *,
+        action_candidate: dict[str, Any],
+        action: ActionSpec,
+        repo_root: Path,
+    ) -> dict[str, Any] | None:
+        metadata = action_candidate.get("patch_mission_skill_candidate")
+        if not isinstance(metadata, dict):
+            return None
+        confidence = metadata.get("promoted_outcome_confidence")
+        if not isinstance(confidence, dict):
+            return None
+        level = str(confidence.get("level") or "")
+        if not level:
+            return None
+        selected_mode = "test" if action.tool == "run_command" else None
+        selected_target: str | None = None
+        command = action.arguments.get("command") if isinstance(action.arguments, dict) else None
+        if isinstance(command, list) and len(command) > 3:
+            selected_target = str(command[3])
+        if action.tool == "read_file":
+            selected_mode = "inspect-file"
+            raw_path = action.arguments.get("path") if isinstance(action.arguments, dict) else None
+            if raw_path:
+                try:
+                    selected_target = str(
+                        Path(str(raw_path))
+                        .expanduser()
+                        .resolve(strict=False)
+                        .relative_to(repo_root)
+                    ).replace("\\", "/")
+                except ValueError:
+                    selected_target = str(raw_path)
+        if (
+            level in {"outcome_supported", "recovered_outcome_supported"}
+            and action.tool == "run_command"
+        ):
+            decision = "outcome_supported_direct_test"
+        elif (
+            level
+            in {"mixed_outcome", "recovering_mixed_outcome", "confidence_withheld"}
+            and action.tool == "read_file"
+        ):
+            decision = "safety_fallback_inspect_file"
+        else:
+            decision = "confidence_metadata_only"
+        return {
+            "level": level,
+            "decision": decision,
+            "selected_mode": selected_mode,
+            "selected_target": selected_target,
+            "selected_tool": action.tool,
+            "requires_owner_approval": bool(
+                action_candidate.get("requires_owner_approval")
+                or action_candidate.get("approval_required")
+            ),
+            "executes_now": bool(action_candidate.get("executes_now")),
+            "skill_id": metadata.get("skill_id"),
+            "source_action_id": metadata.get("source_action_id"),
+            "source_mode": metadata.get("source_mode"),
+            "success_count": confidence.get("success_count"),
+            "failed_or_rejected_count": confidence.get("failed_or_rejected_count"),
+            "recovery_count": confidence.get("recovery_count"),
+            "unrecovered_failed_or_rejected_count": confidence.get(
+                "unrecovered_failed_or_rejected_count"
+            ),
+            "reason": confidence.get("reason"),
+            "authority": {
+                "continuity_only": True,
+                "approval_bypass_allowed": False,
+                "repo_write_executed": False,
+                "push_or_pr_executed": False,
+            },
+        }
+
+    def _patch_mission_fallback_verification_target(
+        self,
+        *,
+        confidence_decision: dict[str, Any],
+        inspect_action_id: str,
+    ) -> dict[str, Any]:
+        selected_target = str(confidence_decision.get("selected_target") or "").strip()
+        source_action_id = str(confidence_decision.get("source_action_id") or "").strip()
+        if not selected_target:
+            return {
+                "target": None,
+                "decision": "no_target_available",
+                "reason": "fallback inspection did not preserve a target",
+            }
+        original_target = ""
+        if source_action_id:
+            plan_text = self._patch_mission_optional_write_content(source_action_id)
+            original_target = self._patch_mission_strip_plan_value(
+                self._patch_mission_plan_bullet(
+                    plan_text,
+                    "Original CI-selected target",
+                )
+            )
+        if not original_target or original_target == "(none)":
+            return {
+                "target": selected_target,
+                "decision": "file_level_fallback",
+                "reason": "no original CI nodeid was available after fallback inspection",
+            }
+        try:
+            self._patch_mission_validate_pytest_target_text(original_target)
+        except ValueError:
+            return {
+                "target": selected_target,
+                "decision": "file_level_fallback",
+                "reason": "original CI target was not a safe pytest target",
+            }
+        file_part = original_target.split("::", 1)[0]
+        if file_part != selected_target:
+            return {
+                "target": selected_target,
+                "decision": "file_level_fallback",
+                "reason": "original CI target points at a different file than the fallback inspection",
+            }
+        inspected_text = self._patch_mission_read_file_action_text(inspect_action_id)
+        if not self._patch_mission_pytest_nodeid_exists_in_text(
+            original_target,
+            inspected_text,
+        ):
+            return {
+                "target": selected_target,
+                "decision": "file_level_fallback",
+                "reason": "original CI nodeid was not found in the inspected file content",
+            }
+        return {
+            "target": original_target,
+            "decision": "nodeid_restored_from_ci_and_inspection",
+            "reason": (
+                "original CI nodeid was restored because the inspected file contains "
+                "the referenced test function"
+            ),
+        }
+
+    @staticmethod
+    def _patch_mission_strip_plan_value(value: str) -> str:
+        text = str(value or "").strip()
+        if text.startswith("`") and text.endswith("`") and len(text) >= 2:
+            return text[1:-1].strip()
+        return text
+
+    def _patch_mission_read_file_action_text(self, action_id: str) -> str:
+        row = self.db.query_one(
+            "SELECT tool,status,result_json FROM actions WHERE action_id=?",
+            (action_id,),
+        )
+        if row is None:
+            raise KeyError(action_id)
+        if row["tool"] != "read_file":
+            raise ValueError("source action must be a read_file action")
+        if row["status"] != ActionStatus.SUCCEEDED.value:
+            raise ValueError(f"read_file action has not succeeded: {row['status']}")
+        payload = json.loads(row["result_json"])
+        result = payload.get("result") if isinstance(payload, dict) else None
+        output = result.get("output") if isinstance(result, dict) else None
+        if not isinstance(output, dict):
+            raise ValueError("read_file action result has no output object")
+        return str(output.get("text") or "")
+
+    @staticmethod
+    def _patch_mission_pytest_nodeid_exists_in_text(
+        pytest_target: str,
+        text: str,
+    ) -> bool:
+        parts = str(pytest_target).split("::")
+        if len(parts) < 2:
+            return False
+        node = parts[-1]
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", node):
+            return False
+        return bool(
+            re.search(
+                rf"^\s*(?:async\s+def|def)\s+{re.escape(node)}\s*\(",
+                text,
+                re.MULTILINE,
+            )
+        )
+
+    def _patch_mission_action_row(self, action_id: str) -> dict[str, Any] | None:
+        row = self.db.query_one(
+            "SELECT action_id,tool,status,risk,error,result_json,arguments_json FROM actions WHERE action_id=?",
+            (action_id,),
+        )
+        return dict(row) if row is not None else None
+
+    def _patch_mission_continuity_for_succeeded_step(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        step: dict[str, Any],
+        state: str,
+        next_step: str,
+    ) -> dict[str, Any]:
+        mode = str(step.get("mode") or "")
+        action_id = str(step.get("action_id") or "")
+        summary = f"Latest completed Patch Mission step is `{mode}`."
+        extra: dict[str, Any] = {}
+        confidence_decision = self._patch_mission_step_confidence_decision(step)
+        if confidence_decision is not None:
+            extra["confidence_decision"] = confidence_decision
+        if mode == "pr-update-next":
+            text = self._patch_mission_optional_write_content(action_id)
+            if "# Patch Mission CI Fix Plan" in text:
+                state = "pr_ci_still_failing"
+                summary = "Post-update verification still shows failures; another CI fix plan is ready."
+                next_step = "Approve/review the generated `ci-fix-plan`, then run `ci-next-action`."
+            elif "# Patch Mission PR Update Next Step" in text:
+                state = "ready_for_owner_review"
+                summary = "No immediate post-update failure summary is captured; PR is ready for owner review or later status polling."
+                next_step = "Owner reviews PR state, or run another read-only status check later if checks are pending."
+        elif mode == "pr-update-verify":
+            text = self._patch_mission_optional_write_content(action_id)
+            try:
+                after = self._patch_mission_pr_update_verify_after_failure_count(text)
+                extra["post_update_failure_count"] = after
+                if after > 0:
+                    state = "pr_ci_still_failing"
+                    summary = "Post-update verification still has failing PR/CI evidence."
+                else:
+                    state = "pr_branch_updated"
+                    summary = "PR branch was updated and post-update verification has no immediate failure summary."
+            except ValueError:
+                pass
+        elif mode in {"pr-status", "pr-update-status"}:
+            try:
+                output = self._patch_mission_pr_status_output(action_id)
+                failures = output.get("failure_summary", [])
+                failure_count = len(failures) if isinstance(failures, list) else 0
+                extra["failure_count"] = failure_count
+                extra["pr_url"] = output.get("url")
+                extra["head_sha"] = output.get("head_sha")
+                if failure_count:
+                    state = "pr_ci_still_failing"
+                    summary = "PR/CI status contains failing evidence."
+                else:
+                    state = "pr_ci_pending_or_ready"
+                    summary = "PR/CI status has no immediate failure summary."
+            except (KeyError, ValueError):
+                pass
+        elif mode == "ci-next-action" and isinstance(confidence_decision, dict):
+            if confidence_decision.get("decision") == "safety_fallback_inspect_file":
+                state = "local_confidence_fallback_inspected"
+                summary = (
+                    "Mixed/withheld promoted confidence selected a read-only file "
+                    "inspection before another command-driven repair."
+                )
+                next_step = (
+                    "Run `resume-next` to create the owner-gated local test for the inspected target."
+                )
+            elif confidence_decision.get("decision") == "outcome_supported_direct_test":
+                if confidence_decision.get("level") == "recovered_outcome_supported":
+                    summary = (
+                        "Recovered promoted confidence restored the direct narrow "
+                        "pytest path after owner-approved recovery evidence."
+                    )
+                else:
+                    summary = (
+                        "Outcome-supported promoted confidence selected the direct narrow pytest path."
+                    )
+                next_step = "Owner approval is still required before running the pytest command."
+        return {
+            "state": state,
+            "summary": summary,
+            "next_step": next_step,
+            "latest_mode": mode,
+            "latest_action_id": action_id,
+            **extra,
+        }
+
+    def _patch_mission_optional_write_content(self, action_id: str) -> str:
+        try:
+            return self._patch_mission_write_file_content(action_id)
+        except (KeyError, ValueError, PermissionError):
+            return ""
+
+    def _patch_mission_first_action(
+        self,
+        *,
+        repo_root: Path,
+        repo_map: Any,
+        mission_text: str,
+        goal_id: str,
+    ) -> ActionSpec:
+        preferred = [
+            "CONTRIBUTING.md",
+            "AGENTS.md",
+            "CODEX.md",
+            "README.md",
+            "pyproject.toml",
+            "package.json",
+        ]
+        instruction_by_name = {
+            Path(item).name: item for item in repo_map.instruction_files
+        }
+        for name in preferred:
+            relative = instruction_by_name.get(name)
+            if relative:
+                target = repo_root / relative
+                return ActionSpec(
+                    tool="read_file",
+                    arguments={"path": str(target), "max_bytes": 262144},
+                    purpose=(
+                        "Inspect repository contribution or project instructions "
+                        f"for patch mission: {mission_text[:160]}"
+                    ),
+                    expected_result=(
+                        "Bounded text from the repository instruction file for planning the patch mission"
+                    ),
+                    risk=RiskLevel.READ,
+                    goal_id=goal_id,
+                    acceptance=["output contains path", "output contains text or binary marker"],
+                )
+        return ActionSpec(
+            tool="list_directory",
+            arguments={"path": str(repo_root), "limit": 200},
+            purpose=f"Inspect repository root for patch mission: {mission_text[:160]}",
+            expected_result="Bounded repository root listing",
+            risk=RiskLevel.READ,
+            goal_id=goal_id,
+            acceptance=["output contains items"],
+        )
+
+    def _patch_mission_followup_action(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        repo_root: Path,
+        repo_map: Any,
+        mode: str,
+        target: str | None,
+        draft: str | None,
+        action_id: str | None,
+    ) -> ActionSpec:
+        normalized = str(mode or "auto").strip().lower()
+        if normalized == "auto":
+            normalized = "inspect-file" if target else "test"
+        goal_id = str(mission_record.get("goal_id") or "")
+        mission_text = str(mission_record.get("mission") or "")
+        if normalized == "inspect-file":
+            if not target:
+                target = self._patch_mission_default_target(repo_map)
+            target_path = self._patch_mission_repo_file(repo_root, str(target))
+            return ActionSpec(
+                tool="read_file",
+                arguments={"path": str(target_path), "max_bytes": 262144},
+                purpose=f"Inspect target file for patch mission: {mission_text[:160]}",
+                expected_result="Bounded target file content for patch planning",
+                risk=RiskLevel.READ,
+                goal_id=goal_id or None,
+                acceptance=["output contains path", "output contains text or binary marker"],
+            )
+        if normalized == "test":
+            repo_state_digest = self._patch_mission_repo_state_digest(
+                repo_root, repo_map
+            )
+            pytest_target = (
+                self._patch_mission_safe_pytest_target(str(target), repo_map)
+                if target
+                else None
+            )
+            command = ["python", "-m", "pytest"]
+            if pytest_target:
+                command.append(pytest_target)
+            return ActionSpec(
+                tool="run_command",
+                arguments={
+                    "command": command,
+                    "cwd": str(repo_root),
+                    "timeout": 120,
+                    "max_output_bytes": 524288,
+                },
+                purpose=(
+                    f"Run the repository test probe for patch mission: {mission_text[:160]}"
+                    + (f" target {pytest_target}" if pytest_target else "")
+                ),
+                expected_result="Bounded pytest output for deciding the smallest patch",
+                risk=RiskLevel.HIGH,
+                goal_id=goal_id or None,
+                idempotency_key=digest_json(
+                    {
+                        "tool": "run_command",
+                        "command": command,
+                        "cwd": str(repo_root),
+                        "repo_state_digest": repo_state_digest,
+                    }
+                ),
+                acceptance=["output contains returncode"],
+            )
+        if normalized == "draft-patch":
+            if not draft or not str(draft).strip():
+                raise ValueError("draft-patch mode requires --draft content")
+            outbox = (
+                self.config.outbox_path
+                / "patch-missions"
+                / str(mission_record["mission_id"])
+                / "patch-draft.diff"
+            )
+            return ActionSpec(
+                tool="write_file",
+                arguments={
+                    "path": str(outbox),
+                    "content": str(draft),
+                    "max_bytes": 2 * 1024 * 1024,
+                },
+                purpose=(
+                    "Write a patch draft to WLS outbox only; canonical repo remains unchanged"
+                ),
+                expected_result="Patch draft is available for owner review outside the repo",
+                risk=RiskLevel.REVERSIBLE_WRITE,
+                goal_id=goal_id or None,
+                acceptance=["output contains path"],
+            )
+        if normalized == "from-test-result":
+            return self._patch_mission_draft_from_test_result(
+                mission_record=mission_record,
+                repo_root=repo_root,
+                repo_map=repo_map,
+                action_id=action_id,
+                goal_id=goal_id or None,
+            )
+        if normalized == "apply-patch":
+            return self._patch_mission_apply_patch_action(
+                mission_record=mission_record,
+                repo_root=repo_root,
+                action_id=action_id,
+                goal_id=goal_id or None,
+            )
+        if normalized == "pr-summary":
+            return self._patch_mission_pr_summary_action(
+                mission_record=mission_record,
+                repo_root=repo_root,
+                action_id=action_id,
+                goal_id=goal_id or None,
+            )
+        if normalized == "git-metadata":
+            return self._patch_mission_git_metadata_action(
+                mission_record=mission_record,
+                repo_root=repo_root,
+                repo_map=repo_map,
+                goal_id=goal_id or None,
+            )
+        if normalized == "git-prep":
+            return self._patch_mission_git_prep_action(
+                mission_record=mission_record,
+                repo_root=repo_root,
+                action_id=action_id,
+                goal_id=goal_id or None,
+            )
+        if normalized == "commit-draft":
+            return self._patch_mission_commit_draft_action(
+                mission_record=mission_record,
+                repo_root=repo_root,
+                action_id=action_id,
+                goal_id=goal_id or None,
+            )
+        if normalized == "remote-summary":
+            return self._patch_mission_remote_summary_action(
+                mission_record=mission_record,
+                repo_root=repo_root,
+                action_id=action_id,
+                goal_id=goal_id or None,
+            )
+        if normalized == "branch-draft":
+            return self._patch_mission_branch_draft_action(
+                mission_record=mission_record,
+                repo_root=repo_root,
+                action_id=action_id,
+                goal_id=goal_id or None,
+            )
+        if normalized == "remote-live":
+            return self._patch_mission_remote_live_action(
+                mission_record=mission_record,
+                repo_root=repo_root,
+                goal_id=goal_id or None,
+            )
+        if normalized == "remote-live-summary":
+            return self._patch_mission_remote_live_summary_action(
+                mission_record=mission_record,
+                repo_root=repo_root,
+                action_id=action_id,
+                goal_id=goal_id or None,
+            )
+        if normalized == "push-draft":
+            return self._patch_mission_push_draft_action(
+                mission_record=mission_record,
+                repo_root=repo_root,
+                action_id=action_id,
+                goal_id=goal_id or None,
+            )
+        if normalized == "pr-create-draft":
+            return self._patch_mission_pr_create_draft_action(
+                mission_record=mission_record,
+                repo_root=repo_root,
+                action_id=action_id,
+                goal_id=goal_id or None,
+            )
+        if normalized == "pr-status":
+            return self._patch_mission_pr_status_action(
+                mission_record=mission_record,
+                target=target,
+                action_id=action_id,
+                goal_id=goal_id or None,
+            )
+        if normalized == "pr-update-push-draft":
+            return self._patch_mission_pr_update_push_draft_action(
+                mission_record=mission_record,
+                repo_root=repo_root,
+                action_id=action_id,
+                goal_id=goal_id or None,
+            )
+        if normalized == "pr-update-status":
+            return self._patch_mission_pr_update_status_action(
+                mission_record=mission_record,
+                action_id=action_id,
+                goal_id=goal_id or None,
+            )
+        if normalized == "pr-update-verify":
+            return self._patch_mission_pr_update_verify_action(
+                mission_record=mission_record,
+                action_id=action_id,
+                goal_id=goal_id or None,
+            )
+        if normalized == "pr-update-next":
+            return self._patch_mission_pr_update_next_action(
+                mission_record=mission_record,
+                repo_root=repo_root,
+                repo_map=repo_map,
+                action_id=action_id,
+                goal_id=goal_id or None,
+            )
+        if normalized == "ci-fix-plan":
+            return self._patch_mission_ci_fix_plan_action(
+                mission_record=mission_record,
+                repo_root=repo_root,
+                repo_map=repo_map,
+                action_id=action_id,
+                goal_id=goal_id or None,
+            )
+        if normalized == "ci-log-evidence":
+            return self._patch_mission_ci_log_evidence_action(
+                mission_record=mission_record,
+                action_id=action_id,
+                goal_id=goal_id or None,
+            )
+        if normalized == "ci-next-action":
+            return self._patch_mission_ci_next_action(
+                mission_record=mission_record,
+                repo_root=repo_root,
+                repo_map=repo_map,
+                action_id=action_id,
+            )
+        raise ValueError(f"unsupported patch mission step mode: {mode}")
+
+    def _patch_mission_draft_from_test_result(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        repo_root: Path,
+        repo_map: Any,
+        action_id: str | None,
+        goal_id: str | None,
+    ) -> ActionSpec:
+        source_action_id = self._patch_mission_test_action_id(
+            mission_record, action_id
+        )
+        output = self._patch_mission_action_result_output(source_action_id)
+        stdout = str(output.get("stdout") or "")
+        stderr = str(output.get("stderr") or "")
+        combined = "\n".join(part for part in (stdout, stderr) if part).strip()
+        selected_file = self._patch_mission_failed_file(
+            repo_root=repo_root,
+            repo_map=repo_map,
+            output_text=combined,
+        )
+        ci_source = self._patch_mission_ci_source_context_for_test_action(
+            mission_record, source_action_id
+        )
+        prior_learning = self._patch_mission_failure_learning_context(
+            mission_record=mission_record,
+            query_text=combined,
+            selected_file=selected_file,
+            pytest_target=self._patch_mission_pytest_target_from_command(
+                output.get("command")
+            ),
+        )
+        repair_candidates = self._patch_mission_repair_skill_candidate_context()
+        approved_repair_skills = self._patch_mission_approved_repair_skill_context(
+            mission_record=mission_record,
+            query_text=combined,
+            selected_file=selected_file,
+            pytest_target=self._patch_mission_pytest_target_from_command(
+                output.get("command")
+            ),
+        )
+        synthesis = self._patch_mission_synthesize_diff_from_test_result(
+            repo_root=repo_root,
+            repo_map=repo_map,
+            selected_file=selected_file,
+            output_text=combined,
+        )
+        learning = self._record_patch_mission_failure_learning(
+            mission_record=mission_record,
+            test_action_id=source_action_id,
+            command=output.get("command"),
+            returncode=output.get("returncode"),
+            selected_file=selected_file,
+            output_text=combined,
+            synthesis=synthesis,
+            ci_source=ci_source,
+        )
+        excerpt = self._bounded_test_excerpt(combined)
+        returncode = output.get("returncode")
+        command = output.get("command")
+        skill_rationale = self._patch_mission_approved_repair_skill_rationale(
+            approved_repair_skills,
+            default_reason=(
+                "No approved repair skill matched; draft relies on current test evidence "
+                "and bounded Patch Mission synthesis."
+            ),
+            action_phrase="the outbox patch draft rationale",
+        )
+        outbox = (
+            self.config.outbox_path
+            / "patch-missions"
+            / str(mission_record["mission_id"])
+            / "test-result-patch-draft.md"
+        )
+        draft = "\n".join(
+            [
+                "# Patch Mission Draft From Approved Test Result",
+                "",
+                f"Mission: {mission_record.get('mission', '')}",
+                f"Mission ID: {mission_record['mission_id']}",
+                f"Approved test action: {source_action_id}",
+                f"Command: {command}",
+                f"Return code: {returncode}",
+                f"Selected failing file: {selected_file}",
+                f"Patch synthesis: {synthesis['status']}",
+                f"Patch target: {synthesis.get('target_file') or '(not identified)'}",
+                "",
+                "Approved repair skill rationale:",
+                skill_rationale,
+                "",
+                "PR/CI source evidence:",
+                ci_source or "(not a CI-triggered local test action)",
+                "",
+                "Failure learning evidence:",
+                f"- Evidence: {learning.get('evidence_id') or '(not recorded)'}",
+                f"- Memory: {learning.get('memory_id') or '(not recorded)'}",
+                f"- Cause: {learning.get('cause') or '(not identified)'}",
+                f"- Fix: {learning.get('fix') or '(not identified)'}",
+                f"- Regression: {learning.get('regression') or '(not identified)'}",
+                "",
+                "Prior failure-learning memory used:",
+                *self._patch_mission_failure_learning_lines(prior_learning),
+                "",
+                "Reviewed repair skill candidate used:",
+                *self._patch_mission_repair_skill_candidate_lines(repair_candidates),
+                "",
+                "Approved repair skill advisory context:",
+                *self._patch_mission_approved_repair_skill_lines(
+                    approved_repair_skills
+                ),
+                "",
+                "Suggested next action:",
+                str(synthesis["next_action"]),
+                "- Keep the canonical repository unchanged until the owner approves an exact write action.",
+                "",
+                "Unified diff draft:",
+                "```diff",
+                str(synthesis["diff"]),
+                "```",
+                "",
+                "Bounded failure excerpt:",
+                "```text",
+                excerpt or "(no test output captured)",
+                "```",
+                "",
+                "Authority:",
+                "- This draft is written to the WLS outbox only.",
+                "- No repository file, commit, push, or PR is created by this step.",
+            ]
+        )
+        return ActionSpec(
+            tool="write_file",
+            arguments={
+                "path": str(outbox),
+                "content": draft,
+                "max_bytes": 2 * 1024 * 1024,
+            },
+            purpose=(
+                "Write an outbox-only patch mission draft derived from approved local test evidence and prior failure memory"
+            ),
+            expected_result=(
+                "Owner-reviewable diff draft points to the failing file without modifying the repo"
+            ),
+            risk=RiskLevel.REVERSIBLE_WRITE,
+            goal_id=goal_id,
+            acceptance=["output contains path"],
+        )
+
+    def _patch_mission_synthesize_diff_from_test_result(
+        self,
+        *,
+        repo_root: Path,
+        repo_map: Any,
+        selected_file: str,
+        output_text: str,
+    ) -> dict[str, Any]:
+        mismatch = self._patch_mission_pytest_literal_mismatch(output_text)
+        if mismatch is None:
+            return {
+                "status": "needs_manual_patch",
+                "target_file": None,
+                "diff": "# No safe literal mismatch was found in the approved pytest output.",
+                "next_action": (
+                    f"- Inspect `{selected_file}` and draft the smallest patch manually from the failure evidence."
+                ),
+            }
+        actual, expected = mismatch
+        candidates = self._patch_mission_adjacent_source_candidates(
+            repo_root=repo_root,
+            repo_map=repo_map,
+            selected_file=selected_file,
+        )
+        for candidate in candidates:
+            target_path = self._patch_mission_repo_file(repo_root, candidate)
+            try:
+                original = self._read_patch_mission_text(target_path)
+            except (UnicodeError, ValueError):
+                continue
+            replacements = [
+                (f"'{actual}'", f"'{expected}'"),
+                (f'"{actual}"', f'"{expected}"'),
+            ]
+            for old, new in replacements:
+                if original.count(old) != 1:
+                    continue
+                revised = original.replace(old, new, 1)
+                relative = str(target_path.relative_to(repo_root)).replace("\\", "/")
+                return {
+                    "status": "synthesized_literal_diff",
+                    "target_file": relative,
+                    "actual": actual,
+                    "expected": expected,
+                    "diff": self._unified_diff_for_patch_mission(
+                        relative, original, revised
+                    ),
+                    "next_action": (
+                        f"- Review the synthesized diff for `{relative}`, then approve an exact repo write only if it is correct."
+                    ),
+                }
+        return {
+            "status": "needs_manual_patch",
+            "target_file": None,
+            "actual": actual,
+            "expected": expected,
+            "diff": (
+                "# Pytest exposed a literal mismatch, but no adjacent source file "
+                "contained the actual literal exactly once in a safe replacement form."
+            ),
+            "next_action": (
+                f"- Inspect `{selected_file}` and adjacent source files; expected `{expected}` but observed `{actual}`."
+            ),
+        }
+
+    def _record_patch_mission_failure_learning(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        test_action_id: str,
+        command: Any,
+        returncode: Any,
+        selected_file: str,
+        output_text: str,
+        synthesis: dict[str, Any],
+        ci_source: str,
+    ) -> dict[str, Any]:
+        pytest_target = self._patch_mission_pytest_target_from_command(command)
+        cause = self._patch_mission_failure_cause_note(
+            output_text=output_text,
+            selected_file=selected_file,
+            pytest_target=pytest_target,
+            synthesis=synthesis,
+        )
+        fix = self._patch_mission_failure_fix_note(synthesis)
+        regression = self._patch_mission_failure_regression_note(
+            command=command,
+            pytest_target=pytest_target,
+        )
+        learning = {
+            "schema_version": 1,
+            "mission_id": mission_record.get("mission_id"),
+            "mission": mission_record.get("mission"),
+            "test_action_id": test_action_id,
+            "command": command,
+            "returncode": returncode,
+            "pytest_target": pytest_target,
+            "selected_file": selected_file,
+            "synthesis_status": synthesis.get("status"),
+            "patch_target": synthesis.get("target_file"),
+            "cause": cause,
+            "fix": fix,
+            "regression": regression,
+            "ci_source": ci_source,
+            "claim_ceiling": (
+                "failure-learning note from one Patch Mission action; not a promoted skill"
+            ),
+        }
+        signature = digest_json(
+            {
+                "mission_id": mission_record.get("mission_id"),
+                "test_action_id": test_action_id,
+                "synthesis_status": synthesis.get("status"),
+                "patch_target": synthesis.get("target_file"),
+                "cause": cause,
+                "fix": fix,
+                "regression": regression,
+            }
+        )
+        recorded = self.db.get_runtime("patch_mission_failure_learning", [])
+        if isinstance(recorded, list):
+            for item in recorded:
+                if isinstance(item, dict) and item.get("signature") == signature:
+                    return {**learning, **item, "duplicate": True}
+        else:
+            recorded = []
+        memory = MemoryItem(
+            memory_type="procedural",
+            content={
+                "kind": "patch_mission_failure_learning",
+                **learning,
+            },
+            importance=0.72 if synthesis.get("status") != "needs_manual_patch" else 0.58,
+            confidence=0.78 if synthesis.get("status") != "needs_manual_patch" else 0.62,
+            source_ids=[str(test_action_id)],
+            tags=[
+                "patch-mission",
+                "failure-learning",
+                str(synthesis.get("status") or "unknown"),
+            ],
+        )
+        memory_id = self.memories.add(memory)
+        evidence_id = self.ledger.append(
+            "patch_mission_failure_learning_recorded",
+            {
+                **learning,
+                "memory_id": memory_id,
+                "signature": signature,
+            },
+        )
+        record = {
+            "signature": signature,
+            "memory_id": memory_id,
+            "evidence_id": evidence_id,
+            "test_action_id": test_action_id,
+            "created_at": utc_now(),
+        }
+        self.db.set_runtime(
+            "patch_mission_failure_learning",
+            [record, *recorded][:100],
+        )
+        return {**learning, **record, "duplicate": False}
+
+    def _record_patch_mission_successful_repair_pattern(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        failing_test_id: str,
+        failing_output: dict[str, Any],
+        passing_test_id: str,
+        passing_output: dict[str, Any],
+        apply_action_id: str,
+        draft_action_id: str,
+        ci_source: str,
+    ) -> dict[str, Any]:
+        learning = self._patch_mission_failure_learning_for_test(failing_test_id)
+        if not learning:
+            return {
+                "available": False,
+                "reason": "no failure-learning memory for failing test action",
+            }
+        memory_content = learning.get("memory_content")
+        if not isinstance(memory_content, dict):
+            return {
+                "available": False,
+                "reason": "failure-learning memory content is unavailable",
+            }
+        if memory_content.get("synthesis_status") != "synthesized_literal_diff":
+            return {
+                "available": False,
+                "reason": "repair was not a synthesized literal diff",
+            }
+        pytest_target = memory_content.get("pytest_target")
+        patch_target = memory_content.get("patch_target")
+        pattern_family = "patch_mission_pytest_literal_mismatch_repair"
+        signature = digest_json(
+            {
+                "pattern_family": pattern_family,
+                "mission_id": mission_record.get("mission_id"),
+                "failing_test_id": failing_test_id,
+                "passing_test_id": passing_test_id,
+                "apply_action_id": apply_action_id,
+                "draft_action_id": draft_action_id,
+                "memory_id": learning.get("memory_id"),
+            }
+        )
+        recorded = self.db.get_runtime("patch_mission_successful_repair_learning", [])
+        if not isinstance(recorded, list):
+            recorded = []
+        for item in recorded:
+            if isinstance(item, dict) and item.get("signature") == signature:
+                recovery = self._record_patch_mission_promoted_skill_recovery_outcome(
+                    mission_record=mission_record,
+                    success_record=item,
+                    failing_test_id=failing_test_id,
+                    passing_test_id=passing_test_id,
+                    apply_action_id=apply_action_id,
+                    draft_action_id=draft_action_id,
+                )
+                return {
+                    **item,
+                    "available": True,
+                    "duplicate": True,
+                    "promoted_skill_recovery": recovery,
+                    "skill_candidate": self._record_patch_mission_repair_skill_candidate(
+                        success_records=recorded
+                    ),
+                }
+        record = {
+            "schema_version": 1,
+            "signature": signature,
+            "pattern_family": pattern_family,
+            "mission_id": mission_record.get("mission_id"),
+            "mission": mission_record.get("mission"),
+            "memory_id": learning.get("memory_id"),
+            "failure_learning_evidence_id": learning.get("evidence_id"),
+            "failing_test_action_id": failing_test_id,
+            "failing_returncode": failing_output.get("returncode"),
+            "passing_test_action_id": passing_test_id,
+            "passing_returncode": passing_output.get("returncode"),
+            "apply_action_id": apply_action_id,
+            "draft_action_id": draft_action_id,
+            "pytest_target": pytest_target,
+            "selected_file": memory_content.get("selected_file"),
+            "patch_target": patch_target,
+            "cause": memory_content.get("cause"),
+            "fix": memory_content.get("fix"),
+            "regression": memory_content.get("regression"),
+            "ci_source": ci_source,
+            "created_at": utc_now(),
+            "claim_ceiling": (
+                "successful Patch Mission repair sample; supports a candidate only, "
+                "not a promoted skill"
+            ),
+        }
+        evidence_id = self.ledger.append(
+            "patch_mission_repair_success_recorded",
+            record,
+        )
+        record["success_evidence_id"] = evidence_id
+        updated = [record, *recorded][:100]
+        self.db.set_runtime("patch_mission_successful_repair_learning", updated)
+        recovery = self._record_patch_mission_promoted_skill_recovery_outcome(
+            mission_record=mission_record,
+            success_record=record,
+            failing_test_id=failing_test_id,
+            passing_test_id=passing_test_id,
+            apply_action_id=apply_action_id,
+            draft_action_id=draft_action_id,
+        )
+        return {
+            **record,
+            "available": True,
+            "duplicate": False,
+            "promoted_skill_recovery": recovery,
+            "skill_candidate": self._record_patch_mission_repair_skill_candidate(
+                success_records=updated
+            ),
+        }
+
+    def _record_patch_mission_promoted_skill_recovery_outcome(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        success_record: dict[str, Any],
+        failing_test_id: str,
+        passing_test_id: str,
+        apply_action_id: str,
+        draft_action_id: str,
+    ) -> dict[str, Any]:
+        context = self._patch_mission_fallback_recovery_context_for_test(
+            mission_record=mission_record,
+            test_action_id=failing_test_id,
+        )
+        if context is None:
+            return {
+                "available": False,
+                "reason": "failing test was not a promoted-confidence fallback-restored verification",
+            }
+        required_approvals = {
+            "failing_test_action_id": failing_test_id,
+            "draft_action_id": draft_action_id,
+            "apply_action_id": apply_action_id,
+            "passing_test_action_id": passing_test_id,
+        }
+        approval_checks = {
+            name: self._patch_mission_action_has_consumed_owner_approval(action_id)
+            for name, action_id in required_approvals.items()
+        }
+        if not all(approval_checks.values()):
+            return {
+                "available": False,
+                "reason": "recovery requires owner-approved failing, draft, apply, and passing actions",
+                "approval_checks": approval_checks,
+            }
+        skill_id = str(context.get("skill_id") or "")
+        signature = digest_json(
+            {
+                "receipt_type": "PATCH_MISSION_PROMOTED_REPAIR_SKILL_RECOVERY_OUTCOME",
+                "skill_id": skill_id,
+                "success_signature": success_record.get("signature"),
+                "failing_test_id": failing_test_id,
+                "passing_test_id": passing_test_id,
+                "apply_action_id": apply_action_id,
+                "draft_action_id": draft_action_id,
+            }
+        )
+        recorded = self.db.get_runtime(
+            "patch_mission_promoted_skill_recovery_outcomes", []
+        )
+        if not isinstance(recorded, list):
+            recorded = []
+        for item in recorded:
+            if isinstance(item, dict) and item.get("signature") == signature:
+                return {**item, "available": True, "duplicate": True}
+        receipt = {
+            "schema_version": 1,
+            "receipt_type": "PATCH_MISSION_PROMOTED_REPAIR_SKILL_RECOVERY_OUTCOME",
+            "status": "RECORDED",
+            "signature": signature,
+            "skill_id": skill_id,
+            "success": True,
+            "approval_valid": True,
+            "mission_id": mission_record.get("mission_id"),
+            "successful_repair_signature": success_record.get("signature"),
+            "success_evidence_id": success_record.get("success_evidence_id"),
+            "failing_test_action_id": failing_test_id,
+            "passing_test_action_id": passing_test_id,
+            "apply_action_id": apply_action_id,
+            "draft_action_id": draft_action_id,
+            "fallback_inspect_action_id": context.get("fallback_inspect_action_id"),
+            "source_action_id": context.get("source_action_id"),
+            "recovered_target": context.get("target"),
+            "confidence_level_at_fallback": context.get("confidence_level"),
+            "fallback_decision": context.get("fallback_decision"),
+            "target_decision": context.get("target_decision"),
+            "approval_checks": approval_checks,
+            "failed_or_rejected_evidence_preserved": True,
+            "promotion_executed": False,
+            "repo_write_executed": False,
+            "push_or_pr_executed": False,
+            "claim_ceiling": (
+                "fallback-restored successful repair outcome adjusts future planning "
+                "confidence only; it does not delete failures, execute a skill, bypass "
+                "approval, write the repo, push, or open a PR"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        updated = [receipt, *recorded][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime(
+                "patch_mission_promoted_skill_recovery_outcomes",
+                updated,
+                connection,
+            )
+            self.ledger.append(
+                "patch_mission_promoted_repair_skill_recovery_recorded",
+                receipt,
+                connection,
+            )
+        return {**receipt, "available": True, "duplicate": False}
+
+    def _patch_mission_fallback_recovery_context_for_test(
+        self, *, mission_record: dict[str, Any], test_action_id: str
+    ) -> dict[str, Any] | None:
+        followups = mission_record.get("followups", [])
+        if not isinstance(followups, list):
+            return None
+        test_step = next(
+            (
+                item
+                for item in followups
+                if isinstance(item, dict)
+                and str(item.get("mode", "")).lower() == "test"
+                and str(item.get("action_id", "")) == str(test_action_id)
+            ),
+            None,
+        )
+        if not isinstance(test_step, dict):
+            return None
+        resume_next = test_step.get("resume_next")
+        if not isinstance(resume_next, dict):
+            return None
+        confidence_decision = resume_next.get("confidence_decision")
+        target_decision = resume_next.get("target_decision")
+        if not isinstance(confidence_decision, dict) or not isinstance(
+            target_decision, dict
+        ):
+            return None
+        if confidence_decision.get("decision") != "safety_fallback_inspect_file":
+            return None
+        if target_decision.get("decision") != "nodeid_restored_from_ci_and_inspection":
+            return None
+        skill_id = str(confidence_decision.get("skill_id") or "")
+        if not skill_id:
+            return None
+        return {
+            "skill_id": skill_id,
+            "confidence_level": confidence_decision.get("level"),
+            "fallback_decision": confidence_decision.get("decision"),
+            "target_decision": target_decision.get("decision"),
+            "target": resume_next.get("target"),
+            "fallback_inspect_action_id": resume_next.get("from_action_id"),
+            "source_action_id": confidence_decision.get("source_action_id"),
+        }
+
+    def _patch_mission_action_has_consumed_owner_approval(
+        self, action_id: str
+    ) -> bool:
+        row = self.db.query_one(
+            "SELECT status,approval_id FROM actions WHERE action_id=?",
+            (action_id,),
+        )
+        if row is None or row["status"] != ActionStatus.SUCCEEDED.value:
+            return False
+        approval_id = str(row["approval_id"] or "")
+        if not approval_id:
+            return False
+        approval = self.db.query_one(
+            "SELECT decision,consumed_at FROM approvals WHERE approval_id=?",
+            (approval_id,),
+        )
+        return bool(
+            approval is not None
+            and approval["decision"] == "APPROVE"
+            and approval["consumed_at"]
+        )
+
+    def _patch_mission_failure_learning_for_test(
+        self, test_action_id: str
+    ) -> dict[str, Any] | None:
+        records = self.db.get_runtime("patch_mission_failure_learning", [])
+        if not isinstance(records, list):
+            return None
+        for item in records:
+            if not isinstance(item, dict):
+                continue
+            if item.get("test_action_id") != test_action_id:
+                continue
+            memory_id = str(item.get("memory_id") or "")
+            if not memory_id:
+                continue
+            row = self.db.query_one(
+                "SELECT content_json FROM memories WHERE memory_id=?",
+                (memory_id,),
+            )
+            if row is None:
+                continue
+            try:
+                content = json.loads(row["content_json"])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(content, dict):
+                return {**content, **item, "memory_content": content}
+            return {**item, "memory_content": content}
+        return None
+
+    def _record_patch_mission_repair_skill_candidate(
+        self, *, success_records: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        pattern_family = "patch_mission_pytest_literal_mismatch_repair"
+        relevant = [
+            record
+            for record in success_records
+            if isinstance(record, dict)
+            and record.get("pattern_family") == pattern_family
+            and record.get("passing_returncode") == 0
+            and record.get("patch_target")
+        ]
+        if len(relevant) < 2:
+            return {
+                "available": False,
+                "reason": "fewer than two successful literal-mismatch repairs",
+                "repeat_count": len(relevant),
+            }
+        source_ids: list[str] = []
+        for record in relevant[:5]:
+            for key in (
+                "success_evidence_id",
+                "failure_learning_evidence_id",
+                "memory_id",
+                "failing_test_action_id",
+                "draft_action_id",
+                "apply_action_id",
+                "passing_test_action_id",
+            ):
+                value = record.get(key)
+                if value:
+                    source_ids.append(str(value))
+        source_ids = list(dict.fromkeys(source_ids))
+        proposal = {
+            "schema_version": 1,
+            "candidate_only": True,
+            "pattern_family": pattern_family,
+            "minimum_success_count": 2,
+            "observed_success_count": len(relevant),
+            "trigger": (
+                "Patch Mission has owner-approved failing pytest evidence with a "
+                "literal expected/actual mismatch and a synthesized single-file diff."
+            ),
+            "steps": [
+                "Inspect PR/local failure evidence and choose the narrow pytest target.",
+                "Run the owner-approved local pytest reproduction.",
+                "Record cause, fix, and regression notes from the failing output.",
+                "Draft an outbox-only unified diff for owner review.",
+                "Apply the exact approved diff to the canonical repo file.",
+                "Rerun the narrow pytest target, then prepare the outbox PR summary.",
+            ],
+            "tools": [
+                "inspect_github_pr_status",
+                "inspect_github_ci_logs",
+                "run_command: python -m pytest <target>",
+                "write_file: WLS outbox draft",
+                "write_file: owner-approved repo patch",
+            ],
+            "risks": [
+                "GitHub and local command actions remain owner-approved HIGH actions.",
+                "Repo writes are exact approved writes only.",
+                "No commit, push, PR creation, or skill promotion is authorized by this candidate.",
+            ],
+            "verification": [
+                "Passing pytest action must return 0 after the approved patch.",
+                "PR summary must cite failing evidence, applied patch, and passing verification.",
+            ],
+            "rollback": [
+                "Use the recorded outbox diff and action evidence to review or reverse the file write.",
+                "If later committed, use normal git revert/reset under owner approval.",
+            ],
+            "owner_review_required": True,
+            "claim_ceiling": (
+                "PROPOSED repair skill candidate only; no sandbox, approval, promotion, "
+                "active skill, or external authority"
+            ),
+        }
+        candidate_type = "patch_mission_repair_skill"
+        title = "Candidate skill: repair Patch Mission pytest literal mismatch"
+        candidate_id = self.learning._upsert_candidate(
+            candidate_type=candidate_type,
+            title=title,
+            proposal=proposal,
+            source_ids=source_ids,
+        )
+        created = candidate_id is not None
+        if candidate_id is None:
+            candidate_id = self._patch_mission_existing_evolution_candidate_id(
+                candidate_type=candidate_type,
+                proposal=proposal,
+            )
+        return {
+            "available": bool(candidate_id),
+            "candidate_id": candidate_id,
+            "created": created,
+            "candidate_type": candidate_type,
+            "repeat_count": len(relevant),
+            "source_ids": source_ids,
+            "claim_ceiling": proposal["claim_ceiling"],
+        }
+
+    def _patch_mission_existing_evolution_candidate_id(
+        self, *, candidate_type: str, proposal: dict[str, Any]
+    ) -> str | None:
+        fingerprint = json.dumps(
+            {"type": candidate_type, "proposal": proposal}, sort_keys=True
+        )
+        row = self.db.query_one(
+            """
+            SELECT candidate_id FROM evolution_candidates
+            WHERE candidate_type=? AND proposal_json=? AND status NOT IN ('REJECTED','ROLLED_BACK')
+            ORDER BY created_at DESC LIMIT 1
+            """,
+            (candidate_type, fingerprint),
+        )
+        if row is None:
+            return None
+        return str(row["candidate_id"])
+
+    def review_patch_mission_repair_skill_candidate(
+        self, *, candidate_id: str, reason: str = ""
+    ) -> dict[str, Any]:
+        row = self.db.query_one(
+            "SELECT * FROM evolution_candidates WHERE candidate_id=?",
+            (candidate_id,),
+        )
+        if row is None:
+            raise KeyError(f"unknown candidate: {candidate_id}")
+        if row["candidate_type"] != "patch_mission_repair_skill":
+            raise ValueError("candidate is not a Patch Mission repair skill candidate")
+        if row["status"] in {CandidateStatus.REJECTED.value, CandidateStatus.ROLLED_BACK.value}:
+            raise ValueError(f"candidate cannot be replayed from status {row['status']}")
+        proposal_envelope = json.loads(str(row["proposal_json"]))
+        proposal = proposal_envelope.get("proposal")
+        if not isinstance(proposal, dict):
+            raise ValueError("candidate proposal is malformed")
+        source_ids = json.loads(str(row["source_ids_json"]))
+        if not isinstance(source_ids, list):
+            source_ids = []
+        source_id_set = {str(item) for item in source_ids}
+        success_records = self._patch_mission_candidate_success_records(source_id_set)
+        sample_reviews = [
+            self._patch_mission_replay_success_record(record, source_id_set)
+            for record in success_records
+        ]
+        passed_samples = [
+            item for item in sample_reviews if item.get("status") == "SAMPLE_PASSED"
+        ]
+        required_fields = [
+            "trigger",
+            "steps",
+            "tools",
+            "risks",
+            "verification",
+            "rollback",
+        ]
+        proposal_complete = (
+            proposal.get("candidate_only") is True
+            and proposal.get("owner_review_required") is True
+            and all(proposal.get(field) for field in required_fields)
+        )
+        replay_passed = proposal_complete and len(passed_samples) >= 2
+        receipt = {
+            "receipt_type": "PATCH_MISSION_REPAIR_SKILL_CANDIDATE_REPLAY",
+            "status": "REPLAY_PASSED" if replay_passed else "REPLAY_FAILED",
+            "candidate_id": candidate_id,
+            "candidate_type": row["candidate_type"],
+            "candidate_status_before": row["status"],
+            "candidate_status_after": row["status"],
+            "reason": reason,
+            "proposal_complete": proposal_complete,
+            "required_fields": required_fields,
+            "source_id_count": len(source_id_set),
+            "sample_count": len(sample_reviews),
+            "passed_sample_count": len(passed_samples),
+            "samples": sample_reviews[:10],
+            "candidate_only": True,
+            "approval_executed": False,
+            "promotion_executed": False,
+            "active_skill_created": False,
+            "command_executed": False,
+            "external_action_executed": False,
+            "claim_ceiling": (
+                "evidence replay for Patch Mission repair skill candidate only; "
+                "no status transition, sandbox execution, approval, promotion, "
+                "active skill, command, push, or PR is inferred"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.db.get_runtime(
+            "patch_mission_repair_skill_candidate_reviews", []
+        )
+        if not isinstance(current, list):
+            current = []
+        updated = [
+            receipt,
+            *[
+                item
+                for item in current
+                if isinstance(item, dict)
+                and item.get("candidate_id") != candidate_id
+            ],
+        ][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime(
+                "patch_mission_repair_skill_candidate_reviews",
+                updated,
+                connection,
+            )
+            self.ledger.append(
+                "patch_mission_repair_skill_candidate_replayed",
+                receipt,
+                connection,
+            )
+        return receipt
+
+    def sandbox_patch_mission_repair_skill_candidate(
+        self,
+        *,
+        candidate_id: str,
+        reason: str = "",
+        owner_approved: bool = False,
+    ) -> dict[str, Any]:
+        if not owner_approved:
+            raise PermissionError("Patch Mission repair candidate sandbox requires owner approval")
+        row = self.db.query_one(
+            "SELECT * FROM evolution_candidates WHERE candidate_id=?",
+            (candidate_id,),
+        )
+        if row is None:
+            raise KeyError(f"unknown candidate: {candidate_id}")
+        if row["candidate_type"] != "patch_mission_repair_skill":
+            raise ValueError("candidate is not a Patch Mission repair skill candidate")
+        if row["status"] not in {
+            CandidateStatus.PROPOSED.value,
+            CandidateStatus.SANDBOXED.value,
+        }:
+            raise ValueError(f"candidate cannot be sandboxed from status {row['status']}")
+        replay = self._patch_mission_repair_candidate_latest_replay(candidate_id)
+        if replay is None or replay.get("status") != "REPLAY_PASSED":
+            raise ValueError("candidate sandbox requires a passing replay receipt first")
+        samples = replay.get("samples", [])
+        sample = next(
+            (
+                item
+                for item in samples
+                if isinstance(item, dict)
+                and item.get("status") == "SAMPLE_PASSED"
+            ),
+            None,
+        )
+        if not isinstance(sample, dict):
+            raise ValueError("candidate replay has no passing sample")
+        literal_pair = self._patch_mission_literal_pair_from_sample(sample)
+        if literal_pair is None:
+            raise ValueError("candidate sample does not expose a literal mismatch pair")
+        actual, expected = literal_pair
+        experiment_id = new_id("patch_repair_sandbox")
+        artifact_dir = (
+            self.config.sandbox_path
+            / "patch-mission-repair-candidates"
+            / experiment_id
+        )
+        repo_root = artifact_dir / "repo"
+        tests_root = repo_root / "tests"
+        tests_root.mkdir(parents=True, exist_ok=False)
+        patch_target = str(sample.get("patch_target") or "demo.py").replace("\\", "/")
+        patch_path = repo_root / patch_target
+        if not self.policy._contained(patch_path.resolve(strict=False), repo_root.resolve(strict=False)):
+            raise PermissionError("sandbox patch target must stay inside sandbox repo")
+        patch_path.parent.mkdir(parents=True, exist_ok=True)
+        module_name = Path(patch_target).with_suffix("").name or "demo"
+        function_name = "greet"
+        patch_path.write_text(
+            f"def {function_name}():\n    return {actual!r}\n",
+            encoding="utf-8",
+        )
+        test_file = str(sample.get("pytest_target") or "tests/test_demo.py").split(
+            "::", 1
+        )[0]
+        test_path = repo_root / test_file
+        if not self.policy._contained(test_path.resolve(strict=False), repo_root.resolve(strict=False)):
+            raise PermissionError("sandbox test target must stay inside sandbox repo")
+        test_path.parent.mkdir(parents=True, exist_ok=True)
+        test_path.write_text(
+            f"from {module_name} import {function_name}\n\n"
+            "def test_demo():\n"
+            f"    assert {function_name}() == {expected!r}\n",
+            encoding="utf-8",
+        )
+        (repo_root / "pyproject.toml").write_text(
+            "[tool.pytest.ini_options]\n",
+            encoding="utf-8",
+        )
+        pytest_target = str(sample.get("pytest_target") or test_file)
+        failing = self._run_patch_mission_sandbox_pytest(
+            repo_root=repo_root, pytest_target=pytest_target
+        )
+        repo_map = self.repo_explorer.explore(repo_root)
+        selected_file = test_file.replace("\\", "/")
+        synthesis = self._patch_mission_synthesize_diff_from_test_result(
+            repo_root=repo_root,
+            repo_map=repo_map,
+            selected_file=selected_file,
+            output_text="\n".join(
+                part
+                for part in (failing.get("stdout", ""), failing.get("stderr", ""))
+                if part
+            ),
+        )
+        applied_file = None
+        if synthesis.get("status") == "synthesized_literal_diff":
+            applied_file, revised = self._apply_single_file_unified_diff(
+                repo_root=repo_root,
+                diff_text=str(synthesis.get("diff") or ""),
+            )
+            (repo_root / applied_file).write_text(revised, encoding="utf-8")
+        passing = self._run_patch_mission_sandbox_pytest(
+            repo_root=repo_root, pytest_target=pytest_target
+        )
+        passed = (
+            int(failing.get("returncode", -1)) != 0
+            and synthesis.get("status") == "synthesized_literal_diff"
+            and applied_file == patch_target
+            and int(passing.get("returncode", -1)) == 0
+        )
+        manifest = {
+            "experiment_id": experiment_id,
+            "candidate_id": candidate_id,
+            "candidate_type": row["candidate_type"],
+            "reason": reason,
+            "mode": "disposable_fixture_repo",
+            "artifact_dir": str(artifact_dir),
+            "repo_root": str(repo_root),
+            "pytest_target": pytest_target,
+            "patch_target": patch_target,
+            "actual": actual,
+            "expected": expected,
+            "source_replay_digest": replay.get("receipt_digest"),
+            "owner_approved": True,
+            "canonical_repo_write_executed": False,
+            "external_action_executed": False,
+            "promotion_executed": False,
+            "created_at": utc_now(),
+        }
+        result = {
+            "passed": passed,
+            "failing_returncode": failing.get("returncode"),
+            "passing_returncode": passing.get("returncode"),
+            "synthesis_status": synthesis.get("status"),
+            "applied_file": applied_file,
+            "diff_sha256": hashlib.sha256(
+                str(synthesis.get("diff") or "").encode("utf-8")
+            ).hexdigest(),
+            "failing_stdout_excerpt": self._bounded_test_excerpt(
+                str(failing.get("stdout") or ""), limit=1200
+            ),
+            "passing_stdout_excerpt": self._bounded_test_excerpt(
+                str(passing.get("stdout") or ""), limit=1200
+            ),
+        }
+        manifest_sha256 = digest_json(manifest)
+        result_sha256 = digest_json(result)
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        (artifact_dir / "manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        (artifact_dir / "result.json").write_text(
+            json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        receipt = {
+            "receipt_type": "PATCH_MISSION_REPAIR_SKILL_CANDIDATE_SANDBOX",
+            "status": "SANDBOX_PASSED" if passed else "SANDBOX_FAILED",
+            "candidate_id": candidate_id,
+            "experiment_id": experiment_id,
+            "candidate_status_before": row["status"],
+            "candidate_status_after": CandidateStatus.SANDBOXED.value
+            if row["status"] == CandidateStatus.PROPOSED.value
+            else row["status"],
+            "manifest_path": str(artifact_dir / "manifest.json"),
+            "result_path": str(artifact_dir / "result.json"),
+            "manifest_sha256": manifest_sha256,
+            "result_sha256": result_sha256,
+            "result": result,
+            "candidate_only": True,
+            "owner_approved": True,
+            "command_executed": True,
+            "sandbox_only": True,
+            "canonical_repo_write_executed": False,
+            "external_action_executed": False,
+            "approval_transition_executed": False,
+            "promotion_executed": False,
+            "active_skill_created": False,
+            "claim_ceiling": (
+                "owner-approved disposable sandbox validation only; no canonical repo "
+                "write, external action, approval transition, promotion, or active skill"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.db.get_runtime(
+            "patch_mission_repair_skill_candidate_sandboxes", []
+        )
+        if not isinstance(current, list):
+            current = []
+        updated = [
+            receipt,
+            *[
+                item
+                for item in current
+                if isinstance(item, dict)
+                and item.get("candidate_id") != candidate_id
+            ],
+        ][:100]
+        with self.db.transaction() as connection:
+            if row["status"] == CandidateStatus.PROPOSED.value:
+                connection.execute(
+                    "UPDATE evolution_candidates SET status=?,experiment_json=?,updated_at=? WHERE candidate_id=?",
+                    (
+                        CandidateStatus.SANDBOXED.value,
+                        json.dumps(receipt, ensure_ascii=False, sort_keys=True),
+                        utc_now(),
+                        candidate_id,
+                    ),
+                )
+                self.ledger.append(
+                    "evolution_candidate_transition",
+                    {
+                        "candidate_id": candidate_id,
+                        "from": row["status"],
+                        "to": CandidateStatus.SANDBOXED.value,
+                        "evidence": {
+                            "experiment_id": experiment_id,
+                            "manifest_sha256": manifest_sha256,
+                            "result_sha256": result_sha256,
+                            "owner_approved": True,
+                        },
+                    },
+                    connection,
+                )
+            else:
+                connection.execute(
+                    "UPDATE evolution_candidates SET experiment_json=?,updated_at=? WHERE candidate_id=?",
+                    (
+                        json.dumps(receipt, ensure_ascii=False, sort_keys=True),
+                        utc_now(),
+                        candidate_id,
+                    ),
+                )
+            self.db.set_runtime(
+                "patch_mission_repair_skill_candidate_sandboxes",
+                updated,
+                connection,
+            )
+            self.ledger.append(
+                "patch_mission_repair_skill_candidate_sandboxed",
+                receipt,
+                connection,
+            )
+        return receipt
+
+    def validate_patch_mission_repair_skill_candidate(
+        self,
+        *,
+        candidate_id: str,
+        reason: str = "",
+        human_approved: bool = False,
+    ) -> dict[str, Any]:
+        if not human_approved:
+            raise PermissionError(
+                "Patch Mission repair candidate validation requires human approval"
+            )
+        row = self.db.query_one(
+            "SELECT * FROM evolution_candidates WHERE candidate_id=?",
+            (candidate_id,),
+        )
+        if row is None:
+            raise KeyError(f"unknown candidate: {candidate_id}")
+        if row["candidate_type"] != "patch_mission_repair_skill":
+            raise ValueError("candidate is not a Patch Mission repair skill candidate")
+        if row["status"] != CandidateStatus.SANDBOXED.value:
+            raise ValueError(
+                f"candidate validation requires SANDBOXED status, got {row['status']}"
+            )
+        if not row["experiment_json"]:
+            raise ValueError("candidate has no sandbox experiment evidence")
+        sandbox_receipt = json.loads(str(row["experiment_json"]))
+        if sandbox_receipt.get("status") != "SANDBOX_PASSED":
+            raise ValueError("candidate sandbox did not pass")
+        if sandbox_receipt.get("candidate_id") != candidate_id:
+            raise ValueError("sandbox receipt belongs to a different candidate")
+        manifest_path = Path(str(sandbox_receipt.get("manifest_path") or "")).resolve(
+            strict=True
+        )
+        result_path = Path(str(sandbox_receipt.get("result_path") or "")).resolve(
+            strict=True
+        )
+        sandbox_root = self.config.sandbox_path.resolve(strict=False)
+        if not self.policy._contained(manifest_path, sandbox_root):
+            raise PermissionError("sandbox manifest must stay inside sandbox path")
+        if not self.policy._contained(result_path, sandbox_root):
+            raise PermissionError("sandbox result must stay inside sandbox path")
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        result = json.loads(result_path.read_text(encoding="utf-8"))
+        manifest_sha256 = digest_json(manifest)
+        result_sha256 = digest_json(result)
+        if sandbox_receipt.get("manifest_sha256") != manifest_sha256:
+            raise ValueError("sandbox manifest digest mismatch")
+        if sandbox_receipt.get("result_sha256") != result_sha256:
+            raise ValueError("sandbox result digest mismatch")
+        if manifest.get("candidate_id") != candidate_id:
+            raise ValueError("sandbox manifest belongs to a different candidate")
+        if manifest.get("experiment_id") != sandbox_receipt.get("experiment_id"):
+            raise ValueError("sandbox manifest experiment id mismatch")
+        if not result.get("passed"):
+            raise ValueError("sandbox result did not pass")
+        validation = {
+            "receipt_type": "PATCH_MISSION_REPAIR_SKILL_CANDIDATE_VALIDATION",
+            "status": "VALIDATED",
+            "candidate_id": candidate_id,
+            "candidate_type": row["candidate_type"],
+            "candidate_status_before": row["status"],
+            "candidate_status_after": CandidateStatus.VALIDATED.value,
+            "experiment_id": sandbox_receipt.get("experiment_id"),
+            "reason": reason,
+            "manifest_sha256": manifest_sha256,
+            "result_sha256": result_sha256,
+            "sandbox_receipt_digest": sandbox_receipt.get("receipt_digest"),
+            "validated_result": {
+                "passed": bool(result.get("passed")),
+                "failing_returncode": result.get("failing_returncode"),
+                "passing_returncode": result.get("passing_returncode"),
+                "synthesis_status": result.get("synthesis_status"),
+                "applied_file": result.get("applied_file"),
+            },
+            "human_approved": True,
+            "candidate_only": True,
+            "approval_transition_executed": False,
+            "promotion_executed": False,
+            "active_skill_created": False,
+            "command_executed": False,
+            "canonical_repo_write_executed": False,
+            "external_action_executed": False,
+            "claim_ceiling": (
+                "human-approved validation of disposable sandbox evidence only; "
+                "no approval transition, promotion, active skill, command, "
+                "canonical repo write, push, or PR is inferred"
+            ),
+            "created_at": utc_now(),
+        }
+        validation["receipt_digest"] = digest_json(validation)
+        current = self.db.get_runtime(
+            "patch_mission_repair_skill_candidate_validations", []
+        )
+        if not isinstance(current, list):
+            current = []
+        updated = [
+            validation,
+            *[
+                item
+                for item in current
+                if isinstance(item, dict)
+                and item.get("candidate_id") != candidate_id
+            ],
+        ][:100]
+        with self.db.transaction() as connection:
+            connection.execute(
+                "UPDATE evolution_candidates SET status=?,result_json=?,updated_at=? WHERE candidate_id=?",
+                (
+                    CandidateStatus.VALIDATED.value,
+                    json.dumps(validation, ensure_ascii=False, sort_keys=True),
+                    utc_now(),
+                    candidate_id,
+                ),
+            )
+            self.db.set_runtime(
+                "patch_mission_repair_skill_candidate_validations",
+                updated,
+                connection,
+            )
+            self.ledger.append(
+                "evolution_candidate_transition",
+                {
+                    "candidate_id": candidate_id,
+                    "from": row["status"],
+                    "to": CandidateStatus.VALIDATED.value,
+                    "evidence": {
+                        "experiment_id": sandbox_receipt.get("experiment_id"),
+                        "manifest_sha256": manifest_sha256,
+                        "result_sha256": result_sha256,
+                        "human_approved": True,
+                    },
+                },
+                connection,
+            )
+            self.ledger.append(
+                "patch_mission_repair_skill_candidate_validated",
+                validation,
+                connection,
+            )
+        return validation
+
+    def propose_patch_mission_repair_skill_from_candidate(
+        self, *, candidate_id: str, reason: str = ""
+    ) -> dict[str, Any]:
+        row = self.db.query_one(
+            "SELECT * FROM evolution_candidates WHERE candidate_id=?",
+            (candidate_id,),
+        )
+        if row is None:
+            raise KeyError(f"unknown candidate: {candidate_id}")
+        if row["candidate_type"] != "patch_mission_repair_skill":
+            raise ValueError("candidate is not a Patch Mission repair skill candidate")
+        if row["status"] != CandidateStatus.VALIDATED.value:
+            raise ValueError(
+                f"skill proposal requires VALIDATED candidate, got {row['status']}"
+            )
+        proposal_envelope = json.loads(str(row["proposal_json"]))
+        proposal = proposal_envelope.get("proposal")
+        if not isinstance(proposal, dict):
+            raise ValueError("candidate proposal is malformed")
+        validation = json.loads(str(row["result_json"] or "{}"))
+        if validation.get("status") != "VALIDATED":
+            raise ValueError("candidate validation evidence is missing")
+        source_ids = json.loads(str(row["source_ids_json"]))
+        if not isinstance(source_ids, list):
+            source_ids = []
+        source_episode_ids = list(
+            dict.fromkeys(
+                [
+                    candidate_id,
+                    str(validation.get("receipt_digest") or ""),
+                    str(validation.get("experiment_id") or ""),
+                    *[str(item) for item in source_ids],
+                ]
+            )
+        )
+        source_episode_ids = [item for item in source_episode_ids if item]
+        skill_name = "patch_mission_repair_pytest_literal_mismatch"
+        existing = self.db.query_one(
+            "SELECT skill_id,status,definition_json FROM skills WHERE name=? ORDER BY version DESC LIMIT 1",
+            (skill_name,),
+        )
+        if existing is not None:
+            definition = json.loads(str(existing["definition_json"]))
+            return {
+                "receipt_type": "PATCH_MISSION_REPAIR_SKILL_PROPOSAL",
+                "status": "EXISTING_PROPOSAL",
+                "skill_id": existing["skill_id"],
+                "skill_status": existing["status"],
+                "definition": definition,
+                "candidate_id": candidate_id,
+                "candidate_status": row["status"],
+                "created": False,
+                "candidate_only": True,
+                "active_skill_created": existing["status"]
+                in {CandidateStatus.APPROVED.value, CandidateStatus.PROMOTED.value},
+                "promotion_executed": False,
+                "created_at": utc_now(),
+            }
+        steps = [
+            {
+                "tool": "inspect_github_pr_status",
+                "arguments": {
+                    "owner": "<owner>",
+                    "repo": "<repo>",
+                    "number": "<pull_request_number>",
+                    "token_env": "GITHUB_TOKEN",
+                },
+                "purpose": "Read PR status and bounded CI failure summaries for a Patch Mission.",
+            },
+            {
+                "tool": "inspect_github_ci_logs",
+                "arguments": {
+                    "owner": "<owner>",
+                    "repo": "<repo>",
+                    "workflow_run_ids": "<failed_run_ids>",
+                    "token_env": "GITHUB_TOKEN",
+                    "max_runs": 3,
+                    "max_jobs": 5,
+                    "max_log_bytes": 65536,
+                },
+                "purpose": "Capture bounded failed job excerpts before choosing a local repair.",
+            },
+            {
+                "tool": "run_command",
+                "arguments": {
+                    "command": ["python", "-m", "pytest", "<safe_pytest_target>"],
+                    "cwd": "<repo_root>",
+                    "timeout": 120,
+                },
+                "purpose": "Owner-approved narrow local pytest reproduction.",
+            },
+            {
+                "tool": "write_file",
+                "arguments": {
+                    "path": "<wls_outbox>/patch-missions/<mission_id>/test-result-patch-draft.md",
+                    "content": "<owner_reviewable_unified_diff_draft>",
+                },
+                "purpose": "Write outbox-only patch draft from approved failure evidence.",
+            },
+            {
+                "tool": "write_file",
+                "arguments": {
+                    "path": "<repo_root>/<patch_target>",
+                    "content": "<approved_revised_file_content>",
+                },
+                "purpose": "Apply exact owner-approved single-file repair to the canonical repo.",
+            },
+            {
+                "tool": "run_command",
+                "arguments": {
+                    "command": ["python", "-m", "pytest", "<safe_pytest_target>"],
+                    "cwd": "<repo_root>",
+                    "timeout": 120,
+                },
+                "purpose": "Owner-approved verification after the exact patch.",
+            },
+        ]
+        description = "\n".join(
+            [
+                "Repair a Patch Mission pytest literal mismatch through the bounded PR/CI loop.",
+                f"Trigger: {proposal.get('trigger')}",
+                "Risks: " + "; ".join(str(item) for item in proposal.get("risks", [])),
+                "Verification: "
+                + "; ".join(str(item) for item in proposal.get("verification", [])),
+                "Rollback: "
+                + "; ".join(str(item) for item in proposal.get("rollback", [])),
+                "Claim ceiling: proposed declarative skill only; not active or promoted.",
+            ]
+        )
+        skill = SkillDefinition(
+            name=skill_name,
+            description=description,
+            trigger_terms=[
+                "patch",
+                "mission",
+                "pytest",
+                "literal",
+                "mismatch",
+                "ci",
+                "github",
+                "repair",
+            ],
+            steps=steps,
+            risk=RiskLevel.HIGH,
+            status=CandidateStatus.PROPOSED,
+            source_episode_ids=source_episode_ids,
+        )
+        skill_id = self.skills.add(skill)
+        row_after = self.db.query_one(
+            "SELECT skill_id,status,definition_json FROM skills WHERE skill_id=?",
+            (skill_id,),
+        )
+        definition = (
+            json.loads(str(row_after["definition_json"])) if row_after is not None else {}
+        )
+        receipt = {
+            "receipt_type": "PATCH_MISSION_REPAIR_SKILL_PROPOSAL",
+            "status": "SKILL_PROPOSED",
+            "skill_id": skill_id,
+            "skill_status": CandidateStatus.PROPOSED.value,
+            "candidate_id": candidate_id,
+            "candidate_status": row["status"],
+            "reason": reason,
+            "definition": definition,
+            "source_episode_ids": source_episode_ids,
+            "candidate_only": True,
+            "active_skill_created": False,
+            "approval_executed": False,
+            "promotion_executed": False,
+            "command_executed": False,
+            "external_action_executed": False,
+            "claim_ceiling": (
+                "PROPOSED declarative skill only; no approval, promotion, active use, "
+                "command, repo write, push, or PR is inferred"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.skill_candidate_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("skill_candidate_receipts", updated, connection)
+            self.ledger.append(
+                "patch_mission_repair_skill_proposed",
+                receipt,
+                connection,
+            )
+        return receipt
+
+    def start_patch_mission_repair_skill_sandbox(
+        self, *, skill_id: str, reason: str = ""
+    ) -> dict[str, Any]:
+        row = self.db.query_one(
+            "SELECT skill_id,name,version,status,definition_json FROM skills WHERE skill_id=?",
+            (skill_id,),
+        )
+        if row is None:
+            raise KeyError(f"unknown skill: {skill_id}")
+        if row["name"] != "patch_mission_repair_pytest_literal_mismatch":
+            raise ValueError("skill is not a Patch Mission repair proposal")
+        if row["status"] != CandidateStatus.PROPOSED.value:
+            raise ValueError(
+                f"Patch Mission repair skill sandbox requires PROPOSED status, got {row['status']}"
+            )
+        definition = json.loads(str(row["definition_json"]))
+        candidate_id = next(
+            (
+                str(item)
+                for item in definition.get("source_episode_ids", [])
+                if str(item).startswith("candidate_")
+            ),
+            "",
+        )
+        if not candidate_id:
+            raise ValueError("Patch Mission repair skill proposal has no source candidate")
+        candidate_row = self.db.query_one(
+            "SELECT candidate_id,status,result_json FROM evolution_candidates WHERE candidate_id=?",
+            (candidate_id,),
+        )
+        if candidate_row is None:
+            raise ValueError("source candidate does not exist")
+        if candidate_row["status"] != CandidateStatus.VALIDATED.value:
+            raise ValueError("source candidate must be VALIDATED before skill sandbox")
+        validation = json.loads(str(candidate_row["result_json"] or "{}"))
+        if validation.get("status") != "VALIDATED":
+            raise ValueError("source candidate validation evidence is missing")
+        experiment_id = new_id("patch_skill_exp")
+        artifact_dir = self.config.sandbox_path / "patch-mission-skills" / experiment_id
+        artifact_dir.mkdir(parents=True, exist_ok=False)
+        manifest = {
+            "experiment_id": experiment_id,
+            "skill_id": skill_id,
+            "skill_name": row["name"],
+            "skill_version": int(row["version"]),
+            "definition_sha256": digest_json(definition),
+            "source_candidate_id": candidate_id,
+            "source_candidate_status": candidate_row["status"],
+            "source_validation_digest": validation.get("receipt_digest"),
+            "source_sandbox_experiment_id": validation.get("experiment_id"),
+            "reason": reason,
+            "mode": "patch_mission_repair_skill_sandbox_start",
+            "candidate_cases": [
+                {
+                    "case_id": "validated-candidate",
+                    "candidate_id": candidate_id,
+                    "validation_digest": validation.get("receipt_digest"),
+                    "result_sha256": validation.get("result_sha256"),
+                }
+            ],
+            "allowed_tools": [
+                "inspect_github_pr_status",
+                "inspect_github_ci_logs",
+                "run_command",
+                "write_file",
+            ],
+            "authority": {
+                "active_skill_created": False,
+                "approval_executed": False,
+                "promotion_executed": False,
+                "command_executed": False,
+                "external_action_executed": False,
+                "canonical_repo_write_executed": False,
+            },
+            "created_at": utc_now(),
+        }
+        baseline = {
+            "source": "validated_patch_mission_repair_candidate",
+            "candidate_id": candidate_id,
+            "candidate_status": candidate_row["status"],
+            "skill_status_before": row["status"],
+            "definition_step_count": len(definition.get("steps", []) or []),
+            "risk": definition.get("risk"),
+        }
+        manifest_sha256 = digest_json(manifest)
+        (artifact_dir / "manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        with self.db.transaction() as connection:
+            connection.execute(
+                """
+                INSERT INTO skill_experiments(
+                    experiment_id,skill_id,skill_version,status,manifest_json,
+                    baseline_json,result_json,artifact_path,started_at,finished_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,NULL)
+                """,
+                (
+                    experiment_id,
+                    skill_id,
+                    int(row["version"]),
+                    "RUNNING",
+                    json.dumps(manifest, ensure_ascii=False, sort_keys=True),
+                    json.dumps(baseline, ensure_ascii=False, sort_keys=True),
+                    None,
+                    str(artifact_dir),
+                    utc_now(),
+                ),
+            )
+            self.ledger.append(
+                "patch_mission_repair_skill_sandbox_started",
+                {
+                    "experiment_id": experiment_id,
+                    "skill_id": skill_id,
+                    "candidate_id": candidate_id,
+                    "manifest_sha256": manifest_sha256,
+                },
+                connection,
+            )
+        self.skills.transition(
+            skill_id,
+            CandidateStatus.SANDBOXED,
+            {"experiment_id": experiment_id, "manifest_sha256": manifest_sha256},
+        )
+        receipt = {
+            "receipt_type": "PATCH_MISSION_REPAIR_SKILL_SANDBOX_START",
+            "status": "SKILL_SANDBOXED",
+            "skill_id": skill_id,
+            "skill_status_before": row["status"],
+            "skill_status_after": CandidateStatus.SANDBOXED.value,
+            "candidate_id": candidate_id,
+            "experiment_id": experiment_id,
+            "manifest_path": str(artifact_dir / "manifest.json"),
+            "manifest_sha256": manifest_sha256,
+            "candidate_only": True,
+            "active_skill_created": False,
+            "approval_executed": False,
+            "promotion_executed": False,
+            "command_executed": False,
+            "external_action_executed": False,
+            "canonical_repo_write_executed": False,
+            "claim_ceiling": (
+                "skill sandbox started only; no validation result, approval, "
+                "promotion, active use, command, repo write, push, or PR"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.skill_sandbox_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("skill_sandbox_receipts", updated, connection)
+            self.ledger.append(
+                "patch_mission_repair_skill_sandbox_receipt_recorded",
+                receipt,
+                connection,
+            )
+        return receipt
+
+    def validate_patch_mission_repair_skill_sandbox(
+        self, *, skill_id: str, reason: str = ""
+    ) -> dict[str, Any]:
+        row = self.db.query_one(
+            "SELECT skill_id,name,version,status,definition_json FROM skills WHERE skill_id=?",
+            (skill_id,),
+        )
+        if row is None:
+            raise KeyError(f"unknown skill: {skill_id}")
+        if row["name"] != "patch_mission_repair_pytest_literal_mismatch":
+            raise ValueError("skill is not a Patch Mission repair proposal")
+        if row["status"] != CandidateStatus.SANDBOXED.value:
+            raise ValueError(
+                f"Patch Mission repair skill validation requires SANDBOXED status, got {row['status']}"
+            )
+        experiment = self.db.query_one(
+            """
+            SELECT * FROM skill_experiments
+            WHERE skill_id=? AND status='RUNNING'
+            ORDER BY started_at DESC LIMIT 1
+            """,
+            (skill_id,),
+        )
+        if experiment is None:
+            raise ValueError("Patch Mission repair skill has no running sandbox experiment")
+        manifest = json.loads(str(experiment["manifest_json"]))
+        if manifest.get("skill_id") != skill_id:
+            raise ValueError("skill experiment manifest belongs to a different skill")
+        artifact_dir = Path(str(experiment["artifact_path"])).resolve(strict=True)
+        sandbox_root = self.config.sandbox_path.resolve(strict=False)
+        if not self.policy._contained(artifact_dir, sandbox_root):
+            raise PermissionError("skill experiment artifact path must stay inside sandbox")
+        manifest_path = artifact_dir / "manifest.json"
+        if not manifest_path.is_file():
+            raise ValueError("skill sandbox manifest artifact is missing")
+        manifest_artifact = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if digest_json(manifest_artifact) != digest_json(manifest):
+            raise ValueError("skill sandbox manifest artifact digest mismatch")
+        candidate_id = str(manifest.get("source_candidate_id") or "")
+        candidate_row = self.db.query_one(
+            "SELECT status,result_json FROM evolution_candidates WHERE candidate_id=?",
+            (candidate_id,),
+        )
+        if candidate_row is None or candidate_row["status"] != CandidateStatus.VALIDATED.value:
+            raise ValueError("source candidate must still be VALIDATED")
+        candidate_validation = json.loads(str(candidate_row["result_json"] or "{}"))
+        if (
+            candidate_validation.get("receipt_digest")
+            != manifest.get("source_validation_digest")
+        ):
+            raise ValueError("source candidate validation digest mismatch")
+        cases = manifest.get("candidate_cases", [])
+        if not isinstance(cases, list) or not cases:
+            raise ValueError("skill sandbox manifest has no candidate cases")
+        case_results: list[dict[str, Any]] = []
+        for case in cases:
+            if not isinstance(case, dict):
+                continue
+            passed = (
+                case.get("candidate_id") == candidate_id
+                and case.get("validation_digest")
+                == candidate_validation.get("receipt_digest")
+                and case.get("result_sha256")
+                == candidate_validation.get("result_sha256")
+                and candidate_validation.get("validated_result", {}).get("passed")
+                is True
+            )
+            case_results.append(
+                {
+                    "case_id": case.get("case_id"),
+                    "candidate_id": case.get("candidate_id"),
+                    "passed": passed,
+                    "validation_digest": case.get("validation_digest"),
+                    "result_sha256": case.get("result_sha256"),
+                }
+            )
+        passed_cases = sum(1 for item in case_results if item.get("passed") is True)
+        candidate_cases = len(case_results)
+        result = {
+            "passed": candidate_cases > 0 and passed_cases == candidate_cases,
+            "candidate_cases": candidate_cases,
+            "passed_cases": passed_cases,
+            "regressions": 0,
+            "case_results": case_results,
+            "source_candidate_id": candidate_id,
+            "source_validation_digest": candidate_validation.get("receipt_digest"),
+            "definition_sha256": manifest.get("definition_sha256"),
+            "reason": reason,
+            "active_skill_created": False,
+            "approval_executed": False,
+            "promotion_executed": False,
+            "command_executed": False,
+            "external_action_executed": False,
+            "canonical_repo_write_executed": False,
+            "created_at": utc_now(),
+        }
+        result_sha256 = digest_json(result)
+        result_path = artifact_dir / "result.json"
+        result_path.write_text(
+            json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        with self.db.transaction() as connection:
+            connection.execute(
+                "UPDATE skill_experiments SET status=?,result_json=?,finished_at=? WHERE experiment_id=?",
+                (
+                    "PASSED" if result["passed"] else "FAILED",
+                    json.dumps(result, ensure_ascii=False, sort_keys=True),
+                    utc_now(),
+                    experiment["experiment_id"],
+                ),
+            )
+            self.ledger.append(
+                "patch_mission_repair_skill_sandbox_completed",
+                {
+                    "experiment_id": experiment["experiment_id"],
+                    "skill_id": skill_id,
+                    "result_sha256": result_sha256,
+                    "passed": result["passed"],
+                },
+                connection,
+            )
+        if not result["passed"]:
+            raise ValueError("Patch Mission repair skill sandbox did not pass")
+        self.skills.transition(
+            skill_id,
+            CandidateStatus.VALIDATED,
+            {
+                "experiment_id": experiment["experiment_id"],
+                "result_sha256": result_sha256,
+            },
+        )
+        receipt = {
+            "receipt_type": "PATCH_MISSION_REPAIR_SKILL_VALIDATION",
+            "status": "SKILL_VALIDATED",
+            "skill_id": skill_id,
+            "skill_status_before": row["status"],
+            "skill_status_after": CandidateStatus.VALIDATED.value,
+            "candidate_id": candidate_id,
+            "experiment_id": experiment["experiment_id"],
+            "result_path": str(result_path),
+            "result_sha256": result_sha256,
+            "candidate_cases": candidate_cases,
+            "passed_cases": passed_cases,
+            "regressions": 0,
+            "candidate_only": True,
+            "active_skill_created": False,
+            "approval_executed": False,
+            "promotion_executed": False,
+            "command_executed": False,
+            "external_action_executed": False,
+            "canonical_repo_write_executed": False,
+            "claim_ceiling": (
+                "skill validation only; no approval, promotion, active use, "
+                "command, repo write, push, or PR"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.skill_sandbox_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("skill_sandbox_receipts", updated, connection)
+            self.ledger.append(
+                "patch_mission_repair_skill_validated",
+                receipt,
+                connection,
+            )
+        return receipt
+
+    def approve_patch_mission_repair_skill(
+        self,
+        *,
+        skill_id: str,
+        reason: str = "",
+        human_approved: bool = False,
+    ) -> dict[str, Any]:
+        if not human_approved:
+            raise PermissionError("Patch Mission repair skill approval requires human approval")
+        row = self.db.query_one(
+            "SELECT skill_id,name,version,status,definition_json FROM skills WHERE skill_id=?",
+            (skill_id,),
+        )
+        if row is None:
+            raise KeyError(f"unknown skill: {skill_id}")
+        if row["name"] != "patch_mission_repair_pytest_literal_mismatch":
+            raise ValueError("skill is not a Patch Mission repair proposal")
+        if row["status"] != CandidateStatus.VALIDATED.value:
+            raise ValueError(
+                f"Patch Mission repair skill approval requires VALIDATED status, got {row['status']}"
+            )
+        definition = json.loads(str(row["definition_json"]))
+        experiment = self.db.query_one(
+            """
+            SELECT * FROM skill_experiments
+            WHERE skill_id=? AND status='PASSED' AND result_json IS NOT NULL
+            ORDER BY finished_at DESC, started_at DESC LIMIT 1
+            """,
+            (skill_id,),
+        )
+        if experiment is None:
+            raise ValueError("Patch Mission repair skill has no passed sandbox result")
+        result = json.loads(str(experiment["result_json"]))
+        result_sha256 = digest_json(result)
+        if not result.get("passed"):
+            raise ValueError("Patch Mission repair skill result did not pass")
+        if int(result.get("regressions", 1)) != 0:
+            raise ValueError("Patch Mission repair skill result has regressions")
+        if int(result.get("passed_cases", 0)) < int(result.get("candidate_cases", 1)):
+            raise ValueError("Patch Mission repair skill did not pass every candidate case")
+
+        validation_transition: dict[str, Any] | None = None
+        for transition in reversed(definition.get("transition_evidence", [])):
+            if isinstance(transition, dict) and transition.get("target") == CandidateStatus.VALIDATED.value:
+                validation_transition = transition
+                break
+        if validation_transition is None:
+            raise ValueError("Patch Mission repair skill has no validation transition evidence")
+        validation_evidence = validation_transition.get("evidence", {})
+        if not isinstance(validation_evidence, dict):
+            raise ValueError("Patch Mission repair skill validation evidence is malformed")
+        if validation_evidence.get("experiment_id") != experiment["experiment_id"]:
+            raise ValueError("Patch Mission repair skill validation experiment mismatch")
+        if validation_evidence.get("result_sha256") != result_sha256:
+            raise ValueError("Patch Mission repair skill validation result digest mismatch")
+
+        approval_evidence = {
+            "experiment_id": experiment["experiment_id"],
+            "result_sha256": result_sha256,
+            "validation_transition_sha256": digest_json(validation_transition),
+            "reason": reason,
+            "human_approved": True,
+            "active_skill_matchable": True,
+            "promotion_executed": False,
+            "command_executed": False,
+            "external_action_executed": False,
+            "canonical_repo_write_executed": False,
+        }
+        self.skills.transition(
+            skill_id,
+            CandidateStatus.APPROVED,
+            approval_evidence,
+            human_approved=True,
+        )
+        receipt = {
+            "receipt_type": "PATCH_MISSION_REPAIR_SKILL_APPROVAL",
+            "status": "SKILL_APPROVED",
+            "skill_id": skill_id,
+            "skill_status_before": row["status"],
+            "skill_status_after": CandidateStatus.APPROVED.value,
+            "experiment_id": experiment["experiment_id"],
+            "result_sha256": result_sha256,
+            "validation_transition_sha256": approval_evidence[
+                "validation_transition_sha256"
+            ],
+            "reason": reason,
+            "human_approved": True,
+            "active_skill_matchable": True,
+            "active_skill_created": False,
+            "approval_executed": True,
+            "promotion_executed": False,
+            "command_executed": False,
+            "external_action_executed": False,
+            "canonical_repo_write_executed": False,
+            "claim_ceiling": (
+                "owner approval only; skill may be matched as advisory context, "
+                "but no promotion, command, repo write, push, or PR was executed"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.skill_sandbox_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("skill_sandbox_receipts", updated, connection)
+            self.ledger.append(
+                "patch_mission_repair_skill_approved",
+                receipt,
+                connection,
+            )
+        return receipt
+
+    def _patch_mission_candidate_success_records(
+        self, source_id_set: set[str]
+    ) -> list[dict[str, Any]]:
+        records = self.db.get_runtime("patch_mission_successful_repair_learning", [])
+        if not isinstance(records, list):
+            return []
+        selected: list[dict[str, Any]] = []
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            evidence_id = str(record.get("success_evidence_id") or "")
+            memory_id = str(record.get("memory_id") or "")
+            if evidence_id in source_id_set or memory_id in source_id_set:
+                selected.append(record)
+        return selected
+
+    def _patch_mission_repair_candidate_latest_replay(
+        self, candidate_id: str
+    ) -> dict[str, Any] | None:
+        receipts = self.db.get_runtime(
+            "patch_mission_repair_skill_candidate_reviews", []
+        )
+        if not isinstance(receipts, list):
+            return None
+        for item in receipts:
+            if (
+                isinstance(item, dict)
+                and item.get("candidate_id") == candidate_id
+                and item.get("status") == "REPLAY_PASSED"
+            ):
+                return item
+        return None
+
+    def _patch_mission_literal_pair_from_sample(
+        self, sample: dict[str, Any]
+    ) -> tuple[str, str] | None:
+        memory_id = str(sample.get("memory_id") or "")
+        if not memory_id:
+            return None
+        row = self.db.query_one(
+            "SELECT content_json FROM memories WHERE memory_id=?",
+            (memory_id,),
+        )
+        if row is None:
+            return None
+        try:
+            content = json.loads(str(row["content_json"]))
+        except json.JSONDecodeError:
+            return None
+        cause = str(content.get("cause") or "")
+        match = re.search(
+            r"observed value (?P<actual>['\"])(?P<actual_value>.*?)\1 did not match expected (?P<expected>['\"])(?P<expected_value>.*?)\3",
+            cause,
+        )
+        if not match:
+            return None
+        actual = match.group("actual_value")
+        expected = match.group("expected_value")
+        if not actual or not expected or actual == expected:
+            return None
+        return actual, expected
+
+    def _run_patch_mission_sandbox_pytest(
+        self, *, repo_root: Path, pytest_target: str
+    ) -> dict[str, Any]:
+        completed = subprocess.run(
+            [sys.executable, "-m", "pytest", pytest_target],
+            cwd=str(repo_root),
+            text=True,
+            capture_output=True,
+            timeout=60,
+            check=False,
+        )
+        return {
+            "command": [sys.executable, "-m", "pytest", pytest_target],
+            "cwd": str(repo_root),
+            "returncode": completed.returncode,
+            "stdout": completed.stdout[-8000:],
+            "stderr": completed.stderr[-8000:],
+        }
+
+    def _patch_mission_replay_success_record(
+        self, record: dict[str, Any], source_id_set: set[str]
+    ) -> dict[str, Any]:
+        checks: dict[str, bool] = {}
+        errors: list[str] = []
+        evidence_id = str(record.get("success_evidence_id") or "")
+        evidence_row = self.db.query_one(
+            "SELECT event_type,payload_json FROM evidence WHERE evidence_id=?",
+            (evidence_id,),
+        )
+        checks["success_evidence_bound"] = bool(
+            evidence_id and evidence_id in source_id_set and evidence_row is not None
+        )
+        if evidence_row is None:
+            errors.append("success evidence is missing")
+        else:
+            try:
+                payload = json.loads(evidence_row["payload_json"])
+                checks["success_evidence_signature_matches"] = (
+                    payload.get("signature") == record.get("signature")
+                    and evidence_row["event_type"] == "patch_mission_repair_success_recorded"
+                )
+            except json.JSONDecodeError:
+                checks["success_evidence_signature_matches"] = False
+        memory_id = str(record.get("memory_id") or "")
+        memory_row = self.db.query_one(
+            "SELECT memory_type,content_json FROM memories WHERE memory_id=?",
+            (memory_id,),
+        )
+        checks["memory_bound"] = bool(
+            memory_id and memory_id in source_id_set and memory_row is not None
+        )
+        if memory_row is None:
+            errors.append("failure-learning memory is missing")
+            memory_content: dict[str, Any] = {}
+        else:
+            try:
+                memory_content = json.loads(memory_row["content_json"])
+            except json.JSONDecodeError:
+                memory_content = {}
+                errors.append("failure-learning memory is malformed")
+        checks["memory_matches_repair"] = (
+            memory_row is not None
+            and memory_row["memory_type"] == "procedural"
+            and memory_content.get("kind") == "patch_mission_failure_learning"
+            and memory_content.get("synthesis_status") == "synthesized_literal_diff"
+            and memory_content.get("patch_target") == record.get("patch_target")
+        )
+        failing_output = self._patch_mission_replay_action_output(
+            str(record.get("failing_test_action_id") or ""),
+            expected_tool="run_command",
+            errors=errors,
+        )
+        passing_output = self._patch_mission_replay_action_output(
+            str(record.get("passing_test_action_id") or ""),
+            expected_tool="run_command",
+            errors=errors,
+        )
+        checks["failing_test_failed"] = int(failing_output.get("returncode", 0)) != 0
+        checks["passing_test_passed"] = int(passing_output.get("returncode", -1)) == 0
+        checks["pytest_target_stable"] = (
+            record.get("pytest_target")
+            == self._patch_mission_pytest_target_from_command(
+                failing_output.get("command")
+            )
+        )
+        draft_action_id = str(record.get("draft_action_id") or "")
+        apply_action_id = str(record.get("apply_action_id") or "")
+        draft_row = self._patch_mission_replay_action_row(
+            draft_action_id, expected_tool="write_file", errors=errors
+        )
+        apply_row = self._patch_mission_replay_action_row(
+            apply_action_id, expected_tool="write_file", errors=errors
+        )
+        if draft_row:
+            try:
+                draft_text = self._patch_mission_write_file_content(draft_action_id)
+                diff_text = self._extract_unified_diff_from_patch_mission_draft(
+                    draft_text
+                )
+                checks["draft_diff_targets_patch_file"] = (
+                    record.get("patch_target")
+                    in self._patch_mission_diff_changed_files(diff_text)
+                )
+            except Exception as exc:
+                checks["draft_diff_targets_patch_file"] = False
+                errors.append(f"draft diff replay failed: {exc}")
+        else:
+            checks["draft_diff_targets_patch_file"] = False
+        if apply_row:
+            try:
+                apply_args = json.loads(str(apply_row["arguments_json"]))
+                checks["apply_wrote_patch_target"] = str(
+                    apply_args.get("path") or ""
+                ).replace("\\", "/").endswith(str(record.get("patch_target") or ""))
+            except json.JSONDecodeError:
+                checks["apply_wrote_patch_target"] = False
+        else:
+            checks["apply_wrote_patch_target"] = False
+        passed = bool(checks) and all(checks.values())
+        return {
+            "status": "SAMPLE_PASSED" if passed else "SAMPLE_FAILED",
+            "mission_id": record.get("mission_id"),
+            "memory_id": memory_id,
+            "success_evidence_id": evidence_id,
+            "failing_test_action_id": record.get("failing_test_action_id"),
+            "passing_test_action_id": record.get("passing_test_action_id"),
+            "apply_action_id": apply_action_id,
+            "draft_action_id": draft_action_id,
+            "pytest_target": record.get("pytest_target"),
+            "patch_target": record.get("patch_target"),
+            "checks": checks,
+            "errors": errors[:10],
+        }
+
+    def _patch_mission_replay_action_output(
+        self, action_id: str, *, expected_tool: str, errors: list[str]
+    ) -> dict[str, Any]:
+        row = self._patch_mission_replay_action_row(
+            action_id, expected_tool=expected_tool, errors=errors
+        )
+        if row is None:
+            return {}
+        try:
+            return self._patch_mission_action_result_output(action_id)
+        except Exception as exc:
+            errors.append(f"action output unavailable for {action_id}: {exc}")
+            return {}
+
+    def _patch_mission_replay_action_row(
+        self, action_id: str, *, expected_tool: str, errors: list[str]
+    ) -> Any | None:
+        if not action_id:
+            errors.append(f"missing {expected_tool} action id")
+            return None
+        row = self.db.query_one(
+            "SELECT tool,status,arguments_json,result_json FROM actions WHERE action_id=?",
+            (action_id,),
+        )
+        if row is None:
+            errors.append(f"action is missing: {action_id}")
+            return None
+        if row["tool"] != expected_tool:
+            errors.append(f"action {action_id} has tool {row['tool']}, expected {expected_tool}")
+            return None
+        if row["status"] != ActionStatus.SUCCEEDED.value:
+            errors.append(f"action {action_id} status is {row['status']}")
+            return None
+        return row
+
+    def _patch_mission_repair_skill_candidate_context(
+        self, limit: int = 2
+    ) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime(
+            "patch_mission_repair_skill_candidate_reviews", []
+        )
+        if not isinstance(receipts, list):
+            return []
+        selected = [
+            item
+            for item in receipts
+            if isinstance(item, dict)
+            and item.get("status") == "REPLAY_PASSED"
+            and item.get("candidate_type") == "patch_mission_repair_skill"
+        ]
+        return selected[:limit]
+
+    @staticmethod
+    def _patch_mission_repair_skill_candidate_lines(
+        receipts: list[dict[str, Any]]
+    ) -> list[str]:
+        if not receipts:
+            return ["- (none reviewed)"]
+        lines: list[str] = []
+        for receipt in receipts:
+            lines.append(
+                "- "
+                f"`{receipt.get('candidate_id')}` replay `{receipt.get('status')}`; "
+                f"samples `{receipt.get('passed_sample_count')}/{receipt.get('sample_count')}`; "
+                "advisory only, no approval or promotion."
+            )
+        return lines
+
+    def _patch_mission_approved_repair_skill_context(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        query_text: str,
+        selected_file: str | None,
+        pytest_target: str | None,
+        limit: int = 3,
+    ) -> list[dict[str, Any]]:
+        query_parts = [
+            "patch mission pytest literal mismatch ci github repair",
+            str(mission_record.get("mission") or ""),
+            selected_file or "",
+            pytest_target or "",
+            query_text[:1000],
+        ]
+        matches = self.skills.match(
+            " ".join(part for part in query_parts if part),
+            limit=limit * 2,
+        )
+        selected: list[dict[str, Any]] = []
+        usable_statuses = {
+            CandidateStatus.APPROVED.value,
+            CandidateStatus.PROMOTED.value,
+        }
+        for skill in matches:
+            if skill.get("name") != "patch_mission_repair_pytest_literal_mismatch":
+                continue
+            status = str(skill.get("status") or "")
+            if status not in usable_statuses:
+                continue
+            outcome_confidence = (
+                self._patch_mission_promoted_repair_skill_outcome_confidence(
+                    str(skill.get("skill_id") or "")
+                )
+                if status == CandidateStatus.PROMOTED.value
+                else None
+            )
+            selected.append(
+                {
+                    **skill,
+                    "skill_lifecycle_status": status,
+                    "promoted_skill_matched": status == CandidateStatus.PROMOTED.value,
+                    "advisory_confidence": "promoted"
+                    if status == CandidateStatus.PROMOTED.value
+                    else "approved",
+                    "promoted_outcome_confidence": outcome_confidence,
+                }
+            )
+        selected.sort(
+            key=lambda item: (
+                item.get("status") == CandidateStatus.PROMOTED.value,
+                float(item.get("match_score", 0.0)),
+            ),
+            reverse=True,
+        )
+        return selected[:limit]
+
+    @staticmethod
+    def _patch_mission_approved_repair_skill_lines(
+        skills: list[dict[str, Any]]
+    ) -> list[str]:
+        if not skills:
+            return ["- (none approved)"]
+        lines: list[str] = []
+        for skill in skills:
+            score = float(skill.get("match_score", 0.0))
+            status = str(skill.get("status") or "")
+            source_ids = skill.get("source_episode_ids", [])
+            if not isinstance(source_ids, list):
+                source_ids = []
+            confidence = (
+                "promoted advisory confidence"
+                if status == CandidateStatus.PROMOTED.value
+                else "approved advisory confidence"
+            )
+            outcome_confidence = skill.get("promoted_outcome_confidence")
+            outcome_text = ""
+            if isinstance(outcome_confidence, dict):
+                outcome_text = (
+                    f" promoted outcome confidence `{outcome_confidence.get('level')}`; "
+                    f"successes `{outcome_confidence.get('success_count')}`; "
+                    f"failed_or_rejected `{outcome_confidence.get('failed_or_rejected_count')}`;"
+                )
+            lines.append(
+                "- "
+                f"`{skill.get('skill_id')}` status `{status}`; "
+                f"match `{score:.2f}`; "
+                f"sources `{len(source_ids)}`; "
+                f"{confidence}; "
+                f"{outcome_text} "
+                "advisory only, no skill execution, promotion, repo write, push, or PR."
+            )
+        return lines
+
+    @staticmethod
+    def _patch_mission_approved_repair_skill_rationale(
+        skills: list[dict[str, Any]],
+        *,
+        default_reason: str,
+        action_phrase: str,
+    ) -> str:
+        if not skills:
+            return default_reason
+        skill = skills[0]
+        score = float(skill.get("match_score", 0.0))
+        status = str(skill.get("status") or "")
+        status_word = (
+            "promoted" if status == CandidateStatus.PROMOTED.value else "approved"
+        )
+        confidence_note = (
+            "higher-confidence promoted rationale"
+            if status == CandidateStatus.PROMOTED.value
+            else "approved advisory rationale"
+        )
+        outcome_confidence = skill.get("promoted_outcome_confidence")
+        outcome_note = ""
+        if isinstance(outcome_confidence, dict):
+            outcome_note = (
+                f" Promoted outcome history: level `{outcome_confidence.get('level')}`, "
+                f"successes `{outcome_confidence.get('success_count')}`, "
+                f"failed_or_rejected `{outcome_confidence.get('failed_or_rejected_count')}`, "
+                f"recovery_successes `{outcome_confidence.get('recovery_count', 0)}`; "
+                f"{outcome_confidence.get('reason')}."
+            )
+        return (
+            f"Matched {status_word} repair skill `{skill.get('skill_id')}` "
+            f"({skill.get('name')}, score {score:.2f}); it supports {action_phrase} "
+            f"for this repeated Patch Mission repair pattern as {confidence_note}. "
+            f"Selected step reason: {default_reason}. "
+            f"{outcome_note} "
+            "Advisory influence only: "
+            "no skill execution, promotion, repo write, push, or PR is performed."
+        )
+
+    def _patch_mission_promoted_repair_skill_outcome_confidence(
+        self, skill_id: str
+    ) -> dict[str, Any]:
+        outcomes = self.db.get_runtime("patch_mission_promoted_skill_outcomes", [])
+        if not isinstance(outcomes, list):
+            outcomes = []
+        successes = [
+            item
+            for item in outcomes
+            if isinstance(item, dict)
+            and item.get("skill_id") == skill_id
+            and item.get("success") is True
+            and item.get("approval_valid") is True
+        ]
+        failed_or_rejected = self._patch_mission_promoted_skill_failed_action_count(
+            skill_id
+        )
+        recoveries = self._patch_mission_promoted_skill_recovery_outcomes(skill_id)
+        recovery_count = len(recoveries)
+        unrecovered_failed_or_rejected = max(0, failed_or_rejected - recovery_count)
+        if successes and failed_or_rejected == 0:
+            level = "outcome_supported"
+            delta = 0.15
+            reason = "owner-approved promoted-skill actions have succeeded with no later failed or rejected candidates"
+        elif successes and failed_or_rejected > 0:
+            if recovery_count >= failed_or_rejected:
+                level = "recovered_outcome_supported"
+                delta = 0.12
+                reason = (
+                    "owner-approved fallback-restored repair successes offset the "
+                    "recorded failed or rejected promoted candidates while preserving "
+                    "their evidence"
+                )
+            elif recovery_count > 0:
+                level = "recovering_mixed_outcome"
+                delta = 0.08
+                reason = (
+                    "successful promoted-skill outcomes and fallback-restored repair "
+                    "successes exist, but some failed or rejected candidates remain "
+                    "unrecovered"
+                )
+            else:
+                level = "mixed_outcome"
+                delta = 0.05
+                reason = "successful promoted-skill outcomes exist, but later failed or rejected candidates reduce confidence"
+        elif failed_or_rejected > 0:
+            level = "confidence_withheld"
+            delta = -0.1
+            reason = "failed or rejected promoted-skill candidates exist without successful promoted outcomes"
+        else:
+            level = "no_promoted_outcome_evidence"
+            delta = 0.0
+            reason = "no owner-approved successful promoted-skill action outcome has been recorded yet"
+        latest = successes[0] if successes else None
+        return {
+            "level": level,
+            "confidence_delta": delta,
+            "success_count": len(successes),
+            "failed_or_rejected_count": failed_or_rejected,
+            "recovery_count": recovery_count,
+            "unrecovered_failed_or_rejected_count": unrecovered_failed_or_rejected,
+            "latest_success_action_id": latest.get("action_id") if latest else None,
+            "latest_success_receipt_digest": latest.get("receipt_digest")
+            if latest
+            else None,
+            "reason": reason,
+            "authority": {
+                "planning_metadata_only": True,
+                "approval_bypass_allowed": False,
+                "executes_actions": False,
+            },
+        }
+
+    def _patch_mission_promoted_skill_failed_action_count(self, skill_id: str) -> int:
+        rows = self.db.query_all(
+            """
+            SELECT arguments_json,status FROM actions
+            WHERE status IN ('FAILED','REJECTED') AND arguments_json LIKE ?
+            """,
+            (f"%{skill_id}%",),
+        )
+        count = 0
+        for row in rows:
+            try:
+                arguments = json.loads(str(row["arguments_json"]))
+            except json.JSONDecodeError:
+                continue
+            metadata = arguments.get("patch_mission_approved_skill_candidate")
+            if not isinstance(metadata, dict):
+                continue
+            if metadata.get("skill_id") != skill_id:
+                continue
+            if metadata.get("skill_status") != CandidateStatus.PROMOTED.value:
+                continue
+            count += 1
+        return count
+
+    def _patch_mission_promoted_skill_recovery_outcomes(
+        self, skill_id: str
+    ) -> list[dict[str, Any]]:
+        records = self.db.get_runtime(
+            "patch_mission_promoted_skill_recovery_outcomes", []
+        )
+        if not isinstance(records, list):
+            return []
+        unique: dict[str, dict[str, Any]] = {}
+        for item in records:
+            if not isinstance(item, dict):
+                continue
+            if item.get("skill_id") != skill_id:
+                continue
+            if item.get("success") is not True or item.get("approval_valid") is not True:
+                continue
+            signature = str(item.get("signature") or item.get("receipt_digest") or "")
+            if not signature:
+                continue
+            unique.setdefault(signature, item)
+        return list(unique.values())
+
+    @staticmethod
+    def _patch_mission_confidence_adjusted_ci_next_step(
+        *,
+        next_mode: str,
+        next_target: str | None,
+        next_reason: str,
+        candidate_files: list[str],
+        approved_repair_skills: list[dict[str, Any]],
+    ) -> tuple[str, str | None, str]:
+        if next_mode != "test":
+            return next_mode, next_target, next_reason
+        if not approved_repair_skills:
+            return next_mode, next_target, next_reason
+        confidence = approved_repair_skills[0].get("promoted_outcome_confidence")
+        if not isinstance(confidence, dict):
+            return next_mode, next_target, next_reason
+        level = str(confidence.get("level") or "")
+        if level not in {
+            "mixed_outcome",
+            "recovering_mixed_outcome",
+            "confidence_withheld",
+        }:
+            return next_mode, next_target, next_reason
+        inspect_target = None
+        if next_target:
+            inspect_target = str(next_target).split("::", 1)[0]
+        if not inspect_target and candidate_files:
+            inspect_target = candidate_files[0]
+        if not inspect_target:
+            return next_mode, next_target, next_reason
+        return (
+            "inspect-file",
+            inspect_target,
+            (
+                f"Promoted repair skill confidence is `{level}` "
+                f"({confidence.get('reason')}); inspect `{inspect_target}` "
+                "before running or drafting another repair action."
+            ),
+        )
+
+    @staticmethod
+    def _patch_mission_promoted_confidence_action_note(
+        *,
+        original_mode: str,
+        selected_mode: str,
+        approved_repair_skills: list[dict[str, Any]],
+    ) -> str:
+        if not approved_repair_skills:
+            return "(none)"
+        confidence = approved_repair_skills[0].get("promoted_outcome_confidence")
+        if not isinstance(confidence, dict):
+            return "(none)"
+        level = str(confidence.get("level") or "")
+        if level in {"outcome_supported", "recovered_outcome_supported"} and original_mode == selected_mode:
+            return (
+                f"direct path preserved by `{level}` promoted history; "
+                "policy and owner approval still control command execution"
+            )
+        if level in {"mixed_outcome", "recovering_mixed_outcome", "confidence_withheld"} and original_mode != selected_mode:
+            return (
+                f"safer local verification selected because promoted confidence is `{level}`"
+            )
+        return (
+            f"no action selection change for promoted confidence `{level or 'unknown'}`"
+        )
+
+    def _patch_mission_approved_repair_skill_id_from_text(
+        self, text: str
+    ) -> str | None:
+        matches = [
+            *re.finditer(
+                r"Matched (?:approved|promoted) repair skill `(?P<skill_id>skill_[^`]+)`",
+                text,
+            ),
+            *re.finditer(
+                r"`(?P<skill_id>skill_[^`]+)` status `(?:APPROVED|PROMOTED)`",
+                text,
+            ),
+        ]
+        if not matches:
+            return None
+        for match in matches:
+            skill_id = match.group("skill_id")
+            row = self.db.query_one(
+                "SELECT name,status FROM skills WHERE skill_id=?",
+                (skill_id,),
+            )
+            if row is None:
+                continue
+            if row["name"] != "patch_mission_repair_pytest_literal_mismatch":
+                continue
+            if row["status"] not in {
+                CandidateStatus.APPROVED.value,
+                CandidateStatus.PROMOTED.value,
+            }:
+                continue
+            return skill_id
+        return None
+
+    def _patch_mission_annotate_approved_skill_action_candidate(
+        self,
+        *,
+        action: ActionSpec,
+        skill_id: str | None,
+        source_action_id: str,
+        source_mode: str,
+    ) -> ActionSpec:
+        if not skill_id:
+            return action
+        row = self.db.query_one(
+            "SELECT status FROM skills WHERE skill_id=?",
+            (skill_id,),
+        )
+        skill_status = str(row["status"]) if row is not None else ""
+        promoted_match = skill_status == CandidateStatus.PROMOTED.value
+        confidence = (
+            "promoted_repair_skill"
+            if promoted_match
+            else "approved_repair_skill"
+        )
+        approval_required_by_policy = action.risk != RiskLevel.READ
+        metadata = {
+            "candidate_type": "promoted_repair_skill_action_candidate"
+            if promoted_match
+            else "approved_repair_skill_action_candidate",
+            "skill_id": skill_id,
+            "skill_name": "patch_mission_repair_pytest_literal_mismatch",
+            "skill_status": skill_status or CandidateStatus.APPROVED.value,
+            "promoted_skill_matched": promoted_match,
+            "advisory_confidence": confidence,
+            "source_action_id": source_action_id,
+            "source_mode": source_mode,
+            "owner_gated": approval_required_by_policy,
+            "approval_still_required": approval_required_by_policy,
+            "executes_now": not approval_required_by_policy,
+            "skill_execution_recorded": False,
+            "promotion_executed": False,
+            "repo_write_executed": False,
+            "push_or_pr_executed": False,
+            "influence_scope": (
+                "prefill existing Patch Mission follow-up action rationale; "
+                "existing policy and owner approval still decide execution"
+            ),
+        }
+        if promoted_match:
+            metadata["promoted_outcome_confidence"] = (
+                self._patch_mission_promoted_repair_skill_outcome_confidence(skill_id)
+            )
+        status_label = "promoted" if promoted_match else "approved"
+        action.arguments = {
+            **action.arguments,
+            "patch_mission_approved_skill_candidate": metadata,
+        }
+        action.purpose = (
+            action.purpose
+            + f" guided by {status_label} repair skill {skill_id} as owner-gated advisory context"
+        )
+        action.expected_result = (
+            action.expected_result
+            + f"; {status_label} skill influence remains candidate-only until the owner approves the action"
+        )
+        action.idempotency_key = digest_json(
+            {
+                "tool": action.tool,
+                "arguments": action.arguments,
+                "purpose": action.purpose,
+            }
+        )
+        return action
+
+    @staticmethod
+    def _patch_mission_with_skill_action_candidate_metadata(
+        candidate: dict[str, Any], action: ActionSpec
+    ) -> dict[str, Any]:
+        metadata = action.arguments.get("patch_mission_approved_skill_candidate")
+        if not isinstance(metadata, dict):
+            return candidate
+        promoted_match = metadata.get("skill_status") == CandidateStatus.PROMOTED.value
+        approval_required = bool(
+            candidate.get("requires_owner_approval")
+            or candidate.get("approval_required")
+        )
+        executes_now = bool(candidate.get("executes_now")) and not approval_required
+        authority = dict(candidate.get("authority") or {})
+        authority.update(
+            {
+                "approved_skill_candidate_only": True,
+                "promoted_skill_candidate_only": promoted_match,
+                "skill_execution_recorded": False,
+                "promotion_executed": False,
+                "repo_write_executed": False,
+                "push_or_pr_executed": False,
+                "policy_and_approval_still_required": True,
+                "policy_requires_approval": approval_required,
+            }
+        )
+        return {
+            **candidate,
+            "source": "patch_mission_promoted_skill_advisory"
+            if promoted_match
+            else "patch_mission_approved_skill_advisory",
+            "patch_mission_skill_candidate": metadata,
+            "requires_owner_approval": approval_required,
+            "approval_required": approval_required,
+            "executes_now": executes_now,
+            "authority": authority,
+        }
+
+    def _record_repair_skill_action_outcome(
+        self,
+        *,
+        action: ActionSpec,
+        approval_id: str | None,
+        approval_valid: bool,
+        action_completed_evidence_id: str,
+        result: Any,
+        final_success: bool,
+    ) -> dict[str, Any] | None:
+        metadata = action.arguments.get("patch_mission_approved_skill_candidate")
+        if not isinstance(metadata, dict):
+            return None
+        if not approval_id or not approval_valid or not final_success:
+            return None
+        skill_id = str(metadata.get("skill_id") or "")
+        if not skill_id:
+            return None
+        row = self.db.query_one(
+            "SELECT name,status,use_count FROM skills WHERE skill_id=?",
+            (skill_id,),
+        )
+        if row is None:
+            return None
+        if row["name"] != "patch_mission_repair_pytest_literal_mismatch":
+            return None
+        skill_status = str(row["status"])
+        if skill_status not in {
+            CandidateStatus.APPROVED.value,
+            CandidateStatus.PROMOTED.value,
+        }:
+            return None
+        promoted_outcome = skill_status == CandidateStatus.PROMOTED.value
+        status_label = "PROMOTED" if promoted_outcome else "APPROVED"
+        runtime_key = (
+            "patch_mission_promoted_skill_outcomes"
+            if promoted_outcome
+            else "patch_mission_approved_skill_outcomes"
+        )
+        event_type = (
+            "patch_mission_promoted_repair_skill_action_outcome_recorded"
+            if promoted_outcome
+            else "patch_mission_approved_repair_skill_action_outcome_recorded"
+        )
+        output = result.output if hasattr(result, "output") else {}
+        receipt = {
+            "receipt_type": f"PATCH_MISSION_{status_label}_REPAIR_SKILL_ACTION_OUTCOME",
+            "status": "RECORDED",
+            "skill_id": skill_id,
+            "skill_status": skill_status,
+            "skill_use_count_before": int(row["use_count"]),
+            "action_id": action.action_id,
+            "tool": action.tool,
+            "approval_id": approval_id,
+            "approval_valid": True,
+            "action_completed_evidence_id": action_completed_evidence_id,
+            "candidate_type": metadata.get("candidate_type"),
+            "source_action_id": metadata.get("source_action_id"),
+            "source_mode": metadata.get("source_mode"),
+            "success": True,
+            "returncode": output.get("returncode") if isinstance(output, dict) else None,
+            "promoted_skill_outcome": promoted_outcome,
+            "promotion_executed": False,
+            "repo_write_executed": action.tool == "write_file",
+            "push_or_pr_executed": action.tool
+            in {"git_push", "create_github_pull_request"},
+            "claim_ceiling": (
+                "owner-approved action outcome for repair skill use only; no promotion, "
+                "no autonomous execution, no approval bypass, and later writes/GitHub "
+                "actions still require approval"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        self.skills.record_use(skill_id, True)
+        updated_row = self.db.query_one(
+            "SELECT use_count,success_rate FROM skills WHERE skill_id=?",
+            (skill_id,),
+        )
+        receipt["skill_use_count_after"] = (
+            int(updated_row["use_count"]) if updated_row is not None else None
+        )
+        receipt["skill_success_rate_after"] = (
+            float(updated_row["success_rate"]) if updated_row is not None else None
+        )
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.db.get_runtime(runtime_key, [])
+        if not isinstance(current, list):
+            current = []
+        with self.db.transaction() as connection:
+            self.db.set_runtime(
+                runtime_key,
+                [receipt, *current][:100],
+                connection,
+            )
+            self.ledger.append(event_type, receipt, connection)
+        if not promoted_outcome:
+            promotion_review = self._record_patch_mission_repair_skill_promotion_review_candidate(
+                skill_id=skill_id,
+                outcomes=[receipt, *current],
+            )
+            if promotion_review is not None:
+                receipt["promotion_review_candidate"] = promotion_review
+        return receipt
+
+    def _record_patch_mission_repair_skill_promotion_review_candidate(
+        self, *, skill_id: str, outcomes: list[dict[str, Any]]
+    ) -> dict[str, Any] | None:
+        relevant = [
+            item
+            for item in outcomes
+            if isinstance(item, dict)
+            and item.get("skill_id") == skill_id
+            and item.get("success") is True
+            and item.get("approval_valid") is True
+            and item.get("promotion_executed") is False
+        ]
+        unique_by_action: dict[str, dict[str, Any]] = {}
+        for item in relevant:
+            action_id = str(item.get("action_id") or "")
+            if action_id and action_id not in unique_by_action:
+                unique_by_action[action_id] = item
+        successes = list(unique_by_action.values())
+        if len(successes) < 2:
+            return {
+                "available": False,
+                "reason": "fewer than two approved successful skill-derived actions",
+                "approved_success_count": len(successes),
+                "promotion_executed": False,
+            }
+        existing = self.db.query_one(
+            """
+            SELECT candidate_id,status FROM evolution_candidates
+            WHERE candidate_type=? AND status NOT IN ('REJECTED','ROLLED_BACK')
+            ORDER BY created_at DESC
+            """,
+            ("patch_mission_repair_skill_promotion_review",),
+        )
+        if existing is not None:
+            row = self.db.query_one(
+                "SELECT proposal_json FROM evolution_candidates WHERE candidate_id=?",
+                (existing["candidate_id"],),
+            )
+            if row is not None:
+                try:
+                    existing_proposal = json.loads(str(row["proposal_json"]))
+                except json.JSONDecodeError:
+                    existing_proposal = {}
+                proposal = existing_proposal.get("proposal", {})
+                if isinstance(proposal, dict) and proposal.get("skill_id") == skill_id:
+                    return {
+                        "available": True,
+                        "status": "EXISTING_PROMOTION_REVIEW_CANDIDATE",
+                        "candidate_id": existing["candidate_id"],
+                        "candidate_status": existing["status"],
+                        "approved_success_count": len(successes),
+                        "promotion_executed": False,
+                    }
+        skill_row = self.db.query_one(
+            "SELECT name,status,use_count,success_rate,definition_json FROM skills WHERE skill_id=?",
+            (skill_id,),
+        )
+        if skill_row is None or skill_row["status"] != CandidateStatus.APPROVED.value:
+            return None
+        source_ids: list[str] = [skill_id]
+        for item in successes[:10]:
+            for key in ("receipt_digest", "action_id", "approval_id", "action_completed_evidence_id"):
+                value = item.get(key)
+                if value:
+                    source_ids.append(str(value))
+        source_ids = list(dict.fromkeys(source_ids))
+        proposal = {
+            "schema_version": 1,
+            "candidate_only": True,
+            "candidate_type": "patch_mission_repair_skill_promotion_review",
+            "skill_id": skill_id,
+            "skill_name": skill_row["name"],
+            "skill_status": skill_row["status"],
+            "approved_success_count": len(successes),
+            "minimum_approved_success_count": 2,
+            "skill_use_count": int(skill_row["use_count"]),
+            "skill_success_rate": float(skill_row["success_rate"]),
+            "recommended_review": (
+                "Owner may review whether this approved Patch Mission repair skill is ready "
+                "for a separate human-approved promotion step."
+            ),
+            "promotion_executed": False,
+            "human_approval_required_for_promotion": True,
+            "approval_bypass_allowed": False,
+            "command_executed": False,
+            "repo_write_executed": False,
+            "push_or_pr_executed": False,
+            "claim_ceiling": (
+                "promotion review candidate only; not a PROMOTED skill and not execution authority"
+            ),
+            "outcome_receipts": [
+                {
+                    "action_id": item.get("action_id"),
+                    "approval_id": item.get("approval_id"),
+                    "receipt_digest": item.get("receipt_digest"),
+                    "action_completed_evidence_id": item.get(
+                        "action_completed_evidence_id"
+                    ),
+                }
+                for item in successes[:10]
+            ],
+        }
+        candidate_id = new_id("candidate")
+        now = utc_now()
+        payload = {"type": proposal["candidate_type"], "proposal": proposal}
+        with self.db.transaction() as connection:
+            connection.execute(
+                """
+                INSERT INTO evolution_candidates(
+                    candidate_id,candidate_type,title,proposal_json,source_ids_json,
+                    baseline_json,experiment_json,result_json,status,created_at,updated_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    candidate_id,
+                    proposal["candidate_type"],
+                    "Review approved Patch Mission repair skill for possible promotion",
+                    json.dumps(payload, ensure_ascii=False, sort_keys=True),
+                    json.dumps(source_ids, ensure_ascii=False),
+                    json.dumps(
+                        {
+                            "skill_id": skill_id,
+                            "status_before": skill_row["status"],
+                            "promotion_executed": False,
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
+                    None,
+                    None,
+                    CandidateStatus.PROPOSED.value,
+                    now,
+                    now,
+                ),
+            )
+            self.ledger.append(
+                "patch_mission_repair_skill_promotion_review_candidate_created",
+                {
+                    "candidate_id": candidate_id,
+                    "skill_id": skill_id,
+                    "approved_success_count": len(successes),
+                    "promotion_executed": False,
+                    "source_ids": source_ids,
+                },
+                connection,
+            )
+        return {
+            "available": True,
+            "status": "PROMOTION_REVIEW_CANDIDATE_CREATED",
+            "candidate_id": candidate_id,
+            "candidate_status": CandidateStatus.PROPOSED.value,
+            "approved_success_count": len(successes),
+            "promotion_executed": False,
+        }
+
+    def approve_patch_mission_repair_skill_promotion_review(
+        self,
+        *,
+        candidate_id: str,
+        reason: str = "",
+        human_approved: bool = False,
+    ) -> dict[str, Any]:
+        if not human_approved:
+            raise PermissionError(
+                "Patch Mission repair skill promotion review requires human approval"
+            )
+        row = self.db.query_one(
+            "SELECT * FROM evolution_candidates WHERE candidate_id=?",
+            (candidate_id,),
+        )
+        if row is None:
+            raise KeyError(f"unknown promotion review candidate: {candidate_id}")
+        if row["candidate_type"] != "patch_mission_repair_skill_promotion_review":
+            raise ValueError("candidate is not a Patch Mission repair skill promotion review")
+        if row["status"] != CandidateStatus.PROPOSED.value:
+            raise ValueError(
+                "Patch Mission repair skill promotion review approval requires "
+                f"PROPOSED status, got {row['status']}"
+            )
+        payload = json.loads(str(row["proposal_json"]))
+        proposal = payload.get("proposal", {})
+        if not isinstance(proposal, dict):
+            raise ValueError("promotion review proposal is malformed")
+        skill_id = str(proposal.get("skill_id") or "")
+        skill_row = self.db.query_one(
+            "SELECT status,use_count,success_rate FROM skills WHERE skill_id=?",
+            (skill_id,),
+        )
+        if skill_row is None:
+            raise ValueError("promotion review source skill is missing")
+        if skill_row["status"] != CandidateStatus.APPROVED.value:
+            raise ValueError("promotion review source skill must still be APPROVED")
+        outcomes = self.db.get_runtime("patch_mission_approved_skill_outcomes", [])
+        if not isinstance(outcomes, list):
+            outcomes = []
+        unique_success_actions = {
+            str(item.get("action_id"))
+            for item in outcomes
+            if isinstance(item, dict)
+            and item.get("skill_id") == skill_id
+            and item.get("success") is True
+            and item.get("approval_valid") is True
+            and item.get("action_id")
+        }
+        minimum = int(proposal.get("minimum_approved_success_count", 2) or 2)
+        if len(unique_success_actions) < minimum:
+            raise ValueError("promotion review no longer has enough approved outcomes")
+        receipt = {
+            "receipt_type": "PATCH_MISSION_REPAIR_SKILL_PROMOTION_REVIEW_APPROVAL",
+            "status": "PROMOTION_REVIEW_APPROVED",
+            "candidate_id": candidate_id,
+            "candidate_status_before": row["status"],
+            "candidate_status_after": CandidateStatus.APPROVED.value,
+            "skill_id": skill_id,
+            "skill_status_before": skill_row["status"],
+            "skill_status_after": skill_row["status"],
+            "approved_success_count": len(unique_success_actions),
+            "minimum_approved_success_count": minimum,
+            "human_approved": True,
+            "reason": reason,
+            "promotion_request_authorized": True,
+            "promotion_executed": False,
+            "command_executed": False,
+            "repo_write_executed": False,
+            "push_or_pr_executed": False,
+            "approval_bypass_allowed": False,
+            "claim_ceiling": (
+                "promotion review decision only; skill remains APPROVED and any "
+                "PROMOTED transition requires a separate explicit human-approved step"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        with self.db.transaction() as connection:
+            connection.execute(
+                "UPDATE evolution_candidates SET status=?,result_json=?,updated_at=? WHERE candidate_id=?",
+                (
+                    CandidateStatus.APPROVED.value,
+                    json.dumps(receipt, ensure_ascii=False, sort_keys=True),
+                    utc_now(),
+                    candidate_id,
+                ),
+            )
+            self.ledger.append(
+                "patch_mission_repair_skill_promotion_review_approved",
+                receipt,
+                connection,
+            )
+        return receipt
+
+    def promote_patch_mission_repair_skill_from_review(
+        self,
+        *,
+        candidate_id: str,
+        reason: str = "",
+        human_approved: bool = False,
+    ) -> dict[str, Any]:
+        if not human_approved:
+            raise PermissionError("Patch Mission repair skill promotion requires human approval")
+        row = self.db.query_one(
+            "SELECT * FROM evolution_candidates WHERE candidate_id=?",
+            (candidate_id,),
+        )
+        if row is None:
+            raise KeyError(f"unknown promotion review candidate: {candidate_id}")
+        if row["candidate_type"] != "patch_mission_repair_skill_promotion_review":
+            raise ValueError("candidate is not a Patch Mission repair skill promotion review")
+        if row["status"] != CandidateStatus.APPROVED.value:
+            raise ValueError(
+                "Patch Mission repair skill promotion requires an APPROVED "
+                f"promotion-review candidate, got {row['status']}"
+            )
+        review_receipt = json.loads(str(row["result_json"] or "{}"))
+        if review_receipt.get("status") != "PROMOTION_REVIEW_APPROVED":
+            raise ValueError("promotion review candidate lacks approved review evidence")
+        payload = json.loads(str(row["proposal_json"]))
+        proposal = payload.get("proposal", {})
+        if not isinstance(proposal, dict):
+            raise ValueError("promotion review proposal is malformed")
+        skill_id = str(proposal.get("skill_id") or "")
+        skill_row = self.db.query_one(
+            "SELECT status,use_count,success_rate FROM skills WHERE skill_id=?",
+            (skill_id,),
+        )
+        if skill_row is None:
+            raise ValueError("promotion review source skill is missing")
+        if skill_row["status"] != CandidateStatus.APPROVED.value:
+            raise ValueError("promotion source skill must still be APPROVED")
+        minimum = int(proposal.get("minimum_approved_success_count", 2) or 2)
+        approved_count = int(proposal.get("approved_success_count", 0) or 0)
+        if approved_count < minimum:
+            raise ValueError("promotion review candidate has insufficient approved outcomes")
+        evidence = {
+            "candidate_id": candidate_id,
+            "review_receipt_digest": review_receipt.get("receipt_digest"),
+            "approved_success_count": approved_count,
+            "minimum_approved_success_count": minimum,
+            "skill_use_count": int(skill_row["use_count"]),
+            "skill_success_rate": float(skill_row["success_rate"]),
+            "reason": reason,
+            "human_approved": True,
+            "command_executed": False,
+            "repo_write_executed": False,
+            "push_or_pr_executed": False,
+            "approval_bypass_allowed": False,
+        }
+        self.skills.transition(
+            skill_id,
+            CandidateStatus.PROMOTED,
+            evidence,
+            human_approved=True,
+        )
+        receipt = {
+            "receipt_type": "PATCH_MISSION_REPAIR_SKILL_PROMOTION",
+            "status": "SKILL_PROMOTED",
+            "candidate_id": candidate_id,
+            "candidate_status_before": row["status"],
+            "candidate_status_after": CandidateStatus.PROMOTED.value,
+            "skill_id": skill_id,
+            "skill_status_before": skill_row["status"],
+            "skill_status_after": CandidateStatus.PROMOTED.value,
+            "approved_success_count": approved_count,
+            "minimum_approved_success_count": minimum,
+            "human_approved": True,
+            "reason": reason,
+            "promotion_executed": True,
+            "command_executed": False,
+            "repo_write_executed": False,
+            "push_or_pr_executed": False,
+            "approval_bypass_allowed": False,
+            "claim_ceiling": (
+                "skill lifecycle promotion only; no command, repo write, push, PR, "
+                "or future action approval is executed by this step"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        with self.db.transaction() as connection:
+            connection.execute(
+                "UPDATE evolution_candidates SET status=?,result_json=?,updated_at=? WHERE candidate_id=?",
+                (
+                    CandidateStatus.PROMOTED.value,
+                    json.dumps(receipt, ensure_ascii=False, sort_keys=True),
+                    utc_now(),
+                    candidate_id,
+                ),
+            )
+            self.ledger.append(
+                "patch_mission_repair_skill_promoted",
+                receipt,
+                connection,
+            )
+        return receipt
+
+    def _patch_mission_failure_learning_context(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        query_text: str,
+        selected_file: str | None,
+        pytest_target: str | None,
+        limit: int = 3,
+    ) -> list[dict[str, Any]]:
+        query_parts = [
+            "patch_mission_failure_learning",
+            str(mission_record.get("mission") or ""),
+            selected_file or "",
+            pytest_target or "",
+            query_text[:1000],
+        ]
+        memories = self.memories.retrieve(
+            " ".join(part for part in query_parts if part),
+            limit=limit * 3,
+            memory_types=["procedural"],
+        )
+        selected: list[dict[str, Any]] = []
+        current_mission_id = str(mission_record.get("mission_id") or "")
+        for item in memories:
+            content = item.get("content")
+            if not isinstance(content, dict):
+                continue
+            if content.get("kind") != "patch_mission_failure_learning":
+                continue
+            score = float(item.get("score", 0.0))
+            if current_mission_id and content.get("mission_id") == current_mission_id:
+                score += 0.2
+            if selected_file and content.get("selected_file") == selected_file:
+                score += 0.2
+            if pytest_target and content.get("pytest_target") == pytest_target:
+                score += 0.3
+            selected.append({**item, "score": score})
+        selected.sort(key=lambda item: float(item.get("score", 0.0)), reverse=True)
+        return selected[:limit]
+
+    @staticmethod
+    def _patch_mission_failure_learning_lines(
+        memories: list[dict[str, Any]]
+    ) -> list[str]:
+        if not memories:
+            return ["- (none found)"]
+        lines: list[str] = []
+        for item in memories:
+            content = item.get("content") if isinstance(item, dict) else {}
+            if not isinstance(content, dict):
+                continue
+            memory_id = str(item.get("memory_id") or "")
+            cause = str(content.get("cause") or "")[:240]
+            fix = str(content.get("fix") or "")[:240]
+            regression = str(content.get("regression") or "")[:240]
+            lines.extend(
+                [
+                    f"- Memory: {memory_id}",
+                    f"  Cause: {cause or '(not captured)'}",
+                    f"  Fix: {fix or '(not captured)'}",
+                    f"  Regression: {regression or '(not captured)'}",
+                ]
+            )
+        return lines or ["- (none found)"]
+
+    @staticmethod
+    def _patch_mission_pytest_target_from_command(command: Any) -> str | None:
+        if not isinstance(command, list) or command[:3] != ["python", "-m", "pytest"]:
+            return None
+        if len(command) >= 4 and isinstance(command[3], str):
+            return command[3]
+        return None
+
+    @staticmethod
+    def _patch_mission_failure_cause_note(
+        *,
+        output_text: str,
+        selected_file: str,
+        pytest_target: str | None,
+        synthesis: dict[str, Any],
+    ) -> str:
+        actual = synthesis.get("actual")
+        expected = synthesis.get("expected")
+        target = pytest_target or selected_file
+        if actual is not None and expected is not None:
+            return (
+                f"{target} failed because observed value {actual!r} did not match expected {expected!r}."
+            )
+        first_line = next(
+            (line.strip() for line in output_text.splitlines() if line.strip()),
+            "test failure did not expose a concise first line",
+        )
+        return f"{target} failed; nearest clue: {first_line[:240]}"
+
+    @staticmethod
+    def _patch_mission_failure_fix_note(synthesis: dict[str, Any]) -> str:
+        status = str(synthesis.get("status") or "")
+        target_file = synthesis.get("target_file")
+        if status == "synthesized_literal_diff" and target_file:
+            return f"Apply the synthesized literal diff to {target_file}, then rerun the failing target and affected tests."
+        return "No safe automatic patch was synthesized; inspect the selected failure file before proposing a patch."
+
+    @staticmethod
+    def _patch_mission_failure_regression_note(
+        *, command: Any, pytest_target: str | None
+    ) -> str:
+        if isinstance(command, list) and command[:3] == ["python", "-m", "pytest"]:
+            if pytest_target:
+                return f"Rerun `python -m pytest {pytest_target}` first, then broaden to the affected suite."
+            return "Rerun `python -m pytest` after the patch to detect regressions."
+        return "Rerun the approved verification command after the patch."
+
+    @staticmethod
+    def _patch_mission_pytest_literal_mismatch(
+        output_text: str,
+    ) -> tuple[str, str] | None:
+        match = re.search(
+            r"AssertionError:\s+assert\s+(['\"])(?P<actual>.*?)\1\s*==\s*(['\"])(?P<expected>.*?)\3",
+            output_text,
+            flags=re.DOTALL,
+        )
+        if not match:
+            return None
+        actual = match.group("actual")
+        expected = match.group("expected")
+        if not actual or not expected or actual == expected:
+            return None
+        if len(actual) > 200 or len(expected) > 200:
+            return None
+        return actual, expected
+
+    def _patch_mission_adjacent_source_candidates(
+        self,
+        *,
+        repo_root: Path,
+        repo_map: Any,
+        selected_file: str,
+    ) -> list[str]:
+        candidates: list[str] = []
+        selected_path = self._patch_mission_repo_file(repo_root, selected_file)
+        try:
+            selected_text = self._read_patch_mission_text(selected_path)
+        except UnicodeError:
+            selected_text = ""
+        for module in re.findall(
+            r"^\s*from\s+([A-Za-z_][\w.]*)\s+import\s+",
+            selected_text,
+            re.MULTILINE,
+        ):
+            candidates.extend(self._module_candidates(module))
+        for module in re.findall(
+            r"^\s*import\s+([A-Za-z_][\w.]*)",
+            selected_text,
+            re.MULTILINE,
+        ):
+            candidates.extend(self._module_candidates(module))
+        selected = selected_file.replace("\\", "/")
+        if selected.startswith("tests/test_"):
+            base = selected.removeprefix("tests/test_")
+            candidates.extend([base, f"src/{base}"])
+        elif selected.startswith("test_"):
+            candidates.append(selected.removeprefix("test_"))
+        for item in getattr(repo_map, "files", []):
+            path = str(item.path).replace("\\", "/")
+            if path.endswith(".py") and not path.startswith("tests/"):
+                candidates.append(path)
+        seen: set[str] = set()
+        existing: list[str] = []
+        for candidate in candidates:
+            normalized = str(candidate).replace("\\", "/").lstrip("./")
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            try:
+                self._patch_mission_repo_file(repo_root, normalized)
+            except (OSError, ValueError, PermissionError):
+                continue
+            existing.append(normalized)
+        return existing
+
+    @staticmethod
+    def _module_candidates(module: str) -> list[str]:
+        path = module.replace(".", "/")
+        return [f"{path}.py", f"src/{path}.py", f"{path}/__init__.py"]
+
+    @staticmethod
+    def _read_patch_mission_text(path: Path, max_bytes: int = 262144) -> str:
+        data = path.read_bytes()
+        if len(data) > max_bytes:
+            raise ValueError("patch mission source exceeds max_bytes")
+        return data.decode("utf-8")
+
+    @staticmethod
+    def _unified_diff_for_patch_mission(
+        relative_path: str, original: str, revised: str
+    ) -> str:
+        return "".join(
+            difflib.unified_diff(
+                original.splitlines(keepends=True),
+                revised.splitlines(keepends=True),
+                fromfile=f"a/{relative_path}",
+                tofile=f"b/{relative_path}",
+                lineterm="\n",
+            )
+        )
+
+    def _patch_mission_test_action_id(
+        self, mission_record: dict[str, Any], action_id: str | None
+    ) -> str:
+        test_action_ids = self._patch_mission_test_step_action_ids(mission_record)
+        if action_id:
+            candidate = str(action_id)
+            if candidate not in test_action_ids:
+                raise ValueError("test result action is not part of this patch mission")
+            return candidate
+        if not test_action_ids:
+            raise ValueError("from-test-result mode requires a prior test step")
+        return test_action_ids[0]
+
+    def _patch_mission_action_result_output(self, action_id: str) -> dict[str, Any]:
+        row = self.db.query_one(
+            "SELECT tool,status,result_json FROM actions WHERE action_id=?",
+            (action_id,),
+        )
+        if row is None:
+            raise KeyError(action_id)
+        if row["tool"] != "run_command":
+            raise ValueError("source action must be a run_command test action")
+        if row["status"] not in {
+            ActionStatus.SUCCEEDED.value,
+            ActionStatus.FAILED.value,
+        }:
+            raise ValueError(f"test action has not produced a result: {row['status']}")
+        if not row["result_json"]:
+            raise ValueError("test action has no result_json")
+        payload = json.loads(row["result_json"])
+        result = payload.get("result") if isinstance(payload, dict) else None
+        output = result.get("output") if isinstance(result, dict) else None
+        if not isinstance(output, dict):
+            raise ValueError("test action result has no output object")
+        return output
+
+    def _patch_mission_apply_patch_action(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        repo_root: Path,
+        action_id: str | None,
+        goal_id: str | None,
+    ) -> ActionSpec:
+        draft_action_id = self._patch_mission_draft_action_id(
+            mission_record, action_id
+        )
+        draft_text = self._patch_mission_outbox_draft_text(draft_action_id)
+        diff_text = self._extract_unified_diff_from_patch_mission_draft(draft_text)
+        target_file, revised = self._apply_single_file_unified_diff(
+            repo_root=repo_root,
+            diff_text=diff_text,
+        )
+        self._allow_explicit_patch_mission_write_root(repo_root)
+        return ActionSpec(
+            tool="write_file",
+            arguments={
+                "path": str(repo_root / target_file),
+                "content": revised,
+                "max_bytes": 2 * 1024 * 1024,
+            },
+            purpose=(
+                "Apply an owner-reviewed Patch Mission unified diff to the canonical repo file"
+            ),
+            expected_result=(
+                "Exact canonical repo file is updated from the approved outbox diff for test rerun"
+            ),
+            risk=RiskLevel.HIGH,
+            goal_id=goal_id,
+            acceptance=["output contains path"],
+        )
+
+    def _patch_mission_pr_summary_action(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        repo_root: Path,
+        action_id: str | None,
+        goal_id: str | None,
+    ) -> ActionSpec:
+        passing_test_id = self._patch_mission_passing_test_action_id(
+            mission_record, action_id
+        )
+        passing_output = self._patch_mission_action_result_output(passing_test_id)
+        if int(passing_output.get("returncode", -1)) != 0:
+            raise ValueError("PR summary requires a passing verification test action")
+        failing_test_id = self._patch_mission_failing_test_action_id(
+            mission_record, passing_test_id
+        )
+        failing_output = self._patch_mission_action_result_output(failing_test_id)
+        ci_source = self._patch_mission_ci_source_context_for_test_action(
+            mission_record, failing_test_id
+        )
+        apply_step = self._patch_mission_latest_step(mission_record, "apply-patch")
+        apply_action_id = str(apply_step.get("action_id") or "")
+        self._require_patch_mission_action_status(
+            apply_action_id, ActionStatus.SUCCEEDED.value
+        )
+        draft_action_id = str(apply_step.get("source_action_id") or "")
+        draft_text = self._patch_mission_outbox_draft_text(draft_action_id)
+        diff_text = self._extract_unified_diff_from_patch_mission_draft(draft_text)
+        changed_files = self._patch_mission_diff_changed_files(diff_text)
+        title = self._patch_mission_pr_title(mission_record, changed_files)
+        repair_learning = self._record_patch_mission_successful_repair_pattern(
+            mission_record=mission_record,
+            failing_test_id=failing_test_id,
+            failing_output=failing_output,
+            passing_test_id=passing_test_id,
+            passing_output=passing_output,
+            apply_action_id=apply_action_id,
+            draft_action_id=draft_action_id,
+            ci_source=ci_source,
+        )
+        summary = self._patch_mission_pr_summary_text(
+            mission_record=mission_record,
+            title=title,
+            changed_files=changed_files,
+            diff_text=diff_text,
+            failing_test_id=failing_test_id,
+            failing_output=failing_output,
+            passing_test_id=passing_test_id,
+            passing_output=passing_output,
+            apply_action_id=apply_action_id,
+            draft_action_id=draft_action_id,
+            ci_source=ci_source,
+            repair_learning=repair_learning,
+        )
+        outbox = (
+            self.config.outbox_path
+            / "patch-missions"
+            / str(mission_record["mission_id"])
+            / "pr-summary.md"
+        )
+        return ActionSpec(
+            tool="write_file",
+            arguments={
+                "path": str(outbox),
+                "content": summary,
+                "max_bytes": 2 * 1024 * 1024,
+            },
+            purpose=(
+                "Write a verified Patch Mission PR summary to WLS outbox only"
+            ),
+            expected_result=(
+                "Owner-reviewable PR summary cites applied diff and test evidence without pushing"
+            ),
+            risk=RiskLevel.REVERSIBLE_WRITE,
+            goal_id=goal_id,
+            acceptance=["output contains path"],
+        )
+
+    def _patch_mission_git_metadata_action(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        repo_root: Path,
+        repo_map: Any,
+        goal_id: str | None,
+    ) -> ActionSpec:
+        repo_state_digest = self._patch_mission_repo_state_digest(
+            repo_root, repo_map
+        )
+        git_config_digest = self._patch_mission_git_config_digest(repo_root)
+        return ActionSpec(
+            tool="inspect_git_worktree",
+            arguments={
+                "path": str(repo_root),
+                "max_output_bytes": 256 * 1024,
+            },
+            purpose=(
+                "Inspect local git branch, status, and diff metadata for Patch Mission commit prep"
+            ),
+            expected_result=(
+                "Bounded read-only git metadata for preparing a commit checklist"
+            ),
+            risk=RiskLevel.READ,
+            goal_id=goal_id,
+            idempotency_key=digest_json(
+                {
+                    "tool": "inspect_git_worktree",
+                    "path": str(repo_root),
+                    "repo_state_digest": repo_state_digest,
+                    "git_config_digest": git_config_digest,
+                    "mission_id": mission_record.get("mission_id"),
+                }
+            ),
+            acceptance=["output contains branch_status"],
+        )
+
+    def _patch_mission_git_prep_action(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        repo_root: Path,
+        action_id: str | None,
+        goal_id: str | None,
+    ) -> ActionSpec:
+        metadata_action_id = self._patch_mission_git_metadata_action_id(
+            mission_record, action_id
+        )
+        metadata = self._patch_mission_git_metadata_output(
+            metadata_action_id, repo_root
+        )
+        changed_files = self._patch_mission_git_changed_files(metadata)
+        checklist = self._patch_mission_git_prep_text(
+            mission_record=mission_record,
+            metadata_action_id=metadata_action_id,
+            metadata=metadata,
+            changed_files=changed_files,
+        )
+        outbox = (
+            self.config.outbox_path
+            / "patch-missions"
+            / str(mission_record["mission_id"])
+            / "commit-ready-checklist.md"
+        )
+        return ActionSpec(
+            tool="write_file",
+            arguments={
+                "path": str(outbox),
+                "content": checklist,
+                "max_bytes": 2 * 1024 * 1024,
+            },
+            purpose=(
+                "Write local git commit-preparation checklist to WLS outbox only"
+            ),
+            expected_result=(
+                "Owner-reviewable commit checklist cites git metadata without committing or pushing"
+            ),
+            risk=RiskLevel.REVERSIBLE_WRITE,
+            goal_id=goal_id,
+            acceptance=["output contains path"],
+        )
+
+    def _patch_mission_commit_draft_action(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        repo_root: Path,
+        action_id: str | None,
+        goal_id: str | None,
+    ) -> ActionSpec:
+        prep_action_id = self._patch_mission_git_prep_action_id(
+            mission_record, action_id
+        )
+        self._require_patch_mission_action_status(
+            prep_action_id, ActionStatus.SUCCEEDED.value
+        )
+        prep_text = self._patch_mission_outbox_draft_text(prep_action_id)
+        summary_action_id = self._patch_mission_latest_succeeded_write_step_action_id(
+            mission_record, "pr-summary"
+        )
+        summary_text = self._patch_mission_outbox_draft_text(summary_action_id)
+        changed_files = self._patch_mission_changed_files_from_checklist(prep_text)
+        if not changed_files:
+            raise ValueError("commit-draft requires changed files in git prep checklist")
+        subject, body = self._patch_mission_commit_message_from_evidence(
+            mission_record=mission_record,
+            prep_text=prep_text,
+            summary_text=summary_text,
+            changed_files=changed_files,
+        )
+        return ActionSpec(
+            tool="run_command",
+            arguments={
+                "command": [
+                    "git",
+                    "-c",
+                    "user.name=WLS",
+                    "-c",
+                    "user.email=wls@example.invalid",
+                    "commit",
+                    "-am",
+                    subject,
+                    "-m",
+                    body,
+                ],
+                "cwd": str(repo_root),
+                "timeout": 120,
+                "max_output_bytes": 256 * 1024,
+            },
+            purpose=(
+                "Create a local git commit from owner-approved Patch Mission checklist and summary"
+            ),
+            expected_result=(
+                "Local commit is created only after exact owner approval; no push or PR is created"
+            ),
+            risk=RiskLevel.HIGH,
+            goal_id=goal_id,
+            idempotency_key=digest_json(
+                {
+                    "tool": "run_command",
+                    "command": "git commit -am",
+                    "cwd": str(repo_root),
+                    "prep_action_id": prep_action_id,
+                    "summary_action_id": summary_action_id,
+                    "changed_files": changed_files,
+                }
+            ),
+            acceptance=["output contains returncode"],
+        )
+
+    def _patch_mission_remote_summary_action(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        repo_root: Path,
+        action_id: str | None,
+        goal_id: str | None,
+    ) -> ActionSpec:
+        metadata_action_id = self._patch_mission_git_metadata_action_id(
+            mission_record, action_id
+        )
+        metadata = self._patch_mission_git_metadata_output(
+            metadata_action_id, repo_root
+        )
+        summary = self._patch_mission_remote_summary_text(
+            mission_record=mission_record,
+            metadata_action_id=metadata_action_id,
+            metadata=metadata,
+        )
+        outbox = (
+            self.config.outbox_path
+            / "patch-missions"
+            / str(mission_record["mission_id"])
+            / "remote-readiness-summary.md"
+        )
+        return ActionSpec(
+            tool="write_file",
+            arguments={
+                "path": str(outbox),
+                "content": summary,
+                "max_bytes": 2 * 1024 * 1024,
+            },
+            purpose=(
+                "Write read-only Patch Mission remote/branch metadata summary to WLS outbox"
+            ),
+            expected_result=(
+                "Owner-reviewable remote summary cites local git metadata without fetching, pushing, or opening PRs"
+            ),
+            risk=RiskLevel.REVERSIBLE_WRITE,
+            goal_id=goal_id,
+            acceptance=["output contains path"],
+        )
+
+    def _patch_mission_branch_draft_action(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        repo_root: Path,
+        action_id: str | None,
+        goal_id: str | None,
+    ) -> ActionSpec:
+        remote_summary_id = self._patch_mission_remote_summary_action_id(
+            mission_record, action_id
+        )
+        self._require_patch_mission_action_status(
+            remote_summary_id, ActionStatus.SUCCEEDED.value
+        )
+        remote_summary = self._patch_mission_outbox_draft_text(remote_summary_id)
+        commit_action_id = self._patch_mission_latest_succeeded_run_step_action_id(
+            mission_record, "commit-draft"
+        )
+        commit_output = self._patch_mission_run_command_output(commit_action_id)
+        if int(commit_output.get("returncode", -1)) != 0:
+            raise ValueError("branch-draft requires a successful local commit action")
+        branch_name = self._patch_mission_branch_name(
+            mission_record=mission_record,
+            remote_summary=remote_summary,
+        )
+        return ActionSpec(
+            tool="run_command",
+            arguments={
+                "command": ["git", "checkout", "-b", branch_name],
+                "cwd": str(repo_root),
+                "timeout": 120,
+                "max_output_bytes": 256 * 1024,
+            },
+            purpose=(
+                "Create a local Patch Mission branch from verified local commit and remote readiness evidence"
+            ),
+            expected_result=(
+                "Local branch is created only after exact owner approval; no push or PR is created"
+            ),
+            risk=RiskLevel.HIGH,
+            goal_id=goal_id,
+            idempotency_key=digest_json(
+                {
+                    "tool": "run_command",
+                    "command": "git checkout -b",
+                    "cwd": str(repo_root),
+                    "remote_summary_id": remote_summary_id,
+                    "commit_action_id": commit_action_id,
+                    "branch_name": branch_name,
+                }
+            ),
+            acceptance=["output contains returncode"],
+        )
+
+    def _patch_mission_remote_live_action(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        repo_root: Path,
+        goal_id: str | None,
+    ) -> ActionSpec:
+        return ActionSpec(
+            tool="inspect_git_remote_live",
+            arguments={
+                "path": str(repo_root),
+                "remote": "origin",
+                "max_output_bytes": 256 * 1024,
+            },
+            purpose=(
+                "Read live remote branch and public GitHub metadata before any Patch Mission push"
+            ),
+            expected_result=(
+                "Bounded read-only remote refs and optional public GitHub metadata"
+            ),
+            risk=RiskLevel.HIGH,
+            goal_id=goal_id,
+            idempotency_key=digest_json(
+                {
+                    "tool": "inspect_git_remote_live",
+                    "path": str(repo_root),
+                    "mission_id": mission_record.get("mission_id"),
+                    "requested_at": utc_now(),
+                }
+            ),
+            acceptance=["output contains remote_heads"],
+        )
+
+    def _patch_mission_remote_live_summary_action(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        repo_root: Path,
+        action_id: str | None,
+        goal_id: str | None,
+    ) -> ActionSpec:
+        live_action_id = self._patch_mission_remote_live_action_id(
+            mission_record, action_id
+        )
+        live_output = self._patch_mission_remote_live_output(live_action_id, repo_root)
+        summary = self._patch_mission_remote_live_summary_text(
+            mission_record=mission_record,
+            live_action_id=live_action_id,
+            live_output=live_output,
+        )
+        outbox = (
+            self.config.outbox_path
+            / "patch-missions"
+            / str(mission_record["mission_id"])
+            / "remote-live-summary.md"
+        )
+        return ActionSpec(
+            tool="write_file",
+            arguments={
+                "path": str(outbox),
+                "content": summary,
+                "max_bytes": 2 * 1024 * 1024,
+            },
+            purpose=(
+                "Write read-only live remote/GitHub inspection summary to WLS outbox"
+            ),
+            expected_result=(
+                "Owner-reviewable live remote summary cites branch refs and public metadata without pushing"
+            ),
+            risk=RiskLevel.REVERSIBLE_WRITE,
+            goal_id=goal_id,
+            acceptance=["output contains path"],
+        )
+
+    def _patch_mission_push_draft_action(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        repo_root: Path,
+        action_id: str | None,
+        goal_id: str | None,
+    ) -> ActionSpec:
+        live_summary_id = self._patch_mission_remote_live_summary_action_id(
+            mission_record, action_id
+        )
+        self._require_patch_mission_action_status(
+            live_summary_id, ActionStatus.SUCCEEDED.value
+        )
+        self._patch_mission_outbox_draft_text(live_summary_id)
+        branch_action_id = self._patch_mission_latest_succeeded_run_step_action_id(
+            mission_record, "branch-draft"
+        )
+        branch_output = self._patch_mission_run_command_output(branch_action_id)
+        if int(branch_output.get("returncode", -1)) != 0:
+            raise ValueError("push-draft requires a successful local branch action")
+        branch_name = self._patch_mission_branch_name_from_action(branch_action_id)
+        if not branch_name.startswith("wls/"):
+            raise ValueError("push-draft only supports prepared wls/... branches")
+        return ActionSpec(
+            tool="run_command",
+            arguments={
+                "command": ["git", "push", "-u", "origin", branch_name],
+                "cwd": str(repo_root),
+                "timeout": 120,
+                "max_output_bytes": 256 * 1024,
+            },
+            purpose=(
+                "Push the prepared local Patch Mission branch to the configured origin remote"
+            ),
+            expected_result=(
+                "Prepared branch is pushed only after exact owner approval; no PR is created"
+            ),
+            risk=RiskLevel.HIGH,
+            goal_id=goal_id,
+            idempotency_key=digest_json(
+                {
+                    "tool": "run_command",
+                    "command": "git push -u origin",
+                    "cwd": str(repo_root),
+                    "live_summary_id": live_summary_id,
+                    "branch_action_id": branch_action_id,
+                    "branch_name": branch_name,
+                }
+            ),
+            acceptance=["output contains returncode"],
+        )
+
+    def _patch_mission_pr_create_draft_action(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        repo_root: Path,
+        action_id: str | None,
+        goal_id: str | None,
+    ) -> ActionSpec:
+        push_action_id = self._patch_mission_push_action_id(
+            mission_record, action_id
+        )
+        push_output = self._patch_mission_run_command_output(push_action_id)
+        if int(push_output.get("returncode", -1)) != 0:
+            raise ValueError("pr-create-draft requires a successful branch push action")
+        branch_name = self._patch_mission_pushed_branch_name_from_action(push_action_id)
+        if not branch_name.startswith("wls/"):
+            raise ValueError("pr-create-draft only supports prepared wls/... branches")
+        summary_action_id = self._patch_mission_latest_succeeded_write_step_action_id(
+            mission_record, "pr-summary"
+        )
+        summary_text = self._patch_mission_outbox_draft_text(summary_action_id)
+        owner, repo, remote_evidence_id, remote_evidence = (
+            self._patch_mission_github_repo_from_remote_evidence(mission_record)
+        )
+        title, body = self._patch_mission_pr_create_payload(
+            mission_record=mission_record,
+            summary_text=summary_text,
+            push_action_id=push_action_id,
+            branch_name=branch_name,
+            remote_evidence_id=remote_evidence_id,
+        )
+        base = self._patch_mission_default_base_branch(remote_evidence)
+        return ActionSpec(
+            tool="create_github_pull_request",
+            arguments={
+                "owner": owner,
+                "repo": repo,
+                "title": title,
+                "body": body,
+                "base": base,
+                "head": branch_name,
+                "draft": True,
+                "token_env": "GITHUB_TOKEN",
+                "api_url": "https://api.github.com",
+            },
+            purpose=(
+                "Create a draft GitHub pull request from verified Patch Mission summary and pushed branch evidence"
+            ),
+            expected_result=(
+                "Draft PR is created only after exact owner approval and a GitHub token; no merge is attempted"
+            ),
+            risk=RiskLevel.HIGH,
+            goal_id=goal_id,
+            idempotency_key=digest_json(
+                {
+                    "tool": "create_github_pull_request",
+                    "owner": owner,
+                    "repo": repo,
+                    "base": base,
+                    "head": branch_name,
+                    "summary_action_id": summary_action_id,
+                    "push_action_id": push_action_id,
+                    "remote_evidence_id": remote_evidence_id,
+                }
+            ),
+            acceptance=["output contains url", "output contains number"],
+        )
+
+    def _patch_mission_pr_status_action(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        target: str | None,
+        action_id: str | None,
+        goal_id: str | None,
+    ) -> ActionSpec:
+        if target:
+            owner, repo, number = self._patch_mission_pr_ref_from_url(target)
+            source = {"kind": "explicit_pr_url", "target": target}
+        else:
+            pr_action_id = self._patch_mission_pr_create_action_id(
+                mission_record, action_id
+            )
+            owner, repo, number = self._patch_mission_pr_ref_from_create_action(
+                pr_action_id
+            )
+            source = {"kind": "created_pr_action", "action_id": pr_action_id}
+        return ActionSpec(
+            tool="inspect_github_pr_status",
+            arguments={
+                "owner": owner,
+                "repo": repo,
+                "number": number,
+                "token_env": "GITHUB_TOKEN",
+                "api_url": "https://api.github.com",
+            },
+            purpose=(
+                "Read GitHub PR status, mergeability metadata, and CI/check summaries for Patch Mission follow-up"
+            ),
+            expected_result=(
+                "Read-only PR/CI status evidence is captured without commenting, merging, pushing, or changing GitHub state"
+            ),
+            risk=RiskLevel.HIGH,
+            goal_id=goal_id,
+            idempotency_key=digest_json(
+                {
+                    "tool": "inspect_github_pr_status",
+                    "owner": owner,
+                    "repo": repo,
+                    "number": number,
+                    "source": source,
+                    "requested_at": utc_now(),
+                }
+            ),
+            acceptance=["output contains pull_request", "output contains check_runs"],
+        )
+
+    def _patch_mission_ci_fix_plan_action(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        repo_root: Path,
+        repo_map: Any,
+        action_id: str | None,
+        goal_id: str | None,
+    ) -> ActionSpec:
+        log_action_id = self._patch_mission_ci_log_evidence_action_id_if_present(
+            mission_record, action_id
+        )
+        status_action_id = (
+            self._patch_mission_ci_log_evidence_status_action_id(
+                mission_record, log_action_id
+            )
+            if log_action_id
+            else self._patch_mission_pr_status_action_id(mission_record, action_id)
+        )
+        status_output = self._patch_mission_pr_status_output(status_action_id)
+        log_output = (
+            self._patch_mission_ci_log_evidence_output(log_action_id)
+            if log_action_id
+            else None
+        )
+        plan_text = self._patch_mission_ci_fix_plan_text(
+            mission_record=mission_record,
+            repo_root=repo_root,
+            repo_map=repo_map,
+            status_action_id=status_action_id,
+            status_output=status_output,
+            log_action_id=log_action_id,
+            log_output=log_output,
+        )
+        outbox = (
+            self.config.outbox_path
+            / "patch-missions"
+            / str(mission_record["mission_id"])
+            / "ci-fix-plan.md"
+        )
+        return ActionSpec(
+            tool="write_file",
+            arguments={
+                "path": str(outbox),
+                "content": plan_text,
+                "max_bytes": 2 * 1024 * 1024,
+            },
+            purpose=(
+                "Write a bounded local repair plan from approved GitHub PR/CI status evidence"
+            ),
+            expected_result=(
+                "Owner-reviewable CI repair plan identifies failure clues and the next local Patch Mission step without changing repo or GitHub state"
+            ),
+            risk=RiskLevel.REVERSIBLE_WRITE,
+            goal_id=goal_id,
+            acceptance=["output contains path"],
+        )
+
+    def _patch_mission_ci_log_evidence_action(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        action_id: str | None,
+        goal_id: str | None,
+    ) -> ActionSpec:
+        status_action_id = self._patch_mission_pr_status_action_id(
+            mission_record, action_id
+        )
+        status_output = self._patch_mission_pr_status_output(status_action_id)
+        workflow_run_ids = self._patch_mission_failed_workflow_run_ids(status_output)
+        owner = str(status_output.get("owner") or "").strip()
+        repo = str(status_output.get("repo") or "").strip()
+        if not owner or not repo:
+            owner, repo, _number = self._patch_mission_pr_ref_from_status_action(
+                status_action_id
+            )
+        return ActionSpec(
+            tool="inspect_github_ci_logs",
+            arguments={
+                "owner": owner,
+                "repo": repo,
+                "workflow_run_ids": workflow_run_ids,
+                "token_env": "GITHUB_TOKEN",
+                "api_url": "https://api.github.com",
+                "max_runs": 3,
+                "max_jobs": 5,
+                "max_log_bytes": 64 * 1024,
+            },
+            purpose=(
+                "Read bounded failed GitHub Actions job logs for Patch Mission repair evidence"
+            ),
+            expected_result=(
+                "Read-only CI log excerpts and failure clues are captured without writing to GitHub"
+            ),
+            risk=RiskLevel.HIGH,
+            goal_id=goal_id,
+            idempotency_key=digest_json(
+                {
+                    "tool": "inspect_github_ci_logs",
+                    "owner": owner,
+                    "repo": repo,
+                    "status_action_id": status_action_id,
+                    "workflow_run_ids": workflow_run_ids,
+                }
+            ),
+            acceptance=["output contains logs", "output contains failure_clues"],
+        )
+
+    def _patch_mission_pr_update_push_draft_action(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        repo_root: Path,
+        action_id: str | None,
+        goal_id: str | None,
+    ) -> ActionSpec:
+        status_action_id = self._patch_mission_pr_status_action_id(
+            mission_record, action_id
+        )
+        status_output = self._patch_mission_pr_status_output(status_action_id)
+        head_ref = str(status_output.get("head_ref") or "").strip()
+        if not head_ref:
+            raise ValueError("pr-update-push-draft requires PR head_ref evidence")
+        if not re.fullmatch(r"[A-Za-z0-9._/-]+", head_ref):
+            raise ValueError("PR head_ref contains unsupported characters")
+        if not head_ref.startswith("wls/"):
+            raise ValueError("pr-update-push-draft only supports prepared wls/... PR branches")
+        summary_action_id = self._patch_mission_latest_succeeded_write_step_action_id(
+            mission_record, "pr-summary"
+        )
+        commit_action_id = self._patch_mission_latest_succeeded_run_step_action_id(
+            mission_record, "commit-draft"
+        )
+        commit_output = self._patch_mission_run_command_output(commit_action_id)
+        if int(commit_output.get("returncode", -1)) != 0:
+            raise ValueError("pr-update-push-draft requires a successful local commit")
+        return ActionSpec(
+            tool="run_command",
+            arguments={
+                "command": ["git", "push", "origin", f"HEAD:{head_ref}"],
+                "cwd": str(repo_root),
+                "timeout": 120,
+                "max_output_bytes": 256 * 1024,
+            },
+            purpose=(
+                "Push a verified CI-sourced local repair commit to the existing Patch Mission PR branch"
+            ),
+            expected_result=(
+                "Existing PR branch is updated only after exact owner approval; no force push, comment, review, merge, or new PR is created"
+            ),
+            risk=RiskLevel.HIGH,
+            goal_id=goal_id,
+            idempotency_key=digest_json(
+                {
+                    "tool": "run_command",
+                    "command": "git push origin HEAD:<pr_head_ref>",
+                    "cwd": str(repo_root),
+                    "status_action_id": status_action_id,
+                    "summary_action_id": summary_action_id,
+                    "commit_action_id": commit_action_id,
+                    "head_ref": head_ref,
+                }
+            ),
+            acceptance=["output contains returncode"],
+        )
+
+    def _patch_mission_pr_update_status_action(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        action_id: str | None,
+        goal_id: str | None,
+    ) -> ActionSpec:
+        push_action_id = self._patch_mission_pr_update_push_action_id(
+            mission_record, action_id
+        )
+        push_output = self._patch_mission_run_command_output(push_action_id)
+        if int(push_output.get("returncode", -1)) != 0:
+            raise ValueError("pr-update-status requires a successful PR update push")
+        pre_status_id = self._patch_mission_pr_update_pre_status_id_from_push(
+            mission_record, push_action_id
+        )
+        owner, repo, number = self._patch_mission_pr_ref_from_status_action(
+            pre_status_id
+        )
+        return ActionSpec(
+            tool="inspect_github_pr_status",
+            arguments={
+                "owner": owner,
+                "repo": repo,
+                "number": number,
+                "token_env": "GITHUB_TOKEN",
+                "api_url": "https://api.github.com",
+            },
+            purpose=(
+                "Recheck GitHub PR status after an owner-approved Patch Mission PR branch update push"
+            ),
+            expected_result=(
+                "Read-only post-update PR/CI status evidence is captured without commenting, merging, pushing, or changing GitHub state"
+            ),
+            risk=RiskLevel.HIGH,
+            goal_id=goal_id,
+            idempotency_key=digest_json(
+                {
+                    "tool": "inspect_github_pr_status",
+                    "owner": owner,
+                    "repo": repo,
+                    "number": number,
+                    "source": {
+                        "kind": "post_update_push_action",
+                        "action_id": push_action_id,
+                        "pre_status_action_id": pre_status_id,
+                    },
+                    "requested_at": utc_now(),
+                }
+            ),
+            acceptance=["output contains pull_request", "output contains check_runs"],
+        )
+
+    def _patch_mission_pr_update_verify_action(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        action_id: str | None,
+        goal_id: str | None,
+    ) -> ActionSpec:
+        post_status_id = self._patch_mission_pr_update_status_action_id(
+            mission_record, action_id
+        )
+        post_output = self._patch_mission_pr_status_output(post_status_id)
+        push_action_id = self._patch_mission_pr_update_push_id_from_status(
+            mission_record, post_status_id
+        )
+        pre_status_id = self._patch_mission_pr_update_pre_status_id_from_push(
+            mission_record, push_action_id
+        )
+        pre_output = self._patch_mission_pr_status_output(pre_status_id)
+        summary = self._patch_mission_pr_update_verify_text(
+            mission_record=mission_record,
+            pre_status_id=pre_status_id,
+            pre_output=pre_output,
+            push_action_id=push_action_id,
+            post_status_id=post_status_id,
+            post_output=post_output,
+        )
+        outbox = (
+            self.config.outbox_path
+            / "patch-missions"
+            / str(mission_record["mission_id"])
+            / "pr-update-verify.md"
+        )
+        return ActionSpec(
+            tool="write_file",
+            arguments={
+                "path": str(outbox),
+                "content": summary,
+                "max_bytes": 2 * 1024 * 1024,
+            },
+            purpose=(
+                "Write an outbox-only comparison of PR/CI status before and after the Patch Mission branch update"
+            ),
+            expected_result=(
+                "Owner-reviewable comparison cites pre-update status, update push, and post-update status without changing GitHub state"
+            ),
+            risk=RiskLevel.REVERSIBLE_WRITE,
+            goal_id=goal_id,
+            acceptance=["output contains path"],
+        )
+
+    def _patch_mission_pr_update_next_action(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        repo_root: Path,
+        repo_map: Any,
+        action_id: str | None,
+        goal_id: str | None,
+    ) -> ActionSpec:
+        verify_action_id = self._patch_mission_pr_update_verify_action_id(
+            mission_record, action_id
+        )
+        verify_text = self._patch_mission_write_file_content(verify_action_id)
+        post_status_id = self._patch_mission_plan_line(
+            verify_text, "Post-update PR status action"
+        )
+        if not post_status_id:
+            raise ValueError("PR update verification has no post-update status action")
+        post_failures = self._patch_mission_pr_update_verify_after_failure_count(
+            verify_text
+        )
+        if post_failures > 0:
+            return self._patch_mission_ci_fix_plan_action(
+                mission_record=mission_record,
+                repo_root=repo_root,
+                repo_map=repo_map,
+                action_id=post_status_id,
+                goal_id=goal_id,
+            )
+        outbox = (
+            self.config.outbox_path
+            / "patch-missions"
+            / str(mission_record["mission_id"])
+            / "pr-update-next.md"
+        )
+        conclusion = self._patch_mission_pr_update_next_text(
+            mission_record=mission_record,
+            verify_action_id=verify_action_id,
+            verify_text=verify_text,
+            post_failures=post_failures,
+        )
+        return ActionSpec(
+            tool="write_file",
+            arguments={
+                "path": str(outbox),
+                "content": conclusion,
+                "max_bytes": 2 * 1024 * 1024,
+            },
+            purpose=(
+                "Write a safe next-step note after post-update PR/CI verification shows no immediate failures"
+            ),
+            expected_result=(
+                "Owner-reviewable wait or completion note is written without changing repo or GitHub state"
+            ),
+            risk=RiskLevel.REVERSIBLE_WRITE,
+            goal_id=goal_id,
+            acceptance=["output contains path"],
+        )
+
+    def _patch_mission_ci_next_action(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        repo_root: Path,
+        repo_map: Any,
+        action_id: str | None,
+    ) -> ActionSpec:
+        fix_plan_action_id = self._patch_mission_ci_fix_plan_action_id(
+            mission_record, action_id
+        )
+        plan_text = self._patch_mission_write_file_content(fix_plan_action_id)
+        next_mode, next_target = self._patch_mission_ci_fix_plan_next_step(plan_text)
+        skill_id = self._patch_mission_approved_repair_skill_id_from_text(plan_text)
+        if not skill_id:
+            approved_skills = self._patch_mission_approved_repair_skill_context(
+                mission_record=mission_record,
+                query_text=plan_text,
+                selected_file=next_target,
+                pytest_target=next_target if next_mode == "test" else None,
+                limit=1,
+            )
+            if approved_skills:
+                skill_id = str(approved_skills[0].get("skill_id") or "") or None
+        action = self._patch_mission_followup_action(
+            mission_record=mission_record,
+            repo_root=repo_root,
+            repo_map=repo_map,
+            mode=next_mode,
+            target=next_target,
+            draft=None,
+            action_id=None,
+        )
+        return self._patch_mission_annotate_approved_skill_action_candidate(
+            action=action,
+            skill_id=skill_id,
+            source_action_id=fix_plan_action_id,
+            source_mode="ci-fix-plan",
+        )
+
+    def _patch_mission_git_prep_action_id(
+        self, mission_record: dict[str, Any], action_id: str | None
+    ) -> str:
+        prep_action_ids = self._patch_mission_step_action_ids(
+            mission_record, "git-prep"
+        )
+        if action_id:
+            candidate = str(action_id)
+            if candidate not in prep_action_ids:
+                raise ValueError("git prep action is not part of this patch mission")
+            return candidate
+        if not prep_action_ids:
+            raise ValueError("commit-draft mode requires a prior git-prep step")
+        return prep_action_ids[0]
+
+    def _patch_mission_remote_summary_action_id(
+        self, mission_record: dict[str, Any], action_id: str | None
+    ) -> str:
+        summary_action_ids = self._patch_mission_step_action_ids(
+            mission_record, "remote-summary"
+        )
+        if action_id:
+            candidate = str(action_id)
+            if candidate not in summary_action_ids:
+                raise ValueError("remote summary action is not part of this patch mission")
+            return candidate
+        if not summary_action_ids:
+            raise ValueError("branch-draft mode requires a prior remote-summary step")
+        return summary_action_ids[0]
+
+    def _patch_mission_remote_live_action_id(
+        self, mission_record: dict[str, Any], action_id: str | None
+    ) -> str:
+        live_action_ids = self._patch_mission_step_action_ids(
+            mission_record, "remote-live"
+        )
+        if action_id:
+            candidate = str(action_id)
+            if candidate not in live_action_ids:
+                raise ValueError("remote live action is not part of this patch mission")
+            return candidate
+        if not live_action_ids:
+            raise ValueError(
+                "remote-live-summary mode requires a prior remote-live step"
+            )
+        return live_action_ids[0]
+
+    def _patch_mission_remote_live_summary_action_id(
+        self, mission_record: dict[str, Any], action_id: str | None
+    ) -> str:
+        summary_action_ids = self._patch_mission_step_action_ids(
+            mission_record, "remote-live-summary"
+        )
+        if action_id:
+            candidate = str(action_id)
+            if candidate not in summary_action_ids:
+                raise ValueError(
+                    "remote live summary action is not part of this patch mission"
+                )
+            return candidate
+        if not summary_action_ids:
+            raise ValueError(
+                "push-draft mode requires a prior remote-live-summary step"
+            )
+        return summary_action_ids[0]
+
+    def _patch_mission_push_action_id(
+        self, mission_record: dict[str, Any], action_id: str | None
+    ) -> str:
+        push_action_ids = self._patch_mission_step_action_ids(
+            mission_record, "push-draft"
+        )
+        if action_id:
+            candidate = str(action_id)
+            if candidate not in push_action_ids:
+                raise ValueError("push action is not part of this patch mission")
+            return candidate
+        if not push_action_ids:
+            raise ValueError("pr-create-draft mode requires a prior push-draft step")
+        return push_action_ids[0]
+
+    def _patch_mission_pr_create_action_id(
+        self, mission_record: dict[str, Any], action_id: str | None
+    ) -> str:
+        pr_action_ids = self._patch_mission_step_action_ids(
+            mission_record, "pr-create-draft"
+        )
+        if action_id:
+            candidate = str(action_id)
+            if candidate not in pr_action_ids:
+                raise ValueError("PR creation action is not part of this patch mission")
+            return candidate
+        if not pr_action_ids:
+            raise ValueError(
+                "pr-status mode requires a prior pr-create-draft step or --target PR URL"
+            )
+        return pr_action_ids[0]
+
+    def _patch_mission_pr_status_action_id(
+        self, mission_record: dict[str, Any], action_id: str | None
+    ) -> str:
+        status_action_ids = self._patch_mission_pr_status_like_action_ids(
+            mission_record
+        )
+        if action_id:
+            candidate = str(action_id)
+            if candidate not in status_action_ids:
+                raise ValueError("PR status action is not part of this patch mission")
+            return candidate
+        if not status_action_ids:
+            raise ValueError("ci-fix-plan mode requires a prior pr-status step")
+        return status_action_ids[0]
+
+    def _patch_mission_pr_status_like_action_ids(
+        self, mission_record: dict[str, Any]
+    ) -> list[str]:
+        ids: list[str] = []
+        for mode in ("pr-status", "pr-update-status"):
+            ids.extend(self._patch_mission_step_action_ids(mission_record, mode))
+        return ids
+
+    def _patch_mission_pr_update_push_action_id(
+        self, mission_record: dict[str, Any], action_id: str | None
+    ) -> str:
+        push_action_ids = self._patch_mission_step_action_ids(
+            mission_record, "pr-update-push-draft"
+        )
+        if action_id:
+            candidate = str(action_id)
+            if candidate not in push_action_ids:
+                raise ValueError("PR update push action is not part of this patch mission")
+            return candidate
+        if not push_action_ids:
+            raise ValueError("pr-update-status mode requires a prior pr-update-push-draft step")
+        return push_action_ids[0]
+
+    def _patch_mission_pr_update_status_action_id(
+        self, mission_record: dict[str, Any], action_id: str | None
+    ) -> str:
+        status_action_ids = self._patch_mission_step_action_ids(
+            mission_record, "pr-update-status"
+        )
+        if action_id:
+            candidate = str(action_id)
+            if candidate not in status_action_ids:
+                raise ValueError("PR update status action is not part of this patch mission")
+            self._require_patch_mission_action_status(
+                candidate, ActionStatus.SUCCEEDED.value
+            )
+            return candidate
+        for candidate in status_action_ids:
+            try:
+                self._require_patch_mission_action_status(
+                    candidate, ActionStatus.SUCCEEDED.value
+                )
+                return candidate
+            except (KeyError, ValueError):
+                continue
+        raise ValueError("pr-update-verify mode requires a succeeded pr-update-status step")
+
+    def _patch_mission_pr_update_verify_action_id(
+        self, mission_record: dict[str, Any], action_id: str | None
+    ) -> str:
+        verify_action_ids = self._patch_mission_step_action_ids(
+            mission_record, "pr-update-verify"
+        )
+        if action_id:
+            candidate = str(action_id)
+            if candidate not in verify_action_ids:
+                raise ValueError("PR update verification action is not part of this patch mission")
+            self._require_patch_mission_action_status(
+                candidate, ActionStatus.SUCCEEDED.value
+            )
+            return candidate
+        for candidate in verify_action_ids:
+            try:
+                self._require_patch_mission_action_status(
+                    candidate, ActionStatus.SUCCEEDED.value
+                )
+                return candidate
+            except (KeyError, ValueError):
+                continue
+        raise ValueError("pr-update-next mode requires an approved pr-update-verify step")
+
+    def _patch_mission_ci_fix_plan_action_id(
+        self, mission_record: dict[str, Any], action_id: str | None
+    ) -> str:
+        plan_action_ids = self._patch_mission_ci_fix_plan_action_ids(mission_record)
+        if action_id:
+            candidate = str(action_id)
+            if candidate not in plan_action_ids:
+                raise ValueError("CI fix plan action is not part of this patch mission")
+            self._require_patch_mission_action_status(
+                candidate, ActionStatus.SUCCEEDED.value
+            )
+            return candidate
+        for candidate in plan_action_ids:
+            try:
+                self._require_patch_mission_action_status(
+                    candidate, ActionStatus.SUCCEEDED.value
+                )
+                return candidate
+            except (KeyError, ValueError):
+                continue
+        raise ValueError("ci-next-action mode requires an approved ci-fix-plan step")
+
+    def _patch_mission_ci_log_evidence_action_id_if_present(
+        self, mission_record: dict[str, Any], action_id: str | None
+    ) -> str | None:
+        log_action_ids = self._patch_mission_step_action_ids(
+            mission_record, "ci-log-evidence"
+        )
+        if action_id:
+            candidate = str(action_id)
+            if candidate not in log_action_ids:
+                return None
+            self._require_patch_mission_action_status(
+                candidate, ActionStatus.SUCCEEDED.value
+            )
+            return candidate
+        for candidate in log_action_ids:
+            try:
+                self._require_patch_mission_action_status(
+                    candidate, ActionStatus.SUCCEEDED.value
+                )
+                return candidate
+            except (KeyError, ValueError):
+                continue
+        return None
+
+    def _patch_mission_ci_log_evidence_status_action_id(
+        self, mission_record: dict[str, Any], log_action_id: str
+    ) -> str:
+        followups = mission_record.get("followups", [])
+        if not isinstance(followups, list):
+            raise ValueError("CI log evidence action is not part of this patch mission")
+        for item in followups:
+            if (
+                isinstance(item, dict)
+                and str(item.get("mode", "")).lower() == "ci-log-evidence"
+                and str(item.get("action_id", "")) == str(log_action_id)
+            ):
+                status_id = str(item.get("source_action_id") or "")
+                if not status_id:
+                    raise ValueError("CI log evidence step has no source PR status action")
+                self._require_patch_mission_action_status(
+                    status_id, ActionStatus.SUCCEEDED.value
+                )
+                return status_id
+        raise ValueError("CI log evidence action is not part of this patch mission")
+
+    def _patch_mission_ci_log_evidence_output(self, action_id: str) -> dict[str, Any]:
+        row = self.db.query_one(
+            "SELECT tool,status,result_json FROM actions WHERE action_id=?",
+            (action_id,),
+        )
+        if row is None:
+            raise KeyError(action_id)
+        if row["tool"] != "inspect_github_ci_logs":
+            raise ValueError("source action must be an inspect_github_ci_logs action")
+        if row["status"] != ActionStatus.SUCCEEDED.value:
+            raise ValueError(f"CI log evidence action has not succeeded: {row['status']}")
+        payload = json.loads(row["result_json"])
+        result = payload.get("result") if isinstance(payload, dict) else None
+        output = result.get("output") if isinstance(result, dict) else None
+        if not isinstance(output, dict):
+            raise ValueError("CI log evidence result has no output object")
+        return output
+
+    def _patch_mission_ci_fix_plan_action_ids(
+        self, mission_record: dict[str, Any]
+    ) -> list[str]:
+        action_ids = self._patch_mission_step_action_ids(mission_record, "ci-fix-plan")
+        for action_id in self._patch_mission_step_action_ids(
+            mission_record, "pr-update-next"
+        ):
+            text = self._patch_mission_optional_write_content(action_id)
+            if "# Patch Mission CI Fix Plan" in text:
+                action_ids.append(action_id)
+        return list(dict.fromkeys(action_ids))
+
+    def _patch_mission_latest_succeeded_write_step_action_id(
+        self, mission_record: dict[str, Any], mode: str
+    ) -> str:
+        for action_id in self._patch_mission_step_action_ids(mission_record, mode):
+            try:
+                self._require_patch_mission_action_status(
+                    action_id, ActionStatus.SUCCEEDED.value
+                )
+                return action_id
+            except (KeyError, ValueError):
+                continue
+        raise ValueError(f"commit-draft requires a succeeded {mode} action")
+
+    def _patch_mission_latest_succeeded_run_step_action_id(
+        self, mission_record: dict[str, Any], mode: str
+    ) -> str:
+        for action_id in self._patch_mission_step_action_ids(mission_record, mode):
+            try:
+                self._require_patch_mission_action_status(
+                    action_id, ActionStatus.SUCCEEDED.value
+                )
+                return action_id
+            except (KeyError, ValueError):
+                continue
+        raise ValueError(f"branch-draft requires a succeeded {mode} action")
+
+    def _patch_mission_run_command_output(self, action_id: str) -> dict[str, Any]:
+        row = self.db.query_one(
+            "SELECT tool,status,result_json FROM actions WHERE action_id=?",
+            (action_id,),
+        )
+        if row is None:
+            raise KeyError(action_id)
+        if row["tool"] != "run_command":
+            raise ValueError("source action must be a run_command action")
+        if row["status"] != ActionStatus.SUCCEEDED.value:
+            raise ValueError(f"run command action has not succeeded: {row['status']}")
+        payload = json.loads(row["result_json"])
+        result = payload.get("result") if isinstance(payload, dict) else None
+        output = result.get("output") if isinstance(result, dict) else None
+        if not isinstance(output, dict):
+            raise ValueError("run command result has no output object")
+        return output
+
+    def _patch_mission_branch_name_from_action(self, action_id: str) -> str:
+        row = self.db.query_one(
+            "SELECT tool,arguments_json FROM actions WHERE action_id=?", (action_id,)
+        )
+        if row is None:
+            raise KeyError(action_id)
+        if row["tool"] != "run_command":
+            raise ValueError("branch action must be a run_command action")
+        arguments = json.loads(row["arguments_json"])
+        command = arguments.get("command")
+        if (
+            not isinstance(command, list)
+            or len(command) != 4
+            or command[:3] != ["git", "checkout", "-b"]
+            or not isinstance(command[3], str)
+        ):
+            raise ValueError("branch action is not a git checkout -b command")
+        return command[3]
+
+    def _patch_mission_pushed_branch_name_from_action(self, action_id: str) -> str:
+        row = self.db.query_one(
+            "SELECT tool,arguments_json FROM actions WHERE action_id=?", (action_id,)
+        )
+        if row is None:
+            raise KeyError(action_id)
+        if row["tool"] != "run_command":
+            raise ValueError("push action must be a run_command action")
+        arguments = json.loads(row["arguments_json"])
+        command = arguments.get("command")
+        if (
+            not isinstance(command, list)
+            or len(command) != 5
+            or command[:4] != ["git", "push", "-u", "origin"]
+            or not isinstance(command[4], str)
+        ):
+            raise ValueError("push action is not a git push -u origin command")
+        return command[4]
+
+    def _patch_mission_remote_live_output(
+        self, action_id: str, repo_root: Path
+    ) -> dict[str, Any]:
+        row = self.db.query_one(
+            "SELECT tool,status,result_json FROM actions WHERE action_id=?",
+            (action_id,),
+        )
+        if row is None:
+            raise KeyError(action_id)
+        if row["tool"] != "inspect_git_remote_live":
+            raise ValueError("source action must be an inspect_git_remote_live action")
+        if row["status"] != ActionStatus.SUCCEEDED.value:
+            raise ValueError(f"remote live action has not succeeded: {row['status']}")
+        payload = json.loads(row["result_json"])
+        result = payload.get("result") if isinstance(payload, dict) else None
+        output = result.get("output") if isinstance(result, dict) else None
+        if not isinstance(output, dict):
+            raise ValueError("remote live result has no output object")
+        output_path = Path(str(output.get("path", ""))).expanduser().resolve(strict=True)
+        if output_path != repo_root:
+            raise ValueError("remote live action belongs to a different repo")
+        return output
+
+    def _patch_mission_pr_status_output(self, action_id: str) -> dict[str, Any]:
+        row = self.db.query_one(
+            "SELECT tool,status,result_json FROM actions WHERE action_id=?",
+            (action_id,),
+        )
+        if row is None:
+            raise KeyError(action_id)
+        if row["tool"] != "inspect_github_pr_status":
+            raise ValueError("source action must be an inspect_github_pr_status action")
+        if row["status"] != ActionStatus.SUCCEEDED.value:
+            raise ValueError(f"PR status action has not succeeded: {row['status']}")
+        payload = json.loads(row["result_json"])
+        result = payload.get("result") if isinstance(payload, dict) else None
+        output = result.get("output") if isinstance(result, dict) else None
+        if not isinstance(output, dict):
+            raise ValueError("PR status result has no output object")
+        return output
+
+    @staticmethod
+    def _patch_mission_failed_workflow_run_ids(
+        status_output: dict[str, Any]
+    ) -> list[int]:
+        ids: list[int] = []
+        workflow_runs = status_output.get("workflow_runs", {})
+        body = workflow_runs.get("body") if isinstance(workflow_runs, dict) else {}
+        if isinstance(body, dict):
+            for item in body.get("workflow_runs", []) or []:
+                if not isinstance(item, dict):
+                    continue
+                conclusion = str(item.get("conclusion") or "").lower()
+                if conclusion not in {
+                    "failure",
+                    "cancelled",
+                    "timed_out",
+                    "action_required",
+                }:
+                    continue
+                raw_id = item.get("id")
+                try:
+                    run_id = int(raw_id)
+                except (TypeError, ValueError):
+                    continue
+                if run_id > 0:
+                    ids.append(run_id)
+        for item in status_output.get("failure_summary", []) or []:
+            if not isinstance(item, dict):
+                continue
+            raw_id = item.get("workflow_run_id") or item.get("run_id")
+            try:
+                run_id = int(raw_id)
+            except (TypeError, ValueError):
+                continue
+            if run_id > 0:
+                ids.append(run_id)
+        return list(dict.fromkeys(ids))[:5]
+
+    def _patch_mission_github_repo_from_remote_evidence(
+        self, mission_record: dict[str, Any]
+    ) -> tuple[str, str, str, str]:
+        for mode in ("remote-live-summary", "remote-summary"):
+            for evidence_id in self._patch_mission_step_action_ids(
+                mission_record, mode
+            ):
+                try:
+                    self._require_patch_mission_action_status(
+                        evidence_id, ActionStatus.SUCCEEDED.value
+                    )
+                    evidence = self._patch_mission_write_file_content(evidence_id)
+                except (KeyError, ValueError):
+                    continue
+                repo = self._patch_mission_github_repo_from_text(evidence)
+                if repo is not None:
+                    owner, name = repo
+                    return owner, name, evidence_id, evidence
+        raise ValueError(
+            "pr-create-draft requires approved remote evidence containing a GitHub repo URL"
+        )
+
+    def _patch_mission_has_github_remote_evidence(
+        self, mission_record: dict[str, Any]
+    ) -> bool:
+        try:
+            self._patch_mission_github_repo_from_remote_evidence(mission_record)
+            return True
+        except ValueError:
+            return False
+
+    def _patch_mission_pr_ref_from_create_action(
+        self, action_id: str
+    ) -> tuple[str, str, int]:
+        row = self.db.query_one(
+            "SELECT tool,status,result_json FROM actions WHERE action_id=?",
+            (action_id,),
+        )
+        if row is None:
+            raise KeyError(action_id)
+        if row["tool"] != "create_github_pull_request":
+            raise ValueError("source action must be a create_github_pull_request action")
+        if row["status"] != ActionStatus.SUCCEEDED.value:
+            raise ValueError(f"PR creation action has not succeeded: {row['status']}")
+        payload = json.loads(row["result_json"])
+        result = payload.get("result") if isinstance(payload, dict) else None
+        output = result.get("output") if isinstance(result, dict) else None
+        if not isinstance(output, dict):
+            raise ValueError("PR creation result has no output object")
+        owner = str(output.get("owner") or "").strip()
+        repo = str(output.get("repo") or "").strip()
+        raw_number = output.get("number")
+        if not owner or not repo or raw_number is None:
+            url = str(output.get("url") or "")
+            parsed = self._patch_mission_pr_ref_from_url(url)
+            if owner and repo:
+                return owner, repo, parsed[2]
+            return parsed
+        number = int(raw_number)
+        if number <= 0:
+            raise ValueError("PR creation result has invalid PR number")
+        return owner, repo, number
+
+    def _patch_mission_pr_ref_from_status_action(
+        self, action_id: str
+    ) -> tuple[str, str, int]:
+        output = self._patch_mission_pr_status_output(action_id)
+        owner = str(output.get("owner") or "").strip()
+        repo = str(output.get("repo") or "").strip()
+        number = int(output.get("number") or 0)
+        if not owner or not repo or number <= 0:
+            return self._patch_mission_pr_ref_from_url(str(output.get("url") or ""))
+        return owner, repo, number
+
+    def _patch_mission_pr_update_pre_status_id_from_push(
+        self, mission_record: dict[str, Any], push_action_id: str
+    ) -> str:
+        step = self._patch_mission_step_for_action(
+            mission_record, push_action_id, "pr-update-push-draft"
+        )
+        pre_status_id = str(step.get("source_action_id") or "")
+        if not pre_status_id:
+            raise ValueError("PR update push step has no source PR status action")
+        self._require_patch_mission_action_status(
+            pre_status_id, ActionStatus.SUCCEEDED.value
+        )
+        return pre_status_id
+
+    def _patch_mission_pr_update_push_id_from_status(
+        self, mission_record: dict[str, Any], status_action_id: str
+    ) -> str:
+        step = self._patch_mission_step_for_action(
+            mission_record, status_action_id, "pr-update-status"
+        )
+        push_action_id = str(step.get("source_action_id") or "")
+        if not push_action_id:
+            raise ValueError("PR update status step has no source push action")
+        self._require_patch_mission_action_status(
+            push_action_id, ActionStatus.SUCCEEDED.value
+        )
+        return push_action_id
+
+    @staticmethod
+    def _patch_mission_step_for_action(
+        mission_record: dict[str, Any], action_id: str, mode: str
+    ) -> dict[str, Any]:
+        followups = mission_record.get("followups", [])
+        if not isinstance(followups, list):
+            raise ValueError(f"patch mission has no {mode} step")
+        for item in followups:
+            if (
+                isinstance(item, dict)
+                and str(item.get("mode", "")).lower() == mode
+                and str(item.get("action_id", "")) == str(action_id)
+            ):
+                return dict(item)
+        raise ValueError(f"action is not a {mode} step in this patch mission")
+
+    @staticmethod
+    def _patch_mission_pr_ref_from_url(url: str) -> tuple[str, str, int]:
+        match = re.search(
+            r"github\.com/(?P<owner>[A-Za-z0-9_.-]+)/(?P<repo>[A-Za-z0-9_.-]+)/pull/(?P<number>[0-9]+)",
+            str(url).strip(),
+        )
+        if not match:
+            raise ValueError("PR URL must look like https://github.com/owner/repo/pull/123")
+        number = int(match.group("number"))
+        if number <= 0:
+            raise ValueError("PR number must be positive")
+        return match.group("owner"), match.group("repo"), number
+
+    @classmethod
+    def _patch_mission_ci_fix_plan_next_step(
+        cls, plan_text: str
+    ) -> tuple[str, str | None]:
+        mode_match = re.search(r"^- Mode:\s*`(?P<mode>[^`]+)`", plan_text, re.MULTILINE)
+        target_match = re.search(
+            r"^- Target:\s*`(?P<target>[^`]+)`", plan_text, re.MULTILINE
+        )
+        if not mode_match:
+            raise ValueError("CI fix plan does not declare a next mode")
+        mode = mode_match.group("mode").strip()
+        if mode not in {"test", "inspect-file", "git-metadata"}:
+            raise ValueError(f"CI fix plan selected unsupported mode: {mode}")
+        target = None
+        if target_match:
+            raw_target = target_match.group("target").strip()
+            if raw_target and raw_target != "(none)":
+                target = raw_target
+        if mode == "inspect-file" and not target:
+            raise ValueError("CI fix plan inspect-file step requires a target")
+        if mode == "test" and target:
+            cls._patch_mission_validate_pytest_target_text(target)
+        if mode not in {"inspect-file", "test"}:
+            target = None
+        return mode, target
+
+    @classmethod
+    def _patch_mission_safe_pytest_target(cls, target: str, repo_map: Any) -> str:
+        cls._patch_mission_validate_pytest_target_text(target)
+        file_part = target.split("::", 1)[0]
+        known_files = {str(item.path).replace("\\", "/") for item in repo_map.files}
+        if file_part not in known_files:
+            raise ValueError("pytest target is not a known repository file")
+        return target
+
+    @staticmethod
+    def _patch_mission_validate_pytest_target_text(target: str) -> None:
+        if not target or len(target) > 240:
+            raise ValueError("pytest target is empty or too long")
+        if "\\" in target or target.startswith(("/", ".", "-")) or ".." in target:
+            raise ValueError("pytest target contains unsupported path syntax")
+        if not re.fullmatch(
+            r"[A-Za-z0-9_./-]+\.py(?:::[A-Za-z_][A-Za-z0-9_]*){0,3}",
+            target,
+        ):
+            raise ValueError("pytest target contains unsupported characters")
+
+    def _patch_mission_ci_source_context_for_test_action(
+        self, mission_record: dict[str, Any], test_action_id: str
+    ) -> str:
+        followups = mission_record.get("followups", [])
+        if not isinstance(followups, list):
+            return ""
+        ci_step = next(
+            (
+                item
+                for item in followups
+                if isinstance(item, dict)
+                and str(item.get("mode", "")).lower() == "ci-next-action"
+                and str(item.get("action_id", "")) == str(test_action_id)
+            ),
+            None,
+        )
+        resume_context = None
+        direct_confidence_decision = None
+        if isinstance(ci_step, dict):
+            direct_confidence_decision = self._patch_mission_step_confidence_decision(
+                ci_step
+            )
+        if not isinstance(ci_step, dict):
+            test_step = next(
+                (
+                    item
+                    for item in followups
+                    if isinstance(item, dict)
+                    and str(item.get("mode", "")).lower() == "test"
+                    and str(item.get("action_id", "")) == str(test_action_id)
+                ),
+                None,
+            )
+            if not isinstance(test_step, dict):
+                return ""
+            resume_next = test_step.get("resume_next")
+            if not isinstance(resume_next, dict):
+                return ""
+            confidence_decision = resume_next.get("confidence_decision")
+            target_decision = resume_next.get("target_decision")
+            if not isinstance(confidence_decision, dict):
+                return ""
+            ci_step = {
+                "action_id": test_action_id,
+                "source_action_id": confidence_decision.get("source_action_id"),
+            }
+            resume_context = {
+                "from_action_id": resume_next.get("from_action_id"),
+                "confidence_decision": confidence_decision,
+                "target_decision": target_decision
+                if isinstance(target_decision, dict)
+                else None,
+                "target": resume_next.get("target"),
+            }
+        fix_plan_action_id = str(ci_step.get("source_action_id") or "")
+        if not fix_plan_action_id:
+            return f"ci-next-action `{test_action_id}`"
+        try:
+            plan_text = self._patch_mission_write_file_content(fix_plan_action_id)
+        except (KeyError, ValueError, PermissionError):
+            return f"ci-next-action `{test_action_id}` from ci-fix-plan `{fix_plan_action_id}`"
+        status_action = self._patch_mission_plan_line(plan_text, "PR status action")
+        log_action = self._patch_mission_plan_line(plan_text, "CI log evidence action")
+        pr_url = self._patch_mission_plan_line(plan_text, "PR URL")
+        head_ref = self._patch_mission_plan_line(plan_text, "Head ref")
+        head_sha = self._patch_mission_plan_line(plan_text, "Head sha")
+        failures = self._patch_mission_plan_bullet(plan_text, "Failure count")
+        files = self._patch_mission_plan_bullet(plan_text, "Candidate repo files")
+        parts = [
+            f"ci-next-action `{test_action_id}`",
+            f"ci-fix-plan `{fix_plan_action_id}`",
+        ]
+        if isinstance(resume_context, dict):
+            confidence_decision = resume_context["confidence_decision"]
+            target_decision = resume_context.get("target_decision")
+            parts[0] = f"resume-next test `{test_action_id}`"
+            if resume_context.get("from_action_id"):
+                parts.append(
+                    f"fallback inspect action `{resume_context.get('from_action_id')}`"
+                )
+            parts.append(
+                "promoted confidence "
+                f"`{confidence_decision.get('level')}` via "
+                f"`{confidence_decision.get('decision')}`"
+            )
+            if isinstance(target_decision, dict):
+                parts.append(
+                    "verification target "
+                    f"`{resume_context.get('target')}` via "
+                    f"`{target_decision.get('decision')}`"
+                )
+                if target_decision.get("reason"):
+                    parts.append(f"target reason {target_decision.get('reason')}")
+        elif isinstance(direct_confidence_decision, dict):
+            parts.append(
+                "promoted confidence "
+                f"`{direct_confidence_decision.get('level')}` via "
+                f"`{direct_confidence_decision.get('decision')}`"
+            )
+            if direct_confidence_decision.get("recovery_count") is not None:
+                parts.append(
+                    "recovery successes "
+                    f"`{direct_confidence_decision.get('recovery_count')}`"
+                )
+            if (
+                direct_confidence_decision.get(
+                    "unrecovered_failed_or_rejected_count"
+                )
+                is not None
+            ):
+                parts.append(
+                    "unrecovered failed_or_rejected "
+                    f"`{direct_confidence_decision.get('unrecovered_failed_or_rejected_count')}`"
+                )
+        if status_action:
+            parts.append(f"pr-status `{status_action}`")
+        if log_action and log_action != "(not captured)":
+            parts.append(f"ci-log-evidence `{log_action}`")
+        if pr_url and pr_url != "(not captured)":
+            parts.append(f"PR {pr_url}")
+        if head_ref and head_ref != "(not captured)":
+            parts.append(f"head ref `{head_ref}`")
+        if head_sha and head_sha != "(not captured)":
+            parts.append(f"head sha `{head_sha}`")
+        if failures:
+            parts.append(f"failures {failures}")
+        if files and files != "(none detected)":
+            parts.append(f"files {files}")
+        return "; ".join(parts)
+
+    @staticmethod
+    def _patch_mission_plan_line(plan_text: str, label: str) -> str:
+        match = re.search(
+            rf"^{re.escape(label)}:\s*(?P<value>.+)$",
+            plan_text,
+            re.MULTILINE,
+        )
+        return match.group("value").strip() if match else ""
+
+    @staticmethod
+    def _patch_mission_plan_bullet(plan_text: str, label: str) -> str:
+        match = re.search(
+            rf"^- {re.escape(label)}:\s*(?P<value>.+)$",
+            plan_text,
+            re.MULTILINE,
+        )
+        return match.group("value").strip() if match else ""
+
+    def _patch_mission_write_file_content(self, action_id: str) -> str:
+        row = self.db.query_one(
+            "SELECT tool,status,arguments_json FROM actions WHERE action_id=?",
+            (action_id,),
+        )
+        if row is None:
+            raise KeyError(action_id)
+        if row["tool"] != "write_file":
+            raise ValueError("source action must be a write_file action")
+        if row["status"] != ActionStatus.SUCCEEDED.value:
+            raise ValueError(f"write_file action has not succeeded: {row['status']}")
+        arguments = json.loads(row["arguments_json"])
+        path = Path(str(arguments.get("path", ""))).expanduser().resolve(strict=False)
+        if not self.policy._contained(path, self.config.outbox_path):
+            raise PermissionError("write_file evidence must come from the WLS outbox")
+        return str(arguments.get("content") or "")
+
+    @staticmethod
+    def _patch_mission_github_repo_from_text(text: str) -> tuple[str, str] | None:
+        match = re.search(
+            r"github\.com[:/](?P<owner>[A-Za-z0-9_.-]+)/(?P<repo>[A-Za-z0-9_.-]+)(?:\.git)?",
+            text,
+        )
+        if not match:
+            return None
+        return match.group("owner"), match.group("repo").removesuffix(".git")
+
+    @staticmethod
+    def _patch_mission_default_base_branch(remote_evidence: str) -> str:
+        default = re.search(r'"default_branch"\s*:\s*"(?P<branch>[^"]+)"', remote_evidence)
+        if default:
+            branch = default.group("branch").strip()
+            if re.fullmatch(r"[A-Za-z0-9._/-]+", branch):
+                return branch
+        if "refs/heads/master" in remote_evidence or "origin/master" in remote_evidence:
+            return "master"
+        return "main"
+
+    @staticmethod
+    def _patch_mission_pr_create_payload(
+        *,
+        mission_record: dict[str, Any],
+        summary_text: str,
+        push_action_id: str,
+        branch_name: str,
+        remote_evidence_id: str,
+    ) -> tuple[str, str]:
+        title_match = re.search(r"^Title:\s*(?P<title>.+)$", summary_text, re.MULTILINE)
+        if title_match:
+            title = title_match.group("title").strip()
+        else:
+            title = str(mission_record.get("mission") or "Patch Mission update").strip()
+        title = title[:256].rstrip() or "Patch Mission update"
+        body = "\n".join(
+            [
+                summary_text.strip(),
+                "",
+                "## WLS Push Evidence",
+                f"- Mission ID: {mission_record['mission_id']}",
+                f"- Push action: {push_action_id}",
+                f"- Pushed branch: {branch_name}",
+                f"- Remote evidence action: {remote_evidence_id}",
+                "",
+                "## Authority",
+                "- This PR creation action requires exact owner approval and GITHUB_TOKEN.",
+                "- This action creates a draft PR only; it does not merge, approve, or alter branch protections.",
+            ]
+        ).strip()
+        while len(body.encode("utf-8")) > 65536:
+            body = body[: int(len(body) * 0.9)].rstrip()
+        return title, body
+
+    @staticmethod
+    def _patch_mission_branch_name(
+        *, mission_record: dict[str, Any], remote_summary: str
+    ) -> str:
+        mission = str(mission_record.get("mission") or "patch-mission").lower()
+        slug = re.sub(r"[^a-z0-9]+", "-", mission).strip("-")
+        if not slug:
+            slug = "patch-mission"
+        mission_id = str(mission_record.get("mission_id") or "")
+        suffix = re.sub(r"[^a-z0-9]+", "", mission_id.lower())[-8:] or "local"
+        branch = f"wls/{slug[:48].strip('-')}-{suffix}"
+        if "origin/" in remote_summary and not branch.startswith("wls/"):
+            branch = f"wls/{branch}"
+        return branch[:96].rstrip("-")
+
+    @staticmethod
+    def _patch_mission_changed_files_from_checklist(prep_text: str) -> list[str]:
+        match = re.search(
+            r"## Changed Files\s+- (?P<files>.+?)\n\n",
+            prep_text,
+            flags=re.DOTALL,
+        )
+        if not match:
+            return []
+        raw = match.group("files").strip()
+        if raw == "(none detected)":
+            return []
+        return [item.strip() for item in raw.split(",") if item.strip()]
+
+    @staticmethod
+    def _patch_mission_commit_message_from_evidence(
+        *,
+        mission_record: dict[str, Any],
+        prep_text: str,
+        summary_text: str,
+        changed_files: list[str],
+    ) -> tuple[str, str]:
+        suggested = re.search(
+            r"## Suggested Commit Message\s+```text\s*(?P<message>.+?)```",
+            prep_text,
+            flags=re.DOTALL,
+        )
+        if suggested:
+            lines = [line.rstrip() for line in suggested.group("message").splitlines()]
+            subject = next((line for line in lines if line.strip()), "")
+        else:
+            subject = str(mission_record.get("mission") or "Patch mission").strip()
+        subject = subject[:72].rstrip() or "Patch mission update"
+        summary_title = re.search(r"^Title:\s*(?P<title>.+)$", summary_text, re.MULTILINE)
+        body_lines = [
+            "Patch Mission local commit.",
+            f"Mission ID: {mission_record['mission_id']}",
+            f"Changed files: {', '.join(changed_files[:10])}",
+        ]
+        if summary_title:
+            body_lines.append(f"PR summary title: {summary_title.group('title').strip()}")
+        body_lines.append("No push or pull request was created by this action.")
+        return subject, "\n".join(body_lines)
+
+    def _patch_mission_git_metadata_action_id(
+        self, mission_record: dict[str, Any], action_id: str | None
+    ) -> str:
+        metadata_action_ids = self._patch_mission_step_action_ids(
+            mission_record, "git-metadata"
+        )
+        if action_id:
+            candidate = str(action_id)
+            if candidate not in metadata_action_ids:
+                raise ValueError("git metadata action is not part of this patch mission")
+            return candidate
+        if not metadata_action_ids:
+            raise ValueError("git-prep mode requires a prior git-metadata step")
+        return metadata_action_ids[0]
+
+    def _patch_mission_git_metadata_output(
+        self, action_id: str, repo_root: Path
+    ) -> dict[str, Any]:
+        row = self.db.query_one(
+            "SELECT tool,status,result_json FROM actions WHERE action_id=?",
+            (action_id,),
+        )
+        if row is None:
+            raise KeyError(action_id)
+        if row["tool"] != "inspect_git_worktree":
+            raise ValueError("source action must be an inspect_git_worktree action")
+        if row["status"] != ActionStatus.SUCCEEDED.value:
+            raise ValueError(f"git metadata action has not succeeded: {row['status']}")
+        payload = json.loads(row["result_json"])
+        result = payload.get("result") if isinstance(payload, dict) else None
+        output = result.get("output") if isinstance(result, dict) else None
+        if not isinstance(output, dict):
+            raise ValueError("git metadata action result has no output object")
+        output_path = Path(str(output.get("path", ""))).expanduser().resolve(strict=True)
+        if output_path != repo_root:
+            raise ValueError("git metadata action belongs to a different repo")
+        for key in ("branch_status", "diff_stat", "diff_names"):
+            section = output.get(key)
+            if not isinstance(section, dict):
+                raise ValueError(f"git metadata missing {key}")
+            if int(section.get("returncode", -1)) != 0:
+                raise ValueError(f"git metadata command failed: {key}")
+        return output
+
+    @staticmethod
+    def _patch_mission_git_config_digest(repo_root: Path) -> str:
+        config_path = repo_root / ".git" / "config"
+        if not config_path.exists() or not config_path.is_file():
+            return "missing"
+        try:
+            data = config_path.read_bytes()
+        except OSError:
+            return "unreadable"
+        return hashlib.sha256(data).hexdigest()
+
+    def _patch_mission_remote_summary_text(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        metadata_action_id: str,
+        metadata: dict[str, Any],
+    ) -> str:
+        remotes = self._metadata_stdout(metadata, "remotes")
+        branches = self._metadata_stdout(metadata, "branches")
+        last_commit = self._metadata_stdout(metadata, "last_commit")
+        branch_status = self._metadata_stdout(metadata, "branch_status")
+        diff_names = self._metadata_stdout(metadata, "diff_names")
+        return "\n".join(
+            [
+                "# Patch Mission Remote Readiness Summary",
+                "",
+                f"Mission ID: {mission_record['mission_id']}",
+                f"Mission: {mission_record.get('mission', '')}",
+                f"Git metadata action: {metadata_action_id}",
+                "",
+                "## Remotes",
+                "```text",
+                remotes or "(no remotes configured)",
+                "```",
+                "",
+                "## Branches",
+                "```text",
+                branches or "(no branch metadata captured)",
+                "```",
+                "",
+                "## Last Commit",
+                "```text",
+                last_commit or "(no commit metadata captured)",
+                "```",
+                "",
+                "## Working Tree",
+                "```text",
+                branch_status or "(no status output captured)",
+                "```",
+                "",
+                "## Changed Files Not Yet Reflected Remotely",
+                "```text",
+                diff_names or "(none detected)",
+                "```",
+                "",
+                "## Owner Checklist",
+                "- Confirm the local commit is correct before any branch or push action.",
+                "- Confirm the target remote and branch manually.",
+                "- Approve future branch, push, or PR actions only as exact separate actions.",
+                "",
+                "## Authority",
+                "- This summary uses local read-only git metadata only.",
+                "- No fetch, branch creation, commit, push, or pull request is created by this step.",
+            ]
+        )
+
+    def _patch_mission_remote_live_summary_text(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        live_action_id: str,
+        live_output: dict[str, Any],
+    ) -> str:
+        remote_url = self._metadata_stdout(live_output, "remote_url")
+        remote_head = self._metadata_stdout(live_output, "remote_head")
+        remote_heads = self._metadata_stdout(live_output, "remote_heads")
+        remote_tags = self._metadata_stdout(live_output, "remote_tags")
+        github = live_output.get("github", {})
+        github_text = json.dumps(github, ensure_ascii=False, sort_keys=True, indent=2)
+        return "\n".join(
+            [
+                "# Patch Mission Live Remote Inspection",
+                "",
+                f"Mission ID: {mission_record['mission_id']}",
+                f"Mission: {mission_record.get('mission', '')}",
+                f"Remote live action: {live_action_id}",
+                "",
+                "## Remote URL",
+                "```text",
+                remote_url or "(no remote URL captured)",
+                "```",
+                "",
+                "## Remote HEAD",
+                "```text",
+                remote_head or "(no remote HEAD captured)",
+                "```",
+                "",
+                "## Remote Branch Refs",
+                "```text",
+                remote_heads or "(no remote branches captured)",
+                "```",
+                "",
+                "## Remote Tags",
+                "```text",
+                remote_tags or "(no remote tags captured)",
+                "```",
+                "",
+                "## Public GitHub Metadata",
+                "```json",
+                github_text,
+                "```",
+                "",
+                "## Owner Checklist",
+                "- Confirm the prepared local branch should be pushed.",
+                "- Confirm live remote branches do not conflict with the intended branch name.",
+                "- Approve any future push or PR creation only as exact separate actions.",
+                "",
+                "## Authority",
+                "- This summary is read-only remote/GitHub inspection evidence.",
+                "- No fetch, branch creation, commit, push, or pull request is created by this step.",
+            ]
+        )
+
+    def _patch_mission_ci_fix_plan_text(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        repo_root: Path,
+        repo_map: Any,
+        status_action_id: str,
+        status_output: dict[str, Any],
+        log_action_id: str | None = None,
+        log_output: dict[str, Any] | None = None,
+    ) -> str:
+        failure_summary = status_output.get("failure_summary", [])
+        failure_text = json.dumps(
+            failure_summary,
+            ensure_ascii=False,
+            sort_keys=True,
+            indent=2,
+        )
+        log_evidence_text = (
+            json.dumps(log_output, ensure_ascii=False, sort_keys=True, indent=2)
+            if isinstance(log_output, dict)
+            else ""
+        )
+        combined_failure_text = "\n".join(
+            part for part in (failure_text, log_evidence_text) if part
+        )
+        candidate_files = self._patch_mission_failure_file_candidates(
+            combined_failure_text, repo_map
+        )
+        pytest_target = self._patch_mission_pytest_target_from_failure_text(
+            combined_failure_text, candidate_files
+        )
+        prior_learning = self._patch_mission_failure_learning_context(
+            mission_record=mission_record,
+            query_text=combined_failure_text,
+            selected_file=candidate_files[0] if candidate_files else None,
+            pytest_target=pytest_target,
+        )
+        repair_candidates = self._patch_mission_repair_skill_candidate_context()
+        approved_repair_skills = self._patch_mission_approved_repair_skill_context(
+            mission_record=mission_record,
+            query_text=combined_failure_text,
+            selected_file=candidate_files[0] if candidate_files else None,
+            pytest_target=pytest_target,
+        )
+        next_mode, next_target, next_reason = self._patch_mission_ci_next_step(
+            failure_text=combined_failure_text,
+            candidate_files=candidate_files,
+        )
+        original_next_mode = next_mode
+        original_next_target = next_target
+        original_next_reason = next_reason
+        next_mode, next_target, next_reason = (
+            self._patch_mission_confidence_adjusted_ci_next_step(
+                next_mode=next_mode,
+                next_target=next_target,
+                next_reason=next_reason,
+                candidate_files=candidate_files,
+                approved_repair_skills=approved_repair_skills,
+            )
+        )
+        next_reason = self._patch_mission_approved_repair_skill_rationale(
+            approved_repair_skills,
+            default_reason=next_reason,
+            action_phrase=f"the `{next_mode}` next-step rationale",
+        )
+        confidence_action_note = self._patch_mission_promoted_confidence_action_note(
+            original_mode=original_next_mode,
+            selected_mode=next_mode,
+            approved_repair_skills=approved_repair_skills,
+        )
+        command = "wls patch-mission-step --mode " + next_mode
+        if next_target:
+            command += f" --target {next_target}"
+        pr_url = str(status_output.get("url") or "").strip()
+        head_sha = str(status_output.get("head_sha") or "").strip()
+        head_ref = str(status_output.get("head_ref") or "").strip()
+        failures = failure_summary if isinstance(failure_summary, list) else []
+        failure_excerpt = failure_text[:4000] if failure_text else "[]"
+        log_excerpt = (
+            log_evidence_text[:4000] if log_evidence_text else "(not captured)"
+        )
+        files = ", ".join(candidate_files) if candidate_files else "(none detected)"
+        return "\n".join(
+            [
+                "# Patch Mission CI Fix Plan",
+                "",
+                f"Mission ID: {mission_record['mission_id']}",
+                f"Mission: {mission_record.get('mission', '')}",
+                f"Repo: {repo_root}",
+                f"PR status action: {status_action_id}",
+                f"CI log evidence action: {log_action_id or '(not captured)'}",
+                f"PR URL: {pr_url or '(not captured)'}",
+                f"Head ref: {head_ref or '(not captured)'}",
+                f"Head sha: {head_sha or '(not captured)'}",
+                "",
+                "## Failure Clues",
+                f"- Failure count: {len(failures)}",
+                f"- Candidate repo files: {files}",
+                "",
+                "## Suggested Next Local Step",
+                f"- Mode: `{next_mode}`",
+                f"- Target: `{next_target or '(none)'}`",
+                f"- Reason: {next_reason}",
+                f"- Original CI-selected mode: `{original_next_mode}`",
+                f"- Original CI-selected target: `{original_next_target or '(none)'}`",
+                f"- Original CI-selected reason: {original_next_reason}",
+                f"- Promoted confidence action adjustment: {confidence_action_note}",
+                "```text",
+                command,
+                "```",
+                "",
+                "## CI Failure Evidence",
+                "```json",
+                failure_excerpt,
+                "```",
+                "",
+                "## CI Log Evidence",
+                "```json",
+                log_excerpt,
+                "```",
+                "",
+                "## Prior Failure-Learning Memory",
+                *self._patch_mission_failure_learning_lines(prior_learning),
+                "",
+                "## Reviewed Repair Skill Candidate",
+                *self._patch_mission_repair_skill_candidate_lines(repair_candidates),
+                "",
+                "## Approved Repair Skill Advisory Context",
+                *self._patch_mission_approved_repair_skill_lines(
+                    approved_repair_skills
+                ),
+                "",
+                "## Authority",
+                "- This plan is written to the WLS outbox only.",
+                "- It consumes approved read-only GitHub PR/CI status and log evidence.",
+                "- Prior learning, reviewed candidates, and approved skills are advisory only and do not bypass owner approval.",
+                "- It does not modify the repo, push, comment, review, merge, or change GitHub state.",
+                "- The next repair action must be created as a separate Patch Mission step.",
+            ]
+        )
+
+    def _patch_mission_pr_update_verify_text(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        pre_status_id: str,
+        pre_output: dict[str, Any],
+        push_action_id: str,
+        post_status_id: str,
+        post_output: dict[str, Any],
+    ) -> str:
+        pre_failures = pre_output.get("failure_summary", [])
+        post_failures = post_output.get("failure_summary", [])
+        if not isinstance(pre_failures, list):
+            pre_failures = []
+        if not isinstance(post_failures, list):
+            post_failures = []
+        pre_sha = str(pre_output.get("head_sha") or "").strip()
+        post_sha = str(post_output.get("head_sha") or "").strip()
+        changed = bool(pre_sha and post_sha and pre_sha != post_sha)
+        pre_json = json.dumps(pre_failures[:10], ensure_ascii=False, sort_keys=True, indent=2)
+        post_json = json.dumps(post_failures[:10], ensure_ascii=False, sort_keys=True, indent=2)
+        return "\n".join(
+            [
+                "# Patch Mission PR Update Verification",
+                "",
+                f"Mission ID: {mission_record['mission_id']}",
+                f"Mission: {mission_record.get('mission', '')}",
+                f"PR URL: {post_output.get('url') or pre_output.get('url') or '(not captured)'}",
+                f"Pre-update PR status action: {pre_status_id}",
+                f"Update push action: {push_action_id}",
+                f"Post-update PR status action: {post_status_id}",
+                "",
+                "## Head SHA",
+                f"- Before: {pre_sha or '(not captured)'}",
+                f"- After: {post_sha or '(not captured)'}",
+                f"- Changed: {changed}",
+                "",
+                "## Failure Summary Counts",
+                f"- Before: {len(pre_failures)}",
+                f"- After: {len(post_failures)}",
+                "",
+                "## Pre-update Failure Summary",
+                "```json",
+                pre_json,
+                "```",
+                "",
+                "## Post-update Failure Summary",
+                "```json",
+                post_json,
+                "```",
+                "",
+                "## Suggested Next Local Step",
+                "- If failures remain, run `patch-mission-step --mode ci-fix-plan --action-id <post_update_pr_status_action>`.",
+                "- If checks are pending, run another read-only `pr-status` later instead of writing to GitHub.",
+                "",
+                "## Authority",
+                "- This verification note is written to the WLS outbox only.",
+                "- It compares approved read-only PR/CI status evidence before and after an approved branch update push.",
+                "- It does not comment, review, merge, force push, or change GitHub state.",
+            ]
+        )
+
+    @staticmethod
+    def _patch_mission_pr_update_verify_after_failure_count(verify_text: str) -> int:
+        match = re.search(
+            r"## Failure Summary Counts\s+- Before:\s*[0-9]+\s+- After:\s*(?P<count>[0-9]+)",
+            verify_text,
+            re.DOTALL,
+        )
+        if not match:
+            raise ValueError("PR update verification does not include post-update failure count")
+        return int(match.group("count"))
+
+    def _patch_mission_pr_update_next_text(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        verify_action_id: str,
+        verify_text: str,
+        post_failures: int,
+    ) -> str:
+        pr_url = self._patch_mission_plan_line(verify_text, "PR URL")
+        post_status = self._patch_mission_plan_line(
+            verify_text, "Post-update PR status action"
+        )
+        return "\n".join(
+            [
+                "# Patch Mission PR Update Next Step",
+                "",
+                f"Mission ID: {mission_record['mission_id']}",
+                f"Mission: {mission_record.get('mission', '')}",
+                f"Verification action: {verify_action_id}",
+                f"Post-update PR status action: {post_status or '(not captured)'}",
+                f"PR URL: {pr_url or '(not captured)'}",
+                "",
+                "## Decision",
+                f"- Post-update failure count: {post_failures}",
+                "- No immediate failing check summary was captured in the post-update status evidence.",
+                "- If checks are still pending, run another owner-approved read-only status check later.",
+                "- If all checks are green, the Patch Mission can be treated as externally updated and awaiting owner review.",
+                "",
+                "## Authority",
+                "- This note is written to the WLS outbox only.",
+                "- It does not comment, review, merge, force push, or change GitHub state.",
+                "- Any future GitHub write remains a separate owner-approved action.",
+            ]
+        )
+
+    @staticmethod
+    def _patch_mission_failure_file_candidates(
+        failure_text: str, repo_map: Any
+    ) -> list[str]:
+        candidates: list[str] = []
+        pattern = re.compile(
+            r"(?P<path>(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\.(?:py|js|jsx|ts|tsx|json|toml|yaml|yml|md|txt|cfg|ini))(?:[:#][0-9]+)?"
+        )
+        known_files = {
+            str(getattr(item, "path", "")).replace("\\", "/")
+            for item in getattr(repo_map, "files", [])
+            if getattr(item, "path", "")
+        }
+        for match in pattern.finditer(failure_text):
+            raw = match.group("path").replace("\\", "/").strip("/")
+            if not raw:
+                continue
+            if raw in known_files:
+                candidates.append(raw)
+                continue
+            suffix_matches = [
+                path for path in known_files if path.endswith("/" + raw) or path.endswith(raw)
+            ]
+            candidates.extend(suffix_matches[:3])
+        return list(dict.fromkeys(candidates))[:10]
+
+    @staticmethod
+    def _patch_mission_ci_next_step(
+        *, failure_text: str, candidate_files: list[str]
+    ) -> tuple[str, str | None, str]:
+        lowered = failure_text.lower()
+        pytest_target = LivingSystem._patch_mission_pytest_target_from_failure_text(
+            failure_text, candidate_files
+        )
+        if pytest_target:
+            return (
+                "test",
+                pytest_target,
+                f"CI log names pytest node `{pytest_target}`; reproduce that narrow failure locally first.",
+            )
+        test_file = next(
+            (
+                path
+                for path in candidate_files
+                if path.startswith("tests/")
+                or "/tests/" in path
+                or Path(path).name.startswith("test_")
+            ),
+            None,
+        )
+        if test_file:
+            return (
+                "test",
+                test_file,
+                f"CI names `{test_file}`; reproduce the failing suite locally before changing code.",
+            )
+        if candidate_files:
+            return (
+                "inspect-file",
+                candidate_files[0],
+                f"CI points at `{candidate_files[0]}`; inspect that local file before drafting a patch.",
+            )
+        if any(token in lowered for token in ("pytest", "test", "failed", "failure")):
+            return (
+                "test",
+                None,
+                "CI reports a test failure but no repo file was matched; run the local test probe first.",
+            )
+        return (
+            "git-metadata",
+            None,
+            "CI evidence did not expose a file or test clue; refresh local git state before choosing a repair action.",
+        )
+
+    @classmethod
+    def _patch_mission_pytest_target_from_failure_text(
+        cls, failure_text: str, candidate_files: list[str]
+    ) -> str | None:
+        known_test_files = [
+            path
+            for path in candidate_files
+            if path.startswith("tests/")
+            or "/tests/" in path
+            or Path(path).name.startswith("test_")
+        ]
+        patterns = [
+            r"(?P<target>[A-Za-z0-9_./-]+\.py(?:::[A-Za-z_][A-Za-z0-9_]*){1,3})",
+            r"FAILED\s+(?P<target>[A-Za-z0-9_./-]+\.py(?:::[A-Za-z_][A-Za-z0-9_]*){0,3})",
+        ]
+        for pattern in patterns:
+            for match in re.finditer(pattern, failure_text):
+                target = match.group("target")
+                try:
+                    cls._patch_mission_validate_pytest_target_text(target)
+                except ValueError:
+                    continue
+                file_part = target.split("::", 1)[0]
+                if file_part in known_test_files or not known_test_files:
+                    return target
+        return None
+
+    @staticmethod
+    def _metadata_stdout(metadata: dict[str, Any], key: str) -> str:
+        section = metadata.get(key)
+        if not isinstance(section, dict):
+            return ""
+        return str(section.get("stdout") or "").strip()
+
+    @staticmethod
+    def _patch_mission_git_changed_files(metadata: dict[str, Any]) -> list[str]:
+        names = str(metadata["diff_names"].get("stdout") or "")
+        files = [line.strip() for line in names.splitlines() if line.strip()]
+        if files:
+            return files
+        status = str(metadata["branch_status"].get("stdout") or "")
+        parsed: list[str] = []
+        for line in status.splitlines():
+            if not line or line.startswith("##"):
+                continue
+            path = line[3:].strip() if len(line) > 3 else line.strip()
+            if " -> " in path:
+                path = path.rsplit(" -> ", 1)[1]
+            if path:
+                parsed.append(path)
+        return list(dict.fromkeys(parsed))
+
+    def _patch_mission_git_prep_text(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        metadata_action_id: str,
+        metadata: dict[str, Any],
+        changed_files: list[str],
+    ) -> str:
+        branch_status = str(metadata["branch_status"].get("stdout") or "").strip()
+        diff_stat = str(metadata["diff_stat"].get("stdout") or "").strip()
+        changed = ", ".join(changed_files) if changed_files else "(none detected)"
+        message = self._patch_mission_commit_message(mission_record, changed_files)
+        return "\n".join(
+            [
+                "# Patch Mission Commit-Ready Checklist",
+                "",
+                f"Mission ID: {mission_record['mission_id']}",
+                f"Mission: {mission_record.get('mission', '')}",
+                f"Git metadata action: {metadata_action_id}",
+                "",
+                "## Local Git State",
+                "```text",
+                branch_status or "(no git status output)",
+                "```",
+                "",
+                "## Diff Stat",
+                "```text",
+                diff_stat or "(no diff stat output)",
+                "```",
+                "",
+                "## Changed Files",
+                f"- {changed}",
+                "",
+                "## Suggested Commit Message",
+                "```text",
+                message,
+                "```",
+                "",
+                "## Owner Checklist",
+                "- Review the outbox PR summary and this git metadata.",
+                "- Confirm changed files match the intended Patch Mission diff.",
+                "- Confirm tests passed after the applied patch.",
+                "- Approve a future exact local commit action only if the checklist is correct.",
+                "",
+                "## Authority",
+                "- This file is written to the WLS outbox only.",
+                "- No commit, branch creation, push, or pull request is created by this step.",
+            ]
+        )
+
+    @staticmethod
+    def _patch_mission_commit_message(
+        mission_record: dict[str, Any], changed_files: list[str]
+    ) -> str:
+        mission = str(mission_record.get("mission") or "Patch mission").strip()
+        if len(mission) > 72:
+            mission = mission[:69].rstrip() + "..."
+        if changed_files:
+            return f"{mission}\n\nChanged files: {', '.join(changed_files[:10])}"
+        return mission
+
+    def _patch_mission_passing_test_action_id(
+        self, mission_record: dict[str, Any], action_id: str | None
+    ) -> str:
+        test_action_ids = self._patch_mission_test_step_action_ids(mission_record)
+        if action_id:
+            candidate = str(action_id)
+            if candidate not in test_action_ids:
+                raise ValueError("passing test action is not part of this patch mission")
+            return candidate
+        for candidate in test_action_ids:
+            try:
+                output = self._patch_mission_action_result_output(candidate)
+            except (KeyError, ValueError):
+                continue
+            if int(output.get("returncode", -1)) == 0:
+                return candidate
+        raise ValueError("PR summary requires a passing test action")
+
+    def _patch_mission_failing_test_action_id(
+        self, mission_record: dict[str, Any], passing_test_id: str
+    ) -> str:
+        for candidate in self._patch_mission_test_step_action_ids(mission_record):
+            if candidate == passing_test_id:
+                continue
+            try:
+                output = self._patch_mission_action_result_output(candidate)
+            except (KeyError, ValueError):
+                continue
+            if int(output.get("returncode", 0)) != 0:
+                return candidate
+        raise ValueError("PR summary requires earlier failing test evidence")
+
+    def _patch_mission_test_step_action_ids(
+        self, mission_record: dict[str, Any]
+    ) -> list[str]:
+        followups = mission_record.get("followups", [])
+        if not isinstance(followups, list):
+            return []
+        ids: list[str] = []
+        for item in followups:
+            if not isinstance(item, dict) or not item.get("action_id"):
+                continue
+            mode = str(item.get("mode", "")).lower()
+            if mode == "test":
+                ids.append(str(item["action_id"]))
+            elif mode == "ci-next-action":
+                action_id = str(item["action_id"])
+                if self._patch_mission_action_is_pytest(action_id):
+                    ids.append(action_id)
+        return ids
+
+    def _patch_mission_action_is_pytest(self, action_id: str) -> bool:
+        row = self.db.query_one(
+            "SELECT tool,arguments_json FROM actions WHERE action_id=?",
+            (action_id,),
+        )
+        if row is None or row["tool"] != "run_command":
+            return False
+        try:
+            arguments = json.loads(row["arguments_json"])
+        except json.JSONDecodeError:
+            return False
+        command = arguments.get("command")
+        return isinstance(command, list) and command[:3] == ["python", "-m", "pytest"]
+
+    def _patch_mission_step_action_ids(
+        self, mission_record: dict[str, Any], mode: str
+    ) -> list[str]:
+        followups = mission_record.get("followups", [])
+        if not isinstance(followups, list):
+            return []
+        return [
+            str(item.get("action_id"))
+            for item in followups
+            if isinstance(item, dict)
+            and str(item.get("mode", "")).lower() == mode
+            and item.get("action_id")
+        ]
+
+    def _patch_mission_latest_step(
+        self, mission_record: dict[str, Any], mode: str
+    ) -> dict[str, Any]:
+        followups = mission_record.get("followups", [])
+        if not isinstance(followups, list):
+            raise ValueError(f"patch mission has no {mode} step")
+        for item in followups:
+            if isinstance(item, dict) and str(item.get("mode", "")).lower() == mode:
+                return dict(item)
+        raise ValueError(f"patch mission has no {mode} step")
+
+    def _patch_mission_latest_succeeded_action_id(
+        self, mission_record: dict[str, Any], mode: str
+    ) -> str | None:
+        for action_id in self._patch_mission_step_action_ids(mission_record, mode):
+            try:
+                self._require_patch_mission_action_status(
+                    action_id, ActionStatus.SUCCEEDED.value
+                )
+                return action_id
+            except (KeyError, ValueError):
+                continue
+        return None
+
+    def _patch_mission_latest_succeeded_action_id_after(
+        self,
+        mission_record: dict[str, Any],
+        mode: str,
+        *,
+        after_action_id: str,
+    ) -> str | None:
+        followups = mission_record.get("followups", [])
+        if not isinstance(followups, list):
+            return None
+        for item in followups:
+            if not isinstance(item, dict) or not item.get("action_id"):
+                continue
+            candidate = str(item["action_id"])
+            if candidate == after_action_id:
+                return None
+            if str(item.get("mode", "")).lower() != mode:
+                continue
+            try:
+                self._require_patch_mission_action_status(
+                    candidate, ActionStatus.SUCCEEDED.value
+                )
+                return candidate
+            except (KeyError, ValueError):
+                continue
+        return None
+
+    def _patch_mission_latest_failed_pr_status_action_id(
+        self, mission_record: dict[str, Any]
+    ) -> str | None:
+        for action_id in self._patch_mission_step_action_ids(
+            mission_record, "pr-status"
+        ):
+            try:
+                self._require_patch_mission_action_status(
+                    action_id, ActionStatus.SUCCEEDED.value
+                )
+                output = self._patch_mission_pr_status_output(action_id)
+            except (KeyError, ValueError):
+                continue
+            failures = output.get("failure_summary", [])
+            if isinstance(failures, list) and failures:
+                return action_id
+        return None
+
+    def _require_patch_mission_action_status(
+        self, action_id: str, expected_status: str
+    ) -> None:
+        row = self.db.query_one(
+            "SELECT status FROM actions WHERE action_id=?", (action_id,)
+        )
+        if row is None:
+            raise KeyError(action_id)
+        if row["status"] != expected_status:
+            raise ValueError(
+                f"patch mission action {action_id} is {row['status']}, expected {expected_status}"
+            )
+
+    @staticmethod
+    def _patch_mission_diff_changed_files(diff_text: str) -> list[str]:
+        files: list[str] = []
+        for line in diff_text.splitlines():
+            if line.startswith("+++ b/"):
+                files.append(line.removeprefix("+++ b/").strip())
+        return list(dict.fromkeys(files))
+
+    @staticmethod
+    def _patch_mission_pr_title(
+        mission_record: dict[str, Any], changed_files: list[str]
+    ) -> str:
+        mission = str(mission_record.get("mission") or "Patch Mission").strip()
+        if len(mission) > 80:
+            mission = mission[:77].rstrip() + "..."
+        if changed_files:
+            return f"{mission} ({', '.join(changed_files[:3])})"
+        return mission
+
+    def _patch_mission_pr_summary_text(
+        self,
+        *,
+        mission_record: dict[str, Any],
+        title: str,
+        changed_files: list[str],
+        diff_text: str,
+        failing_test_id: str,
+        failing_output: dict[str, Any],
+        passing_test_id: str,
+        passing_output: dict[str, Any],
+        apply_action_id: str,
+        draft_action_id: str,
+        ci_source: str,
+        repair_learning: dict[str, Any] | None = None,
+    ) -> str:
+        failing_excerpt = self._bounded_test_excerpt(
+            "\n".join(
+                part
+                for part in (
+                    str(failing_output.get("stdout") or ""),
+                    str(failing_output.get("stderr") or ""),
+                )
+                if part
+            ),
+            limit=1600,
+        )
+        passing_excerpt = self._bounded_test_excerpt(
+            "\n".join(
+                part
+                for part in (
+                    str(passing_output.get("stdout") or ""),
+                    str(passing_output.get("stderr") or ""),
+                )
+                if part
+            ),
+            limit=1200,
+        )
+        changed = ", ".join(changed_files) if changed_files else "(unknown)"
+        skill_candidate = (
+            repair_learning.get("skill_candidate")
+            if isinstance(repair_learning, dict)
+            else None
+        )
+        skill_candidate_lines: list[str] = []
+        if isinstance(skill_candidate, dict) and skill_candidate.get("available"):
+            status = "created" if skill_candidate.get("created") else "already proposed"
+            skill_candidate_lines = [
+                "",
+                "## Skill Candidate",
+                f"- Candidate: `{skill_candidate.get('candidate_id')}` ({status}).",
+                f"- Repeat count: `{skill_candidate.get('repeat_count')}` successful literal-mismatch repairs.",
+                "- Status: proposed candidate only; owner review is required before any sandbox, validation, approval, promotion, or use as an active skill.",
+            ]
+        return "\n".join(
+            [
+                "# Patch Mission PR Summary",
+                "",
+                f"Title: {title}",
+                f"Mission ID: {mission_record['mission_id']}",
+                f"Mission: {mission_record.get('mission', '')}",
+                "",
+                "## Summary",
+                f"- Changed files: {changed}",
+                "- Applied the owner-reviewed Patch Mission diff to the local canonical repo.",
+                "- Generated this summary from persisted WLS action evidence.",
+                "",
+                "## Verification",
+                f"- Failing baseline: action `{failing_test_id}` returned `{failing_output.get('returncode')}`.",
+                f"- Applied patch: action `{apply_action_id}` succeeded from draft `{draft_action_id}`.",
+                f"- Passing rerun: action `{passing_test_id}` returned `{passing_output.get('returncode')}`.",
+                f"- PR/CI source: {ci_source or '(not a CI-triggered local test action)'}",
+                *skill_candidate_lines,
+                "",
+                "## Diff",
+                "```diff",
+                diff_text.strip(),
+                "```",
+                "",
+                "## Failing Test Evidence",
+                "```text",
+                failing_excerpt or "(no failing test output captured)",
+                "```",
+                "",
+                "## Passing Test Evidence",
+                "```text",
+                passing_excerpt or "(no passing test output captured)",
+                "```",
+                "",
+                "## Authority",
+                "- This file is written to the WLS outbox only.",
+                "- No branch, commit, push, or pull request is created by this step.",
+                "- External GitHub actions remain unavailable until the owner explicitly approves them.",
+            ]
+        )
+
+    def _patch_mission_draft_action_id(
+        self, mission_record: dict[str, Any], action_id: str | None
+    ) -> str:
+        followups = mission_record.get("followups", [])
+        if not isinstance(followups, list):
+            followups = []
+        draft_action_ids = [
+            str(item.get("action_id"))
+            for item in followups
+            if isinstance(item, dict)
+            and str(item.get("mode", "")).lower()
+            in {"from-test-result", "draft-patch"}
+            and item.get("action_id")
+        ]
+        if action_id:
+            candidate = str(action_id)
+            if candidate not in draft_action_ids:
+                raise ValueError("patch draft action is not part of this patch mission")
+            return candidate
+        if not draft_action_ids:
+            raise ValueError("apply-patch mode requires a prior patch draft step")
+        return draft_action_ids[0]
+
+    def _patch_mission_outbox_draft_text(self, action_id: str) -> str:
+        row = self.db.query_one(
+            "SELECT tool,status,arguments_json,result_json FROM actions WHERE action_id=?",
+            (action_id,),
+        )
+        if row is None:
+            raise KeyError(action_id)
+        if row["tool"] != "write_file":
+            raise ValueError("source action must be an outbox write_file draft action")
+        if row["status"] != ActionStatus.SUCCEEDED.value:
+            raise ValueError(
+                f"patch draft action must be approved and resumed first: {row['status']}"
+            )
+        arguments = json.loads(row["arguments_json"])
+        draft_path = Path(str(arguments["path"])).expanduser().resolve(strict=True)
+        if not self.policy._contained(draft_path, self.config.outbox_path):
+            raise PermissionError("patch draft must come from the WLS outbox")
+        return self._read_patch_mission_text(draft_path, max_bytes=2 * 1024 * 1024)
+
+    @staticmethod
+    def _extract_unified_diff_from_patch_mission_draft(draft_text: str) -> str:
+        fenced = re.search(
+            r"```diff\s*(?P<diff>---\s+a/.+?)```",
+            draft_text,
+            flags=re.DOTALL,
+        )
+        if fenced:
+            return fenced.group("diff").strip() + "\n"
+        marker = draft_text.find("--- a/")
+        if marker >= 0:
+            return draft_text[marker:].strip() + "\n"
+        raise ValueError("patch draft does not contain a unified diff")
+
+    def _apply_single_file_unified_diff(
+        self, *, repo_root: Path, diff_text: str
+    ) -> tuple[str, str]:
+        lines = diff_text.splitlines()
+        old_headers = [line for line in lines if line.startswith("--- ")]
+        new_headers = [line for line in lines if line.startswith("+++ ")]
+        if len(old_headers) != 1 or len(new_headers) != 1:
+            raise ValueError("apply-patch supports exactly one file diff")
+        target = new_headers[0].removeprefix("+++ ").strip()
+        if not target.startswith("b/") or target == "b/dev/null":
+            raise ValueError("patch target must be a repo file")
+        relative = target.removeprefix("b/").replace("\\", "/")
+        target_path = self._patch_mission_repo_file(repo_root, relative)
+        original = self._read_patch_mission_text(
+            target_path, max_bytes=2 * 1024 * 1024
+        )
+        original_lines = original.splitlines(keepends=True)
+        revised_lines: list[str] = []
+        original_index = 0
+        index = 0
+        while index < len(lines):
+            line = lines[index]
+            if not line.startswith("@@ "):
+                index += 1
+                continue
+            match = re.match(r"@@ -(?P<old_start>\d+)(?:,\d+)? \+(?P<new_start>\d+)(?:,\d+)? @@", line)
+            if not match:
+                raise ValueError(f"invalid unified diff hunk header: {line}")
+            hunk_start = int(match.group("old_start")) - 1
+            if hunk_start < original_index:
+                raise ValueError("overlapping unified diff hunks are not supported")
+            revised_lines.extend(original_lines[original_index:hunk_start])
+            original_index = hunk_start
+            index += 1
+            while index < len(lines) and not lines[index].startswith("@@ "):
+                hunk_line = lines[index]
+                if hunk_line.startswith(" "):
+                    expected = hunk_line[1:]
+                    self._verify_patch_source_line(original_lines, original_index, expected)
+                    revised_lines.append(original_lines[original_index])
+                    original_index += 1
+                elif hunk_line.startswith("-"):
+                    expected = hunk_line[1:]
+                    self._verify_patch_source_line(original_lines, original_index, expected)
+                    original_index += 1
+                elif hunk_line.startswith("+"):
+                    revised_lines.append(self._with_original_newline(hunk_line[1:], original_lines, original_index))
+                elif hunk_line.startswith("\\"):
+                    pass
+                elif hunk_line.startswith("--- ") or hunk_line.startswith("+++ "):
+                    raise ValueError("nested file header inside hunk")
+                else:
+                    raise ValueError(f"unsupported unified diff line: {hunk_line}")
+                index += 1
+        revised_lines.extend(original_lines[original_index:])
+        if not revised_lines:
+            raise ValueError("unified diff produced an empty result")
+        return relative, "".join(revised_lines)
+
+    @staticmethod
+    def _verify_patch_source_line(
+        original_lines: list[str], original_index: int, expected: str
+    ) -> None:
+        if original_index >= len(original_lines):
+            raise ValueError("unified diff reads past end of file")
+        if original_lines[original_index].rstrip("\r\n") != expected:
+            raise ValueError("unified diff context does not match current file")
+
+    @staticmethod
+    def _with_original_newline(
+        text: str, original_lines: list[str], original_index: int
+    ) -> str:
+        if original_index < len(original_lines):
+            source = original_lines[original_index]
+            if source.endswith("\r\n"):
+                return text + "\r\n"
+            if source.endswith("\n"):
+                return text + "\n"
+        return text + "\n"
+
+    def _patch_mission_failed_file(
+        self, *, repo_root: Path, repo_map: Any, output_text: str
+    ) -> str:
+        candidates: list[str] = []
+        patterns = [
+            r"FAILED\s+([^\s:]+\.py)(?:::|\s|:)",
+            r"([A-Za-z0-9_./\\-]+\.py):\d+:",
+            r"([A-Za-z0-9_./\\-]+\.py)::[A-Za-z0-9_]+",
+        ]
+        for pattern in patterns:
+            for match in re.finditer(pattern, output_text):
+                candidates.append(match.group(1))
+        candidates.extend(self._patch_mission_test_hints(repo_map))
+        candidates.append(self._patch_mission_default_target(repo_map))
+        for candidate in candidates:
+            normalized = str(candidate).replace("\\", "/").lstrip("./")
+            if normalized.startswith(str(repo_root).replace("\\", "/")):
+                try:
+                    normalized = str(
+                        Path(normalized).resolve(strict=True).relative_to(repo_root)
+                    ).replace("\\", "/")
+                except (OSError, ValueError):
+                    continue
+            try:
+                path = self._patch_mission_repo_file(repo_root, normalized)
+            except (OSError, ValueError, PermissionError):
+                continue
+            return str(path.relative_to(repo_root)).replace("\\", "/")
+        raise ValueError("could not identify a repo file from test output")
+
+    @staticmethod
+    def _bounded_test_excerpt(output_text: str, limit: int = 4000) -> str:
+        text = output_text.strip()
+        if len(text) <= limit:
+            return text
+        head = text[: limit // 2].rstrip()
+        tail = text[-limit // 2 :].lstrip()
+        return f"{head}\n\n... [truncated] ...\n\n{tail}"
+
+    def _patch_mission_repo_file(self, repo_root: Path, target: str) -> Path:
+        target_path = (repo_root / target).resolve(strict=True)
+        if not target_path.is_file():
+            raise ValueError(f"target is not a file: {target}")
+        if not self.policy._contained(target_path, repo_root):
+            raise PermissionError("patch mission target must stay inside repo root")
+        return target_path
+
+    @staticmethod
+    def _patch_mission_default_target(repo_map: Any) -> str:
+        for item in repo_map.files:
+            normalized = str(item.path).replace("\\", "/").lower()
+            if normalized.startswith("tests/"):
+                return str(item.path)
+        for item in repo_map.files:
+            if str(item.path).lower().endswith((".py", ".js", ".ts", ".md")):
+                return str(item.path)
+        raise ValueError("repository has no supported target file to inspect")
+
+    def _allow_explicit_patch_mission_read_root(self, repo_root: Path) -> None:
+        policy = self.config.tool_policy
+        roots = [
+            Path(item).expanduser().resolve(strict=False)
+            for item in policy.get("allowed_read_roots", [])
+        ]
+        if any(self.policy._contained(repo_root, root) for root in roots):
+            return
+        allowed = list(policy.get("allowed_read_roots", []))
+        allowed.append(str(repo_root))
+        policy["allowed_read_roots"] = allowed
+        persisted = self.db.get_runtime("patch_mission_read_roots", [])
+        if not isinstance(persisted, list):
+            persisted = []
+        updated = list(dict.fromkeys([str(repo_root), *[str(item) for item in persisted]]))
+        self.db.set_runtime("patch_mission_read_roots", updated[:100])
+
+    def _restore_patch_mission_read_roots(self) -> None:
+        persisted = self.db.get_runtime("patch_mission_read_roots", [])
+        if not isinstance(persisted, list):
+            return
+        policy = self.config.tool_policy
+        allowed = list(policy.get("allowed_read_roots", []))
+        roots = [Path(item).expanduser().resolve(strict=False) for item in allowed]
+        for item in persisted:
+            try:
+                path = Path(str(item)).expanduser().resolve(strict=False)
+            except OSError:
+                continue
+            if not any(self.policy._contained(path, root) for root in roots):
+                allowed.append(str(path))
+                roots.append(path)
+        policy["allowed_read_roots"] = allowed
+
+    def _allow_explicit_patch_mission_write_root(self, repo_root: Path) -> None:
+        policy = self.config.tool_policy
+        roots = [
+            Path(item).expanduser().resolve(strict=False)
+            for item in policy.get("allowed_write_roots", [])
+        ]
+        if any(self.policy._contained(repo_root, root) for root in roots):
+            return
+        allowed = list(policy.get("allowed_write_roots", []))
+        allowed.append(str(repo_root))
+        policy["allowed_write_roots"] = allowed
+        persisted = self.db.get_runtime("patch_mission_write_roots", [])
+        if not isinstance(persisted, list):
+            persisted = []
+        updated = list(
+            dict.fromkeys([str(repo_root), *[str(item) for item in persisted]])
+        )
+        self.db.set_runtime("patch_mission_write_roots", updated[:100])
+
+    def _restore_patch_mission_write_roots(self) -> None:
+        persisted = self.db.get_runtime("patch_mission_write_roots", [])
+        if not isinstance(persisted, list):
+            return
+        policy = self.config.tool_policy
+        allowed = list(policy.get("allowed_write_roots", []))
+        roots = [Path(item).expanduser().resolve(strict=False) for item in allowed]
+        for item in persisted:
+            try:
+                path = Path(str(item)).expanduser().resolve(strict=False)
+            except OSError:
+                continue
+            if not any(self.policy._contained(path, root) for root in roots):
+                allowed.append(str(path))
+                roots.append(path)
+        policy["allowed_write_roots"] = allowed
+
+    @staticmethod
+    def _patch_mission_test_hints(repo_map: Any) -> list[str]:
+        hints: list[str] = []
+        paths = {str(item.path) for item in repo_map.files}
+        for marker in ("pyproject.toml", "pytest.ini", "tox.ini", "package.json"):
+            if marker in paths:
+                hints.append(marker)
+        for path in sorted(paths):
+            normalized = path.replace("\\", "/").lower()
+            if normalized.startswith("tests/") or "/tests/" in normalized:
+                hints.append(path)
+                if len(hints) >= 10:
+                    break
+        return list(dict.fromkeys(hints))[:10]
+
+    @staticmethod
+    def _patch_mission_repo_state_digest(repo_root: Path, repo_map: Any) -> str:
+        files: list[dict[str, Any]] = []
+        total_bytes = 0
+        for item in sorted(getattr(repo_map, "files", []), key=lambda file: str(file.path))[
+            :500
+        ]:
+            relative = str(item.path).replace("\\", "/")
+            path = (repo_root / relative).resolve(strict=False)
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            digest = ""
+            if stat.st_size <= 1024 * 1024 and total_bytes < 5 * 1024 * 1024:
+                try:
+                    data = path.read_bytes()
+                    total_bytes += len(data)
+                    digest = hashlib.sha256(data).hexdigest()
+                except OSError:
+                    digest = ""
+            files.append(
+                {
+                    "path": relative,
+                    "size": stat.st_size,
+                    "mtime_ns": stat.st_mtime_ns,
+                    "sha256": digest,
+                }
+            )
+        return digest_json({"files": files})
 
     def ingest_channel_message(self, message: ChannelMessage) -> tuple[str, bool]:
         return self.channel_gateway.submit(message, self.events)
@@ -1416,6 +9140,14 @@ class LivingSystem:
         self, limit: int = 20
     ) -> list[dict[str, Any]]:
         receipts = self.db.get_runtime("external_product_audit_receipts", [])
+        if not isinstance(receipts, list):
+            return []
+        return [dict(item) for item in receipts[:limit] if isinstance(item, dict)]
+
+    def m7_self_check_audit_receipts(
+        self, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        receipts = self.db.get_runtime("m7_self_check_audit_receipts", [])
         if not isinstance(receipts, list):
             return []
         return [dict(item) for item in receipts[:limit] if isinstance(item, dict)]
@@ -3645,20 +11377,7 @@ class LivingSystem:
         return receipt
 
     def _commercial_readiness_runbook_path(self) -> Path | None:
-        candidates = [
-            Path.cwd() / "docs" / "COMMERCIAL_READINESS_GATES.md",
-            self.config.home_path / "docs" / "COMMERCIAL_READINESS_GATES.md",
-            self.config.home_path / "COMMERCIAL_READINESS_GATES.md",
-        ]
-        module_path = Path(__file__).resolve()
-        candidates.extend(
-            parent / "docs" / "COMMERCIAL_READINESS_GATES.md"
-            for parent in module_path.parents
-        )
-        for path in candidates:
-            if path.is_file():
-                return path
-        return None
+        return self._find_doc("COMMERCIAL_READINESS_GATES.md")
 
     def record_external_product_audit(
         self,
@@ -3687,6 +11406,11 @@ class LivingSystem:
             "recovery_runbook": self._find_doc("RECOVERY_RUNBOOK.md"),
         }
         wheel = self._resolve_external_product_wheel(wheel_path)
+        wheel_evidence = self._wheel_evidence(wheel)
+        wheel_version_matches_runtime = (
+            isinstance(wheel_evidence, dict)
+            and wheel_evidence.get("version") == __version__
+        )
 
         def status_is(item: Any, allowed: set[str]) -> bool:
             return isinstance(item, dict) and str(item.get("status")) in allowed
@@ -3695,6 +11419,7 @@ class LivingSystem:
             "rc_passed": status_is(commercial, {"RC_PASSED"}),
             "health_ok": health.get("status") == "OK",
             "wheel_present": wheel is not None,
+            "wheel_version_matches_runtime": wheel_version_matches_runtime,
             "performance_budget_passed": status_is(
                 performance, {"PERFORMANCE_BUDGET_PASSED", "PASSED"}
             ),
@@ -3727,7 +11452,9 @@ class LivingSystem:
             "scope": {
                 "external_user_delivery": True,
                 "single_user_only": True,
-                "multi_user_or_regional_tenant_module": "EXCLUDED_BY_OWNER",
+                "multi_user_or_regional_tenant_module": "EXCLUDED_BY_OWNER"
+                if exclude_multi_user
+                else "REQUIRED_AND_NOT_IMPLEMENTED",
             },
             "gates": gates,
             "missing": missing,
@@ -3745,7 +11472,7 @@ class LivingSystem:
                 "upgrade_drill_id": upgrade.get("drill_id")
                 if isinstance(upgrade, dict)
                 else None,
-                "wheel": self._wheel_evidence(wheel),
+                "wheel": wheel_evidence,
                 "docs": {key: str(path) if path else None for key, path in docs.items()},
             },
             "live_install_modified": False,
@@ -3768,14 +11495,332 @@ class LivingSystem:
             self.ledger.append("external_product_audit_recorded", receipt, connection)
         return receipt
 
-    def _find_doc(self, name: str) -> Path | None:
-        candidates = [
-            Path.cwd() / "docs" / name,
-            self.config.home_path / "docs" / name,
-            self.config.home_path / name,
+    def record_m7_self_check_audit(
+        self,
+        *,
+        reason: str,
+        m7_root: str | Path | None = None,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise ValueError("M7 self-check reason is required")
+        health = self.health_snapshot()
+        integrity = self.verify_integrity(full=True)
+        m7_reference = self._m7_reference_evidence(m7_root)
+        commercial = health.get("commercial_readiness")
+        external = health.get("external_product")
+        longitudinal = health.get("longitudinal_report")
+        upgrade = health.get("upgrade_drill")
+        performance = health.get("performance_budget")
+        retention = health.get("retention_audit")
+        garbage = health.get("garbage_audit")
+        wheel = (
+            external.get("evidence", {}).get("wheel")
+            if isinstance(external, dict)
+            else None
+        )
+        docs = (
+            external.get("evidence", {}).get("docs")
+            if isinstance(external, dict)
+            else None
+        )
+        measurements = self.longitudinal_measurement_receipts(limit=500)
+        qualified_measurement_count = sum(
+            1 for item in measurements if self._owner_task_evidence_complete(item)
+        )
+        task_classes = sorted(
+            {
+                str(item.get("task_class"))
+                for item in measurements
+                if self._owner_task_evidence_complete(item) and item.get("task_class")
+            }
+        )
+
+        def status_is(item: Any, allowed: set[str]) -> bool:
+            return isinstance(item, dict) and str(item.get("status")) in allowed
+
+        source_evidence = {
+            "permission_boundary_tests": self._source_contains(
+                {
+                    "source/tests/test_agentic_harness.py": [
+                        "test_high_risk_node_waits_for_approval_without_lease",
+                        "test_worker_registry_rejects_unknown_and_overrisk_workers",
+                        "policy approval missing",
+                    ],
+                    "source/tests/test_garbage_audit.py": [
+                        "test_garbage_cleanup_requires_approval_reference",
+                        "test_cli_garbage_clear_quarantine_requires_approval_reference",
+                    ],
+                    "source/tests/test_keyfiles.py": [
+                        "test_approval_key_round_trips_binary_bytes_across_restart"
+                    ],
+                }
+            ),
+            "risk_gate_code": self._source_contains(
+                {
+                    "source/src/wls/task_admission.py": [
+                        "owner_gate",
+                        "RiskLevel.IRREVERSIBLE",
+                    ],
+                    "source/src/wls/task_classifier.py": [
+                        "effective_risk",
+                        "SideEffectClass.IRREVERSIBLE",
+                    ],
+                    "source/src/wls/runtime.py": [
+                        "requires_approval",
+                        "UNKNOWN_SIDE_EFFECT",
+                    ],
+                }
+            ),
+            "conflict_lock_tests": self._source_contains(
+                {
+                    "source/tests/test_life_campaign_30.py": [
+                        "test_campaign_lock_is_exclusive"
+                    ],
+                    "source/src/wls/db.py": ["idx_actions_idempotency_success"],
+                    "source/src/wls/runtime.py": ["idempotency_key"],
+                }
+            ),
+            "stop_freeze_code": self._source_contains(
+                {
+                    "source/src/wls/runtime.py": [
+                        "def pause",
+                        "def kill",
+                        "def freeze_holdout_epoch",
+                    ],
+                    "source/tests/test_life_campaign_30.py": [
+                        "PAUSED",
+                        "KILLED",
+                    ],
+                    "source/tests/test_living_agent_os_capabilities.py": [
+                        "freeze_holdout_epoch"
+                    ],
+                }
+            ),
+            "diagnostic_confidence_code": self._source_contains(
+                {
+                    "source/src/wls/merge_node.py": ["UNRESOLVED"],
+                    "source/src/wls/reviewer.py": ["confidence"],
+                    "source/src/wls/cognition.py": ["minimum_confidence"],
+                }
+            ),
+            "supply_chain_license": self._source_contains(
+                {
+                    "pyproject.toml": [
+                        'license = "MIT"',
+                        "dependencies = []",
+                        "wls-ui =",
+                    ]
+                }
+            ),
+        }
+
+        rollback_verified = (
+            isinstance(upgrade, dict)
+            and upgrade.get("status") == "UPGRADE_DRILL_PASSED"
+            and upgrade.get("disposable_clone_executed") is True
+            and upgrade.get("disposable_clone_rollback", {}).get("passed") is True
+        )
+        external_ready = status_is(external, {"EXTERNAL_SINGLE_USER_READY"})
+        commercial_ready = status_is(commercial, {"RC_PASSED"})
+        longitudinal_ready = status_is(longitudinal, {"LONGITUDINAL_REPORT_PASSED"})
+        evidence_chain_ok = bool(integrity.get("ok"))
+        docs_complete = isinstance(docs, dict) and all(docs.values())
+        wheel_matches = isinstance(wheel, dict) and wheel.get(
+            "version_matches_runtime"
+        ) is True
+
+        hard_gates = {
+            "m7_reference_found": bool(m7_reference["found"]),
+            "rollback_capability_verified": rollback_verified,
+            "risk_gate_present": source_evidence["risk_gate_code"],
+            "real_use_evidence": longitudinal_ready
+            and qualified_measurement_count >= 8
+            and len(task_classes) >= 4,
+            "evidence_chain_verified": evidence_chain_ok,
+            "permission_boundary_verified": source_evidence[
+                "permission_boundary_tests"
+            ],
+            "stop_freeze_rule_present": source_evidence["stop_freeze_code"],
+            "external_single_user_ready": external_ready,
+            "commercial_rc_passed": commercial_ready,
+            "docs_complete": docs_complete,
+            "wheel_version_matches_runtime": wheel_matches,
+        }
+        missing = [key for key, passed in hard_gates.items() if not passed]
+        soft_scores = {
+            "real_friction": 3 if qualified_measurement_count >= 8 else 1,
+            "stable_entry": 3 if health.get("status") == "OK" else 0,
+            "object_boundary": 3 if docs_complete else 1,
+            "permission_matrix": 3
+            if source_evidence["permission_boundary_tests"]
+            else 0,
+            "path_file_security": 3 if docs_complete else 1,
+            "state_machine": 3 if int(health.get("cycle_count", 0)) >= 1 else 1,
+            "concurrent_safety_U1": 3
+            if source_evidence["conflict_lock_tests"]
+            else 0,
+            "task_ledger": 3 if qualified_measurement_count >= 8 else 1,
+            "hash_chain_evidence_U2": 3 if evidence_chain_ok else 0,
+            "risk_gate": 3 if source_evidence["risk_gate_code"] else 0,
+            "audit_log": 3 if evidence_chain_ok else 0,
+            "runtime_metrics": 3
+            if status_is(performance, {"PERFORMANCE_BUDGET_PASSED", "PASSED"})
+            else 0,
+            "auto_diagnostic": 2
+            if source_evidence["diagnostic_confidence_code"]
+            else 0,
+            "diagnostic_confidence_U4": 3
+            if source_evidence["diagnostic_confidence_code"]
+            else 0,
+            "route_planner": 2 if commercial_ready else 0,
+            "stop_freeze": 3 if source_evidence["stop_freeze_code"] else 0,
+            "rollback_capability": 3 if rollback_verified else 0,
+            "code_quality": 3 if status_is(commercial, {"RC_PASSED"}) else 0,
+            "supply_chain_license": 3
+            if source_evidence["supply_chain_license"] and wheel_matches
+            else 0,
+            "economic_gate": 3
+            if status_is(retention, {"RETENTION_AUDIT_PASSED", "PASSED"})
+            and status_is(garbage, {"CLEAN", "GARBAGE_AUDIT_CLEAN", "PASSED"})
+            else 0,
+            "meta_governance_U5": 2 if m7_reference["found"] else 0,
+        }
+        soft_score_total = sum(soft_scores.values())
+        receipt = {
+            "receipt_type": "M7_SELF_CHECK_AUDIT",
+            "audit_id": new_id("m7_self_check_audit"),
+            "status": "M7_PERSONAL_SINGLE_USER_READY" if not missing else "M7_BLOCKED",
+            "reason": reason,
+            "profile": {
+                "m7_profile": "personal_single_user",
+                "excluded_profile": "multiparty_enterprise",
+                "exclusion_reason": (
+                    "multi-user tenanting and third-party certification are not "
+                    "part of this single-user external launch scope"
+                ),
+            },
+            "hard_gate_result": {
+                "gates": hard_gates,
+                "missing": missing,
+                "final_ceiling": "M7" if not missing else "M5_OR_BELOW",
+            },
+            "soft_scores": soft_scores,
+            "soft_score_total": soft_score_total,
+            "final_level": "M7_PERSONAL_CANDIDATE" if not missing else "BELOW_M7",
+            "primary_failure_layer": "NONE" if not missing else "M7_HARD_GATE",
+            "candidate_failure_layers": missing,
+            "confidence": 0.92 if not missing else 0.68,
+            "resolution_status": "located" if missing else "passed",
+            "risk_level": "LOW" if not missing else "HIGH",
+            "next_one_action": (
+                "freeze single-user launch scope and ship with evidence bundle"
+                if not missing
+                else "repair the first missing M7 hard gate and rerun m7-self-check"
+            ),
+            "forbidden_actions": [
+                "claim multi-user or third-party-certified readiness from this receipt",
+                "publish without preserving this audit receipt and rollback evidence",
+            ],
+            "required_test": "m7-self-check plus installed self-check must pass",
+            "stop_condition": "stop if any hard gate regresses or evidence chain fails",
+            "rollback_plan": "use the latest upgrade-drill backup and disposable rollback procedure",
+            "re_evaluation_point": "rerun after any release, permission, risk, or packaging change",
+            "evidence": {
+                "m7_reference": m7_reference,
+                "health_status": health.get("status"),
+                "integrity_ok": evidence_chain_ok,
+                "commercial_readiness_id": commercial.get("audit_id")
+                if isinstance(commercial, dict)
+                else None,
+                "external_product_audit_id": external.get("audit_id")
+                if isinstance(external, dict)
+                else None,
+                "longitudinal_report_id": longitudinal.get("report_id")
+                if isinstance(longitudinal, dict)
+                else None,
+                "qualified_measurement_count": qualified_measurement_count,
+                "task_classes": task_classes,
+                "upgrade_drill_id": upgrade.get("drill_id")
+                if isinstance(upgrade, dict)
+                else None,
+                "source_evidence": source_evidence,
+                "wheel": wheel,
+                "docs": docs,
+            },
+            "live_install_modified": False,
+            "cleanup_executed": False,
+            "claim_ceiling": (
+                "M7 Personal single-user self-check only; this receipt does not "
+                "claim multi-party SaaS readiness, ISO certification, or externally "
+                "audited compliance"
+            ),
+            "created_at": utc_now(),
+        }
+        receipt["receipt_digest"] = digest_json(receipt)
+        current = self.m7_self_check_audit_receipts(limit=100)
+        updated = [receipt, *current][:100]
+        with self.db.transaction() as connection:
+            self.db.set_runtime("m7_self_check_audit_receipts", updated, connection)
+            self.db.set_runtime("m7_self_check_audit_last", receipt, connection)
+            self.ledger.append("m7_self_check_audit_recorded", receipt, connection)
+        return receipt
+
+    def _m7_reference_evidence(
+        self, m7_root: str | Path | None = None
+    ) -> dict[str, Any]:
+        candidates: list[Path] = []
+        if m7_root is not None and str(m7_root).strip():
+            candidates.append(Path(m7_root).expanduser())
+        else:
+            candidates.append(Path.home() / "Desktop" / "M7瀹舵棌")
+            candidates.append(Path.home() / "OneDrive" / "Desktop" / "M7瀹舵棌")
+        found = next((path.resolve() for path in candidates if path.is_dir()), None)
+        required = [
+            "M7_Runtime_Gate_v2.0_optimized.md",
+            "M7_Runtime_Gate_Master_Library_v1.2_absorbed.md",
+            "m7-runtime-gate-template/07_evolution/m7_gate_result.yaml",
+            "m7-runtime-gate-template/05_risk/risk_gate.yaml",
+            "m7-runtime-gate-template/03_authority/permission_matrix.yaml",
+            "m7-runtime-gate-template/tests/hash_chain_tests.md",
+            "m7-runtime-gate-template/tests/conflict_lock_tests.md",
+            "m7-runtime-gate-template/tests/permission_tests.md",
         ]
-        module_path = Path(__file__).resolve()
-        candidates.extend(parent / "docs" / name for parent in module_path.parents)
+        present: dict[str, str | None] = {}
+        if found is not None:
+            for relative in required:
+                path = found / relative
+                present[relative] = str(path) if path.is_file() else None
+        return {
+            "found": found is not None,
+            "root": str(found) if found is not None else None,
+            "required_files": present,
+            "required_files_complete": bool(found)
+            and all(value is not None for value in present.values()),
+        }
+
+    def _source_contains(self, requirements: dict[str, list[str]]) -> bool:
+        for relative, patterns in requirements.items():
+            if not self._source_file_contains(relative, patterns):
+                return False
+        return True
+
+    def _source_file_contains(self, relative: str, patterns: list[str]) -> bool:
+        for root in self._external_evidence_roots():
+            path = root / relative
+            if not path.is_file():
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            if all(pattern in text for pattern in patterns):
+                return True
+        return False
+
+    def _find_doc(self, name: str) -> Path | None:
+        candidates: list[Path] = []
+        for root in self._external_evidence_roots():
+            candidates.extend([root / "docs" / name, root / name])
         for path in candidates:
             if path.is_file():
                 return path
@@ -3787,9 +11832,24 @@ class LivingSystem:
         candidates: list[Path] = []
         if wheel_path is not None and str(wheel_path).strip():
             candidates.append(Path(wheel_path).expanduser())
-        module_path = Path(__file__).resolve()
-        for parent in [Path.cwd(), *module_path.parents]:
-            candidates.extend(parent.glob("dist/workstation_living_system-*.whl"))
+        for root in self._external_evidence_roots():
+            candidates.extend(root.glob("dist/workstation_living_system-*.whl"))
+        for receipt in self.upgrade_drill_receipts(limit=20):
+            wheel = receipt.get("wheel")
+            if isinstance(wheel, dict) and str(wheel.get("path", "")).strip():
+                candidates.append(Path(str(wheel["path"])).expanduser())
+        for receipt in self._install_receipts():
+            for key in ("wheel", "source_root"):
+                value = str(receipt.get(key, "")).strip()
+                if not value:
+                    continue
+                path = Path(value).expanduser()
+                if key == "wheel":
+                    candidates.append(path)
+                else:
+                    candidates.extend(
+                        path.glob("dist/workstation_living_system-*.whl")
+                    )
         existing = [path.resolve() for path in candidates if path.is_file()]
         if not existing:
             return None
@@ -3798,11 +11858,74 @@ class LivingSystem:
     def _wheel_evidence(self, wheel: Path | None) -> dict[str, Any] | None:
         if wheel is None:
             return None
+        version = self._wheel_version(wheel)
         return {
             "path": str(wheel),
             "bytes": wheel.stat().st_size,
             "sha256": self._file_sha256(wheel),
+            "version": version,
+            "runtime_version": __version__,
+            "version_matches_runtime": version == __version__,
         }
+
+    def _external_evidence_roots(self) -> list[Path]:
+        roots: list[Path] = []
+        for receipt in self._install_receipts():
+            for key in ("install_root", "source_root"):
+                value = str(receipt.get(key, "")).strip()
+                if value:
+                    roots.append(Path(value).expanduser())
+        roots.extend([Path.cwd(), self.config.home_path])
+        roots.extend(self.config.home_path.parents)
+        module_path = Path(__file__).resolve()
+        roots.extend(module_path.parents)
+        resolved: list[Path] = []
+        seen: set[str] = set()
+        for root in roots:
+            try:
+                normalized = root.resolve()
+            except OSError:
+                normalized = root.absolute()
+            key = str(normalized).lower() if os.name == "nt" else str(normalized)
+            if key not in seen:
+                seen.add(key)
+                resolved.append(normalized)
+        return resolved
+
+    def _install_receipts(self) -> list[dict[str, Any]]:
+        receipts: list[dict[str, Any]] = []
+        search_roots = [self.config.home_path, *self.config.home_path.parents]
+        module_path = Path(__file__).resolve()
+        search_roots.extend(module_path.parents)
+        seen: set[Path] = set()
+        for root in search_roots:
+            for path in root.glob("INSTALL_RECEIPT*.json"):
+                try:
+                    resolved = path.resolve()
+                except OSError:
+                    resolved = path.absolute()
+                if resolved in seen:
+                    continue
+                seen.add(resolved)
+                try:
+                    payload = json.loads(resolved.read_text(encoding="utf-8-sig"))
+                except (OSError, json.JSONDecodeError):
+                    continue
+                if isinstance(payload, dict):
+                    receipts.append(payload)
+        return receipts
+
+    @staticmethod
+    def _wheel_version(wheel: Path) -> str | None:
+        name = wheel.name
+        prefix = "workstation_living_system-"
+        if not name.startswith(prefix) or not name.endswith(".whl"):
+            return None
+        remainder = name[len(prefix) : -4]
+        version, separator, _tags = remainder.partition("-")
+        if not separator:
+            return None
+        return version or None
 
     def record_transfer_efficiency_audit(
         self,
@@ -5915,11 +14038,14 @@ class LivingSystem:
         reserved: list[Event] = []
         selected_event_ids: set[str] = set()
         plan_persisted = False
+        action_candidate: dict[str, Any] | None = None
         try:
             recovery_outcomes = self._resume_durable_actions()
             finish_phase("durable_action_recovery")
             sensor_summary, prediction_errors = self._poll_due_sensors()
             finish_phase("sensor_polling")
+            daily_perception = self._refresh_daily_perception_summary()
+            finish_phase("daily_perception")
             step_started = time.monotonic()
             reserve_limit = self._event_reserve_limit()
             reserved = self.events.reserve(self.worker_id, reserve_limit)
@@ -5941,9 +14067,20 @@ class LivingSystem:
             )
             step_started = time.monotonic()
             active_goals = self.goals.active(limit=20)
+            goal_pressure = self._goal_pressure_summary(
+                goals=active_goals,
+                daily_perception=daily_perception,
+            )
+            pressure_order = {
+                item["goal_id"]: index
+                for index, item in enumerate(goal_pressure["ranked_goals"])
+            }
+            active_goals.sort(
+                key=lambda goal: pressure_order.get(goal.goal_id, len(active_goals))
+            )
             event_goal_timings.append(
                 {
-                    "step": "active_goals",
+                    "step": "active_goals_goal_pressure",
                     "elapsed_seconds": round(time.monotonic() - step_started, 4),
                 }
             )
@@ -6011,6 +14148,7 @@ class LivingSystem:
                 "cycle_id": cycle_id,
                 "workspace": [item.to_dict() for item in workspace],
                 "goals": [goal.to_dict() for goal in active_goals],
+                "goal_pressure": goal_pressure,
                 "world_facts": world_facts,
                 "memories": retrieved_memories,
                 "memory_retrieval": memory_retrieval,
@@ -6052,7 +14190,36 @@ class LivingSystem:
                         "elapsed_seconds": round(time.monotonic() - step_started, 4),
                     }
                 )
+                step_started = time.monotonic()
+                memory_influence = self._record_memory_influence_proof(
+                    cycle_id=cycle_id,
+                    plan=plan,
+                    memory_retrieval=memory_retrieval,
+                    goal_pressure=goal_pressure,
+                )
+                planning_timings.append(
+                    {
+                        "step": "memory_influence_proof",
+                        "elapsed_seconds": round(time.monotonic() - step_started, 4),
+                    }
+                )
                 plan.actions = plan.actions[: int(budget["max_actions"])]
+                step_started = time.monotonic()
+                action_candidate = self._record_action_candidate(
+                    cycle_id=cycle_id,
+                    plan=plan,
+                    goal_pressure=goal_pressure,
+                    daily_perception=daily_perception,
+                    memory_influence=memory_influence,
+                )
+                if action_candidate.get("suppressed"):
+                    plan.actions = []
+                planning_timings.append(
+                    {
+                        "step": "bounded_action_candidate",
+                        "elapsed_seconds": round(time.monotonic() - step_started, 4),
+                    }
+                )
                 step_started = time.monotonic()
                 self._persist_plan_and_ack_events(
                     cycle_id, plan, [event.event_id for event in selected_events]
@@ -6130,9 +14297,17 @@ class LivingSystem:
             else:
                 planning_timings = []
                 cognition_learning_timings = []
+                memory_influence = None
                 plan = Plan(
                     rationale="Idle cycle: no external change, active goal, recovery, or prediction error.",
                     actions=[],
+                )
+                action_candidate = self._record_action_candidate(
+                    cycle_id=cycle_id,
+                    plan=plan,
+                    goal_pressure=goal_pressure,
+                    daily_perception=daily_perception,
+                    memory_influence=memory_influence,
                 )
                 outcomes = []
                 cognition_result = None
@@ -6157,6 +14332,8 @@ class LivingSystem:
             ), 4)
             metrics = {
                 "sensors": sensor_summary,
+                "daily_perception": daily_perception,
+                "goal_pressure": goal_pressure,
                 "autonomous_goal_ids": autonomous_goal_ids,
                 "reserved_events": len(reserved),
                 "selected_events": len(selected_events),
@@ -6170,6 +14347,8 @@ class LivingSystem:
                         item["memory_id"] for item in memory_retrieval["suppressed"]
                     ],
                 },
+                "memory_influence": memory_influence,
+                "action_candidate": action_candidate,
                 "actions": len(plan.actions),
                 "outcomes": outcomes,
                 "episode_id": episode_id,
@@ -6417,6 +14596,414 @@ class LivingSystem:
                 summary["state_batch_seconds"] = batch_elapsed
         return summaries, prediction_errors
 
+    def _refresh_daily_perception_summary(self) -> dict[str, Any]:
+        summary = self._daily_perception_summary()
+        self.db.set_runtime("daily_perception", summary)
+        return summary
+
+    def _goal_pressure_summary(
+        self,
+        *,
+        goals: list[Goal] | list[dict[str, Any]],
+        daily_perception: dict[str, Any] | None = None,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        return self.goal_pressure.rank(
+            goals,
+            daily_perception=daily_perception
+            if isinstance(daily_perception, dict)
+            else self._life_state_daily_perception(limit),
+            recent_actions=self._recent_goal_actions(limit=100),
+            limit=limit,
+        )
+
+    def _recent_goal_actions(self, limit: int = 100) -> list[dict[str, Any]]:
+        rows = self.db.query_all(
+            """
+            SELECT action_id,plan_id,goal_id,tool,purpose,risk,status,finished_at,error
+            FROM actions
+            WHERE goal_id IS NOT NULL
+            ORDER BY COALESCE(finished_at, started_at, '') DESC, rowid DESC
+            LIMIT ?
+            """,
+            (max(1, min(500, int(limit))),),
+        )
+        return [
+            {
+                "action_id": row["action_id"],
+                "plan_id": row["plan_id"],
+                "goal_id": row["goal_id"],
+                "tool": row["tool"],
+                "purpose": row["purpose"],
+                "risk": row["risk"],
+                "status": row["status"],
+                "finished_at": row["finished_at"],
+                "error": row["error"],
+            }
+            for row in rows
+        ]
+
+    def _record_memory_influence_proof(
+        self,
+        *,
+        cycle_id: str,
+        plan: Plan,
+        memory_retrieval: dict[str, Any],
+        goal_pressure: dict[str, Any],
+    ) -> dict[str, Any]:
+        proof = self.memory_influence.analyze_plan(
+            plan=plan,
+            memories=[
+                dict(item)
+                for item in memory_retrieval.get("selected", [])
+                if isinstance(item, dict)
+            ],
+            goal_pressure=goal_pressure,
+            limit=self.config.memory_retrieval_limit,
+        )
+        proof = {
+            **proof,
+            "cycle_id": cycle_id,
+            "plan_id": plan.plan_id,
+            "selected_plan_memory_ids": list(dict.fromkeys(plan.memory_ids)),
+            "suppressed_memory_ids": [
+                str(item.get("memory_id"))
+                for item in memory_retrieval.get("suppressed", [])
+                if isinstance(item, dict) and item.get("memory_id")
+            ],
+        }
+        self.db.set_runtime("last_memory_influence", proof)
+        return proof
+
+    def _record_action_candidate(
+        self,
+        *,
+        cycle_id: str,
+        plan: Plan,
+        goal_pressure: dict[str, Any],
+        daily_perception: dict[str, Any],
+        memory_influence: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        candidate = self.action_candidates.build(
+            plan=plan,
+            goal_pressure=goal_pressure,
+            daily_perception=daily_perception,
+            memory_influence=memory_influence,
+            outcome_learning=self._outcome_learning_summary(limit=20),
+            tool_side_effects=self._action_tool_side_effects(plan),
+            policy_decisions=self._action_policy_decisions(plan),
+        )
+        candidate = self._apply_self_model_candidate_readiness(candidate)
+        candidate = {
+            **candidate,
+            "cycle_id": cycle_id,
+            "plan_id": plan.plan_id,
+        }
+        self.db.set_runtime("last_action_candidate", candidate)
+        return candidate
+
+    def _action_tool_side_effects(self, plan: Plan) -> dict[str, str]:
+        side_effects: dict[str, str] = {}
+        for action in plan.actions:
+            if action.tool in side_effects:
+                continue
+            try:
+                side_effects[action.tool] = self.tools.get(action.tool).side_effect_class
+            except KeyError:
+                side_effects[action.tool] = "unknown"
+        return side_effects
+
+    def _action_policy_decisions(self, plan: Plan) -> dict[str, dict[str, Any]]:
+        decisions: dict[str, dict[str, Any]] = {}
+        for action in plan.actions:
+            decision = self.policy.decide(action, approval_valid=False)
+            decisions[action.action_id] = {
+                "allowed": decision.allowed,
+                "requires_approval": decision.requires_approval,
+                "reason": decision.reason,
+                "classified_risk": self.policy.classify(action).value,
+            }
+        return decisions
+
+    def _apply_self_model_candidate_readiness(
+        self, candidate: dict[str, Any]
+    ) -> dict[str, Any]:
+        if (
+            not candidate.get("available")
+            or candidate.get("suppressed")
+            or not candidate.get("tool")
+        ):
+            return candidate
+        readiness = self.self_model.readiness_for_action(candidate)
+        candidate = {**candidate, "self_model_readiness": readiness}
+        if readiness.get("attempt_allowed") is not False:
+            return candidate
+        return {
+            **candidate,
+            "available": False,
+            "candidate_type": "self_model_deferred_action",
+            "status": "DEFERRED_BY_SELF_MODEL",
+            "suppressed": True,
+            "requires_owner_approval": False,
+            "approval_required": False,
+            "executes_now": False,
+            "reason": readiness.get("reason", "self_model_deferred"),
+            "defer_to_owner": True,
+        }
+
+    def owner_outcome_feedback(self, limit: int = 50) -> list[dict[str, Any]]:
+        feedback = self.db.get_runtime("owner_outcome_feedback", [])
+        if not isinstance(feedback, list):
+            return []
+        return [dict(item) for item in feedback[: max(0, int(limit))] if isinstance(item, dict)]
+
+    def record_owner_outcome_feedback(
+        self,
+        *,
+        outcome: str,
+        action_id: str | None = None,
+        owner_note: str = "",
+        evidence: dict[str, Any] | None = None,
+        goal_progress_delta: float = 0.0,
+    ) -> dict[str, Any]:
+        evidence = evidence or {}
+        if goal_progress_delta and not evidence:
+            raise ValueError("goal progress feedback requires evidence")
+        target = self._owner_feedback_target(action_id)
+        record = self.outcome_learning.feedback_record(
+            target=target,
+            outcome=outcome,
+            owner_note=owner_note,
+            evidence=evidence,
+            goal_progress_delta=goal_progress_delta,
+        )
+        if goal_progress_delta:
+            goal_id = str(record["action"].get("goal_id") or "")
+            if not goal_id:
+                raise ValueError("goal progress feedback requires a goal-linked action")
+            row = self.db.query_one(
+                "SELECT progress FROM goals WHERE goal_id=?", (goal_id,)
+            )
+            if row is None:
+                raise KeyError(f"unknown goal: {goal_id}")
+            before = float(row["progress"])
+            after = max(0.0, min(1.0, before + float(goal_progress_delta)))
+            self.goals.update_progress(goal_id, after)
+            record["goal_progress_update"] = {
+                "goal_id": goal_id,
+                "before": round(before, 4),
+                "after": round(after, 4),
+                "evidence_required": True,
+                "evidence_present": True,
+            }
+        else:
+            record["goal_progress_update"] = {
+                "updated": False,
+                "reason": "no progress delta supplied",
+                "evidence_required_for_progress": True,
+            }
+        current = self.owner_outcome_feedback(limit=200)
+        updated = [record, *current][:200]
+        with self.db.transaction() as connection:
+            evidence_id = self.ledger.append(
+                "owner_outcome_feedback_recorded", record, connection
+            )
+            calibration = self.self_model.record_owner_outcome(
+                action=record["action"],
+                outcome=str(record["outcome"]),
+                evidence_id=evidence_id,
+                connection=connection,
+            )
+            record["self_model_calibration"] = {
+                "key": calibration["key"],
+                "capability_confidence": calibration["value"].get(
+                    "capability_confidence"
+                ),
+                "should_defer": calibration["value"].get("should_defer"),
+                "evidence_id": evidence_id,
+            }
+            self.db.set_runtime("owner_outcome_feedback", updated, connection)
+        summary = self._outcome_learning_summary(feedback=updated, limit=20)
+        heuristics = self._record_outcome_learning_heuristics(summary)
+        return {
+            **record,
+            "learning_summary": {
+                "suppressed_signature_count": len(summary["suppressed_signatures"]),
+                "reusable_pattern_count": len(summary["reusable_patterns"]),
+                "new_heuristic_memory_ids": heuristics,
+            },
+        }
+
+    def _owner_feedback_target(self, action_id: str | None) -> dict[str, Any]:
+        if action_id:
+            row = self.db.query_one(
+                """
+                SELECT action_id,plan_id,goal_id,tool,purpose,expected_result,risk,status,
+                       side_effect_class
+                FROM actions WHERE action_id=?
+                """,
+                (action_id,),
+            )
+            if row is None:
+                raise KeyError(f"unknown action: {action_id}")
+            data = dict(row)
+            data["risk_class"] = self.action_candidates.classify_action(
+                data, side_effect_class=str(data.get("side_effect_class", "unknown"))
+            )
+            return data
+        candidate = self.db.get_runtime("last_action_candidate", None)
+        if not isinstance(candidate, dict) or not candidate.get("available"):
+            raise ValueError("no action_id supplied and no available action candidate exists")
+        return candidate
+
+    def _outcome_learning_summary(
+        self,
+        *,
+        feedback: list[dict[str, Any]] | None = None,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        return self.outcome_learning.summary(
+            feedback if feedback is not None else self.owner_outcome_feedback(limit=200),
+            limit=limit,
+        )
+
+    def _record_outcome_learning_heuristics(
+        self, summary: dict[str, Any]
+    ) -> list[str]:
+        recorded = self.db.get_runtime("outcome_learning_heuristic_signatures", [])
+        if not isinstance(recorded, list):
+            recorded = []
+        recorded_keys = {str(item) for item in recorded}
+        created_ids: list[str] = []
+        new_keys: list[str] = []
+        for kind, key_name, items in (
+            ("avoid", "suppressed_signatures", summary.get("suppressed_signatures", [])),
+            ("prefer", "reusable_patterns", summary.get("reusable_patterns", [])),
+        ):
+            for item in items or []:
+                if not isinstance(item, dict):
+                    continue
+                signature = str(item.get("action_signature", ""))
+                record_key = f"{kind}:{signature}"
+                if not signature or record_key in recorded_keys:
+                    continue
+                examples = item.get("examples", [])
+                action = (
+                    examples[0].get("action", {})
+                    if examples and isinstance(examples[0], dict)
+                    else {}
+                )
+                effect = "avoid_tool" if kind == "avoid" else "prefer_tool"
+                memory_id = self.memories.add(
+                    MemoryItem(
+                        memory_type="procedural",
+                        content={
+                            "claim": (
+                                "Owner feedback marked this action pattern as one to avoid."
+                                if kind == "avoid"
+                                else "Owner feedback marked this action pattern as reusable."
+                            ),
+                            "action_signature": signature,
+                            "decision_guidance": {
+                                "effect": effect,
+                                "tool": action.get("tool"),
+                                "reason": item.get(
+                                    "suppression_reason",
+                                    item.get("reuse_reason", "owner_outcome_feedback"),
+                                ),
+                            },
+                            "feedback_counts": {
+                                "helped": item.get("helped", 0),
+                                "failed": item.get("failed", 0),
+                                "avoid": item.get("avoid", 0),
+                            },
+                        },
+                        importance=0.86 if kind == "avoid" else 0.78,
+                        confidence=0.88,
+                        source_ids=[
+                            str(example.get("feedback_id"))
+                            for example in examples
+                            if isinstance(example, dict) and example.get("feedback_id")
+                        ]
+                        or [signature],
+                        tags=["owner-outcome", f"{kind}-heuristic"],
+                    )
+                )
+                created_ids.append(memory_id)
+                new_keys.append(record_key)
+                recorded_keys.add(record_key)
+        if new_keys:
+            self.db.set_runtime(
+                "outcome_learning_heuristic_signatures",
+                [*new_keys, *recorded][:200],
+            )
+        return created_ids
+
+    def _life_state_memory_influence(self, limit: int) -> dict[str, Any]:
+        proof = self.db.get_runtime("last_memory_influence", None)
+        if not isinstance(proof, dict):
+            return {
+                "available": False,
+                "reason": "no memory influence proof has been recorded yet",
+            }
+        bounded = dict(proof)
+        influences = bounded.get("influences", [])
+        bounded["influences"] = (
+            influences[:limit] if isinstance(influences, list) else []
+        )
+        return {"available": True, **bounded}
+
+    def _daily_perception_summary(self, limit: int = 10) -> dict[str, Any]:
+        day = datetime.now(UTC).date().isoformat()
+        observations = self._daily_observation_dicts(day=day, limit=500)
+        goals = self.goals.active(limit=20)
+        memories = self.memories.recent(limit=50)
+        return self.perception.daily_summary(
+            observations,
+            goals=goals,
+            memories=memories,
+            limit=limit,
+            day=day,
+        )
+
+    def _daily_observation_dicts(
+        self, *, day: str, limit: int
+    ) -> list[dict[str, Any]]:
+        day_start = f"{day}T00:00:00+00:00"
+        rows = self.db.query_all(
+            """
+            SELECT o.observation_id,o.source,o.kind,o.subject,o.predicate,o.value_json,
+                   o.confidence,o.evidence_kind,o.verification,o.observed_at,
+                   o.metadata_json,o.event_id,e.salience_hint
+            FROM observations o
+            LEFT JOIN events e ON e.event_id=o.event_id
+            WHERE o.observed_at >= ?
+            ORDER BY o.observed_at DESC
+            LIMIT ?
+            """,
+            (day_start, max(1, min(1000, int(limit)))),
+        )
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            result.append(
+                {
+                    "observation_id": row["observation_id"],
+                    "event_id": row["event_id"],
+                    "source": row["source"],
+                    "kind": row["kind"],
+                    "subject": row["subject"],
+                    "predicate": row["predicate"],
+                    "value": json.loads(row["value_json"]),
+                    "confidence": float(row["confidence"]),
+                    "evidence_kind": row["evidence_kind"],
+                    "verification": row["verification"],
+                    "observed_at": row["observed_at"],
+                    "metadata": json.loads(row["metadata_json"]),
+                    "salience": float(row["salience_hint"] or 0.0),
+                }
+            )
+        return result
+
     def _sensor_error_observation(self, sensor_name: str, exc: Exception):
         from .schemas import Observation
 
@@ -6495,14 +15082,6 @@ class LivingSystem:
                 skill_results.setdefault(action.skill_id, []).append(
                     bool(outcome.get("success"))
                 )
-            if action.goal_id and outcome.get("success"):
-                goal_row = self.db.query_one(
-                    "SELECT progress FROM goals WHERE goal_id=?", (action.goal_id,)
-                )
-                if goal_row is not None:
-                    self.goals.update_progress(
-                        action.goal_id, min(1.0, float(goal_row["progress"]) + 0.25)
-                    )
         for skill_id, results in skill_results.items():
             self.skills.record_use(skill_id, all(results))
         self._refresh_plan_status(plan.plan_id)
@@ -6627,6 +15206,25 @@ class LivingSystem:
             self.self_model.record_action_outcome(
                 action, result, evidence_id, connection
             )
+        advisory_outcome = self._record_repair_skill_action_outcome(
+            action=action,
+            approval_id=approval_id,
+            approval_valid=approval_valid,
+            action_completed_evidence_id=evidence_id,
+            result=result,
+            final_success=final_success,
+        )
+        promoted_repair_skill_outcome = (
+            advisory_outcome
+            if isinstance(advisory_outcome, dict)
+            and advisory_outcome.get("skill_status") == CandidateStatus.PROMOTED.value
+            else None
+        )
+        if advisory_outcome is not None:
+            payload["repair_skill_outcome"] = advisory_outcome
+            payload["approved_repair_skill_outcome"] = advisory_outcome
+            if promoted_repair_skill_outcome is not None:
+                payload["promoted_repair_skill_outcome"] = promoted_repair_skill_outcome
         return {
             "action_id": action.action_id,
             "success": final_success,
@@ -6634,6 +15232,9 @@ class LivingSystem:
             "evaluation": evaluation,
             "output": result.output,
             "error": result.error,
+            "repair_skill_outcome": advisory_outcome,
+            "approved_repair_skill_outcome": advisory_outcome,
+            "promoted_repair_skill_outcome": promoted_repair_skill_outcome,
         }
 
     def resume_action(self, action_id: str) -> dict[str, Any]:
@@ -6923,6 +15524,419 @@ class LivingSystem:
             self.ledger.append("daemon_health_stop", payload, connection)
         return {"allowed": False, "health": health}
 
+    def life_state(self, limit: int | None = None) -> dict[str, Any]:
+        """Return the compact living-system loop state for owner-facing views."""
+
+        item_limit = self._life_state_limit(limit)
+        active_goals = [
+            self._compact_goal(goal)
+            for goal in self.goals.active(limit=item_limit)
+        ]
+        memory_influences = self._top_memory_influences(limit=item_limit)
+        daily_perception = self._life_state_daily_perception(item_limit)
+        goal_pressure = self._goal_pressure_summary(
+            goals=active_goals,
+            daily_perception=daily_perception,
+            limit=item_limit,
+        )
+        pressure_order = {
+            item["goal_id"]: index
+            for index, item in enumerate(goal_pressure["ranked_goals"])
+        }
+        active_goals.sort(
+            key=lambda goal: pressure_order.get(goal["goal_id"], len(active_goals))
+        )
+        memory_influence_proof = self._life_state_memory_influence(item_limit)
+        observations = self._latest_meaningful_observations(
+            limit=item_limit,
+            goals=active_goals,
+            memories=memory_influences,
+        )
+        pending_approvals = self._pending_owner_approvals(
+            limit=item_limit
+        )
+        next_action = self._next_action_candidate(
+            active_goals, observations, goal_pressure=goal_pressure
+        )
+        return {
+            "schema_version": 1,
+            "version": __version__,
+            "generated_at": utc_now(),
+            "bounded": True,
+            "authority": {
+                "source": "canonical life organs; evidence/readiness remains safety context",
+                "writes_canonical_state": False,
+                "creates_evidence_receipt": False,
+                "candidate_executes_action": False,
+            },
+            "system": {
+                "home": str(self.config.home_path),
+                "read_only": self.config.read_only,
+                "paused": bool(self.db.get_runtime("paused", False)),
+                "killed": bool(self.db.get_runtime("kill_switch", False)),
+                "cycle_count": int(self.db.get_runtime("cycle_count", 0)),
+            },
+            "loop": [
+                "sense",
+                "remember",
+                "judge",
+                "act",
+                "learn",
+                "self-model",
+                "sleep",
+            ],
+            "active_goals": active_goals,
+            "latest_meaningful_observations": observations,
+            "top_memory_influences": memory_influences,
+            "memory_influence_proof": memory_influence_proof,
+            "outcome_learning": self._outcome_learning_summary(limit=item_limit),
+            "daily_perception": daily_perception,
+            "goal_pressure": goal_pressure,
+            "self_model_confidence": self._self_model_confidence(),
+            "self_model_calibration": self._self_model_calibration(item_limit),
+            "pending_owner_approvals": pending_approvals,
+            "last_sleep_consolidation": self._last_sleep_consolidation_summary(),
+            "next_action_candidate": next_action,
+            "bounds": {
+                "max_items_per_section": item_limit,
+                "max_text_chars": self.MAX_LIFE_STATE_TEXT_CHARS,
+                "source": "canonical life organs; evidence/readiness remains safety context",
+            },
+        }
+
+    @classmethod
+    def _life_state_limit(cls, limit: int | None) -> int:
+        if limit is None:
+            return cls.MAX_LIFE_STATE_ITEMS
+        return max(1, min(20, int(limit)))
+
+    def _life_state_daily_perception(self, limit: int) -> dict[str, Any]:
+        summary = self.db.get_runtime("daily_perception", None)
+        if not isinstance(summary, dict):
+            summary = self._daily_perception_summary(limit=limit)
+        bounded = dict(summary)
+        top_changes = bounded.get("top_daily_changes", [])
+        bounded["top_daily_changes"] = (
+            top_changes[:limit] if isinstance(top_changes, list) else []
+        )
+        return bounded
+
+    def _latest_meaningful_observations(
+        self,
+        limit: int,
+        *,
+        goals: list[dict[str, Any]] | None = None,
+        memories: list[dict[str, Any]] | None = None,
+    ) -> list[dict[str, Any]]:
+        rows = self.db.query_all(
+            """
+            SELECT o.observation_id,o.source,o.kind,o.subject,o.predicate,
+                   o.value_json,o.confidence,o.evidence_kind,o.verification,
+                   o.observed_at,o.metadata_json,o.event_id,e.salience_hint
+            FROM observations o
+            LEFT JOIN events e ON e.event_id=o.event_id
+            WHERE COALESCE(e.salience_hint, 0.0) >= 0.25
+               OR o.kind IN ('sensor_error','service_health','resource','state')
+            ORDER BY COALESCE(e.salience_hint, 0.0) DESC, o.observed_at DESC
+            LIMIT ?
+            """,
+            (max(1, min(100, int(limit) * 4)),),
+        )
+        observations: list[dict[str, Any]] = []
+        for row in rows:
+            observation = {
+                "observation_id": row["observation_id"],
+                "event_id": row["event_id"],
+                "source": row["source"],
+                "kind": row["kind"],
+                "subject": self._life_state_text(row["subject"]),
+                "predicate": self._life_state_text(row["predicate"]),
+                "value": self._life_state_value(json.loads(row["value_json"])),
+                "confidence": float(row["confidence"]),
+                "evidence_kind": row["evidence_kind"],
+                "verification": row["verification"],
+                "observed_at": row["observed_at"],
+                "metadata": self._life_state_value(json.loads(row["metadata_json"])),
+                "salience": float(row["salience_hint"] or 0.0),
+            }
+            observation["perception"] = self.perception.classify(
+                observation,
+                goals=goals or [],
+                memories=memories or [],
+            )
+            observations.append(observation)
+        meaningful = [
+            item
+            for item in observations
+            if item["perception"]["classification"] != "noise"
+        ]
+        selected = meaningful or observations
+        selected.sort(
+            key=lambda item: (
+                bool(item["perception"]["meaningful"]),
+                float(item["perception"]["score"]),
+                str(item.get("observed_at", "")),
+            ),
+            reverse=True,
+        )
+        return selected[: max(1, min(20, int(limit)))]
+
+    def _top_memory_influences(self, limit: int) -> list[dict[str, Any]]:
+        rows = self.db.query_all(
+            """
+            SELECT memory_id,memory_type,content_json,importance,confidence,
+                   source_ids_json,tags_json,created_at,last_accessed_at,access_count
+            FROM memories
+            WHERE active=1
+            ORDER BY (importance * confidence) DESC, access_count DESC, created_at DESC
+            LIMIT ?
+            """,
+            (max(1, min(50, int(limit))),),
+        )
+        return [
+            {
+                "memory_id": row["memory_id"],
+                "memory_type": row["memory_type"],
+                "content": self._life_state_value(json.loads(row["content_json"])),
+                "importance": float(row["importance"]),
+                "confidence": float(row["confidence"]),
+                "source_ids": json.loads(row["source_ids_json"])[:5],
+                "tags": json.loads(row["tags_json"])[:8],
+                "created_at": row["created_at"],
+                "last_accessed_at": row["last_accessed_at"],
+                "access_count": int(row["access_count"]),
+                "influence_basis": "active memory ranked by importance, confidence, and prior access",
+            }
+            for row in rows
+        ]
+
+    def _self_model_confidence(self) -> dict[str, Any]:
+        snapshot = self.self_model.snapshot()
+        entries = [
+            {
+                "key": key,
+                "confidence": float(value.get("confidence", 0.0)),
+                "updated_at": value.get("updated_at"),
+            }
+            for key, value in snapshot.items()
+            if isinstance(value, dict)
+        ]
+        if not entries:
+            return {"overall": 0.0, "entry_count": 0, "top_entries": []}
+        entries.sort(key=lambda item: (item["confidence"], item["key"]), reverse=True)
+        overall = sum(float(item["confidence"]) for item in entries) / len(entries)
+        return {
+            "overall": round(overall, 3),
+            "entry_count": len(entries),
+            "top_entries": entries[: self.MAX_LIFE_STATE_ITEMS],
+        }
+
+    def _self_model_calibration(self, limit: int) -> dict[str, Any]:
+        snapshot = self.self_model.snapshot()
+        entries: list[dict[str, Any]] = []
+        for key, item in snapshot.items():
+            if not str(key).startswith("capability.owner_outcome."):
+                continue
+            value = item.get("value", {})
+            if not isinstance(value, dict):
+                continue
+            entries.append(
+                {
+                    "key": key,
+                    "tool": value.get("tool"),
+                    "risk_class": value.get("risk_class"),
+                    "capability_confidence": value.get("capability_confidence"),
+                    "owner_observation_count": value.get("owner_observation_count", 0),
+                    "should_defer": bool(value.get("should_defer", False)),
+                    "defer_reason": value.get("defer_reason", ""),
+                    "updated_at": item.get("updated_at"),
+                }
+            )
+        entries.sort(
+            key=lambda entry: (
+                bool(entry["should_defer"]),
+                int(entry.get("owner_observation_count", 0) or 0),
+                str(entry.get("updated_at", "")),
+            ),
+            reverse=True,
+        )
+        return {
+            "available": bool(entries),
+            "deferred_capabilities": [
+                item for item in entries if item["should_defer"]
+            ][:limit],
+            "calibrated_capabilities": entries[:limit],
+            "authority": {
+                "owner_outcomes_required": True,
+                "receipt_volume_is_not_capability": True,
+            },
+        }
+
+    def _pending_owner_approvals(self, limit: int) -> list[dict[str, Any]]:
+        rows = self.db.query_all(
+            """
+            SELECT action_id,plan_id,goal_id,tool,purpose,expected_result,risk,status,
+                   approval_id,started_at,finished_at,error
+            FROM actions
+            WHERE status IN ('WAITING_APPROVAL','APPROVED','UNKNOWN_SIDE_EFFECT')
+            ORDER BY rowid DESC
+            LIMIT ?
+            """,
+            (max(1, min(50, int(limit))),),
+        )
+        return [
+            {
+                "action_id": row["action_id"],
+                "plan_id": row["plan_id"],
+                "goal_id": row["goal_id"],
+                "tool": row["tool"],
+                "purpose": self._life_state_text(row["purpose"]),
+                "expected_result": self._life_state_text(row["expected_result"]),
+                "risk": row["risk"],
+                "status": row["status"],
+                "approval_id": row["approval_id"],
+                "started_at": row["started_at"],
+                "finished_at": row["finished_at"],
+                "reason": self._life_state_text(row["error"] or ""),
+            }
+            for row in rows
+        ]
+
+    def _last_sleep_consolidation_summary(self) -> dict[str, Any]:
+        row = self.db.query_one(
+            """
+            SELECT evidence_id,payload_json,created_at
+            FROM evidence
+            WHERE event_type='sleep_consolidation_completed'
+            ORDER BY seq DESC
+            LIMIT 1
+            """
+        )
+        next_focus = self.db.get_runtime("next_focus", [])
+        if row is None:
+            return {
+                "last_sleep_at": self.db.get_runtime("last_sleep_at", None),
+                "evidence_id": None,
+                "summary": "No sleep consolidation has been recorded yet.",
+                "next_focus": next_focus[: self.MAX_LIFE_STATE_ITEMS]
+                if isinstance(next_focus, list)
+                else [],
+            }
+        payload = json.loads(row["payload_json"])
+        return {
+            "last_sleep_at": self.db.get_runtime("last_sleep_at", row["created_at"]),
+            "evidence_id": row["evidence_id"],
+            "created_at": row["created_at"],
+            "expired_facts": int(payload.get("expired_facts", 0) or 0),
+            "contradictions_resolved": int(
+                payload.get("contradictions_resolved", 0) or 0
+            ),
+            "semantic_created_count": len(payload.get("semantic_created", []) or []),
+            "duplicates_deactivated": int(
+                payload.get("duplicates_deactivated", 0) or 0
+            ),
+            "skill_candidate_count": len(payload.get("skill_candidates", []) or []),
+            "focus": (payload.get("focus", []) or [])[: self.MAX_LIFE_STATE_ITEMS],
+        }
+
+    def _next_action_candidate(
+        self,
+        active_goals: list[dict[str, Any]],
+        observations: list[dict[str, Any]],
+        *,
+        goal_pressure: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        row = self.db.query_one(
+            """
+            SELECT action_id,plan_id,goal_id,tool,purpose,expected_result,risk,status,
+                   approval_id,error,side_effect_class
+            FROM actions
+            WHERE status IN ('WAITING_APPROVAL','APPROVED','PLANNED')
+            ORDER BY CASE status
+                WHEN 'WAITING_APPROVAL' THEN 0
+                WHEN 'APPROVED' THEN 1
+                ELSE 2
+            END, rowid DESC
+            LIMIT 1
+            """
+        )
+        if row is not None:
+            return {
+                "available": True,
+                "action_id": row["action_id"],
+                "plan_id": row["plan_id"],
+                "goal_id": row["goal_id"],
+                "tool": row["tool"],
+                "purpose": self._life_state_text(row["purpose"]),
+                "expected_result": self._life_state_text(row["expected_result"]),
+                "risk": row["risk"],
+                "risk_class": self.action_candidates.classify_action(
+                    dict(row), side_effect_class=row["side_effect_class"]
+                ),
+                "side_effect_class": row["side_effect_class"],
+                "status": row["status"],
+                "approval_required": row["status"] == "WAITING_APPROVAL",
+                "requires_owner_approval": row["status"] == "WAITING_APPROVAL",
+                "approval_id": row["approval_id"],
+                "reason": self._life_state_text(row["error"] or ""),
+            }
+        recorded = self.db.get_runtime("last_action_candidate", None)
+        if isinstance(recorded, dict) and recorded.get("available"):
+            return recorded
+        if goal_pressure and isinstance(goal_pressure.get("next_small_step"), dict):
+            step = goal_pressure["next_small_step"]
+            if step.get("available"):
+                return {
+                    **step,
+                    "available": True,
+                    "status": "CANDIDATE_ONLY",
+                    "approval_required": False,
+                    "requires_owner_approval": False,
+                    "risk_class": "read",
+                    "source": "goal_pressure",
+                    "reason": step.get("rationale", ""),
+                }
+        if not active_goals:
+            reason = "No active goals are available to drive a next action."
+        elif not observations:
+            reason = "Active goals exist, but no meaningful observations are available yet."
+        else:
+            reason = "No planned or approval-ready action candidate exists yet."
+        return {"available": False, "reason": reason}
+
+    @classmethod
+    def _compact_goal(cls, goal: Goal) -> dict[str, Any]:
+        return {
+            "goal_id": goal.goal_id,
+            "title": cls._life_state_text(goal.title),
+            "description": cls._life_state_text(goal.description),
+            "priority": goal.priority,
+            "status": goal.status.value,
+            "progress": goal.progress,
+            "source": goal.source,
+            "autonomous": goal.autonomous,
+            "deadline": goal.deadline,
+            "updated_at": goal.updated_at,
+            "risk": goal.risk.value,
+        }
+
+    @classmethod
+    def _life_state_text(cls, value: Any) -> str:
+        text = "" if value is None else str(value)
+        if len(text) <= cls.MAX_LIFE_STATE_TEXT_CHARS:
+            return text
+        return text[: cls.MAX_LIFE_STATE_TEXT_CHARS - 3] + "..."
+
+    @classmethod
+    def _life_state_value(cls, value: Any) -> Any:
+        rendered = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+        if len(rendered) <= cls.MAX_LIFE_STATE_TEXT_CHARS:
+            return value
+        return {
+            "truncated": True,
+            "preview": rendered[: cls.MAX_LIFE_STATE_TEXT_CHARS - 3] + "...",
+        }
+
     def status(self) -> dict[str, Any]:
         latest_cycle = self.db.query_one(
             "SELECT * FROM cycles ORDER BY started_at DESC LIMIT 1"
@@ -7030,6 +16044,8 @@ class LivingSystem:
             "commercial_readiness_audit_receipts": (
                 self.commercial_readiness_audit_receipts()
             ),
+            "external_product_audit_receipts": self.external_product_audit_receipts(),
+            "m7_self_check_audit_receipts": self.m7_self_check_audit_receipts(),
             "final_delivery_audit_receipts": self.final_delivery_audit_receipts(),
             "read_only_execution_preflights": self.read_only_execution_preflights(),
             "read_only_execution_receipts": self.read_only_execution_receipts(),
@@ -7164,6 +16180,14 @@ class LivingSystem:
             "commercial_readiness": latest_runtime_receipt(
                 "commercial_readiness_audit_last",
                 "commercial_readiness_audit_receipts",
+            ),
+            "external_product": latest_runtime_receipt(
+                "external_product_audit_last",
+                "external_product_audit_receipts",
+            ),
+            "m7_self_check": latest_runtime_receipt(
+                "m7_self_check_audit_last",
+                "m7_self_check_audit_receipts",
             ),
             "critical": critical,
             "warnings": warnings,

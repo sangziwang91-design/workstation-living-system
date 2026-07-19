@@ -21,3 +21,19 @@ def test_cli_health_uses_lightweight_snapshot(tmp_path, monkeypatch, capsys) -> 
 
     assert payload["status"] == "OK"
     assert payload["projection_only"] is False
+
+
+def test_cli_capabilities_reports_user_facing_truth_table(capsys) -> None:
+    assert cli.main(["capabilities"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    labels = {item["id"]: item["label"] for item in payload["capabilities"]}
+
+    assert payload["schema_version"] == 1
+    assert payload["counts"]["AVAILABLE"] >= 10
+    assert labels["goal_tracking"] == "AVAILABLE"
+    assert labels["owner_console"] == "AVAILABLE"
+    assert labels["learned_skills"] == "PARTIAL"
+    assert labels["cognition_dashboard"] == "INTERNAL"
+    assert labels["browser_computer_control"] == "NOT_PRODUCTIZED"
+    assert labels["multi_worker_agent_os"] == "NOT_PRODUCTIZED"

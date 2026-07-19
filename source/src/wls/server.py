@@ -92,6 +92,8 @@ class WLSServer:
                     self._json(200, {"ok": True, "version": __version__})
                 elif path == "/status":
                     self._json(200, runtime.status())
+                elif path == "/life-state":
+                    self._json(200, runtime.life_state())
                 elif path == "/world":
                     self._json(200, runtime.world.active_facts(limit=200))
                 elif path == "/memories":
@@ -168,6 +170,167 @@ class WLSServer:
                         self._json(200, {"transitioned": True})
                     elif path == "/cycle":
                         self._json(200, runtime.run_cycle())
+                    elif path == "/patch-mission":
+                        self._json(
+                            200,
+                            runtime.start_patch_mission(
+                                repo_path=str(body["repo_path"]),
+                                mission=str(body["mission"]),
+                                execute_first_action=bool(
+                                    body.get("execute_first_action", True)
+                                ),
+                            ),
+                        )
+                    elif path == "/patch-mission/step":
+                        self._json(
+                            200,
+                            runtime.continue_patch_mission(
+                                mission_id=body.get("mission_id"),
+                                mode=str(body.get("mode", "auto")),
+                                target=body.get("target"),
+                                draft=body.get("draft"),
+                                action_id=body.get("action_id"),
+                                execute=bool(body.get("execute", True)),
+                            ),
+                        )
+                    elif path == "/patch-mission/repair-candidate/review":
+                        self._json(
+                            200,
+                            runtime.review_patch_mission_repair_skill_candidate(
+                                candidate_id=str(body["candidate_id"]),
+                                reason=str(
+                                    body.get(
+                                        "reason",
+                                        "owner requested Patch Mission repair candidate replay",
+                                    )
+                                ),
+                            ),
+                        )
+                    elif path == "/patch-mission/repair-candidate/sandbox":
+                        self._json(
+                            200,
+                            runtime.sandbox_patch_mission_repair_skill_candidate(
+                                candidate_id=str(body["candidate_id"]),
+                                reason=str(
+                                    body.get(
+                                        "reason",
+                                        "owner requested Patch Mission repair candidate sandbox",
+                                    )
+                                ),
+                                owner_approved=bool(body.get("owner_approved", False)),
+                            ),
+                        )
+                    elif path == "/patch-mission/repair-candidate/validate":
+                        self._json(
+                            200,
+                            runtime.validate_patch_mission_repair_skill_candidate(
+                                candidate_id=str(body["candidate_id"]),
+                                reason=str(
+                                    body.get(
+                                        "reason",
+                                        "owner validates Patch Mission repair candidate sandbox",
+                                    )
+                                ),
+                                human_approved=bool(body.get("human_approved", False)),
+                            ),
+                        )
+                    elif path == "/patch-mission/repair-candidate/propose-skill":
+                        self._json(
+                            200,
+                            runtime.propose_patch_mission_repair_skill_from_candidate(
+                                candidate_id=str(body["candidate_id"]),
+                                reason=str(
+                                    body.get(
+                                        "reason",
+                                        "owner requests Patch Mission repair skill proposal",
+                                    )
+                                ),
+                            ),
+                        )
+                    elif path == "/patch-mission/repair-skill/sandbox":
+                        self._json(
+                            200,
+                            runtime.start_patch_mission_repair_skill_sandbox(
+                                skill_id=str(body["skill_id"]),
+                                reason=str(
+                                    body.get(
+                                        "reason",
+                                        "owner starts Patch Mission repair skill sandbox",
+                                    )
+                                ),
+                            ),
+                        )
+                    elif path == "/patch-mission/repair-skill/validate":
+                        self._json(
+                            200,
+                            runtime.validate_patch_mission_repair_skill_sandbox(
+                                skill_id=str(body["skill_id"]),
+                                reason=str(
+                                    body.get(
+                                        "reason",
+                                        "owner validates Patch Mission repair skill sandbox",
+                                    )
+                                ),
+                            ),
+                        )
+                    elif path == "/patch-mission/repair-skill/approve":
+                        self._json(
+                            200,
+                            runtime.approve_patch_mission_repair_skill(
+                                skill_id=str(body["skill_id"]),
+                                reason=str(
+                                    body.get(
+                                        "reason",
+                                        "owner approves validated Patch Mission repair skill",
+                                    )
+                                ),
+                                human_approved=bool(body.get("human_approved", False)),
+                            ),
+                        )
+                    elif path == "/patch-mission/repair-skill/promotion-review/approve":
+                        self._json(
+                            200,
+                            runtime.approve_patch_mission_repair_skill_promotion_review(
+                                candidate_id=str(body["candidate_id"]),
+                                reason=str(
+                                    body.get(
+                                        "reason",
+                                        "owner approves Patch Mission repair skill promotion review",
+                                    )
+                                ),
+                                human_approved=bool(body.get("human_approved", False)),
+                            ),
+                        )
+                    elif path == "/patch-mission/repair-skill/promote":
+                        self._json(
+                            200,
+                            runtime.promote_patch_mission_repair_skill_from_review(
+                                candidate_id=str(body["candidate_id"]),
+                                reason=str(
+                                    body.get(
+                                        "reason",
+                                        "owner promotes Patch Mission repair skill",
+                                    )
+                                ),
+                                human_approved=bool(body.get("human_approved", False)),
+                            ),
+                        )
+                    elif path == "/outcome-feedback":
+                        evidence = body.get("evidence", {})
+                        if not isinstance(evidence, dict):
+                            raise ValueError("evidence must be an object")
+                        self._json(
+                            200,
+                            runtime.record_owner_outcome_feedback(
+                                action_id=body.get("action_id"),
+                                outcome=str(body["outcome"]),
+                                owner_note=str(body.get("owner_note", "")),
+                                evidence=evidence,
+                                goal_progress_delta=float(
+                                    body.get("goal_progress_delta", 0.0)
+                                ),
+                            ),
+                        )
                     else:
                         self._json(404, {"error": "not found"})
                 except Exception as exc:

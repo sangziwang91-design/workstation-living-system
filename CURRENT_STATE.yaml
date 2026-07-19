@@ -9,9 +9,9 @@ system:
   canonical_runtime: "source/src/wls/runtime.py::LivingSystem"
 
 state_record:
-  updated_at: "2026-07-10"
+  updated_at: "2026-07-19"
   time_zone: "Asia/Singapore"
-  update_type: "et005-deployed-and-continuation-zips-absorbed"
+  update_type: "mainline-life-loop-and-patch-mission-consolidation"
   evidence_basis:
     - type: "VERIFIED"
       source: "P01-P89 architecture validation"
@@ -35,7 +35,7 @@ state_record:
       source: "Desktop continuation packages + live process audit"
       note: "WLS-GapLedger-50Iterations and WLS-Phase2-Integration were absorbed as source material, not bulk-imported. Old hung pytest and stale live daemon were stopped because they blocked the mainline lease without fresh evidence."
 
-workflow_state: "CANONICAL_SINGLE_TRUNK_ET005_DEPLOYED_ZIP_ABSORBED"
+workflow_state: "CANONICAL_SINGLE_TRUNK_LIFE_LOOP_PATCH_MISSION_SOURCE_CONSOLIDATED"
 phase_chain:
   scoped: true
   read: true
@@ -58,9 +58,9 @@ mission_status:
   capability_gaps_et004_closed: true
 
 current_capabilities:
-  status: "86_MODULES_42_TESTS_HEALTH_PREFLIGHT_DEPLOYED_ZIP_ABSORBED"
-  module_count: 86
-  test_file_count: 42
+  status: "92_MODULES_62_TESTS_LIFE_LOOP_PATCH_MISSION_SOURCE_CONSOLIDATED"
+  module_count: 92
+  test_file_count: 62
   architecture_passes: 89
   verified:
     - "The authoritative runtime remains source/src/wls/runtime.py::LivingSystem."
@@ -91,11 +91,17 @@ current_capabilities:
     - "Installed owner-host instance reports wls health OK after historical DB compaction and one successful canonical cycle."
     - "Desktop continuation ZIPs are absorbed into the single trunk as evidence/backlog material; standalone gap prototypes are not parallel authorities."
     - "Read-only garbage audit module identifies cleanup candidates and records owner-review receipts without deleting files."
+    - "docs/WLS_MAINLINE_CONTEXT.md is now the compact mainline map for WLS."
+    - "docs/LIFE_LOOP_RESET_HANDOFF.md is now a short current handoff; the full 2026-07-15 process log is preserved under docs/history/."
+    - "Life-loop source work exists for life-state, daily perception, goal pressure, memory influence, action candidates, owner outcome feedback, and self-model calibration."
+    - "Patch Mission source work exists for a local GitHub Patch Mission chain with owner-gated inspect/test/draft/apply/verify/git/remote/CI/repair-skill stages."
   inherited_not_comprehensively_reverified_in_this_wave:
     - perception_connector_breadth
     - autonomous_goal_depth
     - relationship_behavior
     - sleep_and_consolidation_quality
+    - installed_owner_host_patch_mission_entrypoints
+    - full_patch_mission_test_suite_wall_clock_stability
 
 frozen_decisions:
   - "Safe-default installation remains read-only."
@@ -400,7 +406,7 @@ branches:
   - name: "main"
     role: "canonical single trunk"
     status: "ACTIVE"
-    head: "75786a5"
+    head: "b1451b5"
     tag: "v0.9.0.dev2"
 
 current_limitations:
@@ -410,22 +416,23 @@ current_limitations:
   - "Long-running tests (cognition, memory_ablation) may hang due to SQLite locking."
 
 next_evolution_target:
-  id: "EVOLUTION-TARGET-006"
-  title: "Commercial Readiness Performance and Longitudinal Reliability"
-  status: "IN_PROGRESS_OWNER_REVIEW_GARBAGE_WORKFLOW_DEPLOYED"
+  id: "MAINLINE-TARGET-001"
+  title: "Life Loop and GitHub Patch Mission Mainline Proof"
+  status: "SOURCE_CONSOLIDATED_INSTALL_VERIFICATION_PENDING"
   objective: >-
-    Turn the current guarded prototype into a commercially credible local
-    workstation system by enforcing performance budgets, bounded soak evidence,
-    owner-approved cleanup execution, upgrade/rollback drills, and real
-    owner-task longitudinal measurement.
+    Keep WLS on the local long-term action-body line by making the life loop and
+    GitHub Patch Mission the foreground mainline. Evidence/readiness remains an
+    immune system. The next proof must advance a real owner-gated Patch Mission
+    action chain instead of adding new readiness, dashboard, label, or report
+    layers.
 
 unique_next_action: >-
-  Continue ET006 from the owner-host cleanup, upgrade, UI/API performance,
-  owner review garbage workflow, and the first qualified longitudinal owner-task
-  receipt: record repeated real owner-task measurements across distinct task
-  classes and keep lowering measured cycle latency before advancing commercial
-  maturity claims; live rollback remains blocked until an owner-facing approval
-  workflow and explicit owner-approved live drill exist.
+  Continue Task A: approve the recovered Patch Mission commit-draft, create the
+  local commit, use resume-next to refresh post-commit git metadata, prepare the
+  remote-readiness summary, and verify push/PR creation remain separate
+  owner-approved actions. Do not add more dashboards, labels, readiness gates, or
+  pure reports before this action chain is stable and installed into the
+  owner-host WLS.
 
 stop_conditions:
   - "Stop if any change bypasses evidence provenance, policy gates, or human authority."

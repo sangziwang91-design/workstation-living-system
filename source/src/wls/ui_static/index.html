@@ -17,26 +17,31 @@
           <small id="system-caption">Owner Console - canonical projection</small>
         </div>
       </div>
-      <button id="new-object" class="command-button" type="button">Create Project / Task</button>
-      <div class="health">
+      <div class="top-context" aria-label="Current workspace context">
+        <span class="context-chip"><b id="top-projects">0</b> active goals</span>
+        <span class="context-chip"><b id="top-pending">0</b> owner decisions</span>
+        <span class="context-chip"><b id="top-events">0</b> evidence events</span>
+      </div>
+      <button id="new-object" class="command-button" type="button">+ Project / Task</button>
+      <div class="health" role="status" aria-live="polite">
         <span id="health-dot" class="dot"></span>
         <span id="health-label">Connecting</span>
       </div>
     </header>
 
     <aside class="sidebar">
-      <nav id="nav">
-        <button data-view="home" class="nav-item active" type="button">Home</button>
-        <button data-view="inbox" class="nav-item" type="button">Inbox <b id="inbox-badge"></b></button>
+      <nav id="nav" aria-label="Owner console navigation">
+        <button data-view="home" class="nav-item active" type="button">Dashboard</button>
         <button data-view="projects" class="nav-item" type="button">Projects</button>
+        <button data-view="inbox" class="nav-item" type="button">Approvals <b id="inbox-badge"></b></button>
         <button data-view="runs" class="nav-item" type="button">Runs</button>
-        <button data-view="panels" class="nav-item" type="button">Panels</button>
-        <button data-view="review" class="nav-item" type="button">Review</button>
+        <button data-view="panels" class="nav-item" type="button">Evidence</button>
+        <button data-view="review" class="nav-item" type="button">Failures</button>
         <button data-view="library" class="nav-item" type="button">Library</button>
       </nav>
       <div class="sidebar-bottom">
         <button id="run-cycle" class="primary-action" type="button">Run One Cycle</button>
-        <small>All writes go through existing Goal, Approval, Action, and Evidence authorities.</small>
+        <small>Writes stay inside existing Goal, Approval, Action, and Evidence authorities.</small>
       </div>
     </aside>
 
@@ -44,20 +49,28 @@
 
     <aside id="inspector" class="inspector">
       <div class="inspector-empty">
-        <strong>Select an item</strong>
-        <p>Project, task, run, action, evidence, and skill details appear here.</p>
+        <strong>No object selected</strong>
+        <p>Select a project, run, approval, evidence record, or skill to inspect source data and recovery actions.</p>
       </div>
     </aside>
+
+    <section id="event-drawer" class="event-drawer" aria-label="Runtime event drawer" aria-live="polite">
+      <div>
+        <strong>Event Drawer</strong>
+        <span id="event-summary">Waiting for runtime context</span>
+      </div>
+      <button class="secondary-action compact-action" data-view-jump="library" type="button">Open Evidence</button>
+    </section>
   </div>
 
-  <dialog id="goal-dialog">
+  <dialog id="goal-dialog" aria-labelledby="goal-dialog-title">
     <form id="goal-form" method="dialog">
       <div class="dialog-head">
         <div>
           <small>Canonical GoalStore</small>
-          <h2>Create Object</h2>
+          <h2 id="goal-dialog-title">Create Object</h2>
         </div>
-        <button value="cancel" class="icon-button" aria-label="Close" type="submit">x</button>
+        <button value="cancel" class="icon-button" aria-label="Close" type="submit">&times;</button>
       </div>
       <label>
         Type
@@ -76,11 +89,11 @@
       </label>
       <label>
         Description
-        <textarea name="description" rows="4"></textarea>
+        <textarea name="description" rows="4" maxlength="1200"></textarea>
       </label>
       <label>
         Acceptance Criteria
-        <textarea name="criteria" rows="4"></textarea>
+        <textarea name="criteria" rows="4" maxlength="1600"></textarea>
       </label>
       <div class="dialog-actions">
         <button value="cancel" class="secondary-action" type="submit">Cancel</button>

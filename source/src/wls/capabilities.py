@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from typing import Any
@@ -19,6 +20,13 @@ class CapabilityStatus(StrEnum):
     ACTIVE = "ACTIVE"
     DORMANT = "DORMANT"
     RETIRED = "RETIRED"
+
+
+class UserCapabilityLabel(StrEnum):
+    AVAILABLE = "AVAILABLE"
+    PARTIAL = "PARTIAL"
+    INTERNAL = "INTERNAL"
+    NOT_PRODUCTIZED = "NOT_PRODUCTIZED"
 
 
 CANONICAL_AUTHORITIES: dict[str, str] = {
@@ -115,7 +123,7 @@ class CapabilityRegistry:
         except KeyError as exc:
             raise KeyError(f"unknown capability: {capability_id}") from exc
 
-    def list(self) -> list[dict[str, Any]]:
+    def list(self) -> builtins.list[dict[str, Any]]:
         return [item.to_dict() for item in self._items.values()]
 
     def summary(self) -> dict[str, Any]:
@@ -136,8 +144,8 @@ class CapabilityRegistry:
             if manifest.declares_authority:
                 raise ValueError(f"duplicate authority: {manifest.capability_id}")
 
-    def detect_duplicate_authorities(self) -> list[dict[str, Any]]:
-        findings: list[dict[str, Any]] = []
+    def detect_duplicate_authorities(self) -> builtins.list[dict[str, Any]]:
+        findings: builtins.list[dict[str, Any]] = []
         owner_map: dict[str, list[str]] = {}
         for manifest in self._items.values():
             owner_map.setdefault(manifest.canonical_owner, []).append(manifest.capability_id)
@@ -204,3 +212,187 @@ def baseline_registry() -> CapabilityRegistry:
             )
         )
     return registry
+
+
+def ordinary_user_capability_map() -> dict[str, Any]:
+    """Return the user-facing truth table for current WLS product capabilities."""
+    items = [
+        {
+            "id": "local_workspace_init",
+            "label": UserCapabilityLabel.AVAILABLE.value,
+            "name": "Initialize a local workspace",
+            "user_job": "Create a private local WLS home and config.",
+            "entrypoints": ["wls init"],
+            "limits": [],
+        },
+        {
+            "id": "health_and_status",
+            "label": UserCapabilityLabel.AVAILABLE.value,
+            "name": "Health and status checks",
+            "user_job": "Know whether the runtime is safe, paused, killed, or healthy.",
+            "entrypoints": ["wls health", "wls status", "Owner Console Dashboard"],
+            "limits": ["status is verbose for casual users"],
+        },
+        {
+            "id": "goal_tracking",
+            "label": UserCapabilityLabel.AVAILABLE.value,
+            "name": "Goal and project tracking",
+            "user_job": "Record long-lived work as goals/projects/tasks instead of losing it in chat.",
+            "entrypoints": ["wls add-goal", "Owner Console Project / Task"],
+            "limits": ["CLI creates goals; polished task editing remains UI-limited"],
+        },
+        {
+            "id": "single_cycle_run",
+            "label": UserCapabilityLabel.AVAILABLE.value,
+            "name": "Run one cycle",
+            "user_job": "Run one observe/plan/act cycle and leave evidence.",
+            "entrypoints": ["wls once", "Owner Console Run One Cycle"],
+            "limits": ["ordinary users still need clearer explanation of what the planner did"],
+        },
+        {
+            "id": "approval_recovery",
+            "label": UserCapabilityLabel.AVAILABLE.value,
+            "name": "Approval and recovery gates",
+            "user_job": "Approve, reject, resume, or resolve risky/unknown actions.",
+            "entrypoints": ["wls approve", "wls reject", "wls resume-action", "wls resolve-unknown", "Owner Console Approvals"],
+            "limits": ["requires an existing pending action to become meaningful"],
+        },
+        {
+            "id": "evidence_export",
+            "label": UserCapabilityLabel.AVAILABLE.value,
+            "name": "Evidence recording and export",
+            "user_job": "Record structured evidence and export a portable audit trail.",
+            "entrypoints": ["wls add-event", "wls export-evidence", "Owner Console Library"],
+            "limits": ["export format is newline JSON records, not a polished report"],
+        },
+        {
+            "id": "integrity_verification",
+            "label": UserCapabilityLabel.AVAILABLE.value,
+            "name": "Evidence integrity verification",
+            "user_job": "Check whether evidence and database integrity can be trusted.",
+            "entrypoints": ["wls verify", "wls self-check"],
+            "limits": [],
+        },
+        {
+            "id": "runtime_stop_controls",
+            "label": UserCapabilityLabel.AVAILABLE.value,
+            "name": "Pause, resume, kill, reset-kill",
+            "user_job": "Keep owner authority over automation.",
+            "entrypoints": ["wls pause", "wls resume", "wls kill", "wls reset-kill"],
+            "limits": ["powerful controls; UI surface is still minimal"],
+        },
+        {
+            "id": "garbage_review",
+            "label": UserCapabilityLabel.AVAILABLE.value,
+            "name": "Garbage review and quarantine",
+            "user_job": "Find cleanup candidates, quarantine with approval, and clear with second approval.",
+            "entrypoints": ["wls garbage-audit", "wls garbage-clear-quarantine", "Owner Console Failures"],
+            "limits": ["not a full disk cleaner"],
+        },
+        {
+            "id": "performance_retention_soak",
+            "label": UserCapabilityLabel.AVAILABLE.value,
+            "name": "Performance, retention, and soak audits",
+            "user_job": "Check whether runtime operations remain within local budgets.",
+            "entrypoints": ["wls performance-audit", "wls retention-audit", "wls soak-audit"],
+            "limits": ["mostly operator-facing, not a casual workflow"],
+        },
+        {
+            "id": "owner_console",
+            "label": UserCapabilityLabel.AVAILABLE.value,
+            "name": "Owner Console",
+            "user_job": "Use a loopback UI for dashboard, projects, runs, approvals, evidence, and failures.",
+            "entrypoints": ["wls ui"],
+            "limits": ["single-user local UI; not a SaaS dashboard"],
+        },
+        {
+            "id": "longitudinal_measurement",
+            "label": UserCapabilityLabel.PARTIAL.value,
+            "name": "Longitudinal owner-task measurement",
+            "user_job": "Track real task quality over time.",
+            "entrypoints": ["wls longitudinal-start", "wls longitudinal-record", "wls longitudinal-report"],
+            "limits": ["useful only after repeated real measurements"],
+        },
+        {
+            "id": "memory_inspection",
+            "label": UserCapabilityLabel.PARTIAL.value,
+            "name": "Memory inspection",
+            "user_job": "Inspect durable local memories.",
+            "entrypoints": ["wls memories"],
+            "limits": ["not yet a polished personal memory assistant"],
+        },
+        {
+            "id": "world_model_inspection",
+            "label": UserCapabilityLabel.PARTIAL.value,
+            "name": "World/context fact inspection",
+            "user_job": "Inspect durable facts WLS has inferred or observed.",
+            "entrypoints": ["wls world"],
+            "limits": ["readout is technical and not yet guided for ordinary users"],
+        },
+        {
+            "id": "learned_skills",
+            "label": UserCapabilityLabel.PARTIAL.value,
+            "name": "Learned skills lifecycle",
+            "user_job": "List and transition learned skills through gated states.",
+            "entrypoints": ["wls skills", "wls skill"],
+            "limits": ["no ordinary-user skill catalog or marketplace"],
+        },
+        {
+            "id": "growth_cycle",
+            "label": UserCapabilityLabel.INTERNAL.value,
+            "name": "Growth/recovery experiments",
+            "user_job": "Turn repeated failures into validated reusable improvements.",
+            "entrypoints": ["wls growth-*"],
+            "limits": ["operator/research workflow, not safe to market as a user feature yet"],
+        },
+        {
+            "id": "cognition_dashboard",
+            "label": UserCapabilityLabel.INTERNAL.value,
+            "name": "Cognition/calibration dashboard",
+            "user_job": "Inspect predictions, hypotheses, and calibration state.",
+            "entrypoints": ["wls cognition"],
+            "limits": ["diagnostic metrics; not evidence of subjective cognition"],
+        },
+        {
+            "id": "browser_computer_control",
+            "label": UserCapabilityLabel.NOT_PRODUCTIZED.value,
+            "name": "Browser/computer control",
+            "user_job": "Automate browser or desktop workflows.",
+            "entrypoints": ["internal adapters and tests"],
+            "limits": ["not exposed as a safe ordinary-user workflow"],
+        },
+        {
+            "id": "multi_worker_agent_os",
+            "label": UserCapabilityLabel.NOT_PRODUCTIZED.value,
+            "name": "Multi-worker Agent OS",
+            "user_job": "Lease work to multiple workers with trust and recovery.",
+            "entrypoints": ["agentic harness tests"],
+            "limits": ["architecture and tests exist; ordinary user product path is missing"],
+        },
+        {
+            "id": "commercial_m7_readiness",
+            "label": UserCapabilityLabel.INTERNAL.value,
+            "name": "Commercial/M7 readiness audits",
+            "user_job": "Gate local single-user release claims against evidence.",
+            "entrypoints": ["wls commercial-readiness-audit", "wls external-product-audit", "wls m7-self-check"],
+            "limits": ["internal/local readiness only; not third-party certification"],
+        },
+    ]
+    counts: dict[str, int] = {}
+    for item in items:
+        counts[item["label"]] = counts.get(item["label"], 0) + 1
+    return {
+        "schema_version": 1,
+        "claim_ceiling": (
+            "ordinary-user capability labels for local single-user WLS; labels "
+            "must not be read as multi-user SaaS or third-party certification"
+        ),
+        "labels": {
+            UserCapabilityLabel.AVAILABLE.value: "works as a real user/operator workflow",
+            UserCapabilityLabel.PARTIAL.value: "implemented, but value or UX is incomplete",
+            UserCapabilityLabel.INTERNAL.value: "real internal/operator capability, not a daily user feature",
+            UserCapabilityLabel.NOT_PRODUCTIZED.value: "architecture/tests may exist, but no safe ordinary-user product path",
+        },
+        "counts": counts,
+        "capabilities": items,
+    }

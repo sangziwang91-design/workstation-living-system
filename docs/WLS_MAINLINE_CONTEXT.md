@@ -1,0 +1,128 @@
+# WLS Mainline Context
+
+Updated: 2026-07-19
+
+This file is the compact mainline map for WLS. It replaces scattered iteration
+reading as the first stop for understanding the system.
+
+## Mainline Identity
+
+WLS is a single-owner local long-running action runtime. It is not primarily an
+app shell, project manager, evidence dashboard, architecture poster, or test
+collection.
+
+The current mainline is:
+
+```text
+sense -> remember -> judge -> plan -> act under policy -> observe outcome
+      -> learn -> update self-model -> sleep/compact -> resume
+```
+
+Evidence, health, rollback, retention, readiness, and audit features remain
+important, but they are immune-system organs. They protect action chains; they
+are not the main product experience.
+
+## Canonical Trunk
+
+```text
+repository:        D:\WLS-Dev\workstation-living-system-private
+branch:            main
+runtime authority: source/src/wls/runtime.py::LivingSystem
+package root:      source/src/wls
+tests:             source/tests
+installed home:    D:\WLS\wls-0.9.0.dev1-ui-20260706\home
+```
+
+`D:\WLS` is the installed/runtime workspace. Its `archive`, `campaigns`,
+`acceptance`, `WLS-GapLedger-50Iterations`, and `WLS-Phase2-Integration`
+directories are historical evidence/backlog material unless a concrete capability
+has been promoted into the canonical trunk above.
+
+## Current Organ Map
+
+Brain:
+- mission/goal state, planning, cognition traces, memory influence, goal
+  pressure, action candidate selection, self-model calibration.
+
+Trunk:
+- SQLite state, runtime cycles, scheduler, daemon, loopback API, Owner Console,
+  health preflight, recovery of stale cycles and pending actions.
+
+Limbs:
+- local file reads/writes through governed tools, command execution through
+  policy, repository inspection, Patch Mission local code/test/patch/git chain.
+
+Perception:
+- sensor observations, daily perception classification, meaningful change
+  summaries linked to goals and memory.
+
+Immune system:
+- evidence ledger, approval boundaries, health, retention, rollback drills,
+  security policy, claim ceilings.
+
+Self-evolution:
+- failure learning, repair candidates, sandbox/validation/approval/promotion
+  lifecycle, owner outcome feedback, skill confidence calibration.
+
+## Active Mainline Capabilities
+
+Life loop:
+- `wls life-state` returns a bounded living-system state instead of a readiness
+  report.
+- Daily perception suppresses noise and links meaningful observations to goals
+  and memory.
+- Goal pressure ranks active work and can propose a single small next step.
+- Action candidates classify risk and preserve owner approval boundaries.
+- `wls outcome-feedback` records owner feedback and updates goal progress only
+  with evidence.
+
+Patch Mission:
+- `wls patch-mission REPO_PATH "mission"` creates mission/goal/action state and
+  performs scoped repo inspection.
+- `wls patch-mission-step --mode resume-next` continues the next concrete Patch
+  Mission action from persisted continuity.
+- Existing modes cover local inspection, owner-gated pytest, outbox patch draft,
+  owner-gated apply, verification, PR summary, git metadata, commit draft, remote
+  readiness, branch draft, push draft, draft PR creation, PR/CI status inspection,
+  CI log evidence, CI fix planning, PR update verification, and repair skill
+  candidate lifecycle.
+- Push, PR creation, external reads, repo writes, and command execution remain
+  separately owner-approved actions.
+
+## What Is Still Not Mainline
+
+- Standalone `gapXX` prototype files in extracted packages.
+- Poster/capability-map HTML files.
+- Readiness gates that do not protect a real action chain.
+- Dashboard/report additions that do not help WLS choose, execute, learn, or
+  resume a real task.
+- Multi-user SaaS, compliance certification, unrestricted autonomy, or claims of
+  sentience/personhood.
+
+## Merge Rule
+
+Promote old iteration material only when it satisfies all five checks:
+
+1. It adds or repairs a real action chain.
+2. It enters through canonical CLI/API/UI/runtime surfaces.
+3. It stores state/evidence in the canonical SQLite/evidence system.
+4. It has focused tests or a bounded owner-host receipt.
+5. It preserves owner approval for writes, commands, external publication, and
+   irreversible operations.
+
+Otherwise keep it as history/backlog, not mainline.
+
+## Current Single Next Action
+
+Finish the source-level Patch Mission mainline proof:
+
+```text
+approve recovered commit-draft
+-> create the local commit
+-> resume-next to refresh post-commit git metadata
+-> prepare remote-readiness summary
+-> prove push and PR creation remain separate owner-approved actions
+```
+
+Do not add more dashboards, labels, readiness gates, or pure reports before this
+action chain is stable and installed into the owner-host WLS.

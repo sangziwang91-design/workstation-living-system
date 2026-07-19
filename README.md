@@ -20,6 +20,36 @@ verification:      source/scripts
 
 Parallel `v2`, `final`, `brain`, replacement runtimes, second `pyproject.toml` files, and duplicate `wls` package trees are not canonical. Mission and runtime invariants are defined in [`LIVING_SYSTEM_GENOME.md`](LIVING_SYSTEM_GENOME.md). Current machine-readable state is in [`CURRENT_STATE.yaml`](CURRENT_STATE.yaml). Repository-layout and version rules are defined in [`docs/REPOSITORY_LAYOUT_AND_VERSION_POLICY.md`](docs/REPOSITORY_LAYOUT_AND_VERSION_POLICY.md).
 
+## Current mainline
+
+The compact WLS mainline map is [`docs/WLS_MAINLINE_CONTEXT.md`](docs/WLS_MAINLINE_CONTEXT.md).
+The current reset handoff is [`docs/LIFE_LOOP_RESET_HANDOFF.md`](docs/LIFE_LOOP_RESET_HANDOFF.md).
+
+Read those files before old iteration packages, posters, gap ledgers, maturity
+audits, or process logs. The current development direction is:
+
+```text
+sense -> remember -> judge -> plan -> act under policy -> observe outcome
+      -> learn -> update self-model -> sleep/compact -> resume
+```
+
+Evidence, health, rollback, retention, readiness, and audits are immune-system
+organs. They protect real action chains; they are not the main product surface.
+
+The active representative action chain is GitHub Patch Mission:
+
+```bash
+wls --config CONFIG patch-mission PATH_TO_REPO "Fix the failing test"
+wls --config CONFIG patch-mission-step --mode resume-next
+wls --config CONFIG approve ACTION_ID --reason "owner approves exact action"
+wls --config CONFIG resume-action ACTION_ID
+```
+
+Patch Mission actions may inspect local repos, prepare owner-reviewed patches,
+run approved tests, apply approved local writes, prepare commits, inspect remote
+evidence, and draft PR creation. Writes, commands, pushes, PR creation, and
+external operations remain separately owner-approved.
+
 ## Install
 
 Run all project installation and build commands from the repository root:
@@ -84,6 +114,7 @@ wls init --home /path/to/wls-home
 wls --config /path/to/wls-home/config.json self-check
 wls --config /path/to/wls-home/config.json once
 wls --config /path/to/wls-home/config.json status
+wls --config /path/to/wls-home/config.json life-state
 ```
 
 Growth commands:
@@ -101,9 +132,13 @@ wls --config CONFIG growth-status
 
 ## Remaining proof boundary
 
-WLS v0.9.0.dev2 has 86 source modules, 41 test files, and P01-P89 architecture validation all passing. The next accepted proof is a real owner-authorized longitudinal run on the intended Windows host.
+WLS v0.9.0.dev2 has P01-P89 architecture validation all passing on the installed
+instance. The current source working tree contains 92 source modules and 62 test
+files after the life-loop and Patch Mission mainline consolidation work. The
+next accepted proof is source verification plus reinstalling the verified
+package into the owner-host instance.
 
-## Module inventory (86 modules)
+## Module inventory (92 modules)
 
 **Core runtime:** `runtime.py`, `config.py`, `schemas.py`, `db.py`, `stores.py`, `tools.py`, `planner.py`, `policy.py`, `approval.py`, `evidence.py`, `skills.py`, `growth_cycle.py`, `learning.py`, `cognition.py`, `world.py`, `temporal_world.py`, `drives.py`, `attention.py`, `autonomy.py`, `goal_runtime.py`, `self_model.py`, `relationships.py`, `sleep.py`, `cli.py`, `_version.py`
 
@@ -111,7 +146,9 @@ WLS v0.9.0.dev2 has 86 source modules, 41 test files, and P01-P89 architecture v
 
 **Security & governance:** `security.py`, `acceptance.py`, `evidence_gates.py`, `architecture_validation.py`, `lease.py`, `bounded_recovery.py`, `read_only_organs.py`
 
-**Memory & learning:** `memory_projection.py`, `memory_index.py`, `memory_attribution.py`, `memory_ablation.py`, `external_memory.py`, `decision_memory.py`, `compaction.py`, `anti_repeat.py`
+**Memory & learning:** `memory_projection.py`, `memory_index.py`, `memory_attribution.py`, `memory_ablation.py`, `external_memory.py`, `decision_memory.py`, `compaction.py`, `anti_repeat.py`, `memory_influence.py`, `outcome_learning.py`
+
+**Life loop:** `perception.py`, `goal_pressure.py`, `action_candidate.py`
 
 **Review & quality:** `reviewer.py`, `benchmark.py`, `evaluator.py`, `qos_router.py`, `fault_injection.py`, `graph_recovery.py`, `longitudinal.py`, `skill_compiler.py`
 
@@ -121,7 +158,7 @@ WLS v0.9.0.dev2 has 86 source modules, 41 test files, and P01-P89 architecture v
 
 **Evolution:** `offspring.py`, `merge_node.py`, `result_promotion.py`, `repo_explorer.py`, `workbench.py`, `capabilities.py`, `adaptive_growth.py`
 
-**Tests:** 41 test files covering unit + 6 integration pipelines
+**Tests:** 62 test files covering unit, integration, life-loop, UI/API, and Patch Mission paths
 
 ## Architecture validation
 

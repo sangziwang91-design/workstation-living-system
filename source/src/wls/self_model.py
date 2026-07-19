@@ -83,7 +83,7 @@ class SelfModel:
             row = connection.execute(
                 "SELECT * FROM self_model WHERE key=?", (key,)
             ).fetchone()
-        current = (
+        current: dict[str, Any] = (
             {
                 "value": json.loads(row["value_json"]),
                 "confidence": float(row["confidence"]),
@@ -91,13 +91,103 @@ class SelfModel:
             if row is not None
             else {"value": {"successes": 0, "failures": 0}, "confidence": 0.5}
         )
-        value = dict(current["value"])
+        raw_value = current["value"]
+        value = (
+            dict(raw_value)
+            if isinstance(raw_value, dict)
+            else {"successes": 0, "failures": 0}
+        )
         value["successes"] = int(value.get("successes", 0)) + int(result.success)
         value["failures"] = int(value.get("failures", 0)) + int(not result.success)
         total = value["successes"] + value["failures"]
         value["observed_success_rate"] = value["successes"] / max(1, total)
         confidence = min(0.98, 0.35 + 0.08 * total)
         self.set(key, value, confidence, [evidence_id], connection)
+
+    def record_owner_outcome(
+        self,
+        *,
+        action: dict[str, Any],
+        outcome: str,
+        evidence_id: str,
+        connection=None,
+    ) -> dict[str, Any]:
+        key = self.owner_capability_key(action)
+        if connection is None:
+            row = self.db.query_one("SELECT * FROM self_model WHERE key=?", (key,))
+        else:
+            row = connection.execute(
+                "SELECT * FROM self_model WHERE key=?", (key,)
+            ).fetchone()
+        value = (
+            json.loads(row["value_json"])
+            if row is not None
+            else {
+                "helped": 0,
+                "failed": 0,
+                "avoid": 0,
+                "neutral": 0,
+                "tool": action.get("tool") or action.get("recommended_tool"),
+                "risk_class": action.get("risk_class"),
+            }
+        )
+        normalized = str(outcome).lower()
+        if normalized not in {"helped", "failed", "avoid", "neutral"}:
+            normalized = "neutral"
+        value[normalized] = int(value.get(normalized, 0)) + 1
+        helped = int(value.get("helped", 0))
+        failed = int(value.get("failed", 0))
+        avoid = int(value.get("avoid", 0))
+        total = helped + failed + avoid + int(value.get("neutral", 0))
+        capability_confidence = helped / max(1, helped + failed + avoid)
+        should_defer = avoid > 0 or (helped + failed >= 2 and capability_confidence < 0.5)
+        value.update(
+            {
+                "owner_observation_count": total,
+                "capability_confidence": round(capability_confidence, 4),
+                "should_defer": should_defer,
+                "defer_reason": (
+                    "owner_avoid_feedback"
+                    if avoid > 0
+                    else (
+                        "owner_feedback_success_rate_below_threshold"
+                        if should_defer
+                        else ""
+                    )
+                ),
+                "last_outcome": normalized,
+            }
+        )
+        calibration_confidence = min(0.98, 0.35 + 0.12 * total)
+        self.set(key, value, calibration_confidence, [evidence_id], connection)
+        return {"key": key, "value": value, "confidence": calibration_confidence}
+
+    def readiness_for_action(self, action: dict[str, Any]) -> dict[str, Any]:
+        key = self.owner_capability_key(action)
+        row = self.db.query_one("SELECT * FROM self_model WHERE key=?", (key,))
+        if row is None:
+            return {
+                "key": key,
+                "attempt_allowed": True,
+                "reason": "no owner outcome calibration for this action class yet",
+                "capability_confidence": None,
+            }
+        value = json.loads(row["value_json"])
+        should_defer = bool(value.get("should_defer", False))
+        return {
+            "key": key,
+            "attempt_allowed": not should_defer,
+            "reason": str(value.get("defer_reason") or "owner calibration permits attempt"),
+            "capability_confidence": value.get("capability_confidence"),
+            "owner_observation_count": value.get("owner_observation_count", 0),
+            "updated_at": row["updated_at"],
+        }
+
+    @staticmethod
+    def owner_capability_key(action: dict[str, Any]) -> str:
+        tool = str(action.get("tool") or action.get("recommended_tool") or "none")
+        risk_class = str(action.get("risk_class") or action.get("risk") or "unknown")
+        return f"capability.owner_outcome.{tool}.{risk_class}".lower()
 
     def initialize_identity(self, name: str, evidence_id: str) -> None:
         if "identity" not in self.snapshot():

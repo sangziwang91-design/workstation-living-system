@@ -116,6 +116,42 @@ def test_health_endpoint_uses_bounded_runtime_snapshot() -> None:
         server.shutdown()
 
 
+def test_life_state_endpoint_returns_runtime_life_state() -> None:
+    runtime = FakeRuntime()
+    runtime.life_state = lambda: {  # type: ignore[attr-defined]
+        "schema_version": 1,
+        "bounded": True,
+        "authority": {
+            "source": "canonical life organs",
+            "writes_canonical_state": False,
+            "creates_evidence_receipt": False,
+            "candidate_executes_action": False,
+        },
+        "active_goals": [],
+        "latest_meaningful_observations": [],
+        "top_memory_influences": [],
+        "self_model_confidence": {"overall": 0.0},
+        "pending_owner_approvals": [],
+        "last_sleep_consolidation": {"evidence_id": None},
+        "next_action_candidate": {"available": False, "reason": "no active goals"},
+    }
+    _, server = make_server(runtime)
+    connection = HTTPConnection("127.0.0.1", server.bound_port, timeout=5)
+    try:
+        status, _, payload = request(
+            connection, "GET", "/api/life-state", token=server.token
+        )
+        state = json.loads(payload)
+        assert status == 200
+        assert state["schema_version"] == 1
+        assert state["bounded"] is True
+        assert state["authority"]["writes_canonical_state"] is False
+        assert state["next_action_candidate"]["available"] is False
+    finally:
+        connection.close()
+        server.shutdown()
+
+
 def test_invalid_host_and_cross_site_write_are_rejected() -> None:
     _, server = make_server()
     connection = HTTPConnection("127.0.0.1", server.bound_port, timeout=5)

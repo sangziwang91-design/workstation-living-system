@@ -74,11 +74,53 @@ function fmtDate(value) {
 
 function showToast(message, bad = false) {
   toast.textContent = message;
+  toast.setAttribute("role", bad ? "alert" : "status");
   toast.classList.toggle("bad", bad);
   toast.classList.toggle("good", !bad);
   toast.hidden = false;
   clearTimeout(showToast.timer);
   showToast.timer = setTimeout(() => { toast.hidden = true; }, 3800);
+}
+
+function eventCount(home = state.home) {
+  return Object.values(((home || {}).counts || {}).events || {}).reduce((a, b) => a + Number(b || 0), 0);
+}
+
+function updateTopContext() {
+  document.querySelector("#top-projects").textContent = state.home?.active_goal_count || 0;
+  document.querySelector("#top-pending").textContent = state.inbox?.count || 0;
+  document.querySelector("#top-events").textContent = eventCount();
+}
+
+function updateEventDrawer() {
+  const latest = state.home?.latest_cycle;
+  const summary = latest
+    ? `Latest cycle ${latest.cycle_id || latest.run_id || "unknown"} - ${latest.status || "UNKNOWN"}; ${eventCount()} evidence events indexed.`
+    : `No cycle is active; ${eventCount()} evidence events indexed.`;
+  document.querySelector("#event-summary").textContent = summary;
+}
+
+function workflowStrip() {
+  return `<div class="workflow-strip" aria-label="Core task path">
+    <span class="pill">1. Health</span>
+    <span class="pill">2. Project</span>
+    <span class="pill">3. Run</span>
+    <span class="pill">4. Report</span>
+    <span class="pill">5. Export / Evidence</span>
+  </div>`;
+}
+
+function statusStrip(items) {
+  return `<div class="status-strip">${items.map((item) =>
+    `<span class="pill ${item.tone || ""}">${escapeHtml(item.label)}: ${escapeHtml(item.value)}</span>`
+  ).join("")}</div>`;
+}
+
+function emptyState(title, message, actionLabel = "", view = "") {
+  const action = actionLabel && view
+    ? `<button class="secondary-action" data-view-jump="${escapeHtml(view)}" type="button">${escapeHtml(actionLabel)}</button>`
+    : "";
+  return `<div class="empty"><strong>${escapeHtml(title)}</strong><p>${escapeHtml(message)}</p>${action}</div>`;
 }
 
 async function loadAll() {
@@ -88,10 +130,13 @@ async function loadAll() {
   state.inbox = data.inbox || { count: 0, items: [] };
   state.runs = data.runs || [];
   document.querySelector("#inbox-badge").textContent = state.inbox.count || "";
+  document.querySelector("#health-dot").classList.remove("bad");
   document.querySelector("#health-dot").classList.add("ok");
   document.querySelector("#health-label").textContent = state.home.system.paused ? "Paused" : "Online";
   document.querySelector("#system-caption").textContent =
     `v${state.home.system.version || "?"} - canonical projection`;
+  updateTopContext();
+  updateEventDrawer();
   fillProjectSelect();
   render();
 }
@@ -114,8 +159,14 @@ function renderHome() {
   const active = h.active_goal_count || 0;
   const running = (counts.cycles || {}).RUNNING || 0;
   const waiting = h.pending_action_count || 0;
-  const evidence = Object.values(counts.events || {}).reduce((a, b) => a + Number(b || 0), 0);
-  main.innerHTML = pageHead("Today", "Owner Console", "Unified view of goals, execution, approvals, evidence, and runtime state.") + `
+  const evidence = eventCount(h);
+  main.innerHTML = pageHead("Today", "Owner Console", "Goals, runs, approvals, evidence, and runtime state in one owner surface.") +
+    workflowStrip() +
+    statusStrip([
+      { label: "Runtime", value: h.system.paused ? "Paused" : "Online", tone: h.system.paused ? "warn" : "good" },
+      { label: "Authority", value: h.integrity_hint?.state_owner || "LivingSystem" },
+      { label: "Projection only", value: h.integrity_hint?.projection_only ? "Yes" : "No", tone: h.integrity_hint?.projection_only ? "good" : "bad" },
+    ]) + `
     <div class="grid cols-4">
       ${metricCard("Active Goals", active, "canonical")}
       ${metricCard("Running", running, "cycles")}
@@ -126,7 +177,7 @@ function renderHome() {
     <div class="list">
       ${(h.focus && h.focus.length) ? h.focus.map((item) => `
         <div class="row-card"><div><h3>${escapeHtml(typeof item === "string" ? item : JSON.stringify(item))}</h3></div></div>
-      `).join("") : `<div class="empty">No next_focus items recorded.</div>`}
+      `).join("") : emptyState("No focus queued", "The runtime has not published next_focus items. Create a project or run one cycle to produce fresh context.", "Open Projects", "projects")}
     </div>
     <div class="section-title"><h2>Recent Runs</h2><small>Cycle evidence</small></div>
     ${renderRunList(state.runs.slice(0, 6))}
@@ -136,8 +187,13 @@ function renderHome() {
 
 function renderProjects() {
   main.innerHTML = pageHead("Long-lived Objects", "Projects", "Top-level Goals appear as Projects; child Goals appear as Tasks.") +
+    statusStrip([
+      { label: "Projects", value: state.projects.length },
+      { label: "Create path", value: "Top command" },
+      { label: "Write target", value: "GoalStore", tone: "good" },
+    ]) +
     (state.projects.length ? `<div class="grid cols-2">${state.projects.map(projectCard).join("")}</div>` :
-      `<div class="empty">No projects yet. Create the first Project from the top command.</div>`);
+      emptyState("No projects yet", "Create the first Project from the top command. Tasks remain attached to a top-level project so context is never lost."));
   bindSelectable();
 }
 
@@ -159,9 +215,13 @@ function projectCard(p) {
 
 function renderInbox() {
   const items = state.inbox.items || [];
-  main.innerHTML = pageHead("Owner Intervention", "Inbox", "审批、已批准恢复、未知副作用和阻塞目标集中在这里。") +
+  main.innerHTML = pageHead("Owner Intervention", "Approvals", "Approvals, approved resumptions, unknown side effects, and blocked goals are collected here.") +
+    statusStrip([
+      { label: "Open items", value: items.length, tone: items.length ? "warn" : "good" },
+      { label: "Recovery", value: "Approve / Reject / Resume / Resolve" },
+    ]) +
     (items.length ? `<div class="list">${items.map(inboxCard).join("")}</div>` :
-      `<div class="empty">No pending owner decisions.</div>`);
+      emptyState("No pending owner decisions", "There are no approvals, unresolved side effects, or blocked goals waiting for owner intervention.", "Review Runs", "runs"));
   bindSelectable();
 }
 
@@ -178,13 +238,18 @@ function inboxCard(item) {
 }
 
 function renderRuns() {
-  main.innerHTML = pageHead("Execution Surface", "Runs", "Cycle 是运行记录，Plan 和 Action 是可审计步骤。") +
+  main.innerHTML = pageHead("Execution Surface", "Runs", "Cycles are runtime records; plans and actions are inspectable execution steps.") +
+    statusStrip([
+      { label: "Runs", value: state.runs.length },
+      { label: "Primary action", value: "Run One Cycle" },
+      { label: "High-risk actions", value: "Inbox gated", tone: "good" },
+    ]) +
     renderRunList(state.runs);
   bindSelectable();
 }
 
 function renderRunList(runs) {
-  if (!runs.length) return `<div class="empty">No runs recorded.</div>`;
+  if (!runs.length) return emptyState("No runs recorded", "Run one cycle from the left rail to create auditable execution evidence.");
   return `<div class="list">${runs.map((r) => `
     <button class="row-card selectable" data-type="run" data-id="${escapeHtml(r.run_id)}" type="button">
       <div><h3>${escapeHtml(r.run_id)}</h3>
@@ -198,7 +263,12 @@ async function renderPanels() {
   if (!state.product) state.product = await api("/api/product");
   const panels = state.product.panels || [];
   const readiness = readinessCards();
-  main.innerHTML = pageHead("Living Agent OS", "Panels", "Read-only product panels over LivingSystem.status; no canonical writes.") + `
+  main.innerHTML = pageHead("Living Agent OS", "Evidence", "Read-only product panels over LivingSystem.status; no canonical writes.") +
+    statusStrip([
+      { label: "Mode", value: state.product.mode || "-" },
+      { label: "Writes canonical state", value: state.product.writes_canonical_state ? "Yes" : "No", tone: state.product.writes_canonical_state ? "bad" : "good" },
+      { label: "Direct tool execution", value: state.product.direct_tool_execution ? "Yes" : "No", tone: state.product.direct_tool_execution ? "bad" : "good" },
+    ]) + `
     <div class="grid cols-4">
       ${metricCard("Panels", panels.length, "read-only")}
       ${metricCard("Mode", state.product.mode || "-", "projection")}
@@ -210,7 +280,7 @@ async function renderPanels() {
     <div class="section-title"><h2>Release Handoff</h2><small>candidate evidence</small></div>
     <div class="grid cols-2">${releaseHandoffCards().join("")}</div>
     <div class="section-title"><h2>Organs</h2><small>${escapeHtml(state.product.projection_version || "-")}</small></div>
-    <div class="grid cols-2">${panels.map(panelCard).join("") || `<div class="empty">No product panels projected.</div>`}</div>
+    <div class="grid cols-2">${panels.map(panelCard).join("") || emptyState("No product panels projected", "The runtime did not publish product projection panels for this bootstrapped view.")}</div>
   `;
   bindSelectable();
 }
@@ -220,7 +290,12 @@ async function renderReview() {
   const candidates = Array.isArray(state.garbage.candidates) ? state.garbage.candidates : [];
   const cleanupEnabled = candidates.length > 0 && !state.garbage.cleanup_executed;
   const clearEnabled = Boolean(state.garbage.quarantine_root);
-  main.innerHTML = pageHead("Owner Review", "Garbage Review", "Review cleanup candidates, quarantine approved items, and clear quarantine with a second approval.") + `
+  main.innerHTML = pageHead("Owner Review", "Garbage Review", "Review cleanup candidates, quarantine approved items, and clear quarantine with a second approval.") +
+    statusStrip([
+      { label: "Audit", value: state.garbage.status || "NO_AUDIT", tone: state.garbage.status === "NO_AUDIT" ? "warn" : "good" },
+      { label: "Owner review", value: "Required" },
+      { label: "Clear policy", value: "Second approval" },
+    ]) + `
     <div class="grid cols-4">
       ${metricCard("Status", state.garbage.status || "-", "audit")}
       ${metricCard("Candidates", candidates.length, "items")}
@@ -229,11 +304,11 @@ async function renderReview() {
     </div>
     <div class="action-row">
       <button class="secondary-action" id="scan-garbage" type="button">Scan</button>
-      <button class="primary-action" id="quarantine-garbage" type="button" ${cleanupEnabled ? "" : "disabled"}>Quarantine</button>
-      <button class="danger-action" id="clear-quarantine" type="button" ${clearEnabled ? "" : "disabled"}>Clear Quarantine</button>
+      <button class="primary-action" id="quarantine-garbage" type="button" title="${cleanupEnabled ? "Quarantine current candidates" : "Run Scan and select detected candidates first"}" ${cleanupEnabled ? "" : "disabled"}>Quarantine</button>
+      <button class="danger-action" id="clear-quarantine" type="button" title="${clearEnabled ? "Clear quarantined files after second approval" : "Quarantine must exist before clear is available"}" ${clearEnabled ? "" : "disabled"}>Clear Quarantine</button>
     </div>
     <div class="section-title"><h2>Candidates</h2><small>${escapeHtml(state.garbage.audit_id || "-")}</small></div>
-    <div class="list">${candidates.map(garbageCandidateCard).join("") || `<div class="empty">No cleanup candidates in the latest scan.</div>`}</div>
+    <div class="list">${candidates.map(garbageCandidateCard).join("") || emptyState("No cleanup candidates", "Run Scan to refresh cleanup candidates. Quarantine and clear operations require explicit owner references.")}</div>
   `;
   document.querySelector("#scan-garbage")?.addEventListener("click", scanGarbage);
   document.querySelector("#quarantine-garbage")?.addEventListener("click", quarantineGarbage);
@@ -306,14 +381,19 @@ async function renderLibrary() {
   if (!state.library) state.library = await api("/api/library");
   const evidence = state.library.evidence || [];
   const skills = state.library.skills || [];
-  main.innerHTML = pageHead("Assets & Proof", "Library", "证据链和 Skill 候选的只读投影。") + `
+  main.innerHTML = pageHead("Assets & Proof", "Library", "Read-only projection of evidence records and skill candidates.") +
+    statusStrip([
+      { label: "Evidence", value: evidence.length },
+      { label: "Skills", value: skills.length },
+      { label: "Mutation", value: "Read-only", tone: "good" },
+    ]) + `
     <div class="section-title"><h2>Evidence</h2><small>${evidence.length} recent records</small></div>
-    <div class="list">${evidence.slice(0, 80).map((e) => `
+    <div class="list">${evidence.length ? evidence.slice(0, 80).map((e) => `
       <button class="row-card selectable" data-type="evidence" data-json="${encodeURIComponent(JSON.stringify(e))}" type="button">
         <div><h3>${escapeHtml(e.event_type)}</h3>
           <p>${escapeHtml(e.evidence_id)} - ${fmtDate(e.created_at)}</p>
         </div><div>#${e.seq}</div>
-      </button>`).join("")}</div>
+      </button>`).join("") : emptyState("No evidence records", "No evidence records are available in the current projection. Run a cycle or inspect runtime health first.")}</div>
     <div class="section-title"><h2>Skills</h2><small>${skills.length} records</small></div>
     <div class="list">${skills.map((s) => `
       <button class="row-card selectable" data-type="skill" data-json="${encodeURIComponent(JSON.stringify(s))}" type="button">
@@ -321,7 +401,7 @@ async function renderLibrary() {
           <p>${s.use_count} uses - success ${Math.round(Number(s.success_rate || 0) * 100)}%</p>
           <div class="meta"><span class="pill ${statusClass(s.status)}">${escapeHtml(s.status)}</span></div>
         </div><div>Open</div>
-      </button>`).join("") || `<div class="empty">No skills recorded.</div>`}</div>
+      </button>`).join("") || emptyState("No skills recorded", "The Skills table has no projected rows for this runtime.")}</div>
   `;
   bindSelectable();
 }
@@ -336,6 +416,8 @@ function render() {
   else if (state.view === "panels") renderPanels().catch(handleError);
   else if (state.view === "review") renderReview().catch(handleError);
   else if (state.view === "library") renderLibrary().catch(handleError);
+  updateTopContext();
+  updateEventDrawer();
 }
 
 function bindSelectable() {
@@ -361,19 +443,21 @@ function showInspector(type, data) {
   let body = `<div class="eyebrow">${escapeHtml(type)}</div><h2>${escapeHtml(title)}</h2>`;
   if (type === "project") {
     body += `<p>${escapeHtml(data.description || "")}</p>${definitionList(data, ["goal_id", "status", "priority", "progress", "updated_at"])}`;
-    body += `<h3>Tasks</h3>${(data.tasks || []).map((t) => `<p><b>${escapeHtml(t.title)}</b><br>${escapeHtml(t.status)}</p>`).join("") || "<p>None</p>"}`;
+    body += `<h3>Tasks</h3>${(data.tasks || []).map((t) => `<p><b>${escapeHtml(t.title)}</b><br><span class="pill ${statusClass(t.status)}">${escapeHtml(t.status)}</span></p>`).join("") || "<p>No child tasks recorded.</p>"}`;
+    body += `<h3>Recent Runs</h3>${(data.recent_runs || []).map((r) => `<p><b>${escapeHtml(r.run_id)}</b><br>${escapeHtml(r.status)} - ${fmtDate(r.started_at)}</p>`).join("") || "<p>No project runs recorded.</p>"}`;
   } else if (type === "run") {
     body += definitionList(data.cycle || {}, ["cycle_id", "status", "started_at", "finished_at", "error"]);
-    body += `<h3>Actions</h3>${(data.actions || []).map((a) => `<p><b>${escapeHtml(a.purpose)}</b><br>${escapeHtml(a.tool)} - ${escapeHtml(a.status)}</p>`).join("") || "<p>None</p>"}`;
+    body += `<h3>Actions</h3>${(data.actions || []).map((a) => `<p><b>${escapeHtml(a.purpose)}</b><br>${escapeHtml(a.tool)} - <span class="pill ${statusClass(a.status)}">${escapeHtml(a.status)}</span></p>`).join("") || "<p>No actions recorded for this run.</p>"}`;
   } else if (type === "action") {
     const operations = data.allowed_operations || [];
-    body += `<p>${escapeHtml(data.expected_result || "")}</p>${definitionList(data, ["action_id", "tool", "risk", "status", "goal_id", "error"])}`;
+    body += `<p>${escapeHtml(data.expected_result || "Owner decision required before this action can progress.")}</p>${definitionList(data, ["action_id", "tool", "risk", "status", "goal_id", "error"])}`;
     body += `<div class="action-row">
       ${operations.includes("approve") ? '<button class="primary-action" id="approve-action" type="button">Approve</button>' : ""}
       ${operations.includes("reject") ? '<button class="danger-action" id="reject-action" type="button">Reject</button>' : ""}
       ${operations.includes("resume") ? '<button class="primary-action" id="resume-action" type="button">Resume Action</button>' : ""}
       ${operations.includes("resolve") ? '<button class="secondary-action" id="resolve-action" type="button">Resolve Unknown</button>' : ""}
     </div>`;
+    if (!operations.length) body += `<p>No owner operation is currently available for this action state.</p>`;
   } else {
     body += `<pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre>`;
   }
@@ -429,6 +513,8 @@ async function refreshInboxRuns() {
   state.runs = await api("/api/runs");
   state.product = null;
   document.querySelector("#inbox-badge").textContent = state.inbox.count || "";
+  updateTopContext();
+  updateEventDrawer();
   render();
 }
 
@@ -501,6 +587,7 @@ function handleError(error) {
   console.error(error);
   document.querySelector("#health-dot").classList.add("bad");
   document.querySelector("#health-label").textContent = "Error";
+  inspector.innerHTML = `<div class="eyebrow">Recoverable error</div><h2>Request failed</h2><p>${escapeHtml(error.message || String(error))}</p><p>Retry the action. If this repeats, open Library or Runs to inspect the latest evidence.</p>`;
   showToast(error.message || String(error), true);
 }
 
@@ -508,6 +595,13 @@ document.querySelector("#nav").addEventListener("click", (event) => {
   const button = event.target.closest("[data-view]");
   if (!button) return;
   state.view = button.dataset.view;
+  render();
+});
+
+document.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-view-jump]");
+  if (!button) return;
+  state.view = button.dataset.viewJump;
   render();
 });
 

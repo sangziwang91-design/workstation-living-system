@@ -8,6 +8,7 @@ import json
 import os
 import tempfile
 
+from .capabilities import ordinary_user_capability_map
 from .config import default_config, load_or_create_config, save_config
 from .db import Database
 from .performance import (
@@ -56,7 +57,13 @@ def build_parser() -> argparse.ArgumentParser:
     daemon = sub.add_parser("daemon", help="Run persistent cycles")
     daemon.add_argument("--max-cycles", type=int)
     sub.add_parser("health", help="Show bounded operational health")
+    life_state = sub.add_parser("life-state", help="Show bounded living-system state")
+    life_state.add_argument("--limit", type=int, default=5)
     sub.add_parser("status", help="Show current state")
+    sub.add_parser(
+        "capabilities",
+        help="Show ordinary-user capability labels and productization status",
+    )
     sub.add_parser("sleep", help="Run offline memory and skill consolidation")
     sub.add_parser("verify", help="Verify database and evidence chain")
     sub.add_parser("self-check", help="Run installation and runtime self-check")
@@ -156,6 +163,35 @@ def build_parser() -> argparse.ArgumentParser:
         "--reason", default="owner requested commercial readiness audit"
     )
 
+    external_product = sub.add_parser(
+        "external-product-audit",
+        help="Audit external single-user product delivery readiness",
+    )
+    external_product.add_argument(
+        "--wheel",
+        default="",
+        help="Optional wheel path; defaults to the newest local dist wheel",
+    )
+    external_product.add_argument(
+        "--include-multi-user",
+        action="store_true",
+        help="Require multi-user readiness; off by default for single-user delivery",
+    )
+    external_product.add_argument(
+        "--reason", default="owner requested external product audit"
+    )
+
+    m7_self_check = sub.add_parser(
+        "m7-self-check",
+        help="Audit WLS against the local M7 personal single-user runtime gate",
+    )
+    m7_self_check.add_argument(
+        "--m7-root",
+        default="",
+        help="Optional M7 reference folder; defaults to Desktop/M7家族 when present",
+    )
+    m7_self_check.add_argument("--reason", default="owner requested M7 self-check")
+
     longitudinal_start = sub.add_parser(
         "longitudinal-start",
         help="Start a receipt-bound owner-task longitudinal protocol",
@@ -204,6 +240,142 @@ def build_parser() -> argparse.ArgumentParser:
     goal.add_argument("--priority", type=float, default=0.5)
     goal.add_argument("--criterion", action="append", default=[])
 
+    patch_mission = sub.add_parser(
+        "patch-mission",
+        help="Start a local GitHub Patch Mission from a repo path and mission text",
+    )
+    patch_mission.add_argument("repo_path")
+    patch_mission.add_argument("mission")
+    patch_mission.add_argument(
+        "--no-execute",
+        action="store_true",
+        help="Create mission state and next action candidate without executing it",
+    )
+    patch_step = sub.add_parser(
+        "patch-mission-step",
+        help="Advance a patch mission by one bounded inspect/test/draft action",
+    )
+    patch_step.add_argument("--mission-id")
+    patch_step.add_argument(
+        "--mode",
+        choices=[
+            "auto",
+            "resume-next",
+            "inspect-file",
+            "test",
+            "draft-patch",
+            "from-test-result",
+            "apply-patch",
+            "pr-summary",
+            "git-metadata",
+            "git-prep",
+            "commit-draft",
+            "remote-summary",
+            "branch-draft",
+            "remote-live",
+            "remote-live-summary",
+            "push-draft",
+            "pr-create-draft",
+            "pr-status",
+            "pr-update-push-draft",
+            "pr-update-status",
+            "pr-update-verify",
+            "pr-update-next",
+            "ci-log-evidence",
+            "ci-fix-plan",
+            "ci-next-action",
+        ],
+        default="auto",
+    )
+    patch_step.add_argument("--target")
+    patch_step.add_argument("--draft")
+    patch_step.add_argument("--action-id")
+    patch_step.add_argument(
+        "--no-execute",
+        action="store_true",
+        help="Create the next action candidate without executing/resolving policy",
+    )
+    patch_candidate_review = sub.add_parser(
+        "patch-mission-candidate-review",
+        help="Replay evidence for a Patch Mission repair skill candidate",
+    )
+    patch_candidate_review.add_argument("candidate_id")
+    patch_candidate_review.add_argument(
+        "--reason", default="owner requested Patch Mission repair candidate replay"
+    )
+    patch_candidate_sandbox = sub.add_parser(
+        "patch-mission-candidate-sandbox",
+        help="Run an owner-approved disposable sandbox validation for a Patch Mission repair skill candidate",
+    )
+    patch_candidate_sandbox.add_argument("candidate_id")
+    patch_candidate_sandbox.add_argument(
+        "--reason", default="owner requested Patch Mission repair candidate sandbox"
+    )
+    patch_candidate_sandbox.add_argument("--owner-approved", action="store_true")
+    patch_candidate_validate = sub.add_parser(
+        "patch-mission-candidate-validate",
+        help="Human-validate a sandboxed Patch Mission repair skill candidate from persisted sandbox digests",
+    )
+    patch_candidate_validate.add_argument("candidate_id")
+    patch_candidate_validate.add_argument(
+        "--reason", default="owner validates Patch Mission repair candidate sandbox"
+    )
+    patch_candidate_validate.add_argument("--human-approved", action="store_true")
+    patch_candidate_propose_skill = sub.add_parser(
+        "patch-mission-candidate-propose-skill",
+        help="Create a non-active declarative skill proposal from a validated Patch Mission repair candidate",
+    )
+    patch_candidate_propose_skill.add_argument("candidate_id")
+    patch_candidate_propose_skill.add_argument(
+        "--reason", default="owner requests Patch Mission repair skill proposal"
+    )
+    patch_skill_sandbox = sub.add_parser(
+        "patch-mission-skill-sandbox",
+        help="Start sandbox lifecycle evidence for a proposed Patch Mission repair skill",
+    )
+    patch_skill_sandbox.add_argument("skill_id")
+    patch_skill_sandbox.add_argument(
+        "--reason", default="owner starts Patch Mission repair skill sandbox"
+    )
+    patch_skill_validate = sub.add_parser(
+        "patch-mission-skill-validate",
+        help="Validate a sandboxed Patch Mission repair skill from persisted skill experiment evidence",
+    )
+    patch_skill_validate.add_argument("skill_id")
+    patch_skill_validate.add_argument(
+        "--reason", default="owner validates Patch Mission repair skill sandbox"
+    )
+    patch_skill_approve = sub.add_parser(
+        "patch-mission-skill-approve",
+        help="Approve a validated Patch Mission repair skill for advisory matching",
+    )
+    patch_skill_approve.add_argument("skill_id")
+    patch_skill_approve.add_argument(
+        "--reason", default="owner approves validated Patch Mission repair skill"
+    )
+    patch_skill_approve.add_argument("--human-approved", action="store_true")
+    patch_skill_promotion_review_approve = sub.add_parser(
+        "patch-mission-skill-promotion-review-approve",
+        help="Approve a Patch Mission repair skill promotion-review candidate without promoting the skill",
+    )
+    patch_skill_promotion_review_approve.add_argument("candidate_id")
+    patch_skill_promotion_review_approve.add_argument(
+        "--reason",
+        default="owner approves Patch Mission repair skill promotion review",
+    )
+    patch_skill_promotion_review_approve.add_argument(
+        "--human-approved", action="store_true"
+    )
+    patch_skill_promote = sub.add_parser(
+        "patch-mission-skill-promote",
+        help="Promote a Patch Mission repair skill from an approved promotion-review candidate",
+    )
+    patch_skill_promote.add_argument("candidate_id")
+    patch_skill_promote.add_argument(
+        "--reason", default="owner promotes Patch Mission repair skill"
+    )
+    patch_skill_promote.add_argument("--human-approved", action="store_true")
+
     event = sub.add_parser("add-event", help="Add a structured event")
     event.add_argument("event_type")
     event.add_argument("--source", default="cli")
@@ -232,6 +404,18 @@ def build_parser() -> argparse.ArgumentParser:
     reject = sub.add_parser("reject", help="Reject one exact pending action")
     reject.add_argument("action_id")
     reject.add_argument("--reason", default="")
+
+    outcome_feedback = sub.add_parser(
+        "outcome-feedback",
+        help="Record owner feedback for an action or the latest next-action candidate",
+    )
+    outcome_feedback.add_argument(
+        "outcome", choices=["helped", "failed", "avoid", "neutral"]
+    )
+    outcome_feedback.add_argument("--action-id")
+    outcome_feedback.add_argument("--note", default="")
+    outcome_feedback.add_argument("--evidence", default="{}")
+    outcome_feedback.add_argument("--goal-progress-delta", type=float, default=0.0)
 
     resume_action = sub.add_parser("resume-action", help="Resume an approved action")
     resume_action.add_argument("action_id")
@@ -384,6 +568,9 @@ def main(argv: list[str] | None = None) -> int:
                 db.close_all()
             print_json(result)
             return 0 if result["status"] in {"OK", "WARN"} else 2
+        if args.command == "capabilities":
+            print_json(ordinary_user_capability_map())
+            return 0
         if args.command == "performance-audit":
             print_json(run_performance_audit(args))
             return 0
@@ -394,6 +581,8 @@ def main(argv: list[str] | None = None) -> int:
             runtime.run_daemon(args.max_cycles)
         elif args.command == "status":
             print_json(runtime.status())
+        elif args.command == "life-state":
+            print_json(runtime.life_state(limit=args.limit))
         elif args.command == "sleep":
             print_json(runtime.sleep.run())
         elif args.command == "verify":
@@ -453,6 +642,21 @@ def main(argv: list[str] | None = None) -> int:
                     rc_min_qualified_measurements=args.rc_min_qualified_measurements,
                 )
             )
+        elif args.command == "external-product-audit":
+            print_json(
+                runtime.record_external_product_audit(
+                    reason=args.reason,
+                    wheel_path=args.wheel or None,
+                    exclude_multi_user=not bool(args.include_multi_user),
+                )
+            )
+        elif args.command == "m7-self-check":
+            print_json(
+                runtime.record_m7_self_check_audit(
+                    reason=args.reason,
+                    m7_root=args.m7_root or None,
+                )
+            )
         elif args.command == "longitudinal-start":
             print_json(
                 runtime.start_longitudinal_protocol(
@@ -497,6 +701,93 @@ def main(argv: list[str] | None = None) -> int:
                 autonomous=False,
             )
             print_json({"goal_id": runtime.add_goal(goal)})
+        elif args.command == "patch-mission":
+            print_json(
+                runtime.start_patch_mission(
+                    repo_path=args.repo_path,
+                    mission=args.mission,
+                    execute_first_action=not bool(args.no_execute),
+                )
+            )
+        elif args.command == "patch-mission-step":
+            print_json(
+                runtime.continue_patch_mission(
+                    mission_id=args.mission_id,
+                    mode=args.mode,
+                    target=args.target,
+                    draft=args.draft,
+                    action_id=args.action_id,
+                    execute=not bool(args.no_execute),
+                )
+            )
+        elif args.command == "patch-mission-candidate-review":
+            print_json(
+                runtime.review_patch_mission_repair_skill_candidate(
+                    candidate_id=args.candidate_id,
+                    reason=args.reason,
+                )
+            )
+        elif args.command == "patch-mission-candidate-sandbox":
+            print_json(
+                runtime.sandbox_patch_mission_repair_skill_candidate(
+                    candidate_id=args.candidate_id,
+                    reason=args.reason,
+                    owner_approved=bool(args.owner_approved),
+                )
+            )
+        elif args.command == "patch-mission-candidate-validate":
+            print_json(
+                runtime.validate_patch_mission_repair_skill_candidate(
+                    candidate_id=args.candidate_id,
+                    reason=args.reason,
+                    human_approved=bool(args.human_approved),
+                )
+            )
+        elif args.command == "patch-mission-candidate-propose-skill":
+            print_json(
+                runtime.propose_patch_mission_repair_skill_from_candidate(
+                    candidate_id=args.candidate_id,
+                    reason=args.reason,
+                )
+            )
+        elif args.command == "patch-mission-skill-sandbox":
+            print_json(
+                runtime.start_patch_mission_repair_skill_sandbox(
+                    skill_id=args.skill_id,
+                    reason=args.reason,
+                )
+            )
+        elif args.command == "patch-mission-skill-validate":
+            print_json(
+                runtime.validate_patch_mission_repair_skill_sandbox(
+                    skill_id=args.skill_id,
+                    reason=args.reason,
+                )
+            )
+        elif args.command == "patch-mission-skill-approve":
+            print_json(
+                runtime.approve_patch_mission_repair_skill(
+                    skill_id=args.skill_id,
+                    reason=args.reason,
+                    human_approved=args.human_approved,
+                )
+            )
+        elif args.command == "patch-mission-skill-promotion-review-approve":
+            print_json(
+                runtime.approve_patch_mission_repair_skill_promotion_review(
+                    candidate_id=args.candidate_id,
+                    reason=args.reason,
+                    human_approved=args.human_approved,
+                )
+            )
+        elif args.command == "patch-mission-skill-promote":
+            print_json(
+                runtime.promote_patch_mission_repair_skill_from_review(
+                    candidate_id=args.candidate_id,
+                    reason=args.reason,
+                    human_approved=args.human_approved,
+                )
+            )
         elif args.command == "add-event":
             payload = json.loads(args.payload)
             if not isinstance(payload, dict):
@@ -531,6 +822,19 @@ def main(argv: list[str] | None = None) -> int:
                 args.action_id, False, 30, args.reason
             )
             print_json({"approval_id": approval_id})
+        elif args.command == "outcome-feedback":
+            evidence = json.loads(args.evidence)
+            if not isinstance(evidence, dict):
+                raise ValueError("evidence must be a JSON object")
+            print_json(
+                runtime.record_owner_outcome_feedback(
+                    action_id=args.action_id,
+                    outcome=args.outcome,
+                    owner_note=args.note,
+                    evidence=evidence,
+                    goal_progress_delta=args.goal_progress_delta,
+                )
+            )
         elif args.command == "resume-action":
             print_json(runtime.resume_action(args.action_id))
         elif args.command == "resolve-unknown":
@@ -548,11 +852,20 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "reset-kill":
             print_json({"evidence_id": runtime.reset_kill(args.evidence)})
         elif args.command == "world":
-            print_json(
-                runtime.world.query(args.query, args.limit)
-                if args.query
-                else runtime.world.active_facts(limit=args.limit)
-            )
+            if args.query:
+                facts = [
+                    {"kind": "world_fact", **item}
+                    for item in runtime.world.query(args.query, args.limit)
+                ]
+                relationships = runtime.relationships.query(args.query, args.limit)
+                combined = sorted(
+                    [*facts, *relationships],
+                    key=lambda item: float(item.get("score", 0.0)),
+                    reverse=True,
+                )[: args.limit]
+                print_json(combined)
+            else:
+                print_json(runtime.world.active_facts(limit=args.limit))
         elif args.command == "memories":
             print_json(runtime.memories.recent(args.type, args.limit))
         elif args.command == "skills":
