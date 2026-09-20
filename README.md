@@ -132,11 +132,16 @@ wls --config CONFIG growth-status
 
 ## Remaining proof boundary
 
-WLS v0.9.0.dev2 has P01-P89 architecture validation all passing on the installed
-instance. The current source working tree contains 92 source modules and 62 test
-files after the life-loop and Patch Mission mainline consolidation work. The
-next accepted proof is source verification plus reinstalling the verified
-package into the owner-host instance.
+Historical installed-instance evidence for v0.9.0.dev2 records P01-P89 without a
+BLOCKED verdict, but that result is primarily shadow-level architecture admission:
+the recorded state is 1 ADMIT + 88 ADMIT_SHADOW_ONLY. It is not equivalent to 89
+independent production proofs. The current source working tree contains 92 source
+modules and 62 test files after the life-loop and Patch Mission mainline
+consolidation work. The latest WLS CI run attached to current main
+(`0a38c77b61ba91bb5a0fa7f88df028d030e569ba`) was cancelled, so current-head CI
+verification remains pending. The next accepted proof is a fresh source
+verification run plus reinstalling the verified package into the owner-host
+instance.
 
 ## Module inventory (92 modules)
 
@@ -162,7 +167,10 @@ package into the owner-host instance.
 
 ## Architecture validation
 
-P01-P89 all pass on installed instance (v0.9.0.dev2). See `source/verification/` for records.
+P01-P89 were admitted on the installed v0.9.0.dev2 instance as 1 ADMIT + 88
+ADMIT_SHADOW_ONLY results. See `source/verification/` for retained records; treat
+this as repository/installed-instance architecture evidence, not production or
+longitudinal proof.
 
 ```bash
 python source/scripts/run_architecture_validation.py --output acceptance/p01_p89.json
