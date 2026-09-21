@@ -23,21 +23,15 @@ env:
 
 jobs:
   invariants:
-    runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - name: Prepare D-drive runtime directories
-        shell: powershell
-        run: |
-          New-Item -ItemType Directory -Force $env:PIP_CACHE_DIR | Out-Null
-          New-Item -ItemType Directory -Force $env:TEMP | Out-Null
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-      - name: Prepare isolated local Python
-        shell: powershell
-        run: .\.github\scripts\prepare-windows-runner.ps1 -PythonVersion "3.11"
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
       - name: Enforce one project root, one package root, and one version authority
-        shell: powershell
-        run: '& $env:PYTHON_EXE source/scripts/verify_packaging_layout.py'
+        run: python source/scripts/verify_packaging_layout.py
 
   root-install:
     needs: invariants
