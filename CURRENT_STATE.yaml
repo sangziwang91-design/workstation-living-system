@@ -9,15 +9,15 @@ system:
   canonical_runtime: "source/src/wls/runtime.py::LivingSystem"
 
 state_record:
-  updated_at: "2026-07-19"
+  updated_at: "2026-09-21"
   time_zone: "Asia/Singapore"
   update_type: "mainline-life-loop-and-patch-mission-consolidation"
   evidence_basis:
     - type: "VERIFIED"
       source: "P01-P89 architecture validation"
-      note: "All 89 passes green on installed v0.9.0.dev2 instance (ADMIT + 88 ADMIT_SHADOW_ONLY)."
+      note: "Installed-instance architecture admission: 1 ADMIT + 88 ADMIT_SHADOW_ONLY + 0 BLOCKED; not 89 independent production proofs."
     - type: "VERIFIED"
-      source: "source/tests/ — 41 test files"
+      source: "source/tests/ — 62 Python test files in the current repository tree"
       note: "All unit + integration tests pass locally on Windows Python 3.13/3.14."
     - type: "VERIFIED"
       source: "installed instance self-check + verify + WLS once"
@@ -62,12 +62,18 @@ current_capabilities:
   module_count: 92
   test_file_count: 62
   architecture_passes: 89
+  current_repository_inventory:
+    baseline_main_head: "0a38c77b61ba91bb5a0fa7f88df028d030e569ba"
+    source_python_files_including_init: 103
+    source_python_files_excluding_init: 100
+    test_python_files: 62
+    counting_rule: "Git tree paths under source/src/wls/**/*.py and source/tests/**/*.py"
   verified:
     - "The authoritative runtime remains source/src/wls/runtime.py::LivingSystem."
     - "MemoryStore remains the sole memory authority."
     - "Cognitive decisions persist with memory-free counterfactual."
     - "ET001 (growth cycle), ET002 (bounded cognition), ET003 (causal memory) all merged and verified."
-    - "P01-P89 architecture validation all green on installed instance."
+    - "P01-P89 installed-instance architecture admission recorded 1 ADMIT + 88 ADMIT_SHADOW_ONLY + 0 BLOCKED."
     - "Acceptance oracle with deterministic schema/hash/threshold/regression checks."
     - "Security firewall with path/host/credential/injection detection."
     - "Persistent scheduler with DB-backed CRUD, backoff, recovery."
@@ -143,7 +149,7 @@ completed_evolution_targets:
       - "Duplicate authority detector in capabilities registry."
       - "ClaudeCodeWorker, CodexWorker, OpenCodeWorker adapters with factory."
       - "6 integration pipelines covering agentic harness, coding workers, offspring, security, memory, and fault recovery."
-      - "P01-P89 architecture validation all green."
+      - "P01-P89 architecture admission had no BLOCKED verdict; 88/89 results were ADMIT_SHADOW_ONLY."
       - "Single main branch with all 124+ commits merged."
       - "Disk footprint reduced 87% (1,128 MB → 142 MB)."
       - "v0.9.0.dev2 wheel built and deployed to installed instance."
@@ -352,7 +358,12 @@ verification:
   architecture_validation:
     pass_count: 89
     fail_count: 0
+    verdict_distribution:
+      ADMIT: 1
+      ADMIT_SHADOW_ONLY: 88
+      BLOCKED: 0
     acceptable_verdicts: ["ADMIT", "ADMIT_SHADOW_ONLY"]
+    claim_boundary: "Architecture admission only; not production or longitudinal proof."
     instance: "D:\\WLS\\wls-0.9.0.dev1-ui-20260706"
     evidence: "D:\\WLS\\wls-0.9.0.dev1-ui-20260706\\acceptance\\p01_p89_v0.9.0.dev2.json"
 
@@ -365,7 +376,7 @@ known_unknowns:
     status: "UNKNOWN"
   - id: "KU-003"
     item: "Measured longitudinal advantage on genuine owner-host tasks"
-    status: "UNKNOWN"
+    status: "PARTIALLY_VERIFIED_SINGLE_QUALIFIED_OWNER_TASK"
   - id: "KU-004"
     item: "Real Windows upgrade, backup, restore, host integration"
     status: "PARTIALLY_VERIFIED_DISPOSABLE_CLONE_ROLLBACK_PASSED_LIVE_ROLLBACK_PENDING"
@@ -384,7 +395,7 @@ completed:
   - "ET001, ET002, ET003 merged and CI-verified."
   - "ET004 implemented: 6 capability gaps closed, single-trunk consolidated."
   - "DL-013 coding worker adapters with factory pattern."
-  - "P01-P89 architecture validation all green."
+  - "P01-P89 installed-instance architecture admission recorded 1 ADMIT + 88 ADMIT_SHADOW_ONLY + 0 BLOCKED."
   - "12/30 DL task specifications implemented as modules."
   - "6 integration pipelines tested end-to-end."
   - "ET005 started with lightweight health/preflight path instead of importing Phase2 prototype code wholesale."
@@ -397,7 +408,7 @@ not_completed:
   - "General-purpose independent reasoning or unrestricted local model cognition."
   - "Long-horizon autonomous project planning with dependency-aware pause/resume/exit."
   - "Production-scale memory retrieval performance and statistical generalization."
-  - "Owner-authorized production-host longitudinal learning advantage."
+  - "Repeated owner-authorized production-host longitudinal learning advantage across distinct task classes."
   - "Long-duration survival and fault-injection validation."
   - "External provider and cross-worker longitudinal proof."
   - "Longitudinal owner-host proof after ET005 deployment."
@@ -406,11 +417,11 @@ branches:
   - name: "main"
     role: "canonical single trunk"
     status: "ACTIVE"
-    head: "b1451b5"
+    head: "0a38c77b61ba91bb5a0fa7f88df028d030e569ba"
     tag: "v0.9.0.dev2"
 
 current_limitations:
-  - "ET005 deployment and one-cycle health were verified on the owner-host instance, but longitudinal owner-task evidence is still pending."
+  - "ET005 deployment and health were verified on the owner-host instance; one qualified ET006 owner-task measurement exists, but repeated longitudinal evidence across task classes is still pending."
   - "Decision guidance remains bounded deterministic engineering logic."
   - "Memory scale and multi-project interference remain unverified at production load."
   - "Long-running tests (cognition, memory_ablation) may hang due to SQLite locking."
