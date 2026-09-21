@@ -2,7 +2,7 @@
   "schema_version": "2.0",
   "chain_id": "WLS-REPO-NATIVE-EVOLUTION-001",
   "status": "ACTIVE_SINGLE_TRUNK_ET004_COMPLETE",
-  "updated_at": "2026-07-08",
+  "updated_at": "2026-09-21",
   "authority": {
     "owner": "sangziwang91-design",
     "repository": "sangziwang91-design/workstation-living-system-private",
@@ -11,7 +11,7 @@
     "approval_authority": "OWNER"
   },
   "canonical_baseline": {
-    "main_head": "75786a5",
+    "main_head": "0a38c77b61ba91bb5a0fa7f88df028d030e569ba",
     "development_version": "0.9.0.dev2",
     "tag": "v0.9.0.dev2",
     "completed_targets": [
@@ -32,19 +32,45 @@
     "architecture_validation": {
       "passes": 89,
       "failures": 0,
-      "instance": "v0.9.0.dev2 installed"
+      "instance": "v0.9.0.dev2 installed",
+      "verdict_distribution": {
+        "ADMIT": 1,
+        "ADMIT_SHADOW_ONLY": 88,
+        "BLOCKED": 0
+      },
+      "claim_boundary": "Architecture admission only; not 89 independent production proofs."
     },
-    "module_count": 86,
-    "test_file_count": 41,
-    "integration_pipelines": 6
+    "integration_pipelines": 6,
+    "historical_inventory_snapshot": {
+      "source": "2026-07-08 CURRENT_CHAIN snapshot",
+      "module_count": 86,
+      "test_file_count": 41,
+      "status": "HISTORICAL_NOT_CURRENT"
+    },
+    "current_repository_inventory": {
+      "counted_at_main_head": "0a38c77b61ba91bb5a0fa7f88df028d030e569ba",
+      "source_python_files_including_init": 103,
+      "source_python_files_excluding_init": 100,
+      "test_python_files": 62,
+      "counting_rule": "Git tree paths under source/src/wls/**/*.py and source/tests/**/*.py"
+    }
   },
   "next_action": {
     "mode": "OWNER_HOST_LONGITUDINAL_VALIDATION",
     "instruction": "Deploy v0.9.0.dev2 to owner host, run longitudinal protocol (source/src/wls/longitudinal.py), collect real-world evidence over weeks before claiming production-ready status."
   },
   "claim_ceiling": [
-    "Repository is single-trunk, architecture-validated (P01-P89), and locally verified.",
-    "86 modules, 41 test files, 6 integration pipelines pass.",
+    "Repository has a single canonical runtime and a repo-native evolution control surface; current-head CI still requires a fresh completed run.",
+    "Installed-instance P01-P89 evidence is 1 ADMIT + 88 ADMIT_SHADOW_ONLY with 0 BLOCKED; this is architecture admission, not production or longitudinal proof.",
     "No unattended evolution, production-host longitudinal benefit, or multi-provider advantage is proven."
-  ]
+  ],
+  "notion_anchor": {
+    "page_id": "38940ff6ad6281b6bd69d700c9322d77",
+    "page_url": "https://app.notion.com/p/38940ff6ad6281b6bd69d700c9322d77"
+  },
+  "worker_state": {
+    "primary_code_worker_id": "chatgpt_interactive",
+    "authority": "BRANCH_AND_PULL_REQUEST",
+    "note": "Mirrors .evolution/worker_registry.json; provider candidates remain non-writing until admitted."
+  }
 }
