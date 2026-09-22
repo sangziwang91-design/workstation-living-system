@@ -2,11 +2,13 @@
 
 ## Status
 
-`IMPLEMENTED_LOCAL_AND_CI_VERIFIED_HOST_LONGITUDINAL_PENDING`
+`IMPLEMENTED_LOCAL_AND_CI_VERIFIED_REAL_WORLD_GENERALIZATION_PENDING`
 
 The integrated branch passed the complete gate chain locally and in CI. Workflow `28069443561` passed compile, 14 tests, ET001, ET002, ET003 verification, ruff, mypy, bandit, and package build on Ubuntu/Python 3.13. Workflow `28069530018` repeated the full chain on Ubuntu and Windows with Python 3.11 and 3.13. Canonical WLS CI `28069530010` and the independent ET001/ET002 regressions `28069530007` / `28069530013` also passed.
 
 This target extends the canonical `LivingSystem`. It does not create a second runtime, planner identity, or memory authority.
+
+A later current-state record contains one qualified owner-host task measurement. That single workload does not independently validate ET003 causal-memory advantage in real-world use, so the ET003 claim ceiling remains below production-host or longitudinal generalization.
 
 ## Problem
 
