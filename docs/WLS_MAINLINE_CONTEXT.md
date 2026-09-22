@@ -1,6 +1,6 @@
 # WLS Mainline Context
 
-Updated: 2026-07-19
+Updated: 2026-09-22
 
 This file is the compact mainline map for WLS. It replaces scattered iteration
 reading as the first stop for understanding the system.
@@ -114,15 +114,11 @@ Otherwise keep it as history/backlog, not mainline.
 
 ## Current Single Next Action
 
-Finish the source-level Patch Mission mainline proof:
+Restore the owner Windows self-hosted verification node and let the already-queued
+root-install/full-runtime gates execute against the current candidate. The
+GitHub-hosted control-plane and repository-invariant gates already pass, but
+those portable checks do not substitute for Windows installation/runtime
+verification.
 
-```text
-approve recovered commit-draft
--> create the local commit
--> resume-next to refresh post-commit git metadata
--> prepare remote-readiness summary
--> prove push and PR creation remain separate owner-approved actions
-```
-
-Do not add more dashboards, labels, readiness gates, or pure reports before this
-action chain is stable and installed into the owner-host WLS.
+Do not add more dashboards, labels, readiness gates, or pure reports while this
+platform-specific acceptance blocker remains unresolved.
