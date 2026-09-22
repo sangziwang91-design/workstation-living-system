@@ -2,7 +2,7 @@
 
 **Status:** ACTIVE_SINGLE_TRUNK_ET004_COMPLETE
 **Canonical runtime remains:** `source/src/wls/runtime.py::LivingSystem`
-**Current head:** `75786a5` (main, v0.9.0.dev2)
+**Canonical baseline main head:** `0a38c77b61ba91bb5a0fa7f88df028d030e569ba` (v0.9.0.dev2)
 
 ## Completed waves
 
@@ -25,7 +25,7 @@ Closed 6 real capability gaps identified by ZIP iteration audit:
 
 Added `acceptance.py`, `security.py`, `benchmark.py`, `fault_injection.py`, `scheduler.py` (persistent), `memory_projection.py`, `compaction.py`, `reviewer.py`, `graph_recovery.py`, `qos_router.py`, `skill_compiler.py`, `longitudinal.py`.
 
-Consolidated all branches into a single canonical `main` trunk. P01-P89 architecture validation all green. 6 integration pipelines tested end-to-end.
+Consolidated the runtime authority into a single canonical `main` trunk. The installed-instance P01-P89 architecture admission recorded 1 `ADMIT` + 88 `ADMIT_SHADOW_ONLY` + 0 `BLOCKED`; this is an architecture-admission result, not 89 production proofs. Six integration pipelines were recorded as tested end-to-end in the historical ET-004 evidence.
 
 ## Authority order
 
@@ -51,14 +51,15 @@ Consolidated all branches into a single canonical `main` trunk. P01-P89 architec
 
 ## Verified evidence
 
-- P01-P89 architecture validation: 89/89 passes on installed v0.9.0.dev2 instance.
-- 41 test files, all unit + integration tests pass locally.
-- Installed instance: self-check, verify, and WLS once all pass.
-- ET-001, ET-002, ET-003 previously CI-verified on GitHub Actions.
+- Historical installed-instance P01-P89 architecture admission: 1 `ADMIT` + 88 `ADMIT_SHADOW_ONLY` + 0 `BLOCKED`.
+- Current repository inventory: 62 Python test files; the historical 41-test-file figure is no longer current.
+- Historical installed instance: self-check, verify, and one WLS cycle were recorded as passing.
+- ET-001, ET-002, ET-003 were previously CI-verified on GitHub Actions.
+- Current draft verification-boundary repair: repo-native evolution control-plane and portable repository-invariant jobs pass on GitHub-hosted CI; Windows root-install/full-runtime gates remain pending on the self-hosted Windows runner.
 
 ## Current handoff
 
-All ET-001 through ET-004 have been completed. The canonical repository is a single main trunk at head `75786a5` tagged `v0.9.0.dev2`. The next target is ET-005 (owner-host longitudinal validation).
+ET-001 through ET-004 remain the completed early evolution targets. The canonical baseline main head is `0a38c77b61ba91bb5a0fa7f88df028d030e569ba`. Later ET-005/ET-006 evidence is tracked in `CURRENT_STATE.yaml`; one qualified owner-task measurement is recorded, while repeated longitudinal evidence across distinct task classes remains pending.
 
 ## Activation boundary
 
