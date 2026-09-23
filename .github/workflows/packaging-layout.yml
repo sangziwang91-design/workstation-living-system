@@ -26,8 +26,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.13"
       - name: Enforce one project root, one package root, and one version authority
@@ -48,7 +48,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force $env:PIP_CACHE_DIR | Out-Null
           New-Item -ItemType Directory -Force $env:TEMP | Out-Null
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Prepare isolated local Python
         shell: powershell
         run: .\.github\scripts\prepare-windows-runner.ps1 -PythonVersion "${{ matrix.python-version }}"
