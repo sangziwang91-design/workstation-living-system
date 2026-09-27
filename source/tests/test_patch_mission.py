@@ -3526,10 +3526,6 @@ def test_patch_mission_repeated_success_creates_repair_skill_candidate(
         reason="owner approves recovered local commit",
     )
     tenth_commit_result = runtime.resume_action(tenth_commit_step["action_id"])
-    tenth_remote_metadata_step = runtime.continue_patch_mission(
-        mission_id=tenth_mission["mission_id"],
-        mode="resume-next",
-    )
     tenth_update_push_step = runtime.continue_patch_mission(
         mission_id=tenth_mission["mission_id"],
         mode="resume-next",
@@ -3549,20 +3545,17 @@ def test_patch_mission_repeated_success_creates_repair_skill_candidate(
     assert "Use recovered promoted skill confidence" in tenth_log
     assert "Changed files: demo.py" in tenth_log
     assert "No push or pull request was created by this action." in tenth_log
-    assert tenth_remote_metadata_step["mode"] == "git-metadata"
-    assert tenth_remote_metadata_step["requested_mode"] == "resume-next"
-    assert tenth_remote_metadata_step["resume_next"]["from_mode"] == "commit-draft"
-    assert (
-        tenth_remote_metadata_step["resume_next"]["from_action_id"]
-        == tenth_commit_step["action_id"]
-    )
-    assert tenth_remote_metadata_step["outcomes"][0]["success"] is True
 
-    # The current safety chain prioritizes updating the already-known failed PR
-    # branch after a verified local commit. It must stop at an explicit owner
-    # approval gate rather than silently falling through to remote-summary.
+    # A known failed PR takes precedence over generic remote metadata after the
+    # verified local commit. resume-next must create the exact update-push draft
+    # and stop at owner approval; it must not perform the push itself.
     assert tenth_update_push_step["mode"] == "pr-update-push-draft"
     assert tenth_update_push_step["requested_mode"] == "resume-next"
+    assert tenth_update_push_step["resume_next"]["from_mode"] == "commit-draft"
+    assert (
+        tenth_update_push_step["resume_next"]["from_action_id"]
+        == tenth_commit_step["action_id"]
+    )
     assert tenth_update_push_row["tool"] == "run_command"
     assert tenth_update_push_row["status"] == "WAITING_APPROVAL"
     assert tenth_update_push_row["risk"] == "HIGH"
