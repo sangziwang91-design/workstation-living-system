@@ -13,14 +13,6 @@ concurrency:
   group: repository-invariants-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  PIP_CACHE_DIR: D:\actions-runner\_cache\pip
-  PIP_DEFAULT_TIMEOUT: "120"
-  PIP_RETRIES: "10"
-  PIP_DISABLE_PIP_VERSION_CHECK: "1"
-  TEMP: D:\actions-runner\_temp
-  TMP: D:\actions-runner\_temp
-
 jobs:
   invariants:
     runs-on: ubuntu-latest
@@ -35,6 +27,13 @@ jobs:
 
   root-install:
     needs: invariants
+    env:
+      PIP_CACHE_DIR: D:\actions-runner\_cache\pip
+      PIP_DEFAULT_TIMEOUT: "120"
+      PIP_RETRIES: "10"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      TEMP: D:\actions-runner\_temp
+      TMP: D:\actions-runner\_temp
     strategy:
       fail-fast: false
       max-parallel: 1
