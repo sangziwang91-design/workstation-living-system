@@ -135,15 +135,16 @@ wls --config CONFIG growth-status
 Historical installed-instance evidence for v0.9.0.dev2 records P01-P89 without a
 BLOCKED verdict, but that result is primarily shadow-level architecture admission:
 the recorded state is 1 ADMIT + 88 ADMIT_SHADOW_ONLY. It is not equivalent to 89
-independent production proofs. The current source working tree contains 92 source
-modules and 62 test files after the life-loop and Patch Mission mainline
-consolidation work. The latest WLS CI run attached to current main
-(`0a38c77b61ba91bb5a0fa7f88df028d030e569ba`) was cancelled, so current-head CI
-verification remains pending. The next accepted proof is a fresh source
-verification run plus reinstalling the verified package into the owner-host
-instance.
+independent production proofs. At baseline main
+`0a38c77b61ba91bb5a0fa7f88df028d030e569ba`, the repository tree contains 103
+Python files under `source/src/wls` (100 excluding `__init__.py`) and 62 Python
+files under `source/tests`. On the current verification-boundary candidate, the
+repo-native evolution control-plane gate and portable repository-invariant gate
+pass on GitHub-hosted CI. Windows root-install, full-runtime and ET Windows gates
+still require the owner self-hosted Windows/X64 runner; those queued platform
+checks have not been replaced by Linux evidence.
 
-## Module inventory (92 modules)
+## Representative module inventory
 
 **Core runtime:** `runtime.py`, `config.py`, `schemas.py`, `db.py`, `stores.py`, `tools.py`, `planner.py`, `policy.py`, `approval.py`, `evidence.py`, `skills.py`, `growth_cycle.py`, `learning.py`, `cognition.py`, `world.py`, `temporal_world.py`, `drives.py`, `attention.py`, `autonomy.py`, `goal_runtime.py`, `self_model.py`, `relationships.py`, `sleep.py`, `cli.py`, `_version.py`
 
