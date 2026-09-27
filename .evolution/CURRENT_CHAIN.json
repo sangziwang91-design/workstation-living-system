@@ -2,7 +2,7 @@
   "schema_version": "2.0",
   "chain_id": "WLS-REPO-NATIVE-EVOLUTION-001",
   "status": "ACTIVE_SINGLE_TRUNK_ET004_COMPLETE",
-  "updated_at": "2026-09-21",
+  "updated_at": "2026-09-27",
   "authority": {
     "owner": "sangziwang91-design",
     "repository": "sangziwang91-design/workstation-living-system-private",
@@ -23,10 +23,10 @@
     "claim_boundary": "ET001-ET004 have code and controlled local verification; owner-host longitudinal proof remains pending."
   },
   "current_target": {
-    "target_id": "EVOLUTION-TARGET-005",
-    "title": "Owner-Host Longitudinal Validation",
-    "state": "PENDING_OWNER_HOST_EVIDENCE",
-    "objective": "Run genuine owner-authorized task sequences on the intended host, measure benefit and regressions over weeks, verify memory validity and contradiction handling outside controlled verifier."
+    "target_id": "MAINLINE-TARGET-001",
+    "title": "Life Loop and GitHub Patch Mission Mainline Proof",
+    "state": "SOURCE_CONSOLIDATED_INSTALL_VERIFICATION_PENDING",
+    "objective": "Advance one real owner-gated Patch Mission action chain through canonical runtime surfaces; keep evidence/readiness as supporting gates rather than a substitute for action."
   },
   "verification": {
     "architecture_validation": {
@@ -56,13 +56,14 @@
     }
   },
   "next_action": {
-    "mode": "OWNER_HOST_LONGITUDINAL_VALIDATION",
-    "instruction": "Deploy v0.9.0.dev2 to owner host, run longitudinal protocol (source/src/wls/longitudinal.py), collect real-world evidence over weeks before claiming production-ready status."
+    "mode": "RESTORE_WINDOWS_VERIFICATION_THEN_MAINLINE_PROOF",
+    "instruction": "First restore the owner Windows self-hosted verification node and complete the queued root-install/full-runtime gates for the current candidate. Then continue the owner-gated Patch Mission action chain; do not add dashboards or readiness-only layers while these acceptance blockers remain."
   },
   "claim_ceiling": [
-    "Repository has a single canonical runtime and a repo-native evolution control surface; current-head CI still requires a fresh completed run.",
+    "Repository has a single canonical runtime and repo-native evolution control surface; GitHub-hosted control-plane checks pass on the current candidate, while Windows root-install/full-runtime verification is still pending.",
     "Installed-instance P01-P89 evidence is 1 ADMIT + 88 ADMIT_SHADOW_ONLY with 0 BLOCKED; this is architecture admission, not production or longitudinal proof.",
-    "No unattended evolution, production-host longitudinal benefit, or multi-provider advantage is proven."
+    "ET005 owner-host health evidence and one qualified ET006 owner-task measurement exist in CURRENT_STATE.yaml; repeated longitudinal advantage across distinct task classes remains unproven.",
+    "No unattended evolution, production readiness, provider-independent autonomy, or multi-provider advantage is proven."
   ],
   "notion_anchor": {
     "page_id": "38940ff6ad6281b6bd69d700c9322d77",
