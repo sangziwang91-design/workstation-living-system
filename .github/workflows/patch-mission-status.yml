@@ -1,0 +1,50 @@
+name: Verify Patch Mission Status CLI
+
+on:
+  pull_request:
+    paths:
+      - "pyproject.toml"
+      - "source/src/wls/patch_mission_status_cli.py"
+      - "source/tests/test_patch_mission_status_cli.py"
+      - "source/tests/test_patch_mission.py"
+      - "source/scripts/verify_packaging_layout.py"
+      - ".github/workflows/patch-mission-status.yml"
+  push:
+    branches: [main]
+    paths:
+      - "pyproject.toml"
+      - "source/src/wls/patch_mission_status_cli.py"
+      - "source/tests/test_patch_mission_status_cli.py"
+      - "source/tests/test_patch_mission.py"
+      - "source/scripts/verify_packaging_layout.py"
+      - ".github/workflows/patch-mission-status.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  portable-status-cli:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install WLS development package
+        run: python -m pip install -e ".[dev]"
+      - name: Verify packaging layout
+        run: python source/scripts/verify_packaging_layout.py
+      - name: Run focused Patch Mission continuity tests
+        run: python -m pytest source/tests/test_patch_mission_status_cli.py source/tests/test_patch_mission.py -q
+      - name: Smoke installed console command
+        run: wls-patch-missions --help
+      - name: Build wheel and sdist
+        if: matrix.python-version == '3.13'
+        run: python -m build .
