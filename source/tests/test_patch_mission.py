@@ -3530,15 +3530,15 @@ def test_patch_mission_repeated_success_creates_repair_skill_candidate(
         mission_id=tenth_mission["mission_id"],
         mode="resume-next",
     )
-    tenth_remote_summary_step = runtime.continue_patch_mission(
+    tenth_update_push_step = runtime.continue_patch_mission(
         mission_id=tenth_mission["mission_id"],
         mode="resume-next",
     )
-    tenth_remote_summary_row = runtime.db.query_one(
-        "SELECT tool,status,risk,arguments_json FROM actions WHERE action_id=?",
-        (tenth_remote_summary_step["action_id"],),
+    tenth_update_push_row = runtime.db.query_one(
+        "SELECT tool,status,risk,arguments_json,error FROM actions WHERE action_id=?",
+        (tenth_update_push_step["action_id"],),
     )
-    tenth_remote_summary_args = json.loads(tenth_remote_summary_row["arguments_json"])
+    tenth_update_push_args = json.loads(tenth_update_push_row["arguments_json"])
     tenth_log = git_output(tenth_repo, ["log", "-1", "--pretty=%B"])
 
     assert tenth_commit_result["status"] == "SUCCEEDED"
@@ -3557,17 +3557,18 @@ def test_patch_mission_repeated_success_creates_repair_skill_candidate(
         == tenth_commit_step["action_id"]
     )
     assert tenth_remote_metadata_step["outcomes"][0]["success"] is True
-    assert tenth_remote_summary_step["mode"] == "remote-summary"
-    assert tenth_remote_summary_step["requested_mode"] == "resume-next"
-    assert (
-        tenth_remote_summary_step["source_action_id"]
-        == tenth_remote_metadata_step["action_id"]
-    )
-    assert tenth_remote_summary_row["tool"] == "write_file"
-    assert tenth_remote_summary_row["status"] == "WAITING_APPROVAL"
-    assert tenth_remote_summary_row["risk"] == "REVERSIBLE_WRITE"
-    assert "Patch Mission Remote Readiness Summary" in tenth_remote_summary_args["content"]
-    assert "No push, PR creation, comment, or merge is performed" in tenth_remote_summary_args["content"]
+
+    # The current safety chain prioritizes updating the already-known failed PR
+    # branch after a verified local commit. It must stop at an explicit owner
+    # approval gate rather than silently falling through to remote-summary.
+    assert tenth_update_push_step["mode"] == "pr-update-push-draft"
+    assert tenth_update_push_step["requested_mode"] == "resume-next"
+    assert tenth_update_push_row["tool"] == "run_command"
+    assert tenth_update_push_row["status"] == "WAITING_APPROVAL"
+    assert tenth_update_push_row["risk"] == "HIGH"
+    assert tenth_update_push_row["error"] == "runtime is in read-only mode"
+    assert tenth_update_push_args["command"][:4] == ["git", "push", "origin", "HEAD:wls/fix-greeting"]
+    assert "--force" not in tenth_update_push_args["command"]
     assert (
         runtime.db.query_all(
             """
