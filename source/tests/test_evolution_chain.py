@@ -54,12 +54,12 @@ def test_et004_completed_target_in_chain() -> None:
     assert "EVOLUTION-TARGET-004" in targets
 
 
-def test_next_target_is_et005() -> None:
+def test_current_target_matches_mainline_state() -> None:
     current = _load(".evolution/CURRENT_CHAIN.json")
     assert current is not None
     next_target = current.get("current_target", {})
-    assert next_target.get("target_id") == "EVOLUTION-TARGET-005"
-    assert "OWNER_HOST" in next_target.get("state", "")
+    assert next_target.get("target_id") == "MAINLINE-TARGET-001"
+    assert next_target.get("state") == "SOURCE_CONSOLIDATED_INSTALL_VERIFICATION_PENDING"
 
 
 def test_chatgpt_is_only_active_code_worker() -> None:
