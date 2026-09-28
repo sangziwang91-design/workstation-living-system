@@ -10,7 +10,6 @@ on:
       - "LIVING_SYSTEM_GENOME.md"
       - "README.md"
       - ".github/workflows/verify-evolution-target-003.yml"
-      - ".github/scripts/prepare-windows-runner.ps1"
   push:
     branches: [main]
     paths:
@@ -21,7 +20,6 @@ on:
       - "LIVING_SYSTEM_GENOME.md"
       - "README.md"
       - ".github/workflows/verify-evolution-target-003.yml"
-      - ".github/scripts/prepare-windows-runner.ps1"
   workflow_dispatch:
 
 permissions:
@@ -32,12 +30,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PIP_CACHE_DIR: D:\actions-runner\_cache\pip
   PIP_DEFAULT_TIMEOUT: "120"
   PIP_RETRIES: "10"
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
-  TEMP: D:\actions-runner\_temp
-  TMP: D:\actions-runner\_temp
 
 jobs:
   verify:
@@ -50,9 +45,9 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-      - name: Prepare isolated local Python
-        shell: powershell
-        run: .\.github\scripts\prepare-windows-runner.ps1 -PythonVersion "${{ matrix.python-version }}"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "${{ matrix.python-version }}"
       - name: Install WLS and verification toolchain from root
         shell: powershell
         run: 'python -m pip install --retries 10 --timeout 120 -e ".[dev]"'
