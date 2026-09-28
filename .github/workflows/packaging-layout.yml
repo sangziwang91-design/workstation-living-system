@@ -23,21 +23,16 @@ env:
 
 jobs:
   invariants:
-    runs-on: [self-hosted, Windows, X64]
+    runs-on: windows-latest
     timeout-minutes: 30
     steps:
-      - name: Prepare D-drive runtime directories
-        shell: powershell
-        run: |
-          New-Item -ItemType Directory -Force $env:PIP_CACHE_DIR | Out-Null
-          New-Item -ItemType Directory -Force $env:TEMP | Out-Null
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       - name: Prepare isolated local Python
         shell: powershell
         run: .\.github\scripts\prepare-windows-runner.ps1 -PythonVersion "3.11"
       - name: Enforce one project root, one package root, and one version authority
         shell: powershell
-        run: '& $env:PYTHON_EXE source/scripts/verify_packaging_layout.py'
+        run: 'python source/scripts/verify_packaging_layout.py'
 
   root-install:
     needs: invariants
@@ -46,36 +41,31 @@ jobs:
       max-parallel: 1
       matrix:
         python-version: ["3.11", "3.13"]
-    runs-on: [self-hosted, Windows, X64]
+    runs-on: windows-latest
     timeout-minutes: 90
     steps:
-      - name: Prepare D-drive runtime directories
-        shell: powershell
-        run: |
-          New-Item -ItemType Directory -Force $env:PIP_CACHE_DIR | Out-Null
-          New-Item -ItemType Directory -Force $env:TEMP | Out-Null
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       - name: Prepare isolated local Python
         shell: powershell
         run: .\.github\scripts\prepare-windows-runner.ps1 -PythonVersion "${{ matrix.python-version }}"
       - name: Install from the sole repository project root
         shell: powershell
-        run: '& $env:PYTHON_EXE -m pip install --retries 10 --timeout 120 -e ".[dev]"'
+        run: 'python -m pip install --retries 10 --timeout 120 -e ".[dev]"'
       - name: Verify installed and source versions are identical
         shell: powershell
-        run: '& $env:PYTHON_EXE -c "from importlib.metadata import version; from wls._version import __version__; print(version(''workstation-living-system''), __version__); assert version(''workstation-living-system'') == __version__"'
+        run: 'python -c "from importlib.metadata import version; from wls._version import __version__; print(version(''workstation-living-system''), __version__); assert version(''workstation-living-system'') == __version__"'
       - name: Smoke test console entry point
         shell: powershell
         run: '& "$env:PYTHON_ROOT\Scripts\wls.exe" --help'
       - name: Smoke test module entry point
         shell: powershell
-        run: '& $env:PYTHON_EXE -m wls --help'
+        run: 'python -m wls --help'
       - name: Verify imported package location
         shell: powershell
-        run: '& $env:PYTHON_EXE -c "from pathlib import Path; import wls; path=Path(wls.__file__).resolve(); print(path); assert ''source/src/wls'' in path.as_posix()"'
+        run: 'python -c "from pathlib import Path; import wls; path=Path(wls.__file__).resolve(); print(path); assert ''source/src/wls'' in path.as_posix()"'
       - name: Run focused repository-invariant test
         shell: powershell
-        run: '& $env:PYTHON_EXE -m pytest source/tests/test_packaging_layout.py -q'
+        run: 'python -m pytest source/tests/test_packaging_layout.py -q'
       - name: Build canonical wheel
         shell: powershell
-        run: '& $env:PYTHON_EXE -m build --wheel --outdir dist-root .'
+        run: 'python -m build --wheel --outdir dist-root .'
