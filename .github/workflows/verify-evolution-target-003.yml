@@ -46,48 +46,43 @@ jobs:
       max-parallel: 1
       matrix:
         python-version: ["3.11", "3.13"]
-    runs-on: [self-hosted, Windows, X64]
+    runs-on: windows-latest
     timeout-minutes: 120
     steps:
-      - name: Prepare D-drive runtime directories
-        shell: powershell
-        run: |
-          New-Item -ItemType Directory -Force $env:PIP_CACHE_DIR | Out-Null
-          New-Item -ItemType Directory -Force $env:TEMP | Out-Null
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       - name: Prepare isolated local Python
         shell: powershell
         run: .\.github\scripts\prepare-windows-runner.ps1 -PythonVersion "${{ matrix.python-version }}"
       - name: Install WLS and verification toolchain from root
         shell: powershell
-        run: '& $env:PYTHON_EXE -m pip install --retries 10 --timeout 120 -e ".[dev]"'
+        run: 'python -m pip install --retries 10 --timeout 120 -e ".[dev]"'
       - name: Verify repository layout
         shell: powershell
-        run: '& $env:PYTHON_EXE source/scripts/verify_packaging_layout.py'
+        run: 'python source/scripts/verify_packaging_layout.py'
       - name: Compile
         shell: powershell
-        run: '& $env:PYTHON_EXE -m compileall -q source/src source/tests source/scripts'
+        run: 'python -m compileall -q source/src source/tests source/scripts'
       - name: Tests
         shell: powershell
-        run: '& $env:PYTHON_EXE -m pytest source/tests -q'
+        run: 'python -m pytest source/tests -q'
       - name: Verify target 001
         shell: powershell
-        run: '& $env:PYTHON_EXE source/scripts/verify_evolution_target_001.py'
+        run: 'python source/scripts/verify_evolution_target_001.py'
       - name: Verify target 002
         shell: powershell
-        run: '& $env:PYTHON_EXE source/scripts/verify_evolution_target_002.py'
+        run: 'python source/scripts/verify_evolution_target_002.py'
       - name: Verify target 003
         shell: powershell
-        run: '& $env:PYTHON_EXE source/scripts/verify_evolution_target_003.py'
+        run: 'python source/scripts/verify_evolution_target_003.py'
       - name: Lint
         shell: powershell
-        run: '& $env:PYTHON_EXE -m ruff check source/src source/tests source/scripts'
+        run: 'python -m ruff check source/src source/tests source/scripts'
       - name: Types
         shell: powershell
-        run: '& $env:PYTHON_EXE -m mypy source/src/wls source/tests source/scripts --ignore-missing-imports'
+        run: 'python -m mypy source/src/wls source/tests source/scripts --ignore-missing-imports'
       - name: Bandit
         shell: powershell
-        run: '& $env:PYTHON_EXE -m bandit -q -r source/src/wls source/scripts'
+        run: 'python -m bandit -q -r source/src/wls source/scripts'
       - name: Build package
         shell: powershell
-        run: '& $env:PYTHON_EXE -m build .'
+        run: 'python -m build .'
