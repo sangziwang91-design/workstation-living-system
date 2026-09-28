@@ -1,0 +1,37 @@
+name: Verify Patch Mission Resume Regression
+
+on:
+  pull_request:
+    paths:
+      - "source/src/wls/runtime.py"
+      - "source/tests/test_patch_mission.py"
+      - ".github/workflows/patch-mission-resume-regression.yml"
+  push:
+    branches: [main]
+    paths:
+      - "source/src/wls/runtime.py"
+      - "source/tests/test_patch_mission.py"
+      - ".github/workflows/patch-mission-resume-regression.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  resume-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install WLS development package
+        run: python -m pip install -e ".[dev]"
+      - name: Run owner-gated resume regressions
+        run: |
+          python -m pytest \
+            source/tests/test_patch_mission.py::test_patch_mission_repeated_success_creates_repair_skill_candidate \
+            source/tests/test_patch_mission.py::test_patch_mission_pr_update_push_draft_updates_existing_pr_branch \
+            -q
