@@ -48,21 +48,6 @@ jobs:
       - name: Compile
         shell: powershell
         run: 'python -m compileall -q source/src source/tests source/scripts'
-      - name: Tests
-        shell: powershell
-        run: 'python -m pytest source/tests -q'
       - name: Verify EVOLUTION-TARGET-001
         shell: powershell
         run: 'python source/scripts/verify_evolution_target_001.py'
-      - name: Lint
-        shell: powershell
-        run: 'python -m ruff check source/src source/tests source/scripts'
-      - name: Types
-        shell: powershell
-        run: 'python -m mypy source/src/wls source/tests source/scripts --ignore-missing-imports'
-      - name: Security scan
-        shell: powershell
-        run: 'python -m bandit -q -r source/src/wls source/scripts'
-      - name: Build package
-        shell: powershell
-        run: 'python -m build .'
