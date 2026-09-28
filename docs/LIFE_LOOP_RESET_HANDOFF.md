@@ -1,6 +1,6 @@
 # WLS Life Loop Reset Handoff
 
-Updated: 2026-07-19
+Updated: 2026-07-20
 
 Start here for the current WLS mainline. The full 2026-07-15 process log was
 moved to:
@@ -54,6 +54,8 @@ D:\WLS\wls-0.9.0.dev1-ui-20260706
   inspection, owner-gated tests, patch draft, owner-gated apply, verification,
   PR summary, git prep, commit draft, remote/CI evidence, PR update loop, and
   repair skill candidate lifecycle.
+- `wls-patch-missions` exposes persisted Patch Mission continuity as a read-only
+  owner handoff surface instead of leaving the next step buried in prose.
 
 ## Current Boundary
 
@@ -65,14 +67,24 @@ shows the entry and a bounded owner-host verification has passed.
 
 ## Next Single Action
 
-Continue Task A: GitHub Patch Mission.
+Continue Task A: GitHub Patch Mission through concrete commands, not a placeholder
+thread.
 
-```text
-approve recovered commit-draft
--> create the local commit
--> resume-next to refresh post-commit git metadata
--> prepare remote-readiness summary
--> verify push/PR remain separate owner-approved actions
+```powershell
+wls-patch-missions --config CONFIG --continuity-only
+wls --config CONFIG approve ACTION_ID --reason "owner approves exact recovered commit-draft"
+wls --config CONFIG resume-action ACTION_ID
+wls --config CONFIG patch-mission-step --mode resume-next
+wls-patch-missions --config CONFIG --continuity-only
+```
+
+Then continue only through remote readiness and keep push/PR as separate explicit
+owner-approved actions:
+
+```powershell
+wls --config CONFIG patch-mission-step --mode remote-summary --action-id ACTION_ID
+wls --config CONFIG patch-mission-step --mode branch-draft --action-id ACTION_ID
+wls --config CONFIG patch-mission-step --mode remote-live
 ```
 
 Stop if the next change would only add a dashboard, label, readiness gate, report,

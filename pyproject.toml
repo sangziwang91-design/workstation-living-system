@@ -24,6 +24,7 @@ dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11", "bandit>=1.7", "build>=1.2"]
 [project.scripts]
 wls = "wls.cli:main"
 wls-ui = "wls.ui_server:main"
+wls-patch-missions = "wls.patch_mission_status_cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "source/src"}
