@@ -1,6 +1,6 @@
 # WLS Mainline Context
 
-Updated: 2026-07-19
+Updated: 2026-07-20
 
 This file is the compact mainline map for WLS. It replaces scattered iteration
 reading as the first stop for understanding the system.
@@ -79,6 +79,8 @@ Life loop:
 Patch Mission:
 - `wls patch-mission REPO_PATH "mission"` creates mission/goal/action state and
   performs scoped repo inspection.
+- `wls-patch-missions --config CONFIG --continuity-only` shows persisted Patch
+  Mission continuity without mutating runtime state.
 - `wls patch-mission-step --mode resume-next` continues the next concrete Patch
   Mission action from persisted continuity.
 - Existing modes cover local inspection, owner-gated pytest, outbox patch draft,
@@ -114,14 +116,25 @@ Otherwise keep it as history/backlog, not mainline.
 
 ## Current Single Next Action
 
-Finish the source-level Patch Mission mainline proof:
+Finish the source-level Patch Mission mainline proof with an executable handoff,
+not another placeholder note:
 
-```text
-approve recovered commit-draft
--> create the local commit
--> resume-next to refresh post-commit git metadata
--> prepare remote-readiness summary
--> prove push and PR creation remain separate owner-approved actions
+```powershell
+wls-patch-missions --config CONFIG --continuity-only
+wls --config CONFIG approve ACTION_ID --reason "owner approves exact recovered commit-draft"
+wls --config CONFIG resume-action ACTION_ID
+wls --config CONFIG patch-mission-step --mode resume-next
+wls-patch-missions --config CONFIG --continuity-only
+```
+
+After the local commit is verified in continuity, continue only to the already
+implemented remote-readiness path and preserve the hard split between local work,
+branch push, and PR creation:
+
+```powershell
+wls --config CONFIG patch-mission-step --mode remote-summary --action-id ACTION_ID
+wls --config CONFIG patch-mission-step --mode branch-draft --action-id ACTION_ID
+wls --config CONFIG patch-mission-step --mode remote-live
 ```
 
 Do not add more dashboards, labels, readiness gates, or pure reports before this
