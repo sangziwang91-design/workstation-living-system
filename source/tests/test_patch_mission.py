@@ -3526,19 +3526,15 @@ def test_patch_mission_repeated_success_creates_repair_skill_candidate(
         reason="owner approves recovered local commit",
     )
     tenth_commit_result = runtime.resume_action(tenth_commit_step["action_id"])
-    tenth_remote_metadata_step = runtime.continue_patch_mission(
+    tenth_update_push_step = runtime.continue_patch_mission(
         mission_id=tenth_mission["mission_id"],
         mode="resume-next",
     )
-    tenth_remote_summary_step = runtime.continue_patch_mission(
-        mission_id=tenth_mission["mission_id"],
-        mode="resume-next",
+    tenth_update_push_row = runtime.db.query_one(
+        "SELECT tool,status,risk,arguments_json,error FROM actions WHERE action_id=?",
+        (tenth_update_push_step["action_id"],),
     )
-    tenth_remote_summary_row = runtime.db.query_one(
-        "SELECT tool,status,risk,arguments_json FROM actions WHERE action_id=?",
-        (tenth_remote_summary_step["action_id"],),
-    )
-    tenth_remote_summary_args = json.loads(tenth_remote_summary_row["arguments_json"])
+    tenth_update_push_args = json.loads(tenth_update_push_row["arguments_json"])
     tenth_log = git_output(tenth_repo, ["log", "-1", "--pretty=%B"])
 
     assert tenth_commit_result["status"] == "SUCCEEDED"
@@ -3549,25 +3545,23 @@ def test_patch_mission_repeated_success_creates_repair_skill_candidate(
     assert "Use recovered promoted skill confidence" in tenth_log
     assert "Changed files: demo.py" in tenth_log
     assert "No push or pull request was created by this action." in tenth_log
-    assert tenth_remote_metadata_step["mode"] == "git-metadata"
-    assert tenth_remote_metadata_step["requested_mode"] == "resume-next"
-    assert tenth_remote_metadata_step["resume_next"]["from_mode"] == "commit-draft"
+
+    # A known failed PR takes precedence over generic remote metadata after the
+    # verified local commit. resume-next must create the exact update-push draft
+    # and stop at owner approval; it must not perform the push itself.
+    assert tenth_update_push_step["mode"] == "pr-update-push-draft"
+    assert tenth_update_push_step["requested_mode"] == "resume-next"
+    assert tenth_update_push_step["resume_next"]["from_mode"] == "commit-draft"
     assert (
-        tenth_remote_metadata_step["resume_next"]["from_action_id"]
+        tenth_update_push_step["resume_next"]["from_action_id"]
         == tenth_commit_step["action_id"]
     )
-    assert tenth_remote_metadata_step["outcomes"][0]["success"] is True
-    assert tenth_remote_summary_step["mode"] == "remote-summary"
-    assert tenth_remote_summary_step["requested_mode"] == "resume-next"
-    assert (
-        tenth_remote_summary_step["source_action_id"]
-        == tenth_remote_metadata_step["action_id"]
-    )
-    assert tenth_remote_summary_row["tool"] == "write_file"
-    assert tenth_remote_summary_row["status"] == "WAITING_APPROVAL"
-    assert tenth_remote_summary_row["risk"] == "REVERSIBLE_WRITE"
-    assert "Patch Mission Remote Readiness Summary" in tenth_remote_summary_args["content"]
-    assert "No push, PR creation, comment, or merge is performed" in tenth_remote_summary_args["content"]
+    assert tenth_update_push_row["tool"] == "run_command"
+    assert tenth_update_push_row["status"] == "WAITING_APPROVAL"
+    assert tenth_update_push_row["risk"] == "HIGH"
+    assert tenth_update_push_row["error"] == "runtime is in read-only mode"
+    assert tenth_update_push_args["command"][:4] == ["git", "push", "origin", "HEAD:wls/fix-greeting"]
+    assert "--force" not in tenth_update_push_args["command"]
     assert (
         runtime.db.query_all(
             """
