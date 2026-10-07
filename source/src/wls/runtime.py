@@ -4115,7 +4115,7 @@ class LivingSystem:
             else "approved_repair_skill"
         )
         approval_required_by_policy = action.risk != RiskLevel.READ
-        metadata = {
+        metadata: dict[str, Any] = {
             "candidate_type": "promoted_repair_skill_action_candidate"
             if promoted_match
             else "approved_repair_skill_action_candidate",
@@ -6302,6 +6302,8 @@ class LivingSystem:
                 }:
                     continue
                 raw_id = item.get("id")
+                if raw_id is None:
+                    continue
                 try:
                     run_id = int(raw_id)
                 except (TypeError, ValueError):
@@ -6312,6 +6314,8 @@ class LivingSystem:
             if not isinstance(item, dict):
                 continue
             raw_id = item.get("workflow_run_id") or item.get("run_id")
+            if raw_id is None:
+                continue
             try:
                 run_id = int(raw_id)
             except (TypeError, ValueError):
@@ -15712,7 +15716,7 @@ class LivingSystem:
 
     def _self_model_confidence(self) -> dict[str, Any]:
         snapshot = self.self_model.snapshot()
-        entries = [
+        entries: list[dict[str, Any]] = [
             {
                 "key": key,
                 "confidence": float(value.get("confidence", 0.0)),
