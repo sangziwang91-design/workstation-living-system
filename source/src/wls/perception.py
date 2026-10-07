@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from collections.abc import Sequence
 from typing import Any
 import json
 
@@ -28,8 +29,8 @@ class PerceptionClassifier:
         self,
         observation: dict[str, Any],
         *,
-        goals: list[Goal | dict[str, Any]],
-        memories: list[dict[str, Any]],
+        goals: Sequence[Goal | dict[str, Any]],
+        memories: Sequence[dict[str, Any]],
     ) -> dict[str, Any]:
         text = self._observation_text(observation)
         lowered = text.lower()
@@ -132,8 +133,8 @@ class PerceptionClassifier:
         self,
         observations: list[dict[str, Any]],
         *,
-        goals: list[Goal | dict[str, Any]],
-        memories: list[dict[str, Any]],
+        goals: Sequence[Goal | dict[str, Any]],
+        memories: Sequence[dict[str, Any]],
         limit: int = 10,
         day: str | None = None,
     ) -> dict[str, Any]:
@@ -175,7 +176,7 @@ class PerceptionClassifier:
 
     @classmethod
     def _goal_links(
-        cls, text: str, goals: list[Goal | dict[str, Any]]
+        cls, text: str, goals: Sequence[Goal | dict[str, Any]]
     ) -> list[dict[str, Any]]:
         text_tokens = tokens(text)
         links: list[dict[str, Any]] = []
@@ -203,7 +204,7 @@ class PerceptionClassifier:
 
     @classmethod
     def _memory_links(
-        cls, text: str, memories: list[dict[str, Any]]
+        cls, text: str, memories: Sequence[dict[str, Any]]
     ) -> list[dict[str, Any]]:
         text_tokens = tokens(text)
         links: list[dict[str, Any]] = []
