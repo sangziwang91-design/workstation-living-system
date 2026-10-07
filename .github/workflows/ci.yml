@@ -21,7 +21,6 @@ jobs:
   verify:
     strategy:
       fail-fast: false
-      max-parallel: 1
       matrix:
         python-version: ["3.11", "3.13"]
     runs-on: windows-latest
@@ -53,7 +52,7 @@ jobs:
         run: 'python -m ruff check source/src source/tests source/scripts'
       - name: Types
         shell: powershell
-        run: 'python -m mypy source/src/wls source/tests source/scripts --ignore-missing-imports'
+        run: 'python -m mypy source/src/wls source/tests source/scripts --ignore-missing-imports --explicit-package-bases'
       - name: Security scan
         shell: powershell
         run: 'python -m bandit -q -r source/src/wls source/scripts'
