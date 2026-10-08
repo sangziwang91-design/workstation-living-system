@@ -43,3 +43,25 @@ def test_generated_guard_is_syntactically_valid_for_real_wls(tmp_path):
     assert scope._resolve_changed_file("safe.txt") == tmp_path / "safe.txt"
     # The generated expression contains no eval, calls, imports or file IO.
     assert "relative_file" in expr and ":" in expr
+
+
+
+def test_real_qwen_round3_return_expression_is_extracted_without_execution():
+    # Actual failed hosted run 37758577790 included this correct expression,
+    # wrapped in a Python function. Only the pure expression is admitted.
+    actual = """```python
+def is_valid_filename(relative_file):
+    # Check whether the filename contains CR or LF
+    return '\\n' in relative_file or '\\r' in relative_file
+```"""
+    expression = _parser()(actual)
+    assert expression is not None
+    assert "'\\n' in relative_file" in expression
+    assert "'\\r' in relative_file" in expression
+
+
+def test_return_wrappers_never_allow_imports_calls_or_attributes():
+    parser = _parser()
+    assert parser("return __import__('os').system('echo secret')") is None
+    assert parser("return os.environ.clear()") is None
+    assert parser("return relative_file.startswith('unsafe')") is None
