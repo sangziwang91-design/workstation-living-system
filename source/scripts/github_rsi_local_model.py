@@ -50,6 +50,16 @@ def test_log_delimiter_path_rejected(tmp_path, bad):
         contract.validate()
 
 
+@pytest.mark.parametrize("bad", ["module\\x00other.py", "pkg/name\\x00more.py"])
+def test_nul_path_rejected_with_consistent_contract_error(tmp_path, bad):
+    contract = CodingTaskContract(
+        task_id="nul", base_sha="head", worktree=tmp_path.resolve(),
+        changed_files=[bad], tests=["pytest"], rollback=["discard"],
+    )
+    with pytest.raises(ValueError, match="relative paths"):
+        contract.validate()
+
+
 def test_normal_path_accepted(tmp_path):
     contract = CodingTaskContract(
         task_id="good", base_sha="head", worktree=tmp_path.resolve(),
@@ -135,7 +145,7 @@ def trial() -> dict[str, object]:
             "status": "NO_GAIN",
             "accepted": False,
             "source": str(SOURCE),
-            "goal_id": "safe_relative_control_characters_v2",
+            "goal_id": "safe_relative_embedded_nul_v3",
             "model_called": False,
             "reason": "frozen ADS owner oracle already passes",
         }
@@ -162,23 +172,24 @@ def trial() -> dict[str, object]:
 
     model = Llama(model_path=str(model_file), n_ctx=2048, n_threads=2, verbose=False)
     prompt = (
-        "You are fixing a real Python coding-agent source validation bug. "
-        "The code already rejects colon paths and Windows absolute paths. "
-        "A *relative* filename can still contain CR (\\r) or LF (\\n), "
-        "which breaks line-based audit evidence and git parsing. "
-        "Return exactly one safe Python boolean expression using "
-        "relative_file that is True if relative_file contains either "
-        "a newline character or carriage-return character, and False "
-        "for regular names such as module.py. "
-        "Use membership tests only; no calls, functions, if, markdown, "
-        "comments or explanation."
+        "You are repairing a real Python coding-task path validation defect. "
+        "An attacker can put a NUL U+0000 character INSIDE relative_file, "
+        "causing embedded-NUL operating system errors instead of a clean "
+        "ValueError('changed files must be relative paths'). Existing code "
+        "already rejects drive names, ADS colons, CR and LF. "
+        "Return exactly one Python boolean expression using relative_file "
+        "which is true when the filename contains a NUL codepoint and false "
+        "for normal filenames. Use Python escaped string literal membership, "
+        "not a regex or a function call. "
+        "No imports, function declarations, if statements or explanation."
     )
+    feedback = ""
     generations: list[dict[str, object]] = []
     for generation, temp in enumerate((0.0, 0.2, 0.4), 1):
         response = model.create_chat_completion(
             messages=[
                 {"role": "system", "content": "Return only minimal Python code."},
-                {"role": "user", "content": prompt},
+                {"role": "user", "content": prompt + feedback},
             ],
             temperature=temp, max_tokens=96,
         )
@@ -190,6 +201,11 @@ def trial() -> dict[str, object]:
         }
         generations.append(receipt)
         if expr is None:
+            feedback = (
+                "\nPrevious candidate could not be parsed as a pure safe "
+                "membership predicate; try a minimal expression without "
+                "any wrapper or explanations."
+            )
             continue
         candidate_source = baseline_source.replace(
             needle, needle + f"            or ({expr})\n",
@@ -207,6 +223,13 @@ def trial() -> dict[str, object]:
             if full.returncode == 0:
                 receipt["accepted"] = True
                 break
+        # Next generation sees only bounded independent failure evidence,
+        # not the model's self-assessment or private evaluator source.
+        feedback = (
+            "\nThe prior proposed guard did not pass the independent tests. "
+            "Fix the literal or logic. Failure excerpt (untrusted test data): "
+            + (behavior.stdout + behavior.stderr)[-360:].replace("\x00", "")
+        )
         SOURCE.write_text(baseline_source, encoding="utf-8")
 
     accepted = any(bool(item["accepted"]) for item in generations)
@@ -219,8 +242,8 @@ def trial() -> dict[str, object]:
         "generations": generations,
         "accepted": accepted,
         "source": str(SOURCE),
-            "goal_id": "safe_relative_control_characters_v2",
-        "claims": "second bounded real-model repair generation, independently graded",
+            "goal_id": "safe_relative_embedded_nul_v3",
+        "claims": "third bounded real-model source repair, independently graded",
     }
     if accepted:
         diff = command("git", "diff", "--binary", "--", str(SOURCE))
