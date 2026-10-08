@@ -150,9 +150,13 @@ jobs:
   # Public WLS also verifies the COMPLETE package under Windows, not only
   # packaging and targeted RSI smoke. Never use the owner's offline PC.
   github-hosted-windows-full-validation:
-    name: Hosted Windows full WLS tests and wheel
+    name: Hosted Windows full WLS Python ${{ matrix.python-version }} and wheel
     runs-on: windows-latest
     timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
     steps:
       - name: Configure hosted Windows temporary directories
         shell: pwsh
@@ -165,7 +169,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
-          python-version: "3.13"
+          python-version: ${{ matrix.python-version }}
       - name: Install actual WLS package and verification tools
         run: python -m pip install -e ".[dev]"
       - name: Verify canonical packaging structure and compile
@@ -174,13 +178,18 @@ jobs:
           python -m compileall -q source/src source/tests source/scripts
       - name: Run the entire Windows suite with inspectable result XML
         run: python -m pytest -q source/tests --maxfail=1 --junitxml=hosted-windows-full.xml
+      - name: Lint and type-check held model and coding trust boundary
+        run: |
+          python -m ruff check source/src/wls/coding_adapter.py source/src/wls/rsi_evolution.py source/src/wls/rsi_artifact_gate.py source/src/wls/rsi_model_port.py
+          python -m mypy source/src/wls/coding_adapter.py source/src/wls/rsi_model_port.py --ignore-missing-imports
+          python -m bandit -q source/src/wls/coding_adapter.py source/src/wls/rsi_model_port.py
       - name: Build installable Windows wheel
         run: python -m build --wheel --outdir dist-windows .
       - name: Preserve Windows full-suite outcome and wheel
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: hosted-windows-full-wls-${{ github.run_id }}
+          name: hosted-windows-full-wls-${{ matrix.python-version }}-${{ github.run_id }}
           path: |
             hosted-windows-full.xml
             dist-windows/
