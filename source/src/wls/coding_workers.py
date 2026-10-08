@@ -145,13 +145,13 @@ class BaseCodingWorker:
 
     def _parse_test_results(self, stdout: str, stderr: str) -> bool:
         """Conservative hint only; independent evaluator evidence is still required."""
-        combined = stdout + "\\n" + stderr
-        if re.search(r"\\b(fail(?:ed|ures)?|errors?|traceback)\\b", combined, re.I):
+        combined = stdout + "\n" + stderr
+        if re.search(r"\b(fail(?:ed|ures)?|errors?|traceback)\b", combined, re.I):
             return False
         return bool(
-            re.search(r"\\b\\d+\\s+passed\\b", combined, re.I)
-            or re.search(r"\\btests?\\s+passed\\b", combined, re.I)
-            or re.search(r"(?m)^\\s*(?:OK|PASS)\\s*$", combined)
+            re.search(r"\b\d+\s+passed\b", combined, re.I)
+            or re.search(r"\btests?\s+passed\b", combined, re.I)
+            or re.search(r"(?m)^\s*(?:OK|PASS)\s*$", combined)
         )
 
 
