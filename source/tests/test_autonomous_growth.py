@@ -115,3 +115,51 @@ def test_rejected_failure_hypothesis_is_not_silently_resurrected(tmp_path: Path)
     assert len(runtime.db.query_all(
         "SELECT candidate_id FROM evolution_candidates WHERE candidate_type='failure_repair'"
     )) == 1
+
+
+
+def test_unknown_side_effect_goal_tracks_real_incident_without_replay(
+    tmp_path: Path,
+) -> None:
+    """An unchanged incident is not re-proposed; new evidence creates a new goal."""
+    home = tmp_path / "incidents"
+    runtime = runtime_at(home)
+    first_action = record_real_failure(runtime)
+    runtime.db.execute(
+        "UPDATE actions SET status='UNKNOWN_SIDE_EFFECT',result_json=NULL WHERE action_id=?",
+        (first_action,),
+    )
+    first_goals = runtime.autonomy.consider()
+    assert len(first_goals) == 1
+    first = runtime.goals.get(first_goals[0])
+    assert first is not None
+    assert first.source == "autonomy.safety"
+    assert first.risk == RiskLevel.READ
+    assert first.task_spec["source_action_ids"] == [first_action]
+    assert first.task_spec["unknown_action_count"] == 1
+
+    runtime.goals.update_progress(first_goals[0], 1.0)
+    assert runtime.autonomy.consider() == []
+    assert len(runtime.db.query_all(
+        "SELECT goal_id FROM goals WHERE source='autonomy.safety'"
+    )) == 1
+
+    second_action = record_real_failure(runtime)
+    runtime.db.execute(
+        "UPDATE actions SET status='UNKNOWN_SIDE_EFFECT',result_json=NULL WHERE action_id=?",
+        (second_action,),
+    )
+    new_goals = runtime.autonomy.consider()
+    assert len(new_goals) == 1
+    new_goal = runtime.goals.get(new_goals[0])
+    assert new_goal is not None
+    assert new_goal.title != first.title
+    assert set(new_goal.task_spec["source_action_ids"]) == {first_action, second_action}
+    assert new_goal.task_spec["unknown_action_count"] == 2
+
+    runtime.db.close_all()
+    resumed = runtime_at(home)
+    assert resumed.autonomy.consider() == []
+    assert len(resumed.db.query_all(
+        "SELECT goal_id FROM goals WHERE source='autonomy.safety'"
+    )) == 2
