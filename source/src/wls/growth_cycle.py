@@ -9,6 +9,7 @@ from .experiments import DEFAULT_ACCEPTANCE, IsolatedToolHarness, write_json_ato
 from .schemas import (
     CandidateStatus,
     Goal,
+    GoalStatus,
     RiskLevel,
     SkillDefinition,
     digest_json,
@@ -142,6 +143,108 @@ class GrowthCycleManager:
         with self.db.transaction() as connection:
             for statement in statements:
                 connection.execute(statement)
+
+    def advance_safe_endogenous_growth(
+        self, new_goal_ids: list[str]
+    ) -> list[dict[str, Any]]:
+        """Try at most one fixed-tool sandbox recovery from a new WLS growth goal.
+
+        This only produces a candidate skill; no generated program runs, and
+        all actual skill promotion/deployment still requires owner approval.
+        """
+        for goal_id in new_goal_ids:
+            goal = self.runtime.goals.get(goal_id)
+            if (
+                goal is None
+                or goal.source != "autonomy.learning"
+                or goal.risk != RiskLevel.READ
+                or not goal.task_spec.get("proposal_only")
+            ):
+                continue
+            candidate_id = str(goal.task_spec.get("candidate_id", ""))
+            candidate = self.db.query_one(
+                "SELECT status,source_ids_json FROM evolution_candidates "
+                "WHERE candidate_id=? AND candidate_type='failure_repair'",
+                (candidate_id,),
+            )
+            if candidate is None or candidate["status"] != CandidateStatus.PROPOSED.value:
+                continue
+            if self.db.query_one(
+                "SELECT experiment_id FROM recovery_experiments WHERE candidate_id=? LIMIT 1",
+                (candidate_id,),
+            ):
+                continue  # no crash/replay of a possibly side-effectful attempt
+            source_ids = json.loads(candidate["source_ids_json"])
+            if not isinstance(source_ids, list) or not 3 <= len(source_ids) <= 64:
+                continue
+            actions = self._source_failure_actions(source_ids)
+            if (
+                len(actions) != len(source_ids)
+                or any(
+                    row["status"] != "FAILED"
+                    or row["started_at"] is None
+                    or row["finished_at"] is None
+                    or row["result_json"] is None
+                    or row["risk"] != RiskLevel.READ.value
+                    or row["tool"] not in {"noop", "read_file", "list_directory"}
+                    for row in actions
+                )
+            ):
+                continue
+            try:
+                experiment = self.run_recovery_experiment(
+                    candidate_id, strategy="contract_recovery"
+                )
+                if experiment["status"] != "PASSED":
+                    self.runtime.goals.update_progress(goal_id, 0.0, GoalStatus.FAILED)
+                    self.ledger.append(
+                        "autonomous_growth_goal_resolved",
+                        {"goal_id": goal_id, "candidate_id": candidate_id,
+                         "result": "EXPERIMENT_FAILED"},
+                    )
+                    return [{
+                        "candidate_id": candidate_id,
+                        "status": "EXPERIMENT_FAILED",
+                        "experiment_id": experiment["experiment_id"],
+                    }]
+                proposal = self.propose_skill_from_recovery(
+                    candidate_id, experiment["experiment_id"]
+                )
+                validation = self.validate_skill(proposal["growth_cycle_id"])
+                passed = validation["status"] == "PASSED"
+                self.runtime.goals.update_progress(
+                    goal_id, 1.0 if passed else 0.0,
+                    GoalStatus.SUCCEEDED if passed else GoalStatus.FAILED,
+                )
+                self.ledger.append(
+                    "autonomous_growth_goal_resolved",
+                    {"goal_id": goal_id, "candidate_id": candidate_id,
+                     "growth_cycle_id": proposal["growth_cycle_id"],
+                     "result": "CANDIDATE_VALIDATED" if passed else "CANDIDATE_REJECTED",
+                     "live_promotion": False},
+                )
+                return [{
+                    "candidate_id": candidate_id,
+                    "growth_cycle_id": proposal["growth_cycle_id"],
+                    "skill_id": proposal["skill_id"],
+                    "status": "SKILL_VALIDATED_CANDIDATE"
+                    if passed else "SKILL_REJECTED_IN_SANDBOX",
+                    "claim_ceiling": "fixed-tool isolated replay only; no real-task transfer",
+                }]
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                # Retain incomplete experiments rather than blindly replaying.
+                self.runtime.goals.update_progress(goal_id, 0.0, GoalStatus.FAILED)
+                self.ledger.append(
+                    "autonomous_growth_blocked",
+                    {"goal_id": goal_id, "candidate_id": candidate_id,
+                     "error_type": type(error).__name__,
+                     "manual_reconciliation_required": True},
+                )
+                return [{
+                    "candidate_id": candidate_id, "status": "BLOCKED",
+                    "error_type": type(error).__name__,
+                }]
+        return []
 
     def run_recovery_experiment(
         self,

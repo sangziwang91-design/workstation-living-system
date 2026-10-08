@@ -37,13 +37,26 @@ class AutonomySystem:
         A candidate is an investigation request, never permission to modify
         code, execute untrusted proposals, or promote a skill.
         """
-        candidates = self.db.query_all(
-            """
-            SELECT candidate_id, source_ids_json FROM evolution_candidates
+        # Rotate a bounded scan through historical candidates. The oldest
+        # unexecutable 32 proposals must not permanently starve newer real
+        # failures. The cursor is stored in the existing runtime_state table.
+        try:
+            cursor = max(0, int(self.db.get_runtime("autonomy_growth_cursor", 0)))
+        except (ValueError, TypeError):
+            cursor = 0
+        query = """
+            SELECT rowid AS ordinal, candidate_id, source_ids_json
+            FROM evolution_candidates
             WHERE candidate_type='failure_repair' AND status='PROPOSED'
-            ORDER BY created_at ASC LIMIT 32
-            """
-        )
+              AND rowid>?
+            ORDER BY rowid ASC LIMIT 32
+        """
+        candidates = self.db.query_all(query, (cursor,))
+        if not candidates and cursor:
+            cursor = 0
+            candidates = self.db.query_all(query, (cursor,))
+        if not candidates:
+            return None
         for candidate in candidates:
             candidate_id = str(candidate["candidate_id"])
             title = f"Inspect recurring failures: {candidate_id}"
@@ -64,13 +77,22 @@ class AutonomySystem:
                 continue
             placeholders = ",".join("?" for _ in source_ids)
             outcomes = self.db.query_all(
-                f"""SELECT action_id, result_json FROM actions
+                f"""SELECT action_id, result_json, tool, risk FROM actions
                 WHERE action_id IN ({placeholders})
                   AND status='FAILED' AND started_at IS NOT NULL
                   AND finished_at IS NOT NULL AND result_json IS NOT NULL""",
                 tuple(source_ids),
             )
             if len(outcomes) != len(source_ids):
+                continue
+            # Do not occupy the finite autonomous-goal budget with a
+            # proposal that the only executable growth organ will decline.
+            # Other-tool failures remain recorded for later owner review.
+            if any(
+                row["risk"] != RiskLevel.READ.value
+                or row["tool"] not in {"noop", "read_file", "list_directory"}
+                for row in outcomes
+            ):
                 continue
             try:
                 if any(
@@ -81,6 +103,7 @@ class AutonomySystem:
                     continue
             except (TypeError, ValueError, AttributeError):
                 continue
+            self.db.set_runtime("autonomy_growth_cursor", int(candidate["ordinal"]))
             return Goal(
                 title=title,
                 description=(
@@ -104,6 +127,7 @@ class AutonomySystem:
                     "proposal_only": True,
                 },
             )
+        self.db.set_runtime("autonomy_growth_cursor", int(candidates[-1]["ordinal"]))
         return None
 
     def consider(self) -> list[str]:

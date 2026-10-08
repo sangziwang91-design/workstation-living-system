@@ -1,11 +1,9 @@
 name: WLS GitHub RSI Source Repair
 
 on:
-  pull_request:
-    paths:
-      - "source/scripts/**"
-      - "source/src/wls/**"
-      - ".github/workflows/hosted-rsi-autorepair.yml"
+  # Do not run full-source autonomous repair on every PR commit.
+  # That consumed full-test runner minutes and could write back into an
+  # actively edited review branch. PRs use the separate deterministic CI.
   workflow_dispatch:
   # Bounded, low-frequency autonomous improvement. Runs on GitHub default
   # branch; candidates are retained in a separate lineage feature branch.
@@ -77,10 +75,7 @@ jobs:
     needs: candidate
     if: >-
       needs.candidate.outputs.eligible == 'true' &&
-      (github.event_name == 'schedule' ||
-        (github.event_name == 'pull_request' &&
-          github.event.pull_request.head.repo.full_name == github.repository &&
-          startsWith(github.event.pull_request.head.ref, 'feat/rsi-')))
+      github.event_name == 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -90,7 +85,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       RUN_EVENT: ${{ github.event_name }}
-      HEAD_BRANCH: ${{ github.event_name == 'schedule' && 'feat/rsi-autonomous-improvement' || github.event.pull_request.head.ref }}
+      HEAD_BRANCH: feat/rsi-autonomous-improvement
       BASE_SHA: ${{ needs.candidate.outputs.base_sha }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5

@@ -14119,6 +14119,17 @@ class LivingSystem:
                 }
             )
             step_started = time.monotonic()
+            growth_rehearsals = self.growth.advance_safe_endogenous_growth(
+                autonomous_goal_ids
+            )
+            event_goal_timings.append(
+                {
+                    "step": "bounded_autonomous_growth_rehearsal",
+                    "elapsed_seconds": round(time.monotonic() - step_started, 4),
+                    "attempted": len(growth_rehearsals),
+                }
+            )
+            step_started = time.monotonic()
             active_goals = self.goals.active(limit=20)
             goal_pressure = self._goal_pressure_summary(
                 goals=active_goals,

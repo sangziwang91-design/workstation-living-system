@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       run_owner_host:
-        description: "Run the owner's offline Windows self-hosted diagnostic"
+        description: "Opt in to the owner's self-hosted Windows machine (requires that runner)"
         type: boolean
         required: false
         default: false

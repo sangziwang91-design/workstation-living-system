@@ -5,6 +5,7 @@ This is not evidence of autonomous model coding or recursive improvement.
 from __future__ import annotations
 
 from pathlib import Path
+import json
 
 from wls.config import default_config
 from wls.runtime import LivingSystem
@@ -63,6 +64,14 @@ def test_real_failure_growth_is_selected_once_and_survives_restart(tmp_path: Pat
     assert goals[0]["title"] == f"Inspect recurring failures: {candidate_id}"
     assert goals[0]["risk"] == "READ"
     assert goals[0]["autonomous"] == 1
+    assert goals[0]["status"] == "SUCCEEDED"  # investigation, not skill promotion
+    # The existing GrowthCycle performs a fixed-tool sandbox experiment and
+    # validates a candidate, without authorizing it to run in production.
+    growth_rows = runtime.db.query_all("SELECT status FROM growth_cycles")
+    assert len(growth_rows) == 1
+    assert growth_rows[0]["status"] == "SKILL_VALIDATED"
+    assert len(runtime.db.query_all("SELECT experiment_id FROM recovery_experiments")) == 1
+    assert runtime.db.query_all("SELECT skill_id FROM skills WHERE status='PROMOTED'") == []
 
     # Further observations must not create a new proposal fingerprint.
     record_real_failure(runtime)
@@ -77,6 +86,10 @@ def test_real_failure_growth_is_selected_once_and_survives_restart(tmp_path: Pat
     assert len(restored.db.query_all(
         "SELECT goal_id FROM goals WHERE source='autonomy.learning'"
     )) == 1
+    assert len(restored.db.query_all(
+        "SELECT experiment_id FROM recovery_experiments"
+    )) == 1
+    assert restored.db.query_all("SELECT skill_id FROM skills WHERE status='PROMOTED'") == []
     assert len(source_ids) == 3
     assert restored.verify_integrity(full=True)["ok"] is True
 
@@ -114,4 +127,66 @@ def test_rejected_failure_hypothesis_is_not_silently_resurrected(tmp_path: Path)
     runtime.run_cycle()
     assert len(runtime.db.query_all(
         "SELECT candidate_id FROM evolution_candidates WHERE candidate_type='failure_repair'"
+    )) == 1
+
+
+def test_unsupported_failure_source_does_not_exhaust_autonomous_goal_budget(
+    tmp_path: Path,
+) -> None:
+    runtime = runtime_at(tmp_path / "unsupported")
+    source_ids = [record_real_failure(runtime) for _ in range(3)]
+    # Fixture: a completed, failed, non-eligible tool. Its result remains
+    # a valid failure label but has no safe automatic recovery organ.
+    for action_id in source_ids:
+        runtime.db.execute(
+            "UPDATE actions SET tool='http_get' WHERE action_id=?", (action_id,)
+        )
+    runtime.run_cycle()
+    assert len(runtime.db.query_all(
+        "SELECT candidate_id FROM evolution_candidates WHERE candidate_type='failure_repair'"
+    )) == 1
+    assert runtime.db.query_all(
+        "SELECT goal_id FROM goals WHERE source='autonomy.learning'"
+    ) == []
+    assert runtime.goals.autonomous_count() == 0
+
+
+
+def test_growth_discovery_rotates_past_stale_candidates(tmp_path: Path) -> None:
+    runtime = runtime_at(tmp_path / "long-history")
+    # Corrupt/ineligible proposals are fixtures, not real learning evidence.
+    # A finite attention window must eventually reach the real candidate.
+    for index in range(35):
+        runtime.db.execute(
+            """
+            INSERT INTO evolution_candidates(
+                candidate_id,candidate_type,title,proposal_json,source_ids_json,
+                baseline_json,experiment_json,result_json,status,created_at,updated_at
+            ) VALUES(?,?,?,?,?,NULL,NULL,NULL,?,?,?)
+            """,
+            (
+                new_id("candidate"),
+                "failure_repair",
+                f"ineligible old proposal {index}",
+                json.dumps({"fixture_index": index}),
+                json.dumps([f"missing-{index}"]),
+                "PROPOSED",
+                utc_now(),
+                utc_now(),
+            ),
+        )
+    for _ in range(3):
+        record_real_failure(runtime)
+    runtime.run_cycle()
+    assert runtime.db.query_all(
+        "SELECT goal_id FROM goals WHERE source='autonomy.learning'"
+    ) == []
+    runtime.run_cycle()
+    accepted = runtime.db.query_all(
+        "SELECT goal_id,status FROM goals WHERE source='autonomy.learning'"
+    )
+    assert len(accepted) == 1
+    assert accepted[0]["status"] == "SUCCEEDED"
+    assert len(runtime.db.query_all(
+        "SELECT growth_cycle_id FROM growth_cycles"
     )) == 1
