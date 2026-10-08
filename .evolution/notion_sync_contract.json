@@ -10,7 +10,7 @@
     "role": "SEMANTIC_MEMORY_AND_EXPERIMENT_GOVERNANCE"
   },
   "github": {
-    "repository": "sangziwang91-design/workstation-living-system-private",
+    "repository": "sangziwang91-design/workstation-living-system",
     "role": "CANONICAL_ENGINEERING_TRUTH",
     "control_plane": ".evolution/",
     "canonical_runtime": "source/src/wls/runtime.py::LivingSystem"
