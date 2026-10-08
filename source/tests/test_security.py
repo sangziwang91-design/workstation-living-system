@@ -1,5 +1,14 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+
+from wls.config import default_config
+from wls.policy import PolicyEngine
+from wls.schemas import ActionSpec, RiskLevel
+from wls.tools import ToolRegistry
+
 from wls.security import (
     SecurityAudit,
     SecurityFinding,
@@ -249,3 +258,112 @@ def test_legacy_parent_read_scope_is_narrowed_on_config_load(tmp_path):
     assert explicit.tool_policy["allowed_read_roots"] == [
         str(config.home_path), str(tmp_path / "consented-repo")
     ]
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "state/wls.db",
+        "state/wls.db-wal",
+        "state/runtime.lock",
+        "logs/runtime.jsonl",
+        "snapshots/backup.sqlite",
+        "secrets/evidence.key",
+        "secrets/approval.key",
+    ],
+)
+def test_agent_cannot_read_private_wls_state_under_broad_legacy_policy(
+    tmp_path: Path, relative: str,
+) -> None:
+    config = default_config(tmp_path / "home")
+    config.ensure_directories()
+    target = config.home_path / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if not target.exists():
+        target.write_text("synthetic test data, not a credential", encoding="utf-8")
+    # An old config or explicit user-added root may include the entire home.
+    config.tool_policy["allowed_read_roots"] = [str(config.home_path.parent)]
+    policy = PolicyEngine(config)
+    for tool in ("read_file", "inspect_asset"):
+        action = ActionSpec(
+            tool=tool, arguments={"path": str(target)},
+            purpose="verify private state is not agent-readable",
+            expected_result="private WLS data denied", risk=RiskLevel.READ,
+        )
+        with pytest.raises(PermissionError, match="WLS private runtime paths"):
+            policy.validate_arguments(action)
+        outcome = ToolRegistry(policy).execute(action)
+        assert outcome.success is False
+        assert not outcome.output
+
+
+@pytest.mark.parametrize("relative", ["state", "logs", "snapshots", "secrets"])
+def test_private_wls_directory_listing_is_forbidden(
+    tmp_path: Path, relative: str,
+) -> None:
+    config = default_config(tmp_path / "home")
+    config.ensure_directories()
+    policy = PolicyEngine(config)
+    listing = ActionSpec(
+        tool="list_directory", arguments={"path": str(config.home_path / relative)},
+        purpose="test private directory traversal",
+        expected_result="deny private metadata", risk=RiskLevel.READ,
+    )
+    with pytest.raises(PermissionError, match="WLS private runtime paths"):
+        policy.validate_arguments(listing)
+
+
+def test_agent_cannot_write_over_private_sqlite_or_snapshots(
+    tmp_path: Path,
+) -> None:
+    config = default_config(tmp_path / "home")
+    config.ensure_directories()
+    config.tool_policy["allowed_write_roots"] = [str(config.home_path)]
+    policy = PolicyEngine(config)
+    for tool, path in [
+        ("write_file", config.db_path),
+        ("emit_note", config.home_path / "logs" / "task.json"),
+        ("delete_file", config.home_path / "snapshots" / "backup.sqlite"),
+    ]:
+        action = ActionSpec(
+            tool=tool, arguments={"path": str(path)},
+            purpose="try to tamper with WLS private evidence",
+            expected_result="reject", risk=RiskLevel.REVERSIBLE_WRITE,
+        )
+        with pytest.raises(PermissionError, match="WLS private runtime paths"):
+            policy.validate_arguments(action)
+
+
+def test_agent_can_still_read_owner_work_in_wls_home(tmp_path: Path) -> None:
+    config = default_config(tmp_path / "home")
+    config.ensure_directories()
+    good = config.home_path / "ordinary-task.txt"
+    good.write_text("legitimate task input", encoding="utf-8")
+    action = ActionSpec(
+        tool="read_file", arguments={"path": str(good)},
+        purpose="read user-authorized task",
+        expected_result="task text", risk=RiskLevel.READ,
+    )
+    result = ToolRegistry(PolicyEngine(config)).execute(action)
+    assert result.success is True
+    assert result.output["text"] == "legitimate task input"
+
+
+def test_agent_cannot_follow_inbox_symlink_to_private_sqlite(
+    tmp_path: Path,
+) -> None:
+    config = default_config(tmp_path / "home")
+    config.ensure_directories()
+    target = config.db_path
+    alias = config.inbox_path / "apparently-safe.txt"
+    try:
+        alias.symlink_to(target)
+    except (NotImplementedError, OSError) as exc:
+        pytest.skip(f"symlink unavailable on this runner: {exc}")
+    action = ActionSpec(
+        tool="read_file", arguments={"path": str(alias)},
+        purpose="test symlink escape against private memory",
+        expected_result="refuse", risk=RiskLevel.READ,
+    )
+    with pytest.raises(PermissionError, match="WLS private runtime paths"):
+        PolicyEngine(config).validate_arguments(action)
