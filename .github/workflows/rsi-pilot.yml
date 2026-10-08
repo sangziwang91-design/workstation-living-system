@@ -15,6 +15,7 @@ on:
       - "source/tests/test_rsi_model_port.py"
       - "source/tests/test_rsi_risk_cli.py"
       - "source/tests/test_agentbridge_handoff.py"
+      - "source/tests/test_agentbridge_full_roundtrip.py"
       - "source/src/wls/agentic_harness.py"
       - "source/src/wls/cli.py"
       - "source/src/wls/task_admission.py"
@@ -53,7 +54,7 @@ jobs:
       - name: Windows repository invariant and targeted WLS RSI regressions
         run: |
           python source/scripts/verify_packaging_layout.py
-          python -m pytest -q source/tests/test_rsi_evolution.py source/tests/test_experiment_decision.py source/tests/test_loop_control.py source/tests/test_coding_workers.py source/tests/test_rsi_artifact_gate.py source/tests/test_rsi_model_port.py source/tests/test_rsi_risk_cli.py source/tests/test_agentbridge_handoff.py
+          python -m pytest -q source/tests/test_rsi_evolution.py source/tests/test_experiment_decision.py source/tests/test_loop_control.py source/tests/test_coding_workers.py source/tests/test_rsi_artifact_gate.py source/tests/test_rsi_model_port.py source/tests/test_rsi_risk_cli.py source/tests/test_agentbridge_handoff.py source/tests/test_agentbridge_full_roundtrip.py
       - name: Windows 100-generation durability proof
         run: python source/scripts/verify_rsi_100_generations.py --report rsi-100-windows.json
       - name: Windows RSI 50-round adversarial audit
@@ -82,11 +83,24 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install verified root package and tools
         run: python -m pip install -e ".[dev]"
+      # Test *both actual packages together*, not just JSON stand-ins.
+      # Open bridge commit is pinned; it is public and never receives WLS secrets.
+      - name: Checkout pinned public AgentBridge for live protocol integration
+        if: matrix.python-version == '3.13'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          repository: sangziwang91-design/open
+          ref: a2075c98f70e9a745c59633a2b3bc76842aea864
+          path: external-agentbridge
+          persist-credentials: false
+      - name: Install public bridge for cross-repository process roundtrip
+        if: matrix.python-version == '3.13'
+        run: python -m pip install -e ./external-agentbridge
       - name: Repository invariant
         run: python source/scripts/verify_packaging_layout.py
       - name: RSI pilot and existing decision regressions
         run: |
-          python -m pytest -q source/tests/test_rsi_evolution.py             source/tests/test_experiment_decision.py             source/tests/test_loop_control.py             source/tests/test_coding_workers.py             source/tests/test_rsi_artifact_gate.py source/tests/test_rsi_model_port.py source/tests/test_rsi_risk_cli.py source/tests/test_agentbridge_handoff.py
+          python -m pytest -q source/tests/test_rsi_evolution.py             source/tests/test_experiment_decision.py             source/tests/test_loop_control.py             source/tests/test_coding_workers.py             source/tests/test_rsi_artifact_gate.py source/tests/test_rsi_model_port.py source/tests/test_rsi_risk_cli.py source/tests/test_agentbridge_handoff.py source/tests/test_agentbridge_full_roundtrip.py
       - name: Execute 100-generation / 200-candidate deterministic stress proof
         run: python source/scripts/verify_rsi_100_generations.py --report rsi-100-proof.json
       - name: Run 50-round fault-injection matrix against real WLS state
@@ -102,7 +116,7 @@ jobs:
           if-no-files-found: warn
       - name: Lint changed RSI surfaces
         run: |
-          python -m ruff check             source/src/wls/rsi_evolution.py             source/src/wls/rsi_artifact_gate.py             source/src/wls/rsi_model_port.py             source/src/wls/task_admission.py             source/src/wls/experiment_decision.py             source/src/wls/loop_control.py             source/src/wls/coding_workers.py             source/tests/test_rsi_evolution.py             source/tests/test_rsi_artifact_gate.py             source/tests/test_rsi_model_port.py             source/tests/test_rsi_risk_cli.py             source/tests/test_agentbridge_handoff.py             source/scripts/verify_rsi_100_generations.py             source/scripts/verify_rsi_50_faults.py
+          python -m ruff check             source/src/wls/rsi_evolution.py             source/src/wls/rsi_artifact_gate.py             source/src/wls/rsi_model_port.py             source/src/wls/task_admission.py             source/src/wls/experiment_decision.py             source/src/wls/loop_control.py             source/src/wls/coding_workers.py             source/tests/test_rsi_evolution.py             source/tests/test_rsi_artifact_gate.py             source/tests/test_rsi_model_port.py             source/tests/test_rsi_risk_cli.py             source/tests/test_agentbridge_handoff.py             source/tests/test_agentbridge_full_roundtrip.py             source/scripts/verify_rsi_100_generations.py             source/scripts/verify_rsi_50_faults.py
 
 
   # Explicit owner opt-in only. Never called on PRs or schedules. The model
