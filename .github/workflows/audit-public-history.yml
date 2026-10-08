@@ -51,6 +51,17 @@ jobs:
             --report-format=json \
             --report-path=/tmp/wls-gitleaks-history-redacted.json \
             --no-banner
+      - name: Print safe finding identifiers (never leak token values)
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          report=/tmp/wls-gitleaks-history-redacted.json
+          if [ -s "$report" ]; then
+            jq -r '.[] | [.RuleID, .File, (.StartLine | tostring), .Commit] | @tsv' "$report"
+          else
+            echo "No redacted findings file emitted."
+          fi
       - name: Preserve redacted findings for owner review
         if: failure()
         uses: actions/upload-artifact@v4
