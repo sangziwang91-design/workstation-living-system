@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 import hashlib
+import re
 import shutil
 import subprocess
 import time
@@ -143,12 +144,15 @@ class BaseCodingWorker:
         return files
 
     def _parse_test_results(self, stdout: str, stderr: str) -> bool:
-        combined = stdout + stderr
-        if "PASS" in combined or "passed" in combined or "ok" in combined.lower():
-            return True
-        if "FAIL" in combined or "error" in combined.lower():
+        """Conservative hint only; independent evaluator evidence is still required."""
+        combined = stdout + "\\n" + stderr
+        if re.search(r"\\b(fail(?:ed|ures)?|errors?|traceback)\\b", combined, re.I):
             return False
-        return True
+        return bool(
+            re.search(r"\\b\\d+\\s+passed\\b", combined, re.I)
+            or re.search(r"\\btests?\\s+passed\\b", combined, re.I)
+            or re.search(r"(?m)^\\s*(?:OK|PASS)\\s*$", combined)
+        )
 
 
 class ClaudeCodeWorker(BaseCodingWorker):
