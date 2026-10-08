@@ -55,6 +55,19 @@ jobs:
         run: |
           python source/scripts/verify_packaging_layout.py
           python -m pytest -q source/tests/test_rsi_evolution.py source/tests/test_experiment_decision.py source/tests/test_loop_control.py source/tests/test_coding_workers.py source/tests/test_rsi_artifact_gate.py source/tests/test_rsi_model_port.py source/tests/test_rsi_risk_cli.py source/tests/test_agentbridge_handoff.py source/tests/test_agentbridge_full_roundtrip.py
+      # Hosted Windows is sufficient for the actual process and graph
+      # contract. No private on-premises PC and no external model token.
+      - name: Checkout tested public bridge on GitHub-hosted Windows
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          repository: sangziwang91-design/open
+          ref: ec480eedefbcae76abe2dd898f79b9f59e684452
+          path: external-agentbridge
+          persist-credentials: false
+      - name: Install public bridge on hosted Windows
+        run: python -m pip install -e ./external-agentbridge
+      - name: Independent good/bad Python patch tests across both repositories (Windows)
+        run: python -m pytest -q source/tests/test_agentbridge_full_roundtrip.py --junitxml=bridge-windows.xml
       - name: Windows 100-generation durability proof
         run: python source/scripts/verify_rsi_100_generations.py --report rsi-100-windows.json
       - name: Windows RSI 50-round adversarial audit
@@ -67,6 +80,7 @@ jobs:
           path: |
             rsi-100-windows.json
             rsi-50-windows.json
+            bridge-windows.xml
           if-no-files-found: warn
 
   candidate-proof:
@@ -101,6 +115,9 @@ jobs:
       - name: RSI pilot and existing decision regressions
         run: |
           python -m pytest -q source/tests/test_rsi_evolution.py             source/tests/test_experiment_decision.py             source/tests/test_loop_control.py             source/tests/test_coding_workers.py             source/tests/test_rsi_artifact_gate.py source/tests/test_rsi_model_port.py source/tests/test_rsi_risk_cli.py source/tests/test_agentbridge_handoff.py source/tests/test_agentbridge_full_roundtrip.py
+      - name: Prove real accepted and rejected source patches on hosted Linux
+        if: matrix.python-version == '3.13'
+        run: python -m pytest -q source/tests/test_agentbridge_full_roundtrip.py --junitxml=bridge-linux.xml
       - name: Execute 100-generation / 200-candidate deterministic stress proof
         run: python source/scripts/verify_rsi_100_generations.py --report rsi-100-proof.json
       - name: Run 50-round fault-injection matrix against real WLS state
@@ -113,6 +130,7 @@ jobs:
           path: |
             rsi-100-proof.json
             rsi-50-proof.json
+            bridge-linux.xml
           if-no-files-found: warn
       - name: Lint changed RSI surfaces
         run: |
