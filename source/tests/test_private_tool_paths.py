@@ -37,6 +37,8 @@ def test_default_read_roots_only_include_task_data(tmp_path: Path) -> None:
         "state/wls.db",
         "logs/history.jsonl",
         "snapshots/backup.sqlite",
+        "config.json",
+        ".env",
     ],
 )
 def test_legacy_broad_read_root_cannot_expose_private_runtime(
