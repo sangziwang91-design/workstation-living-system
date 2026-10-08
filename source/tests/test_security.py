@@ -290,7 +290,7 @@ def test_agent_cannot_read_private_wls_state_under_broad_legacy_policy(
             purpose="verify private state is not agent-readable",
             expected_result="private WLS data denied", risk=RiskLevel.READ,
         )
-        with pytest.raises(PermissionError, match="WLS private runtime paths"):
+        with pytest.raises(PermissionError, match=r"WLS (private runtime paths|evidence secrets)"):
             policy.validate_arguments(action)
         outcome = ToolRegistry(policy).execute(action)
         assert outcome.success is False
@@ -309,7 +309,7 @@ def test_private_wls_directory_listing_is_forbidden(
         purpose="test private directory traversal",
         expected_result="deny private metadata", risk=RiskLevel.READ,
     )
-    with pytest.raises(PermissionError, match="WLS private runtime paths"):
+    with pytest.raises(PermissionError, match=r"WLS (private runtime paths|evidence secrets)"):
         policy.validate_arguments(listing)
 
 
@@ -330,7 +330,7 @@ def test_agent_cannot_write_over_private_sqlite_or_snapshots(
             purpose="try to tamper with WLS private evidence",
             expected_result="reject", risk=RiskLevel.REVERSIBLE_WRITE,
         )
-        with pytest.raises(PermissionError, match="WLS private runtime paths"):
+        with pytest.raises(PermissionError, match=r"WLS (private runtime paths|evidence secrets)"):
             policy.validate_arguments(action)
 
 
@@ -365,5 +365,5 @@ def test_agent_cannot_follow_inbox_symlink_to_private_sqlite(
         purpose="test symlink escape against private memory",
         expected_result="refuse", risk=RiskLevel.READ,
     )
-    with pytest.raises(PermissionError, match="WLS private runtime paths"):
+    with pytest.raises(PermissionError, match=r"WLS (private runtime paths|evidence secrets)"):
         PolicyEngine(config).validate_arguments(action)
