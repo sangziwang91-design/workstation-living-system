@@ -8,7 +8,8 @@ from typing import Any
 
 NOTION_PAGE_ID = "38940ff6ad6281b6bd69d700c9322d77"
 NOTION_PAGE_URL = "https://app.notion.com/p/38940ff6ad6281b6bd69d700c9322d77"
-REPOSITORY = "sangziwang91-design/workstation-living-system-private"
+REPOSITORY = "sangziwang91-design/workstation-living-system"
+LEGACY_REPOSITORY = "sangziwang91-design/workstation-living-system-private"
 CANONICAL_RUNTIME = "source/src/wls/runtime.py::LivingSystem"
 
 STATUS_BY_DIRECTORY = {
@@ -135,7 +136,11 @@ def _validate_packet(
     _require(isinstance(context, dict), f"{packet_path.as_posix()} context must be an object", errors)
     if isinstance(context, dict):
         _require(
-            context.get("repository") == REPOSITORY,
+            context.get("repository") == REPOSITORY
+            or (
+                expected_status in {"COMPLETED", "BLOCKED", "VERIFICATION"}
+                and context.get("repository") == LEGACY_REPOSITORY
+            ),
             f"{packet_path.as_posix()} repository anchor mismatch",
             errors,
         )
