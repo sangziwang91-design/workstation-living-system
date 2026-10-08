@@ -150,3 +150,79 @@ class TestPromptInjection:
     def test_clean_text(self):
         f = prompt_injection_check("What is the weather today?")
         assert f is None
+
+
+def test_evidence_key_is_unreadable_even_under_old_broad_policy(tmp_path):
+    """The old home-parent allowlist cannot authorize reading verifier keys."""
+    import pytest
+    from wls.config import default_config
+    from wls.policy import PolicyEngine
+    from wls.schemas import ActionSpec, RiskLevel
+    from wls.tools import ToolRegistry
+
+    config = default_config(tmp_path / "wls")
+    config.ensure_directories()
+    config.secret_path.write_bytes(b"test-only-not-an-actual-secret" * 2)
+    # Emulate saved configurations created before the safe defaults changed.
+    config.tool_policy["allowed_read_roots"] = [str(tmp_path)]
+    config.tool_policy["allowed_write_roots"] = [str(tmp_path)]
+    policy = PolicyEngine(config)
+    tools = ToolRegistry(policy)
+    for tool in ("read_file", "list_directory", "write_file", "delete_file"):
+        action = ActionSpec(
+            tool=tool,
+            arguments={"path": str(config.secret_path) if tool != "list_directory"
+                       else str(config.secret_path.parent)},
+            purpose="negative secret access probe",
+            expected_result="permission denied",
+            risk=RiskLevel.READ,
+        )
+        with pytest.raises(PermissionError, match="evidence secrets"):
+            policy.validate_arguments(action)
+        result = tools.execute(action)
+        assert result.success is False
+        assert "PermissionError" in str(result.error)
+    # Existing paths outside secrets remain readable under explicit owner scope.
+    public = tmp_path / "allowed.txt"
+    public.write_text("public test data", encoding="utf-8")
+    policy.validate_arguments(ActionSpec(
+        tool="read_file", arguments={"path": str(public)},
+        purpose="positive read case", expected_result="success",
+    ))
+
+
+def test_secret_symlink_is_not_readable(tmp_path):
+    import pytest
+    from wls.config import default_config
+    from wls.policy import PolicyEngine
+    from wls.schemas import ActionSpec
+
+    config = default_config(tmp_path / "wls")
+    config.ensure_directories()
+    config.secret_path.write_bytes(b"test-key")
+    alias = config.home_path / "sandbox" / "key-alias"
+    try:
+        alias.symlink_to(config.secret_path)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlink creation not permitted by host")
+    action = ActionSpec(
+        tool="read_file", arguments={"path": str(alias)},
+        purpose="negative symlink probe", expected_result="permission denied",
+    )
+    with pytest.raises(PermissionError, match="evidence secrets"):
+        PolicyEngine(config).validate_arguments(action)
+
+
+def test_default_read_roots_do_not_include_home_parent(tmp_path):
+    from wls.config import default_config
+
+    config = default_config(tmp_path / "wls")
+    assert config.tool_policy["allowed_read_roots"] == [str(config.home_path)]
+
+
+def test_default_wls_test_home_is_isolated(tmp_path, monkeypatch):
+    from wls.config import default_config
+
+    configured = default_config()
+    assert configured.home_path.parent == tmp_path
+    assert configured.home_path.name == "default-wls-home"
