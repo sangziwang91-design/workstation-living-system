@@ -127,6 +127,10 @@ jobs:
               'source/src/wls/evidence.py',
               'source/src/wls/db.py',
               'source/src/wls/rsi_artifact_gate.py',
+              'source/src/wls/benchmark.py',
+              'source/src/wls/evaluator.py',
+              'source/src/wls/experiment_decision.py',
+              'source/src/wls/rsi_evolution.py',
           }
           for name in scope:
               assert isinstance(name, str) and name.endswith('.py')
