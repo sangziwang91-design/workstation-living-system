@@ -6,7 +6,6 @@ import json
 
 import pytest
 from wls.cli import main
-from wls.config import default_config
 from wls.db import Database
 from wls.evidence import EvidenceLedger
 from wls.rsi_artifact_gate import RsiArtifactGate
@@ -132,7 +131,6 @@ def test_cli_real_control_flow_uses_wls_sqlite_and_recovers_status(
     reopened = json.loads(capsys.readouterr().out)
     assert reopened["status"] == "COMPLETE"
     assert reopened["score"] == result["score"]
-    config = default_config(tmp_path / "wls")
     # An independent DB reopen shows the receipt survived the CLI process.
     from wls.config import load_config
 
