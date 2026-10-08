@@ -16,7 +16,6 @@ from .schemas import (
     utc_now,
 )
 
-
 _RISK_ORDER = {
     RiskLevel.READ: 0,
     RiskLevel.REVERSIBLE_WRITE: 1,
