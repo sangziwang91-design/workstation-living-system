@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -22,6 +23,9 @@ env:
 
 jobs:
   verify:
+    # Local D-drive-only diagnostic is owner-triggered; it must not strand
+    # normal pull requests while a home workstation is offline.
+    if: github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       max-parallel: 1
