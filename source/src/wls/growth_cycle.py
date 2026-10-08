@@ -9,6 +9,7 @@ from .experiments import DEFAULT_ACCEPTANCE, IsolatedToolHarness, write_json_ato
 from .schemas import (
     CandidateStatus,
     Goal,
+    GoalStatus,
     RiskLevel,
     SkillDefinition,
     digest_json,
@@ -195,6 +196,12 @@ class GrowthCycleManager:
                     candidate_id, strategy="contract_recovery"
                 )
                 if experiment["status"] != "PASSED":
+                    self.runtime.goals.update_progress(goal_id, 0.0, GoalStatus.FAILED)
+                    self.ledger.append(
+                        "autonomous_growth_goal_resolved",
+                        {"goal_id": goal_id, "candidate_id": candidate_id,
+                         "result": "EXPERIMENT_FAILED"},
+                    )
                     return [{
                         "candidate_id": candidate_id,
                         "status": "EXPERIMENT_FAILED",
@@ -204,21 +211,34 @@ class GrowthCycleManager:
                     candidate_id, experiment["experiment_id"]
                 )
                 validation = self.validate_skill(proposal["growth_cycle_id"])
+                passed = validation["status"] == "PASSED"
+                self.runtime.goals.update_progress(
+                    goal_id, 1.0 if passed else 0.0,
+                    GoalStatus.SUCCEEDED if passed else GoalStatus.FAILED,
+                )
+                self.ledger.append(
+                    "autonomous_growth_goal_resolved",
+                    {"goal_id": goal_id, "candidate_id": candidate_id,
+                     "growth_cycle_id": proposal["growth_cycle_id"],
+                     "result": "CANDIDATE_VALIDATED" if passed else "CANDIDATE_REJECTED",
+                     "live_promotion": False},
+                )
                 return [{
                     "candidate_id": candidate_id,
                     "growth_cycle_id": proposal["growth_cycle_id"],
                     "skill_id": proposal["skill_id"],
                     "status": "SKILL_VALIDATED_CANDIDATE"
-                    if validation["status"] == "PASSED"
-                    else "SKILL_REJECTED_IN_SANDBOX",
+                    if passed else "SKILL_REJECTED_IN_SANDBOX",
                     "claim_ceiling": "fixed-tool isolated replay only; no real-task transfer",
                 }]
             except (OSError, ValueError, KeyError, TypeError) as error:
                 # Retain incomplete experiments rather than blindly replaying.
+                self.runtime.goals.update_progress(goal_id, 0.0, GoalStatus.FAILED)
                 self.ledger.append(
                     "autonomous_growth_blocked",
                     {"goal_id": goal_id, "candidate_id": candidate_id,
-                     "error_type": type(error).__name__},
+                     "error_type": type(error).__name__,
+                     "manual_reconciliation_required": True},
                 )
                 return [{
                     "candidate_id": candidate_id, "status": "BLOCKED",
