@@ -53,8 +53,10 @@ jobs:
               )
               try:
                   contract.validate()
-              except ValueError:
-                  needed = False
+              except ValueError as exc:
+                  # A raw OS 'embedded null byte' exception is NOT correct
+                  # task validation. Require the canonical contract error.
+                  needed = 'changed files must be relative paths' not in str(exc)
               else:
                   needed = True
           with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
