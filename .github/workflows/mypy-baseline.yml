@@ -1,0 +1,45 @@
+name: Verify Complete WLS Type Contracts
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "source/src/wls/**"
+      - "source/tests/**"
+      - "source/scripts/**"
+      - ".github/workflows/mypy-baseline.yml"
+  pull_request:
+    paths:
+      - "source/src/wls/**"
+      - "source/tests/**"
+      - "source/scripts/**"
+      - ".github/workflows/mypy-baseline.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wls-full-mypy-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  complete-wls-mypy:
+    name: Full WLS mypy on Windows Python ${{ matrix.python-version }}
+    runs-on: windows-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install canonical package and mypy
+        run: python -m pip install -e ".[dev]"
+      - name: Full WLS source, tests and scripts type verification
+        run: python -m mypy source/src/wls source/tests source/scripts --ignore-missing-imports --explicit-package-bases
