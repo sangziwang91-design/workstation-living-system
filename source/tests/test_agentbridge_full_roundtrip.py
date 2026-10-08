@@ -7,6 +7,7 @@ incorrect code even if the worker claims success. No real LLM is called.
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -82,8 +83,8 @@ def test_two_repos_execute_coding_patch_and_independently_grade(
     # Tests the *real* OpenCode executable/subprocess adapter with a
     # deterministic compatibility worker. This is not evidence that an
     # LLM can synthesize the patch unaided.
-    shim = tmp_path / "opencode-coding-shim"
-    shim.write_text(
+    shim_script = tmp_path / "coding-worker.py"
+    shim_script.write_text(
         f"#!{sys.executable}\n"
         "import sys\n"
         "from pathlib import Path\n"
@@ -98,8 +99,18 @@ def test_two_repos_execute_coding_patch_and_independently_grade(
         "print('worker done')\n",
         encoding="utf-8",
     )
-    shim.chmod(0o755)
-    verify_command = f'"{sys.executable}" -m pytest -q "{oracle}"'
+    if os.name == "nt":
+        # GitHub-hosted Windows executes the very same child Python worker
+        # through a native .cmd entry point; no private desktop is involved.
+        shim = tmp_path / "opencode-coding.cmd"
+        shim.write_text(
+            '@echo off\n"' + sys.executable + '" "' + str(shim_script) + '" %*\n',
+            encoding="utf-8",
+        )
+    else:
+        shim = shim_script
+        shim.chmod(0o755)
+    verify_command = f'python -m pytest -q "{oracle}"'
     argv = [
         "wls-cycle", original.message_id,
         "--mailbox-root", str(root),
