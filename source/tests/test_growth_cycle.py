@@ -356,3 +356,57 @@ def test_crashed_skill_validation_never_silently_promotes(
         "recovery": 0, "validation": 0,
     }
     assert restored.verify_integrity(full=True)["ok"] is True
+
+
+def test_crash_before_candidate_stage_is_not_restarted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A durable RUNNING receipt can precede the candidate's SANDBOXED state."""
+    runtime = make_runtime(tmp_path)
+    for _ in range(3):
+        record_failed_action(
+            runtime, tool="noop", arguments={"reason": "pre-stage crash"},
+            acceptance=["output contains impossible"],
+            purpose="unexpected exit after experimental intent is saved",
+        )
+    candidate_id = runtime.learning.create_failure_candidates()[0]
+
+    def simulated_crash(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("crashed between experiment receipt and candidate stage")
+
+    with monkeypatch.context() as patcher:
+        patcher.setattr(runtime.learning, "transition_candidate", simulated_crash)
+        with pytest.raises(RuntimeError, match="crashed between experiment"):
+            runtime.growth.run_recovery_experiment(candidate_id)
+    before = runtime.db.query_one(
+        "SELECT status FROM evolution_candidates WHERE candidate_id=?",
+        (candidate_id,),
+    )
+    assert before is not None and before["status"] == "PROPOSED"
+    assert len(runtime.db.query_all(
+        "SELECT experiment_id FROM recovery_experiments WHERE candidate_id=? "
+        "AND status='RUNNING'",
+        (candidate_id,),
+    )) == 1
+    runtime.db.close_all()
+
+    restored = make_runtime(tmp_path)
+    candidate = restored.db.query_one(
+        "SELECT status,experiment_json FROM evolution_candidates WHERE candidate_id=?",
+        (candidate_id,),
+    )
+    assert candidate is not None
+    assert candidate["status"] == "SANDBOXED"
+    assert '"INTERRUPTED"' in candidate["experiment_json"]
+    restored.run_cycle()
+    assert restored.db.query_all(
+        "SELECT goal_id FROM goals WHERE source='autonomy.learning'"
+    ) == []
+    assert len(restored.db.query_all(
+        "SELECT experiment_id FROM recovery_experiments WHERE candidate_id=?",
+        (candidate_id,),
+    )) == 1
+    assert restored.growth.recover_interrupted_experiments() == {
+        "recovery": 0, "validation": 0,
+    }
+    assert restored.verify_integrity(full=True)["ok"] is True
