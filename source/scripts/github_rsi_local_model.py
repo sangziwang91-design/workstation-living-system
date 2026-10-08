@@ -117,11 +117,11 @@ def normalize_bounded_any_guard(expr: str) -> str | None:
         or not isinstance(predicate.ops[0], ast.Eq)
         or len(predicate.comparators) != 1
         or not isinstance(predicate.comparators[0], ast.Constant)
-        or predicate.comparators[0].value != "\\x00"
+        or predicate.comparators[0].value != "\x00"
     ):
         return None
     return ast.unparse(ast.Compare(
-        left=ast.Constant(value="\\x00"),
+        left=ast.Constant(value="\x00"),
         ops=[ast.In()],
         comparators=[ast.Name(id="relative_file", ctx=ast.Load())],
     ))
