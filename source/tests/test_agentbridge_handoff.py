@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from wls.agentic_mailbox import AgenticFileMailbox, ResultEnvelope
 from wls.config import default_config
 from wls.runtime import LivingSystem
