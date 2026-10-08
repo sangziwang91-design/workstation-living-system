@@ -53,6 +53,7 @@ from .a2a_adapter import A2AAdapter, ArtifactEnvelope, TaskContract
 from .mcp_adapter import McpCandidate, McpTrustGate
 from .read_only_organs import ReadOnlyTaskReceipt, ReadOnlyTaskRequest
 from .repo_explorer import RepoExplorer
+from .rsi_evolution import RsiEvolutionPilot
 from .schemas import (
     ActionSpec,
     ActionStatus,
@@ -144,6 +145,7 @@ class LivingSystem:
         self.growth = GrowthCycleManager(self)
         self.agentic = AgenticHarness(self.db, self.ledger)
         self.offspring = OffspringRegistry(config, self.db, self.ledger)
+        self.rsi_pilot = RsiEvolutionPilot(self.db, self.ledger)
         self.capabilities = baseline_registry()
         self.capabilities.assert_no_duplicate_authority()
         self.channel_gateway = ChannelGateway()
