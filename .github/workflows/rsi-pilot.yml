@@ -22,6 +22,12 @@ on:
       - "source/scripts/verify_rsi_50_faults.py"
       - ".github/workflows/rsi-pilot.yml"
   workflow_dispatch:
+    inputs:
+      approve_model_usage:
+        description: "I authorize up to TWO provider inference calls (potential metered usage)"
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: read
@@ -94,3 +100,52 @@ jobs:
       - name: Lint changed RSI surfaces
         run: |
           python -m ruff check             source/src/wls/rsi_evolution.py             source/src/wls/rsi_artifact_gate.py             source/src/wls/rsi_model_port.py             source/src/wls/task_admission.py             source/src/wls/experiment_decision.py             source/src/wls/loop_control.py             source/src/wls/coding_workers.py             source/tests/test_rsi_evolution.py             source/tests/test_rsi_artifact_gate.py             source/tests/test_rsi_model_port.py             source/tests/test_rsi_risk_cli.py             source/scripts/verify_rsi_100_generations.py             source/scripts/verify_rsi_50_faults.py
+
+
+  # Explicit owner opt-in only. Never called on PRs or schedules. The model
+  # proposes JSON *data*, not executable patches. GitHub's own runner is not
+  # claimed to be a security sandbox for arbitrary model-authored programs.
+  github-risk-trial:
+    if: github.event_name == 'workflow_dispatch' && inputs.approve_model_usage == true && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      WLS_RSI_API_KEY: ${{ secrets.WLS_RSI_API_KEY }}
+      WLS_RSI_BASE_URL: ${{ vars.WLS_RSI_BASE_URL }}
+      WLS_RSI_MODEL_ID: ${{ vars.WLS_RSI_MODEL_ID }}
+      WLS_HOME: ${{ runner.temp }}/wls-risk-home
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.13"
+      - name: Require configured model endpoint and owner approval
+        shell: bash
+        run: |
+          test -n "$WLS_RSI_API_KEY" || { echo "::error::Missing secret WLS_RSI_API_KEY"; exit 1; }
+          test -n "$WLS_RSI_BASE_URL" || { echo "::error::Missing variable WLS_RSI_BASE_URL"; exit 1; }
+          test -n "$WLS_RSI_MODEL_ID" || { echo "::error::Missing variable WLS_RSI_MODEL_ID"; exit 1; }
+      - name: Install WLS
+        run: python -m pip install -e .
+      - name: Two-call bound WLS RSI task-risk trial
+        shell: bash
+        run: |
+          python -m wls --config "$WLS_HOME/config.json" rsi-risk \
+            --run-id "gh-${GITHUB_RUN_ID}" --mode run \
+            --model-id "$WLS_RSI_MODEL_ID" --base-url "$WLS_RSI_BASE_URL" \
+            --confirm-model-usage --generations 2 --branches 1 \
+            > rsi-risk-result.json
+          cat rsi-risk-result.json
+      - name: Archive candidate evidence and score (no secrets)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wls-rsi-risk-${{ github.run_id }}
+          path: |
+            rsi-risk-result.json
+            ${{ runner.temp }}/wls-risk-home/sandbox/rsi_candidate_artifacts
+          if-no-files-found: warn
