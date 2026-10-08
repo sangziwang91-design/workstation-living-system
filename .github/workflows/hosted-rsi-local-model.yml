@@ -29,10 +29,38 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.11"
-      - name: Install WLS and isolated CPU coder runtime
+      - name: Install WLS and independent test runner
+        run: python -m pip install -e ".[dev]"
+      - name: Check whether actual code-model inference is still necessary
+        id: preflight
+        shell: bash
         run: |
-          python -m pip install -e ".[dev]"
-          python -m pip install --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu "llama-cpp-python==0.3.16"
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from tempfile import TemporaryDirectory
+          from wls.coding_adapter import CodingTaskContract
+          # The real source guard is checked, not output from a model.
+          with TemporaryDirectory() as folder:
+              contract = CodingTaskContract(
+                  task_id="preflight", base_sha="head",
+                  worktree=Path(folder).resolve(),
+                  changed_files=["module.py:stream"], tests=["pytest"],
+                  rollback=["discard"],
+              )
+              try:
+                  contract.validate()
+              except ValueError:
+                  needed = False
+              else:
+                  needed = True
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"needs_model={'true' if needed else 'false'}\\n")
+          print("Model inference necessary:", needed)
+          PY
+      - name: Install local CPU coder only when WLS still fails the owner regression
+        if: steps.preflight.outputs.needs_model == 'true'
+        run: python -m pip install --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu "llama-cpp-python==0.3.16"
       - name: "Real model generates source repair, WLS tests independently decide"
         id: propose
         timeout-minutes: 23
