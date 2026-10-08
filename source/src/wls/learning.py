@@ -105,14 +105,25 @@ class LearningSystem:
         return compact
 
     def create_failure_candidates(
-        self, minimum_repeats: int = 3, lookback_days: int = 30
+        self,
+        minimum_repeats: int = 3,
+        lookback_days: int = 30,
+        *,
+        max_new_candidates: int | None = None,
     ) -> list[str]:
+        """Consider only completed tool outcomes, never unresolved effects."""
+        if minimum_repeats < 3 or lookback_days < 1:
+            raise ValueError("growth discovery requires >=3 failures and positive lookback")
+        if max_new_candidates is not None and max_new_candidates < 1:
+            raise ValueError("max_new_candidates must be positive")
         cutoff = (datetime.now(UTC) - timedelta(days=lookback_days)).isoformat()
         rows = self.db.query_all(
             """
             SELECT action_id,tool,purpose,error,result_json,finished_at
-            FROM actions WHERE status IN ('FAILED','UNKNOWN_SIDE_EFFECT') AND finished_at>=?
-            ORDER BY finished_at DESC
+            FROM actions
+            WHERE status='FAILED' AND started_at IS NOT NULL
+              AND finished_at>=? AND result_json IS NOT NULL
+            ORDER BY finished_at DESC LIMIT 500
             """,
             (cutoff,),
         )
@@ -122,16 +133,18 @@ class LearningSystem:
             key = f"{row['tool']}::{error[:160]}"
             groups[key].append(row)
         created: list[str] = []
-        for key, group in groups.items():
+        for key, group in sorted(groups.items(), key=lambda pair: (-len(pair[1]), pair[0])):
             if len(group) < minimum_repeats:
                 continue
-            source_ids = [str(row["action_id"]) for row in group]
+            # Freeze the threshold snapshot: new observations must not
+            # create a fresh candidate with each incrementing counter.
+            source_ids = [str(row["action_id"]) for row in group[:minimum_repeats]]
             candidate_id = self._upsert_candidate(
                 candidate_type="failure_repair",
                 title=f"Repair repeated failure: {key[:120]}",
                 proposal={
                     "problem_signature": key,
-                    "occurrences": len(group),
+                    "minimum_confirmed_failures": minimum_repeats,
                     "required_flow": [
                         "reproduce_in_isolation",
                         "form_root_cause_hypothesis",
@@ -146,6 +159,8 @@ class LearningSystem:
             )
             if candidate_id:
                 created.append(candidate_id)
+                if max_new_candidates is not None and len(created) >= max_new_candidates:
+                    break
         return created
 
     def create_prediction_error_candidates(
@@ -192,8 +207,15 @@ class LearningSystem:
         fingerprint = json.dumps(
             {"type": candidate_type, "proposal": proposal}, sort_keys=True
         )
+        # Do not resurrect a rejected, unchanged failure hypothesis merely
+        # because another ordinary life cycle has elapsed.
+        status_filter = (
+            "" if candidate_type == "failure_repair"
+            else " AND status NOT IN ('REJECTED','ROLLED_BACK')"
+        )
         existing = self.db.query_one(
-            "SELECT candidate_id FROM evolution_candidates WHERE candidate_type=? AND proposal_json=? AND status NOT IN ('REJECTED','ROLLED_BACK')",
+            "SELECT candidate_id FROM evolution_candidates "
+            "WHERE candidate_type=? AND proposal_json=?" + status_filter,
             (candidate_type, fingerprint),
         )
         if existing:
