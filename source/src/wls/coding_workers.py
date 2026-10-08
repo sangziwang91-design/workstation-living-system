@@ -57,6 +57,19 @@ class BaseCodingWorker:
         return shutil.which(self._cli_name()) is not None
 
     def execute(self, contract: CodingTaskContract) -> CodingWorkerResult:
+        # Validate workspace containment before invoking any external CLI.
+        try:
+            contract.validate()
+        except ValueError as exc:
+            return CodingWorkerResult(
+                worker_id=self.worker_id,
+                task_id=contract.task_id,
+                exit_code=-1,
+                stdout="",
+                stderr="",
+                elapsed_seconds=0.0,
+                error=f"invalid coding task contract: {exc}",
+            )
         if not self.is_available():
             return CodingWorkerResult(
                 worker_id=self.worker_id,
@@ -134,7 +147,7 @@ class BaseCodingWorker:
     def _detect_changes(self, contract: CodingTaskContract) -> list[ChangedFileReceipt]:
         files: list[ChangedFileReceipt] = []
         for rel in contract.changed_files:
-            fp = contract.worktree / rel
+            fp = contract._resolve_changed_file(rel)
             if fp.is_file():
                 content = fp.read_bytes()
                 files.append({
