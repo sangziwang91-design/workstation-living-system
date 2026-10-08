@@ -305,7 +305,7 @@ def main() -> int:
     args = parser.parse_args()
     root = args.repo.resolve()
     run_id = os.getenv("GITHUB_RUN_ID", "local")
-    branch = os.getenv("GITHUB_HEAD_REF") or os.getenv("GITHUB_REF_NAME", "local")
+    branch = os.getenv("GITHUB_HEAD_REF") or os.getenv("GITHUB_REF_NAME") or "local"
     previous = None
     # Network failure never manufactures an improvement; it stays UNMEASURED.
     if not args.no_previous_fetch:
