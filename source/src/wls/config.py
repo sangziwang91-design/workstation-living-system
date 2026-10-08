@@ -165,7 +165,9 @@ def default_config(home: str | Path | None = None) -> RuntimeConfig:
         home=str(home_path),
         sensors=list(DEFAULT_SENSORS),
         tool_policy={
-            "allowed_read_roots": [str(home_path), str(home_path.parent)],
+            # Parent directories may contain SSH keys and unrelated user data.
+            # External workspaces require explicit, scoped owner configuration.
+            "allowed_read_roots": [str(home_path)],
             "allowed_write_roots": [
                 str(home_path / "sandbox"),
                 str(home_path / "outbox"),
