@@ -131,6 +131,18 @@ def test_cli_real_control_flow_uses_wls_sqlite_and_recovers_status(
     reopened = json.loads(capsys.readouterr().out)
     assert reopened["status"] == "COMPLETE"
     assert reopened["score"] == result["score"]
+    # The candidate can now be used to assess real owner requests without
+    # changing globally enforced admission rules or consuming a model call.
+    assert main([
+        "--config", str(cfg), "rsi-risk", "--run-id", "ci-live-loop",
+        "--mode", "classify", "--request", "发布到公开网页",
+    ]) == 0
+    comparison = json.loads(capsys.readouterr().out)
+    assert comparison["baseline_risk"] == "read"
+    assert comparison["candidate_risk"] == "irreversible"
+    assert comparison["owner_gate_required"] is True
+    assert comparison["live_policy_updated"] is False
+    assert fixture.calls == 2
     # An independent DB reopen shows the receipt survived the CLI process.
     from wls.config import load_config
 
