@@ -63,6 +63,8 @@ def test_two_actual_repositories_exchange_and_accept_work(tmp_path: Path):
         "--mailbox-root", str(root),
         "--workspace", str(workspace),
         "--check-file", "inspection.txt",
+        "--verify-command",
+        "python -c \"from pathlib import Path; assert Path('inspection.txt').read_text() == 'inspected'\"",
         "--db", str(tmp_path / "bridge.db"),
         "--runs-dir", str(tmp_path / "bridge-runs"),
         "--executor", "opencode",
@@ -77,6 +79,9 @@ def test_two_actual_repositories_exchange_and_accept_work(tmp_path: Path):
     assert reply["status"] == "SUCCEEDED"
     assert reply["in_reply_to"] == original.message_id
     assert reply["payload"]["agentbridge_attempt_id"]
+    assert {item["check_id"] for item in reply["payload"]["verified_checks"]} == {
+        "WLS_FILE_1", "WLS_COMMAND_1",
+    }
 
     # Canonical WLS performs a separate local artifact check, rather than
     # treating a worker's SUCCESS text as sufficient to close its graph.
