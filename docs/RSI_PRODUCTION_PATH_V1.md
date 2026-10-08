@@ -191,9 +191,20 @@ wls --config /path/to/wls/config.json rsi-risk \
 
 The command emits measured champion score, artifact ID, generation and
 candidate count. Re-run `--mode status` from another process to inspect
-the persisted WLS SQLite result. Candidate files are stored under the
-WLS home `sandbox/rsi_candidate_artifacts`. The word "sandbox" here is
-a **folder name**, not an OS security isolation claim.
+the persisted WLS SQLite result. To apply the *measured winning strategy*
+to a real request as a **read-only preview**, without changing live WLS
+policy or making another model call:
+
+```sh
+wls --config /path/to/wls/config.json rsi-risk \
+  --run-id trial-001 --mode classify --request "发布到公开网页"
+```
+
+The output compares canonical baseline risk with the candidate's risk,
+and reports whether an owner gate would be required. The candidate is
+never automatically promoted into global admission policy. Candidate files
+are stored under WLS home `sandbox/rsi_candidate_artifacts`.
+The word "sandbox" here is a **folder name**, not an OS isolation claim.
 
 The same private GitHub repository now contains an optional
 `workflow_dispatch` job in `.github/workflows/rsi-pilot.yml`. This job
