@@ -1,0 +1,36 @@
+name: WLS Trusted RSI Scoring Change Boundary
+
+# Evaluator checks from the default branch. No PR source is checked out.
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: trusted-scorer-boundary-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  scoring-code-separation:
+    name: Trusted RSI scoring/code separation
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout default branch only (never PR branch)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Reject mixed changes using PR file metadata
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          python source/scripts/verify_rsi_evaluator_change_boundary.py \
+            --github-pr "$PR_NUMBER" \
+            --repository "$GITHUB_REPOSITORY"
