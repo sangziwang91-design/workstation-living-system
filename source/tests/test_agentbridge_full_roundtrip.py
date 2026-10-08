@@ -10,7 +10,6 @@ import sys
 from pathlib import Path
 
 import pytest
-
 from wls.agentic_mailbox import AgenticFileMailbox
 from wls.config import default_config
 from wls.runtime import LivingSystem
