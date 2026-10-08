@@ -456,7 +456,7 @@ def test_non_utf8_parent_never_reaches_model(gateway):
     gate, _ = gateway
     gate.register(
         artifact_id="binary", parent_id=None, generation=0, branch=0,
-        files={"agent/module.py": b"\\xff\\xfe"},
+        files={"agent/module.py": bytes.fromhex("fffe")},
         policy_digest=SHA, evaluator_digest=SHA,
     )
     model = FakeModel('{"files":{"agent/module.py":"print(1)"}}')
