@@ -5,6 +5,7 @@ This is not evidence of autonomous model coding or recursive improvement.
 from __future__ import annotations
 
 from pathlib import Path
+import json
 
 from wls.config import default_config
 from wls.runtime import LivingSystem
@@ -149,3 +150,43 @@ def test_unsupported_failure_source_does_not_exhaust_autonomous_goal_budget(
     ) == []
     assert runtime.goals.autonomous_count() == 0
 
+
+
+def test_growth_discovery_rotates_past_stale_candidates(tmp_path: Path) -> None:
+    runtime = runtime_at(tmp_path / "long-history")
+    # Corrupt/ineligible proposals are fixtures, not real learning evidence.
+    # A finite attention window must eventually reach the real candidate.
+    for index in range(35):
+        runtime.db.execute(
+            """
+            INSERT INTO evolution_candidates(
+                candidate_id,candidate_type,title,proposal_json,source_ids_json,
+                baseline_json,experiment_json,result_json,status,created_at,updated_at
+            ) VALUES(?,?,?,?,?,NULL,NULL,NULL,?,?,?)
+            """,
+            (
+                new_id("candidate"),
+                "failure_repair",
+                f"ineligible old proposal {index}",
+                json.dumps({"fixture_index": index}),
+                json.dumps([f"missing-{index}"]),
+                "PROPOSED",
+                utc_now(),
+                utc_now(),
+            ),
+        )
+    for _ in range(3):
+        record_real_failure(runtime)
+    runtime.run_cycle()
+    assert runtime.db.query_all(
+        "SELECT goal_id FROM goals WHERE source='autonomy.learning'"
+    ) == []
+    runtime.run_cycle()
+    accepted = runtime.db.query_all(
+        "SELECT goal_id,status FROM goals WHERE source='autonomy.learning'"
+    )
+    assert len(accepted) == 1
+    assert accepted[0]["status"] == "SUCCEEDED"
+    assert len(runtime.db.query_all(
+        "SELECT growth_cycle_id FROM growth_cycles"
+    )) == 1
