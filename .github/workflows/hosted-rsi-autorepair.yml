@@ -7,6 +7,10 @@ on:
       - ".github/workflows/hosted-rsi-autorepair.yml"
       - "source/scripts/build_capability_inventory.py"
       - "source/scripts/build_delivery_handoff.py"
+      - "source/scripts/run_delivery_self_check.py"
+      - "source/src/wls/coding_workers.py"
+      - "source/src/wls/coding_adapter.py"
+      - "source/src/wls/rsi_evolution.py"
   workflow_dispatch:
 
 permissions:
@@ -91,6 +95,10 @@ jobs:
           frozen = {
               'source/scripts/build_capability_inventory.py',
               'source/scripts/build_delivery_handoff.py',
+              'source/scripts/run_delivery_self_check.py',
+              'source/src/wls/coding_workers.py',
+              'source/src/wls/coding_adapter.py',
+              'source/src/wls/rsi_evolution.py',
           }
           assert set(report['changed_files']) <= frozen
           assert report['changed_files']
@@ -106,6 +114,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- source/scripts/build_capability_inventory.py source/scripts/build_delivery_handoff.py
+          git add -- source/scripts/build_capability_inventory.py source/scripts/build_delivery_handoff.py source/scripts/run_delivery_self_check.py source/src/wls/coding_workers.py source/src/wls/coding_adapter.py source/src/wls/rsi_evolution.py
           git commit -m "RSI: retain independently graded WLS source repair"
           git push origin "HEAD:refs/heads/$HEAD_BRANCH"
