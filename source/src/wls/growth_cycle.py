@@ -263,10 +263,36 @@ class GrowthCycleManager:
         current = CandidateStatus(str(candidate["status"]))
         if current not in {CandidateStatus.PROPOSED, CandidateStatus.SANDBOXED}:
             raise ValueError(f"recovery experiment cannot start from {current.value}")
-        source_ids = [str(value) for value in json.loads(candidate["source_ids_json"])]
+        raw_source_ids = json.loads(candidate["source_ids_json"])
+        if (
+            not isinstance(raw_source_ids, list)
+            or not 3 <= len(raw_source_ids) <= 64
+            or any(not isinstance(item, str) or not item for item in raw_source_ids)
+            or len(set(raw_source_ids)) != len(raw_source_ids)
+        ):
+            raise ValueError("recovery requires 3-64 distinct observed source action IDs")
+        source_ids = raw_source_ids
         actions = self._source_failure_actions(source_ids)
-        if len(actions) < 3:
-            raise ValueError("recovery experiment requires at least three failures")
+        # Explicit callers must obey the same evidence boundary as the
+        # endogenous life loop. UNKNOWN_SIDE_EFFECT is never a failed outcome,
+        # and a missing/fabricated action must never improve an experiment.
+        if len(actions) != len(source_ids):
+            raise ValueError("recovery source actions are missing")
+        if any(
+            row["status"] != "FAILED"
+            or row["started_at"] is None
+            or row["finished_at"] is None
+            or row["result_json"] is None
+            for row in actions
+        ):
+            raise ValueError("recovery requires completed, observed FAILED actions")
+        for row in actions:
+            try:
+                result = json.loads(row["result_json"])
+                if result["evaluation"]["accepted"] is not False:
+                    raise ValueError("recovery source is not an evaluated failure")
+            except (ValueError, TypeError, KeyError, AttributeError) as exc:
+                raise ValueError("recovery source lacks evaluated failure evidence") from exc
         unsupported = sorted({str(row["tool"]) for row in actions} - ALLOWED_EXPERIMENT_TOOLS)
         if unsupported:
             raise ValueError(f"unsupported recovery tools: {unsupported}")
