@@ -16,6 +16,7 @@ from pathlib import Path
 
 SOURCE = Path("source/src/wls/coding_adapter.py")
 MODEL_ID = "Qwen2.5-Coder-0.5B-Instruct-Q4_K_M"
+EXPECTED_MODEL_SHA256 = "0128e77564e43d40682f82d7ebe8a9abdf0c24c8f55fa85629f8cc156b1b6560"
 MODEL_URL = (
     "https://huggingface.co/bartowski/"
     "Qwen2.5-Coder-0.5B-Instruct-GGUF/resolve/main/"
@@ -69,6 +70,11 @@ def bounded_expression(reply: str) -> str | None:
         expr = line.strip()
         if expr.startswith("if "):
             expr = expr[3:].removesuffix(":").strip()
+        elif expr.startswith("return "):
+            # Genuine GGUF round 3 wrapped the correct pure predicate in
+            # a function-level return. Extract the expression, never execute
+            # the surrounding function, imports, or its statements.
+            expr = expr[7:].strip()
         try:
             tree = ast.parse(expr, mode="eval")
         except SyntaxError:
@@ -150,6 +156,8 @@ def trial() -> dict[str, object]:
     if not 300_000_000 <= model_file.stat().st_size <= 480_000_000:
         raise RuntimeError("unexpected downloaded model size")
     model_sha = hashlib.sha256(model_file.read_bytes()).hexdigest()
+    if model_sha != EXPECTED_MODEL_SHA256:
+        raise RuntimeError("downloaded model bytes changed from independently verified GGUF")
     from llama_cpp import Llama
 
     model = Llama(model_path=str(model_file), n_ctx=2048, n_threads=2, verbose=False)
