@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from math import isfinite
 from time import monotonic
-from typing import Callable
 
 
 @dataclass(frozen=True, slots=True)
