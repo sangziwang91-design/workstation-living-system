@@ -69,7 +69,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run or inspect a bounded model-driven improvement of WLS task-risk rules",
     )
     rsi_risk.add_argument("--run-id", required=True)
-    rsi_risk.add_argument("--mode", choices=("status", "run"), default="status")
+    rsi_risk.add_argument("--mode", choices=("status", "run", "classify"), default="status")
+    rsi_risk.add_argument("--request", default="", help="Task to classify using the measured champion (preview only)")
     rsi_risk.add_argument("--model-id", default="")
     rsi_risk.add_argument("--base-url", default="")
     rsi_risk.add_argument("--generations", type=int, default=2)
@@ -584,6 +585,45 @@ def run_rsi_risk(args: argparse.Namespace) -> int:
                 "score": state["champion_metric"]["primary"],
                 "candidates": len(state["candidate_ids"]),
                 "claim": "data_only_risk_policy_trial",
+            })
+            return 0
+        if args.mode == "classify":
+            if state is None:
+                raise ValueError("no measured risk strategy exists for this run ID")
+            if not args.request.strip():
+                raise ValueError("--request is required for classify mode")
+            from .rsi_artifact_gate import RsiArtifactGate
+            from .task_admission import (
+                TaskAdmissionClassifier,
+                _validate_rsi_risk_strategy,
+                admit_with_rsi_risk_strategy,
+            )
+
+            gate = RsiArtifactGate(
+                runtime.config.sandbox_path / "rsi_candidate_artifacts",
+                runtime.ledger,
+                allowed_files=frozenset({"agent/strategy.json"}),
+            )
+            manifest = gate.verify(state["champion_id"])
+            if manifest["policy_digest"] != state["policy_digest"]:
+                raise ValueError("champion strategy policy differs from recorded run")
+            if manifest["evaluator_digest"] != RsiRiskAdmissionEvaluator.digest():
+                raise ValueError("champion strategy evaluator changed")
+            strategy_file = (
+                gate.root / state["champion_id"] / "agent" / "strategy.json"
+            )
+            payload = json.loads(strategy_file.read_text(encoding="utf-8"))
+            rules = _validate_rsi_risk_strategy(payload)
+            original = TaskAdmissionClassifier().admit(args.request)
+            predicted = admit_with_rsi_risk_strategy(args.request, rules)
+            print_json({
+                "run_id": args.run_id,
+                "champion_id": state["champion_id"],
+                "baseline_risk": original.risk_floor.value,
+                "candidate_risk": predicted.risk_floor.value,
+                "owner_gate_required": predicted.owner_gate_required,
+                "source": "HMAC_verified_candidate_preview",
+                "live_policy_updated": False,
             })
             return 0
         if not args.confirm_model_usage:
