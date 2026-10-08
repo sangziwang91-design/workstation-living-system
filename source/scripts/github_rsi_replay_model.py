@@ -16,10 +16,10 @@ from pathlib import Path
 
 SOURCE = Path("source/src/wls/coding_adapter.py")
 ARCHIVED = Path("recovered-model-evidence/rsi-model-report.json")
-EXPECTED_RUN_SHA = "72917ef2fd0762c895ef79debf2adc56feceb65b"
+EXPECTED_RUN_SHA = "778115fdf8588e0928a6426db622256e89953e00"
 EXPECTED_MODEL_SHA = "0128e77564e43d40682f82d7ebe8a9abdf0c24c8f55fa85629f8cc156b1b6560"
 MODEL_ID = "Qwen2.5-Coder-0.5B-Instruct-Q4_K_M"
-OWNER_GOAL = "safe_relative_control_characters_v2"
+OWNER_GOAL = "safe_relative_embedded_nul_v3"
 NEEDLE = "            not relative_file\n"
 
 
@@ -113,7 +113,7 @@ def run() -> dict[str, object]:
         "generations": measured,
         "accepted": accepted,
         "model_called": False,
-        "replayed_from_run": 37758577790,
+        "replayed_from_run": 37765939009,
         "source": str(SOURCE),
         "claims": "previous true model output, regraded after parser fix, no inference",
     }
