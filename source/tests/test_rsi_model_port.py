@@ -192,6 +192,7 @@ def test_http_client_uses_fixed_endpoint_and_does_not_log_key(monkeypatch):
         assert timeout == 45
         payload = json.loads(req.data)
         assert payload["model"] == "remote-model"
+        assert payload["max_tokens"] == 1024
         return Response()
 
     monkeypatch.setattr(port._opener, "open", fake_open)
@@ -281,3 +282,19 @@ def test_real_wls_three_generations_with_provider_swappable_text_proposals(tmp_p
     assert ledger.verify()[0]
     assert finished["live_promotion"] is False
     db.close_all()
+
+
+
+def test_http_adapter_explicit_token_and_prompt_gates(monkeypatch):
+    port = OpenAICompatibleProposalPort(
+        model_id="remote-model",
+        base_url="https://api.example",
+        max_output_tokens=64,
+    )
+    monkeypatch.setenv("WLS_RSI_API_KEY", "key-not-logged")
+    with pytest.raises(ValueError, match="prompt too long"):
+        port.propose("z" * 12_001, max_output_bytes=1024)
+    with pytest.raises(ValueError, match="per-call token"):
+        OpenAICompatibleProposalPort(
+            model_id="m", base_url="https://api.example", max_output_tokens=0
+        )
