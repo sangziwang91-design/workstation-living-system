@@ -120,3 +120,5 @@ def test_scorer_and_prose_only_can_still_be_reviewed(guard):
         "CURRENT_STATE.yaml",
     ])
     assert result["eligible"] is True
+
+# NEGATIVE_CI_PROBE_ONLY: deliberately mixed scorer/test change; do not merge.
