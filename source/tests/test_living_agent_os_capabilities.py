@@ -128,13 +128,13 @@ from wls.workbench import WorkbenchTemplate
 
 
 
-def _owner_fixture_config(tmp_path: Path):
+def _owner_fixture_config(tmp_path: Path, suffix: str = "home"):
     """Explicitly authorize the temporary test workspace for owner-intake tests.
 
     Production defaults must not permit reading a WLS home's parent directory.
     This suite intentionally inspects fixture files immediately beside home.
     """
-    config = default_config(tmp_path / "home")
+    config = default_config(tmp_path / suffix)
     config.tool_policy["allowed_read_roots"].append(str(tmp_path))
     return config
 
@@ -2025,7 +2025,7 @@ def test_browser_read_only_organ_executes_loopback_http_get(tmp_path: Path) -> N
     thread.start()
     try:
         port = int(server.server_port)
-        runtime = LivingSystem(default_config(tmp_path / "browser-runtime-home"))
+        runtime = LivingSystem(_owner_fixture_config(tmp_path, "browser-runtime-home"))
         runtime.intake_read_only_task(
             ReadOnlyTaskRequest(
                 request_id="browser-http-get-1",
@@ -2088,7 +2088,7 @@ def test_architecture_validation_checks_research_composite_execution(
 def test_multimodal_organ_executes_asset_inspection(tmp_path: Path) -> None:
     asset = tmp_path / "sample.png"
     asset.write_bytes(b"\x89PNG\r\n\x1a\nWLS")
-    runtime = LivingSystem(default_config(tmp_path / "multimodal-home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path, "multimodal-home"))
     runtime.intake_read_only_task(
         ReadOnlyTaskRequest(
             request_id="multimodal-inspect-1",
@@ -2129,7 +2129,7 @@ def test_coding_organ_executes_candidate_inspection(tmp_path: Path) -> None:
     worktree = tmp_path / "worktree"
     worktree.mkdir()
     (worktree / "candidate_patch.py").write_text("print('candidate')\n", encoding="utf-8")
-    runtime = LivingSystem(default_config(tmp_path / "coding-home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path, "coding-home"))
     runtime.intake_read_only_task(
         ReadOnlyTaskRequest(
             request_id="coding-inspect-1",
