@@ -112,8 +112,10 @@ class PolicyEngine:
             # WAL, logs, backups, or cryptographic credentials. Resolve
             # symlinks before the check; this is a *tool policy*, not an OS
             # sandbox for owner-approved arbitrary commands.
+            secret_dir = self.config.secret_path.parent.resolve(strict=False)
+            if self._contained(candidate, secret_dir):
+                raise PermissionError("WLS evidence secrets are not tool-accessible")
             private_roots = (
-                self.config.secret_path.parent,
                 self.config.db_path.parent,
                 self.config.home_path / "logs",
                 self.config.home_path / "snapshots",
