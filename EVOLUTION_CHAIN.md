@@ -2,7 +2,7 @@
 
 **Status:** ACTIVE_SINGLE_TRUNK_ET004_COMPLETE
 **Canonical runtime remains:** `source/src/wls/runtime.py::LivingSystem`
-**Current head:** `75786a5` (main, v0.9.0.dev2)
+**Canonical branch:** `main` (current HEAD is verified from GitHub, not this historical document); version `0.9.0.dev2`.
 
 ## Completed waves
 
@@ -25,7 +25,7 @@ Closed 6 real capability gaps identified by ZIP iteration audit:
 
 Added `acceptance.py`, `security.py`, `benchmark.py`, `fault_injection.py`, `scheduler.py` (persistent), `memory_projection.py`, `compaction.py`, `reviewer.py`, `graph_recovery.py`, `qos_router.py`, `skill_compiler.py`, `longitudinal.py`.
 
-Consolidated all branches into a single canonical `main` trunk. P01-P89 architecture validation all green. 6 integration pipelines tested end-to-end.
+Maintained one canonical `LivingSystem` runtime on `main`, while preserving historical branches. Historical P01-P89 admissions contain 1 `ADMIT`, 88 `ADMIT_SHADOW_ONLY`, 0 `BLOCKED`: these are architectural verdicts, not independent production-task proofs. Six integration pipelines were recorded historically.
 
 ## Authority order
 
@@ -51,15 +51,15 @@ Consolidated all branches into a single canonical `main` trunk. P01-P89 architec
 
 ## Verified evidence
 
-- P01-P89 architecture validation: 89/89 passes on installed v0.9.0.dev2 instance.
-- 41 test files, all unit + integration tests pass locally.
-- Installed instance: self-check, verify, and WLS once all pass.
-- ET-001, ET-002, ET-003 previously CI-verified on GitHub Actions.
+- Historical P01-P89 admission: 1 `ADMIT` + 88 `ADMIT_SHADOW_ONLY`; no independent production claim follows from this distribution.
+- Public main Git tree snapshot (2026-10-08): 107 package Python files including `__init__.py`, 104 excluding them, and 74 test Python files.
+- Hosted GitHub Actions now verify full WLS regressions and packaging on Linux/Windows; a local owner-host installation remains a separate measurement.
+- ET001, ET002, ET003 are separately verified by hosted Actions; time-series benefit over real tasks remains unproven.
 
 ## Current handoff
 
-All ET-001 through ET-004 have been completed. The canonical repository is a single main trunk at head `75786a5` tagged `v0.9.0.dev2`. The next target is ET-005 (owner-host longitudinal validation).
+ET001-ET004 remain historical engineering milestones. ET005 owner-host receipts and one qualified ET006 measurement are recorded in `CURRENT_STATE.yaml`; they are not evidence of repeated task-class transfer. The active target is `MAINLINE-TARGET-001`: get the canonical WLS life loop and owner-approved Patch Mission through a real end-to-end action with independently checked outcomes, without conflating a simulated sandbox with RSI.
 
 ## Activation boundary
 
-The repository is single-trunk, architecture-validated, and locally verified. It does not claim unattended evolution, provider-independent autonomy, production-host longitudinal learning, or a trained local model.
+The repository has a single runtime authority, source-level hosted CI and retained historical owner-host receipts. It does **not** claim production installation of the latest commit, multiweek self-improvement, provider-independent agency, owner-free irreversible actions, or a trained local model.
