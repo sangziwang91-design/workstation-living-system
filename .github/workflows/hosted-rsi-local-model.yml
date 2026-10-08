@@ -1,0 +1,113 @@
+name: GitHub Hosted Actual LLM RSI Coding
+
+on:
+  pull_request:
+    paths:
+      - "source/scripts/github_rsi_local_model.py"
+      - ".github/workflows/hosted-rsi-local-model.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wls-real-model-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-model-candidate:
+    name: Real CPU coder model source proposal and held-out tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    outputs:
+      accepted: ${{ steps.propose.outputs.accepted }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.11"
+      - name: Install WLS and isolated CPU coder runtime
+        run: |
+          python -m pip install -e ".[dev]"
+          python -m pip install --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu "llama-cpp-python==0.3.16"
+      - name: "Real model generates source repair, WLS tests independently decide"
+        id: propose
+        timeout-minutes: 23
+        run: python source/scripts/github_rsi_local_model.py
+      - name: Archive actual model, proposal and independent grader evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wls-real-cpu-model-${{ github.run_id }}
+          path: |
+            rsi-model-report.json
+            rsi-model-candidate.patch
+          if-no-files-found: warn
+
+  # The model never receives a write-capable GitHub token. An independent
+  # promotion job checks every byte before updating the existing feature PR.
+  persist-verified-model-fix:
+    needs: real-model-candidate
+    if: >-
+      github.event_name == 'pull_request' &&
+      needs.real-model-candidate.outputs.accepted == 'true' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'feat/rsi-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      BASE_SHA: ${{ github.event.pull_request.head.sha }}
+      FEATURE_BRANCH: ${{ github.event.pull_request.head.ref }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: wls-real-cpu-model-${{ github.run_id }}
+      - name: Admit only precisely graded real model candidate
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+          data = json.loads(Path('rsi-model-report.json').read_text(encoding='utf-8'))
+          patch = Path('rsi-model-candidate.patch').read_bytes()
+          assert data['schema'] == 'wls.hosted_small_llm_coding.v1'
+          assert data['base_sha'] == os.environ['BASE_SHA']
+          assert data['model_id'] == 'Qwen2.5-Coder-0.5B-Instruct-Q4_K_M'
+          assert data['accepted'] is True
+          assert data['source'] == 'source/src/wls/coding_adapter.py'
+          assert data['original_hidden_test_exit'] != 0
+          assert 1 <= len(data['generations']) <= 3
+          assert any(
+              r.get('accepted') is True and
+              r.get('oracle_exit') == 0 and
+              r.get('full_suite_exit') == 0
+              for r in data['generations']
+          )
+          assert hashlib.sha256(patch).hexdigest() == data['patch_sha256']
+          subprocess.run(['git', 'apply', '--check', 'rsi-model-candidate.patch'], check=True)
+          subprocess.run(['git', 'apply', 'rsi-model-candidate.patch'], check=True)
+          changed = subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines()
+          assert changed == ['source/src/wls/coding_adapter.py']
+          print('Admitted real model-generated code based only on independent grades')
+          PY
+      - name: Retain proven fix on the existing draft feature branch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- source/src/wls/coding_adapter.py
+          git commit -m "RSI: retain independently verified local model-generated WLS coding repair"
+          git push origin "HEAD:refs/heads/$FEATURE_BRANCH"
