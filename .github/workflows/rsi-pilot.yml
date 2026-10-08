@@ -9,6 +9,8 @@ on:
       - "source/src/wls/coding_workers.py"
       - "source/src/wls/runtime.py"
       - "source/tests/test_rsi_evolution.py"
+      - "source/tests/test_coding_workers.py"
+      - "docs/RSI_PILOT_FIVE_GATES.md"
       - "source/scripts/verify_rsi_100_generations.py"
       - ".github/workflows/rsi-pilot.yml"
   workflow_dispatch:
