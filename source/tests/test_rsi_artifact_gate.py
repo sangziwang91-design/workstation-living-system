@@ -6,6 +6,7 @@ import pytest
 from wls.db import Database
 from wls.evidence import EvidenceLedger
 from wls.rsi_artifact_gate import ArtifactIntegrityError, RsiArtifactGate
+from wls.schemas import digest_json
 
 
 SHA = "c" * 64
@@ -134,3 +135,17 @@ def test_invalid_parent_and_digest_fail_closed(archive):
             files={"agent/module.py": b"code"},
             policy_digest="not-a-digest", evaluator_digest=SHA,
         )
+
+
+def test_resealed_manifest_cannot_override_canonical_evidence(archive):
+    gate, ledger = archive
+    baseline(gate)
+    manifest = gate.root / "baseline" / "manifest.json"
+    body = json.loads(manifest.read_text(encoding="utf-8"))
+    body["generation"] = 999
+    body.pop("manifest_digest")
+    body["manifest_digest"] = digest_json(body)
+    manifest.write_text(json.dumps(body), encoding="utf-8")
+    with pytest.raises(ArtifactIntegrityError, match="signed WLS evidence"):
+        gate.verify("baseline")
+    assert ledger.verify()[0]
