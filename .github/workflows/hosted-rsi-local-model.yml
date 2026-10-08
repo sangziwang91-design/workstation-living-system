@@ -61,7 +61,7 @@ jobs:
               output.write(f"needs_model={'true' if needed else 'false'}\n")
           print("Model inference necessary:", needed)
           PY
-      - name: Reuse previous real GGUF reply from signed GitHub run evidence
+      - name: Reuse previous real GGUF reply from authenticated GitHub artifact
         if: steps.preflight.outputs.needs_model == 'true'
         id: prior
         continue-on-error: true
@@ -74,6 +74,7 @@ jobs:
       - name: Regrade archived model response with repaired safe AST extractor
         if: steps.preflight.outputs.needs_model == 'true' && steps.prior.outcome == 'success'
         id: replay
+        continue-on-error: true
         run: python source/scripts/github_rsi_replay_model.py
       - name: Install local CPU coder only if archived model response could not be reused
         if: steps.preflight.outputs.needs_model == 'true' && steps.replay.outputs.accepted != 'true'
