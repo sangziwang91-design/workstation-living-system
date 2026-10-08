@@ -2074,7 +2074,8 @@ def test_architecture_validation_checks_research_composite_execution(
 
 
 def test_multimodal_organ_executes_asset_inspection(tmp_path: Path) -> None:
-    asset = tmp_path / "sample.png"
+    asset = tmp_path / "multimodal-home" / "inbox" / "sample.png"
+    asset.parent.mkdir(parents=True, exist_ok=True)
     asset.write_bytes(b"\x89PNG\r\n\x1a\nWLS")
     runtime = LivingSystem(default_config(tmp_path / "multimodal-home"))
     runtime.intake_read_only_task(
@@ -2114,8 +2115,8 @@ def test_architecture_validation_checks_multimodal_asset_execution(
 
 
 def test_coding_organ_executes_candidate_inspection(tmp_path: Path) -> None:
-    worktree = tmp_path / "worktree"
-    worktree.mkdir()
+    worktree = tmp_path / "coding-home" / "inbox" / "worktree"
+    worktree.mkdir(parents=True)
     (worktree / "candidate_patch.py").write_text("print('candidate')\n", encoding="utf-8")
     runtime = LivingSystem(default_config(tmp_path / "coding-home"))
     runtime.intake_read_only_task(
