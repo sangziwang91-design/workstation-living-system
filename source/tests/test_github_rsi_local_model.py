@@ -6,7 +6,6 @@ import runpy
 from pathlib import Path
 
 import pytest
-
 from wls.coding_adapter import CodingTaskContract
 
 
