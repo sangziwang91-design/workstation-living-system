@@ -80,3 +80,15 @@ def test_renamed_old_evaluator_path_blocks_mix(guard):
     assert not guard.check_files([
         "source/src/wls/benchmark.py", "source/src/wls/renamed_runtime.py",
     ])["eligible"]
+
+
+def test_root_build_inputs_count_as_code(guard):
+    for name in ("pyproject.toml", "Dockerfile", "requirements.txt", "evals/checks.py"):
+        result = guard.check_files(["source/src/wls/benchmark.py", name])
+        assert result["status"] == "REJECT_MIXED_EVALUATOR_AND_CODE"
+
+
+def test_only_scoring_and_readme_is_not_code_mixing(guard):
+    assert guard.check_files([
+        "source/src/wls/benchmark.py", "README.md", "CURRENT_STATE.yaml",
+    ])["eligible"]
