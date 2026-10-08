@@ -54,7 +54,9 @@ class RsiArtifactGate:
         allowed_files: frozenset[str],
         max_total_bytes: int = 1_000_000,
     ) -> None:
-        if not allowed_files or any(not _safe_relative(item) for item in allowed_files):
+        if not allowed_files or "manifest.json" in allowed_files or any(
+            not _safe_relative(item) for item in allowed_files
+        ):
             raise ValueError("allowed_files must list canonical relative file names")
         if max_total_bytes < 1:
             raise ValueError("max_total_bytes must be positive")
@@ -160,6 +162,26 @@ class RsiArtifactGate:
         if manifest_digest != digest_json(payload):
             raise ArtifactIntegrityError("candidate manifest digest mismatch")
         payload["manifest_digest"] = manifest_digest
+        ledger_ok, ledger_reason = self.ledger.verify()
+        if not ledger_ok:
+            raise ArtifactIntegrityError(f"WLS evidence ledger invalid: {ledger_reason}")
+        receipts = [
+            json.loads(row["payload_json"])
+            for row in self.ledger.db.query_all(
+                "SELECT payload_json FROM evidence "
+                "WHERE event_type='rsi_candidate_artifact_registered'"
+            )
+        ]
+        matching_receipts = [
+            entry for entry in receipts
+            if entry.get("artifact_id") == artifact_id
+        ]
+        if (
+            len(matching_receipts) != 1
+            or matching_receipts[0].get("manifest_digest") != manifest_digest
+            or matching_receipts[0].get("parent_id") != payload.get("parent_id")
+        ):
+            raise ArtifactIntegrityError("candidate manifest is not bound to signed WLS evidence")
         index = payload.get("files")
         if not isinstance(index, dict) or not index or set(index).difference(self.allowed_files):
             raise ArtifactIntegrityError("candidate contains unauthorized files")
