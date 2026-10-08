@@ -106,6 +106,22 @@ class PolicyEngine:
             if not roots:
                 raise PermissionError(f"no roots configured for {action.tool}")
             candidate = Path(raw_path).expanduser().resolve(strict=False)
+            # The WLS evidence-signing, server-auth and approval keys as well
+            # as its private DB, logs and backups belong to the runtime, not
+            # to agent-readable inputs. This hard denial also covers legacy
+            # configs that still allow the entire home or its parent.
+            # Resolve symlinks before checking both allowlist and denials.
+            private_roots = (
+                self.config.secret_path.parent,
+                self.config.db_path.parent,
+                self.config.home_path / "logs",
+                self.config.home_path / "snapshots",
+            )
+            if any(
+                self._contained(candidate, protected.resolve(strict=False))
+                for protected in private_roots
+            ):
+                raise PermissionError("protected WLS private runtime path")
             if not any(self._contained(candidate, root) for root in roots):
                 raise PermissionError(f"path outside {roots_key}: {candidate}")
         if action.tool == "http_get":
