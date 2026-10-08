@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Owner-started, bounded RSI candidate experiment inside WLS authority.
 
 The supplied proposer and evaluator are TRUSTED integration callbacks. This
@@ -7,6 +5,8 @@ module never executes candidate code, accesses model credentials, or promotes
 changes into the live WLS runtime. A disposable external worker and independent
 evaluator are required before use on real software candidates.
 """
+
+from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import asdict
