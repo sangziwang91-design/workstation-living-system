@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from .experiment_decision import MetricResult
 from .schemas import digest_json, new_id, utc_now
 
 
@@ -251,10 +252,8 @@ def paired_rsi_metric(
     candidate: BenchmarkReport,
     *,
     evaluator_digest: str,
-) -> "MetricResult":
+) -> MetricResult:
     """Feed independently run, identical task results to the existing RSI pilot."""
-    from .experiment_decision import MetricResult
-
     comparison = compare_reports(baseline, candidate)
     if not comparison["measurement_valid"]:
         raise ValueError("RSI measurement invalid: changed, missing or duplicate cases")
