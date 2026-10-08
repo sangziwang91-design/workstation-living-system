@@ -165,7 +165,14 @@ def default_config(home: str | Path | None = None) -> RuntimeConfig:
         home=str(home_path),
         sensors=list(DEFAULT_SENSORS),
         tool_policy={
-            "allowed_read_roots": [str(home_path), str(home_path.parent)],
+            # Model-controlled read tools start with task I/O only. Owner-
+            # authorized repository roots are added explicitly per mission.
+            # Never expose the WLS home or its parent as a blanket read root.
+            "allowed_read_roots": [
+                str(home_path / "inbox"),
+                str(home_path / "outbox"),
+                str(home_path / "sandbox"),
+            ],
             "allowed_write_roots": [
                 str(home_path / "sandbox"),
                 str(home_path / "outbox"),
