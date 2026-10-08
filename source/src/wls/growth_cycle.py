@@ -144,6 +144,70 @@ class GrowthCycleManager:
             for statement in statements:
                 connection.execute(statement)
 
+    def recover_interrupted_experiments(self) -> dict[str, int]:
+        """Record crashed growth experiments without replay or invented success.
+
+        A process can die after writing RUNNING but before producing a result.
+        Keep the candidate/skill unpromoted, preserve all partial artifacts,
+        and free any abandoned autonomous goal's finite execution budget.
+        This is intentionally only called during runtime initialization.
+        """
+        with self.db.transaction() as connection:
+            recoveries = connection.execute(
+                "SELECT experiment_id,candidate_id FROM recovery_experiments "
+                "WHERE status='RUNNING' ORDER BY started_at"
+            ).fetchall()
+            validations = connection.execute(
+                "SELECT experiment_id FROM skill_experiments "
+                "WHERE status='RUNNING' ORDER BY started_at"
+            ).fetchall()
+            if not recoveries and not validations:
+                return {"recovery": 0, "validation": 0}
+
+            recovered_at = utc_now()
+            for row in recoveries:
+                connection.execute(
+                    "UPDATE recovery_experiments SET status='INTERRUPTED',"
+                    "finished_at=? WHERE experiment_id=? AND status='RUNNING'",
+                    (recovered_at, row["experiment_id"]),
+                )
+                # An interrupted autonomous investigation is not an active
+                # success or a new license to replay the failed action.
+                connection.execute(
+                    "UPDATE goals SET status='FAILED',updated_at=? "
+                    "WHERE source='autonomy.learning' AND title=? AND status='ACTIVE'",
+                    (
+                        recovered_at,
+                        f"Inspect recurring failures: {row['candidate_id']}",
+                    ),
+                )
+            for row in validations:
+                connection.execute(
+                    "UPDATE skill_experiments SET status='INTERRUPTED',"
+                    "finished_at=? WHERE experiment_id=? AND status='RUNNING'",
+                    (recovered_at, row["experiment_id"]),
+                )
+                connection.execute(
+                    "UPDATE growth_cycles "
+                    "SET status='RECONCILIATION_REQUIRED',updated_at=? "
+                    "WHERE skill_experiment_id=? AND status='SKILL_SANDBOXED'",
+                    (recovered_at, row["experiment_id"]),
+                )
+            self.ledger.append(
+                "growth_experiment_interruption_recovered",
+                {
+                    "recovery_count": len(recoveries),
+                    "validation_count": len(validations),
+                    "recovery_ids": [row["experiment_id"] for row in recoveries[:50]],
+                    "validation_ids": [row["experiment_id"] for row in validations[:50]],
+                    "truncated": len(recoveries) > 50 or len(validations) > 50,
+                    "automatic_replay": False,
+                    "manual_reconciliation_required": True,
+                },
+                connection,
+            )
+        return {"recovery": len(recoveries), "validation": len(validations)}
+
     def advance_safe_endogenous_growth(
         self, new_goal_ids: list[str]
     ) -> list[dict[str, Any]]:
