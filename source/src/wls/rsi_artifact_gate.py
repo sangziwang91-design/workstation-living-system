@@ -96,10 +96,18 @@ class RsiArtifactGate:
             for value in (policy_digest, evaluator_digest)
         ):
             raise ValueError("policy/evaluator digest must be lowercase SHA-256")
-        if generation > 0:
+        if generation == 0:
+            if parent_id is not None:
+                raise ValueError("baseline cannot have a parent")
+        else:
             if parent_id is None:
                 raise ValueError("non-baseline candidate requires a parent")
-            self.verify(parent_id)
+            parent = self.verify(parent_id)
+            if parent["generation"] != generation - 1:
+                raise ValueError("candidate generation must follow its parent")
+            if (parent["policy_digest"] != policy_digest
+                    or parent["evaluator_digest"] != evaluator_digest):
+                raise ValueError("candidate cannot change inherited policy or evaluator")
         if (self.root / artifact_id).exists():
             raise ValueError("artifact ID already admitted")
 
@@ -168,25 +176,14 @@ class RsiArtifactGate:
         return payload
 
     def verify(self, artifact_id: str) -> dict[str, Any]:
+        """Check every signed ancestor, not merely the selected descendant.
+
+        An intact child whose parent was deleted or tampered with is not a
+        trustworthy evolved agent. Traverse iteratively: deep lineages must
+        not trigger recursion limits or rescan the ledger per generation.
+        """
         if not _safe_id(artifact_id):
             raise ArtifactIntegrityError("unsafe artifact identifier")
-        folder = self.root / artifact_id
-        manifest_path = folder / "manifest.json"
-        if folder.is_symlink() or not manifest_path.is_file() or manifest_path.is_symlink():
-            raise ArtifactIntegrityError("candidate manifest missing or symlinked")
-        try:
-            payload = json.loads(
-                manifest_path.read_text(encoding="utf-8"),
-                parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)),
-            )
-        except (ValueError, OSError) as exc:
-            raise ArtifactIntegrityError("invalid candidate manifest") from exc
-        if not isinstance(payload, dict) or payload.get("artifact_id") != artifact_id:
-            raise ArtifactIntegrityError("candidate identity mismatch")
-        manifest_digest = payload.pop("manifest_digest", None)
-        if manifest_digest != digest_json(payload):
-            raise ArtifactIntegrityError("candidate manifest digest mismatch")
-        payload["manifest_digest"] = manifest_digest
         ledger_ok, ledger_reason = self.ledger.verify()
         if not ledger_ok:
             raise ArtifactIntegrityError(f"WLS evidence ledger invalid: {ledger_reason}")
@@ -197,35 +194,89 @@ class RsiArtifactGate:
                 "WHERE event_type='rsi_candidate_artifact_registered'"
             )
         ]
-        matching_receipts = [
-            entry for entry in receipts
-            if entry.get("artifact_id") == artifact_id
-        ]
-        if (
-            len(matching_receipts) != 1
-            or matching_receipts[0].get("manifest_digest") != manifest_digest
-            or matching_receipts[0].get("parent_id") != payload.get("parent_id")
-        ):
-            raise ArtifactIntegrityError("candidate manifest is not bound to signed WLS evidence")
-        index = payload.get("files")
-        if not isinstance(index, dict) or not index or set(index).difference(self.allowed_files):
-            raise ArtifactIntegrityError("candidate contains unauthorized files")
-        actual = set()
-        for path in folder.rglob("*"):
-            if path.is_symlink():
-                raise ArtifactIntegrityError("candidate contains a symlink")
-            if not path.is_file():
-                continue
-            rel = path.relative_to(folder).as_posix()
-            if rel != "manifest.json":
-                actual.add(rel)
-        if actual != set(index):
-            raise ArtifactIntegrityError("candidate file inventory changed")
-        for relative, record in index.items():
-            blob = folder.joinpath(*PurePosixPath(relative).parts).read_bytes()
+        receipt_index: dict[str, list[dict[str, Any]]] = {}
+        for item in receipts:
+            if isinstance(item, dict) and isinstance(item.get("artifact_id"), str):
+                receipt_index.setdefault(item["artifact_id"], []).append(item)
+
+        cursor = artifact_id
+        seen: set[str] = set()
+        child: dict[str, Any] | None = None
+        requested: dict[str, Any] | None = None
+        while True:
+            if not _safe_id(cursor) or cursor in seen:
+                raise ArtifactIntegrityError("candidate ancestry is invalid or cyclic")
+            seen.add(cursor)
+            folder = self.root / cursor
+            manifest_path = folder / "manifest.json"
+            if folder.is_symlink() or not manifest_path.is_file() or manifest_path.is_symlink():
+                raise ArtifactIntegrityError("candidate manifest missing or symlinked")
+            try:
+                payload = json.loads(
+                    manifest_path.read_text(encoding="utf-8"),
+                    parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)),
+                )
+            except (ValueError, OSError) as exc:
+                raise ArtifactIntegrityError("invalid candidate manifest") from exc
+            if not isinstance(payload, dict) or payload.get("artifact_id") != cursor:
+                raise ArtifactIntegrityError("candidate identity mismatch")
+            manifest_digest = payload.pop("manifest_digest", None)
+            if manifest_digest != digest_json(payload):
+                raise ArtifactIntegrityError("candidate manifest digest mismatch")
+            payload["manifest_digest"] = manifest_digest
+            matching_receipts = receipt_index.get(cursor, [])
             if (
-                len(blob) != record["bytes"]
-                or hashlib.sha256(blob).hexdigest() != record["sha256"]
+                len(matching_receipts) != 1
+                or matching_receipts[0].get("manifest_digest") != manifest_digest
+                or matching_receipts[0].get("parent_id") != payload.get("parent_id")
             ):
-                raise ArtifactIntegrityError("candidate source bytes modified")
-        return payload
+                raise ArtifactIntegrityError("candidate manifest is not bound to signed WLS evidence")
+            generation = payload.get("generation")
+            parent_id = payload.get("parent_id")
+            if not isinstance(generation, int) or isinstance(generation, bool) or generation < 0:
+                raise ArtifactIntegrityError("candidate generation is invalid")
+            if parent_id is not None and not _safe_id(parent_id):
+                raise ArtifactIntegrityError("candidate parent identifier is invalid")
+            if not isinstance(payload.get("policy_digest"), str) or not isinstance(
+                payload.get("evaluator_digest"), str
+            ):
+                raise ArtifactIntegrityError("candidate policy or evaluator is invalid")
+            if child is not None:
+                if child["generation"] != generation + 1:
+                    raise ArtifactIntegrityError("candidate lineage generation mismatch")
+                if (child["policy_digest"] != payload["policy_digest"]
+                        or child["evaluator_digest"] != payload["evaluator_digest"]):
+                    raise ArtifactIntegrityError("candidate lineage policy/evaluator mismatch")
+            index = payload.get("files")
+            if not isinstance(index, dict) or not index or set(index).difference(self.allowed_files):
+                raise ArtifactIntegrityError("candidate contains unauthorized files")
+            actual: set[str] = set()
+            for path in folder.rglob("*"):
+                if path.is_symlink():
+                    raise ArtifactIntegrityError("candidate contains a symlink")
+                if not path.is_file():
+                    continue
+                rel = path.relative_to(folder).as_posix()
+                if rel != "manifest.json":
+                    actual.add(rel)
+            if actual != set(index):
+                raise ArtifactIntegrityError("candidate file inventory changed")
+            for relative, record in index.items():
+                if not _safe_relative(relative) or not isinstance(record, dict):
+                    raise ArtifactIntegrityError("candidate file index is invalid")
+                blob = folder.joinpath(*PurePosixPath(relative).parts).read_bytes()
+                if (
+                    len(blob) != record.get("bytes")
+                    or hashlib.sha256(blob).hexdigest() != record.get("sha256")
+                ):
+                    raise ArtifactIntegrityError("candidate source bytes modified")
+            if requested is None:
+                requested = payload
+            if parent_id is None:
+                if generation != 0:
+                    raise ArtifactIntegrityError("candidate lineage lacks baseline")
+                return requested
+            if generation == 0:
+                raise ArtifactIntegrityError("candidate baseline cannot have a parent")
+            child = payload
+            cursor = parent_id
