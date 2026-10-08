@@ -123,6 +123,7 @@ class RsiEvolutionPilot:
             if row is None:
                 raise ValueError("unknown run_id")
             import json
+
             state = json.loads(row["value_json"])
             if state["policy_digest"] != policy.digest():
                 raise ValueError("policy changed after start")
@@ -172,7 +173,7 @@ class RsiEvolutionPilot:
                         "run_id": run_id, "generation": gen,
                         "candidate_id": candidate_id,
                         "decision": decision.to_dict(),
-                        "metric": asdict(metrics),
+                        "metric": _safe_metric_payload(metrics),
                     }, conn)
         except Exception as exc:
             state["status"] = "BLOCKED"
