@@ -8,7 +8,6 @@ from wls.evidence import EvidenceLedger
 from wls.rsi_artifact_gate import ArtifactIntegrityError, RsiArtifactGate
 from wls.schemas import digest_json
 
-
 SHA = "c" * 64
 
 
