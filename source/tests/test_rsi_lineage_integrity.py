@@ -6,7 +6,6 @@ only the selected child's bytes and accepted generation/policy mismatches.
 from __future__ import annotations
 
 import pytest
-
 from wls.db import Database
 from wls.evidence import EvidenceLedger
 from wls.rsi_artifact_gate import ArtifactIntegrityError, RsiArtifactGate
@@ -30,7 +29,7 @@ def archive(tmp_path):
 def add(gate, name, parent=None, generation=0, policy=POLICY, evaluator=EVALUATOR):
     return gate.register(
         artifact_id=name, parent_id=parent, generation=generation, branch=0,
-        files={"agent/code.py": f"version = {generation}\n".encode("utf-8")},
+        files={"agent/code.py": f"version = {generation}\n".encode()},
         policy_digest=policy, evaluator_digest=evaluator,
     )
 
