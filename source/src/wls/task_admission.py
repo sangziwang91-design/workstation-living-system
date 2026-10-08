@@ -293,6 +293,23 @@ def _validate_rsi_risk_strategy(value: object) -> dict[str, list[str]]:
     return normalized
 
 
+def admit_with_rsi_risk_strategy(
+    request_text: str,
+    risk_terms: dict[str, list[str]],
+) -> TaskIntent:
+    """Apply candidate hints without ever lowering WLS's deterministic floor."""
+    _validate_rsi_risk_strategy({"risk_terms": risk_terms})
+    hint = RiskLevel.READ
+    for level, phrases in risk_terms.items():
+        if any(phrase.casefold() in request_text.casefold() for phrase in phrases):
+            risk = RiskLevel[level]
+            if _RSI_RISK_RANK[risk] > _RSI_RISK_RANK[hint]:
+                hint = risk
+    return TaskAdmissionClassifier().admit(
+        request_text, model_hints={"risk": hint.name}
+    )
+
+
 class RsiRiskAdmissionEvaluator:
     """A useful, no-code-execution RSI trial for WLS task risk admission.
 
@@ -327,16 +344,9 @@ class RsiRiskAdmissionEvaluator:
                 gates={"invalid_strategy": 1.0},
                 evaluator_digest=RsiRiskAdmissionEvaluator.digest(),
             )
-        classifier = TaskAdmissionClassifier()
         passed = 0
         for request_text, expected in _RSI_RISK_CASES:
-            hint = RiskLevel.READ
-            for level, phrases in rules.items():
-                if any(phrase.casefold() in request_text.casefold() for phrase in phrases):
-                    risk = RiskLevel[level]
-                    if _RSI_RISK_RANK[risk] > _RSI_RISK_RANK[hint]:
-                        hint = risk
-            predicted = classifier.admit(request_text, model_hints={"risk": hint.name})
+            predicted = admit_with_rsi_risk_strategy(request_text, rules)
             passed += predicted.risk_floor == expected
         return MetricResult(
             primary=passed / len(_RSI_RISK_CASES),
