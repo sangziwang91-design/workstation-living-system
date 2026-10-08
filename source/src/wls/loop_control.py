@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from math import isfinite
 from time import monotonic
 from typing import Callable
 
@@ -16,9 +17,9 @@ class LoopBudget:
     def validate(self) -> None:
         if self.max_turns < 1:
             raise ValueError("max_turns must be >= 1")
-        if self.max_seconds <= 0:
+        if not isfinite(self.max_seconds) or self.max_seconds <= 0:
             raise ValueError("max_seconds must be > 0")
-        if self.max_cost_usd < 0:
+        if not isfinite(self.max_cost_usd) or self.max_cost_usd < 0:
             raise ValueError("max_cost_usd must be >= 0")
         if self.max_failures < 0:
             raise ValueError("max_failures must be >= 0")
@@ -61,9 +62,17 @@ class LoopController:
         self.no_gain_rounds = 0
         self.best_gain = float("-inf")
         self._owner_stop: str | None = None
+        self._stopped_reason: str | None = None
 
     def request_owner_stop(self, reason: str) -> None:
         self._owner_stop = reason.strip() or "owner_stop"
+
+    def stop_reason(self) -> str | None:
+        """Check budgets without consuming a turn; once stopped, remain stopped."""
+        if self._stopped_reason is None:
+            elapsed = max(0.0, self._clock() - self.started)
+            self._stopped_reason = self._reason(elapsed)
+        return self._stopped_reason
 
     def observe(
         self,
@@ -72,8 +81,22 @@ class LoopController:
         cost_usd: float = 0.0,
         failed: bool = False,
     ) -> LoopObservation:
-        if cost_usd < 0:
-            raise ValueError("cost_usd must be >= 0")
+        if not isfinite(cost_usd) or cost_usd < 0:
+            raise ValueError("cost_usd must be finite and >= 0")
+        if not isfinite(gain):
+            raise ValueError("gain must be finite")
+        prior_stop = self.stop_reason()
+        if prior_stop is not None:
+            return LoopObservation(
+                turn=self.turn,
+                elapsed_seconds=max(0.0, self._clock() - self.started),
+                cumulative_cost_usd=self.cost,
+                failures=self.failures,
+                no_gain_rounds=self.no_gain_rounds,
+                best_gain=self.best_gain,
+                should_stop=True,
+                stop_reason=prior_stop,
+            )
         self.turn += 1
         self.cost += cost_usd
         if failed:
@@ -84,7 +107,7 @@ class LoopController:
         else:
             self.no_gain_rounds += 1
         elapsed = max(0.0, self._clock() - self.started)
-        reason = self._reason(elapsed)
+        reason = self.stop_reason()
         return LoopObservation(
             turn=self.turn,
             elapsed_seconds=elapsed,
