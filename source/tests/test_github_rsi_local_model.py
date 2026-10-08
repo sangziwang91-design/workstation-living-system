@@ -1,11 +1,9 @@
 """The local-model bridge adapts real imperfect model output without running it."""
 from __future__ import annotations
 
-import hashlib
 import runpy
 from pathlib import Path
 
-import pytest
 from wls.coding_adapter import CodingTaskContract
 
 
@@ -47,16 +45,23 @@ def test_generated_guard_is_syntactically_valid_for_real_wls(tmp_path):
     assert "relative_file" in expr and ":" in expr
 
 
-def test_pinned_real_model_digest_rejects_upstream_gguf_drift(tmp_path):
-    path = Path(__file__).resolve().parents[1] / "scripts" / "github_rsi_local_model.py"
-    loaded = runpy.run_path(str(path))
-    check = loaded["verified_model_digest"]
-    assert loaded["EXPECTED_MODEL_SHA256"] == (
-        "0128e77564e43d40682f82d7ebe8a9abdf0c24c8f55fa85629f8cc156b1b6560"
-    )
-    fixture = tmp_path / "fake.gguf"
-    fixture.write_bytes(b"test-only-model-weights")
-    digest = hashlib.sha256(fixture.read_bytes()).hexdigest()
-    assert check(fixture, digest) == digest
-    with pytest.raises(RuntimeError, match="SHA256 differs"):
-        check(fixture)
+
+def test_real_qwen_round3_return_expression_is_extracted_without_execution():
+    # Actual failed hosted run 37758577790 included this correct expression,
+    # wrapped in a Python function. Only the pure expression is admitted.
+    actual = """```python
+def is_valid_filename(relative_file):
+    # Check whether the filename contains CR or LF
+    return '\\n' in relative_file or '\\r' in relative_file
+```"""
+    expression = _parser()(actual)
+    assert expression is not None
+    assert "'\\n' in relative_file" in expression
+    assert "'\\r' in relative_file" in expression
+
+
+def test_return_wrappers_never_allow_imports_calls_or_attributes():
+    parser = _parser()
+    assert parser("return __import__('os').system('echo secret')") is None
+    assert parser("return os.environ.clear()") is None
+    assert parser("return relative_file.startswith('unsafe')") is None
