@@ -33,3 +33,17 @@ def test_windows_relative_path_is_canonicalized_on_linux_too(tmp_path: Path) -> 
 def test_cross_platform_traversal_or_drive_is_rejected(tmp_path: Path, bad: str):
     with pytest.raises(ValueError, match="escapes worktree|relative paths"):
         _contract(tmp_path, bad).candidate_artifact()
+
+
+@pytest.mark.parametrize("ads", [
+    "module.py:stream", "src/module.py:$DATA",
+    "module.py::$DATA", r"src\\module.py:payload",
+])
+def test_real_model_generated_ads_repair_rejects_hidden_ntfs_streams(
+    tmp_path: Path, ads: str,
+):
+    # Tested against the actual WLS source model repair promoted by GitHub.
+    # validate(), not candidate_artifact(), checks the policy independently
+    # of whether a candidate file happens to exist on Linux.
+    with pytest.raises(ValueError, match="relative paths"):
+        _contract(tmp_path, ads).validate()

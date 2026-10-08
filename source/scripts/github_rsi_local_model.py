@@ -109,7 +109,28 @@ def trial() -> dict[str, object]:
     oracle.write_text(ORACLE_SOURCE, encoding="utf-8")
     baseline = command(sys.executable, "-m", "pytest", "-q", str(oracle), timeout=90)
     if baseline.returncode == 0:
-        raise RuntimeError("frozen behavior regression does not detect a defect")
+        # A previous model-generated and verified code promotion already
+        # closed this goal. Do not redownload the model or re-execute it.
+        record: dict[str, object] = {
+            "schema": "wls.hosted_small_llm_coding.v1",
+            "base_sha": base_sha,
+            "model_id": MODEL_ID,
+            "status": "NO_GAIN",
+            "accepted": False,
+            "source": str(SOURCE),
+            "model_called": False,
+            "reason": "frozen ADS owner oracle already passes",
+        }
+        Path("rsi-model-report.json").write_text(
+            json.dumps(record, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        output = os.environ.get("GITHUB_OUTPUT")
+        if output:
+            with Path(output).open("a", encoding="utf-8") as receipt:
+                receipt.write("accepted=false\n")
+        print(json.dumps(record, ensure_ascii=False), flush=True)
+        return record
 
     model_file = Path(os.environ.get("RUNNER_TEMP", "/tmp")) / "wls-coder.gguf"
     if not model_file.is_file():
@@ -205,4 +226,4 @@ if __name__ == "__main__":
             encoding="utf-8",
         )
         raise
-    raise SystemExit(0 if result["accepted"] else 1)
+    raise SystemExit(0 if result["accepted"] or result.get("status") == "NO_GAIN" else 1)
