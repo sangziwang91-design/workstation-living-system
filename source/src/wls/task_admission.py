@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
-from typing import TYPE_CHECKING, Any
 import json
+from dataclasses import asdict, dataclass, field
+from typing import Any
 
-if TYPE_CHECKING:
-    from .rsi_artifact_gate import RsiArtifactGate
-
+from .rsi_artifact_gate import RsiArtifactGate
 from .schemas import (
     RiskLevel,
     TaskDomain,
