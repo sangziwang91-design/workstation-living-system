@@ -26,8 +26,10 @@ def is_other_code(path: str) -> bool:
     if path == ".github/CODEOWNERS":
         return True
     return (
-        path.startswith(("source/", ".github/", "agent/"))
-        and PurePosixPath(path).suffix.lower() in CODE_SUFFIXES
+        (path.startswith(("source/", ".github/", "agent/", "evals/", "tests/"))
+         and PurePosixPath(path).suffix.lower() in CODE_SUFFIXES)
+        or path in {"pyproject.toml", "Dockerfile", "Makefile", "tox.ini",
+                    "pytest.ini", "uv.lock", "requirements.txt"}
     )
 
 
@@ -55,16 +57,18 @@ def fetch_pr_files(repo: str, pr: int, token: str) -> list[str]:
     if not token or pr < 1:
         raise ValueError("missing token or PR number")
     files: list[str] = []
+    changed_names: list[str] = []
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "WLS-evaluator-change-guard",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
     for page in range(1, 32):
         request = Request(
             f"https://api.github.com/repos/{repo}/pulls/{pr}/files"
             f"?per_page=100&page={page}",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Accept": "application/vnd.github+json",
-                "User-Agent": "WLS-evaluator-change-guard",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
+            headers=headers,
         )
         with urlopen(request, timeout=20) as response:  # nosec B310 trusted API
             rows = json.load(response)
@@ -74,6 +78,7 @@ def fetch_pr_files(repo: str, pr: int, token: str) -> list[str]:
             if not isinstance(row, dict) or not isinstance(row.get("filename"), str):
                 raise ValueError("malformed PR path")
             files.append(row["filename"])
+            changed_names.append(row["filename"])
             if row.get("status") == "renamed":
                 previous = row.get("previous_filename")
                 if not isinstance(previous, str):
@@ -82,6 +87,17 @@ def fetch_pr_files(repo: str, pr: int, token: str) -> list[str]:
         if len(files) > MAX_FILES:
             raise ValueError("changed-file count exceeds safe bound")
         if len(rows) < 100:
+            # GitHub's changed-files endpoint is capped at 3,000. Verify
+            # completeness against independent PR metadata, fail closed.
+            detail = Request(
+                f"https://api.github.com/repos/{repo}/pulls/{pr}",
+                headers=headers,
+            )
+            with urlopen(detail, timeout=20) as response:  # nosec B310 pinned host
+                metadata = json.load(response)
+            actual = metadata.get("changed_files") if isinstance(metadata, dict) else None
+            if type(actual) is not int or actual > MAX_FILES or actual != len(set(changed_names)):
+                raise ValueError("PR file list incomplete versus GitHub changed_files count")
             return files
     raise ValueError("GitHub file-list pagination overflow")
 
