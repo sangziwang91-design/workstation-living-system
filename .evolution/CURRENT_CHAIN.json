@@ -2,16 +2,15 @@
   "schema_version": "2.0",
   "chain_id": "WLS-REPO-NATIVE-EVOLUTION-001",
   "status": "ACTIVE_SINGLE_TRUNK_ET004_COMPLETE",
-  "updated_at": "2026-07-08",
+  "updated_at": "2026-10-08",
   "authority": {
     "owner": "sangziwang91-design",
-    "repository": "sangziwang91-design/workstation-living-system-private",
+    "repository": "sangziwang91-design/workstation-living-system",
     "canonical_runtime": "source/src/wls/runtime.py::LivingSystem",
     "engineering_truth": "GITHUB_AND_RUNTIME_EVIDENCE",
     "approval_authority": "OWNER"
   },
   "canonical_baseline": {
-    "main_head": "75786a5",
     "development_version": "0.9.0.dev2",
     "tag": "v0.9.0.dev2",
     "completed_targets": [
@@ -20,31 +19,58 @@
       "EVOLUTION-TARGET-003",
       "EVOLUTION-TARGET-004"
     ],
-    "claim_boundary": "ET001-ET004 have code and controlled local verification; owner-host longitudinal proof remains pending."
+    "claim_boundary": "ET001-ET004 have bounded verified code; subsequent owner-task receipts do not establish weeks-long autonomous RSI.",
+    "historical_main_head": "75786a5"
   },
   "current_target": {
-    "target_id": "EVOLUTION-TARGET-005",
-    "title": "Owner-Host Longitudinal Validation",
-    "state": "PENDING_OWNER_HOST_EVIDENCE",
-    "objective": "Run genuine owner-authorized task sequences on the intended host, measure benefit and regressions over weeks, verify memory validity and contradiction handling outside controlled verifier."
+    "target_id": "MAINLINE-TARGET-001",
+    "title": "Life Loop and GitHub Patch Mission Mainline Proof",
+    "state": "SOURCE_CONSOLIDATED_INSTALL_VERIFICATION_PENDING",
+    "objective": "Advance an actual owner-authorized Patch Mission action chain through the single LivingSystem and retain verified task effects, memory and rollback evidence."
   },
   "verification": {
     "architecture_validation": {
       "passes": 89,
       "failures": 0,
-      "instance": "v0.9.0.dev2 installed"
+      "instance": "v0.9.0.dev2 installed",
+      "verdict_distribution": {
+        "ADMIT": 1,
+        "ADMIT_SHADOW_ONLY": 88,
+        "BLOCKED": 0
+      },
+      "claim_boundary": "Historic architecture admission only, not 89 independent production tasks"
     },
-    "module_count": 86,
-    "test_file_count": 41,
-    "integration_pipelines": 6
+    "integration_pipelines": 6,
+    "historical_inventory_snapshot": {
+      "status": "HISTORICAL_NOT_CURRENT",
+      "source": "2026-07-08 CURRENT_CHAIN",
+      "module_count": 86,
+      "test_file_count": 41
+    },
+    "current_repository_inventory": {
+      "snapshot_head": "ae6fcee9d6c3a747635d5ac189b416f8cc7d8d29",
+      "source_python_files_including_init": 107,
+      "source_python_files_excluding_init": 104,
+      "test_python_files": 74,
+      "source": "GitHub main Git tree on 2026-10-08"
+    }
   },
   "next_action": {
-    "mode": "OWNER_HOST_LONGITUDINAL_VALIDATION",
-    "instruction": "Deploy v0.9.0.dev2 to owner host, run longitudinal protocol (source/src/wls/longitudinal.py), collect real-world evidence over weeks before claiming production-ready status."
+    "mode": "OWNER_AUTHORIZED_REAL_TASK_TRANSFER",
+    "instruction": "Use the canonical GitHub-hosted tested WLS implementation to complete one authorized real Patch Mission action sequence, preserving initial conditions, actual outcomes and owner approvals. Independently compare new-vs-frozen approaches across distinct real tasks; synthetic sandbox improvements do not count as long-term RSI."
   },
   "claim_ceiling": [
-    "Repository is single-trunk, architecture-validated (P01-P89), and locally verified.",
-    "86 modules, 41 test files, 6 integration pipelines pass.",
-    "No unattended evolution, production-host longitudinal benefit, or multi-provider advantage is proven."
-  ]
+    "A single LivingSystem has persisted code and bounded independent GitHub-hosted Windows/Linux regression evidence.",
+    "Historical 89 architectural verdicts include 1 ADMIT and 88 ADMIT_SHADOW_ONLY, not 89 production proofs.",
+    "Owner-host long-horizon, multi-task RSI improvement and open-ended autonomous agency are unproven."
+  ],
+  "notion_anchor": {
+    "page_id": "38940ff6ad6281b6bd69d700c9322d77",
+    "page_url": "https://app.notion.com/p/38940ff6ad6281b6bd69d700c9322d77"
+  },
+  "worker_state": {
+    "primary_code_worker_id": "chatgpt_interactive",
+    "authority": "BRANCH_AND_PULL_REQUEST",
+    "note": "Mirrors .evolution/worker_registry.json; no implicit extra writer"
+  }
 }
