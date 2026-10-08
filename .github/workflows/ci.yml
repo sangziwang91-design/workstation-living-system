@@ -153,11 +153,13 @@ jobs:
     name: Hosted Windows full WLS tests and wheel
     runs-on: windows-latest
     timeout-minutes: 40
-    env:
-      PIP_CACHE_DIR: ${{ runner.temp }}\\wls-pip-cache
-      TEMP: ${{ runner.temp }}
-      TMP: ${{ runner.temp }}
     steps:
+      - name: Configure hosted Windows temporary directories
+        shell: pwsh
+        run: |
+          "PIP_CACHE_DIR=$env:RUNNER_TEMP\\wls-pip-cache" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "TEMP=$env:RUNNER_TEMP" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "TMP=$env:RUNNER_TEMP" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           persist-credentials: false
