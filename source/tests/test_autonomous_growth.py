@@ -127,3 +127,25 @@ def test_rejected_failure_hypothesis_is_not_silently_resurrected(tmp_path: Path)
     assert len(runtime.db.query_all(
         "SELECT candidate_id FROM evolution_candidates WHERE candidate_type='failure_repair'"
     )) == 1
+
+
+def test_unsupported_failure_source_does_not_exhaust_autonomous_goal_budget(
+    tmp_path: Path,
+) -> None:
+    runtime = runtime_at(tmp_path / "unsupported")
+    source_ids = [record_real_failure(runtime) for _ in range(3)]
+    # Fixture: a completed, failed, non-eligible tool. Its result remains
+    # a valid failure label but has no safe automatic recovery organ.
+    for action_id in source_ids:
+        runtime.db.execute(
+            "UPDATE actions SET tool='http_get' WHERE action_id=?", (action_id,)
+        )
+    runtime.run_cycle()
+    assert len(runtime.db.query_all(
+        "SELECT candidate_id FROM evolution_candidates WHERE candidate_type='failure_repair'"
+    )) == 1
+    assert runtime.db.query_all(
+        "SELECT goal_id FROM goals WHERE source='autonomy.learning'"
+    ) == []
+    assert runtime.goals.autonomous_count() == 0
+
