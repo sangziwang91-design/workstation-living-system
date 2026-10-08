@@ -117,9 +117,22 @@ class PolicyEngine:
                 self.config.home_path / "logs",
                 self.config.home_path / "snapshots",
             )
-            if any(
-                self._contained(candidate, protected.resolve(strict=False))
-                for protected in private_roots
+            private_config_files = (
+                self.config.home_path / "config.json",
+                self.config.home_path / "config.yaml",
+                self.config.home_path / "config.yml",
+                self.config.home_path / "config.toml",
+                self.config.home_path / ".env",
+            )
+            if (
+                any(
+                    self._contained(candidate, protected.resolve(strict=False))
+                    for protected in private_roots
+                )
+                or any(
+                    candidate == protected.resolve(strict=False)
+                    for protected in private_config_files
+                )
             ):
                 raise PermissionError("protected WLS private runtime path")
             if not any(self._contained(candidate, root) for root in roots):
