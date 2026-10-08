@@ -18,6 +18,7 @@ on:
       - "source/src/wls/task_admission.py"
       - "source/tests/test_coding_workers.py"
       - "docs/RSI_PILOT_FIVE_GATES.md"
+      - "docs/RSI_PRODUCTION_PATH_V1.md"
       - "source/scripts/verify_rsi_100_generations.py"
       - "source/scripts/verify_rsi_50_faults.py"
       - ".github/workflows/rsi-pilot.yml"
