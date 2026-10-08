@@ -153,3 +153,57 @@ def test_coding_worker_does_not_fabricate_test_success():
     assert not worker._parse_test_results("I think everything is ok", "")
     assert not worker._parse_test_results("3 passed", "1 failed")
     assert worker._parse_test_results("3 passed in 0.1s", "")
+
+
+def test_hard_gate_baseline_is_rejected(pilot):
+    runner, _ = pilot
+    with pytest.raises(ValueError, match="baseline violates"):
+        runner.start(
+            run_id="bad-baseline", baseline_id="baseline",
+            baseline=metric(0.5, regressions=1), policy=policy(),
+        )
+
+
+def test_repeated_candidate_identity_across_generations_is_blocked(pilot):
+    runner, ledger = pilot
+    runner.start(run_id="duplicate", baseline_id="baseline", baseline=metric(.5), policy=policy())
+    runner.advance(
+        "duplicate", policy=policy(),
+        propose=lambda _, gen, branch: f"repeat-{branch}",
+        evaluate=lambda candidate: metric(.6 if candidate.endswith("1") else .5),
+    )
+    with pytest.raises(ValueError, match="reused"):
+        runner.advance(
+            "duplicate", policy=policy(),
+            propose=lambda _, gen, branch: f"repeat-{branch}",
+            evaluate=lambda _: pytest.fail("reused candidate must not be evaluated"),
+        )
+    state = runner.read("duplicate")
+    assert state is not None and state["status"] == "BLOCKED"
+    assert ledger.verify()[0]
+
+
+def test_nonfinite_candidate_receipt_is_strict_json(pilot):
+    import json
+
+    runner, ledger = pilot
+    runner.start(run_id="strict", baseline_id="baseline", baseline=metric(.5), policy=policy(1))
+    runner.run_bounded(
+        "strict", policy=policy(1),
+        propose=lambda _, gen, branch: f"bad-{gen}-{branch}",
+        evaluate=lambda _: metric(math.nan, regressions=math.inf),
+    )
+    state = runner.read("strict")
+    assert state is not None and state["champion_id"] == "baseline"
+    assert state["status"] == "COMPLETE"
+    assert ledger.verify()[0]
+    raw = json.dumps(state, allow_nan=False)
+    assert "NaN" not in raw and "Infinity" not in raw
+
+
+def test_candidate_identity_constraints(pilot):
+    runner, _ = pilot
+    with pytest.raises(ValueError, match="artifact identifier"):
+        runner.start(
+            run_id="bad-id", baseline_id="../unsafe", baseline=metric(.5), policy=policy()
+        )
