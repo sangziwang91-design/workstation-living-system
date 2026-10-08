@@ -14097,6 +14097,20 @@ class LivingSystem:
                 }
             )
             step_started = time.monotonic()
+            # The existing LearningSystem owns candidate identity; the existing
+            # AutonomySystem chooses whether a candidate warrants a read-only
+            # endogenous goal. Never invoke a model or a repair worker here.
+            newly_observed_growth = self.learning.create_failure_candidates(
+                minimum_repeats=3, lookback_days=30, max_new_candidates=1
+            )
+            event_goal_timings.append(
+                {
+                    "step": "real_failure_growth_discovery",
+                    "elapsed_seconds": round(time.monotonic() - step_started, 4),
+                    "new_candidates": len(newly_observed_growth),
+                }
+            )
+            step_started = time.monotonic()
             autonomous_goal_ids = self.autonomy.consider()
             event_goal_timings.append(
                 {
