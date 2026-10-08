@@ -216,7 +216,7 @@ def baseline_registry() -> CapabilityRegistry:
 
 def ordinary_user_capability_map() -> dict[str, Any]:
     """Return the user-facing truth table for current WLS product capabilities."""
-    items = [
+    items: list[dict[str, Any]] = [
         {
             "id": "local_workspace_init",
             "label": UserCapabilityLabel.AVAILABLE.value,
