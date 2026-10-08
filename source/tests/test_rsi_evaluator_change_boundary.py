@@ -92,3 +92,31 @@ def test_only_scoring_and_readme_is_not_code_mixing(guard):
     assert guard.check_files([
         "source/src/wls/benchmark.py", "README.md", "CURRENT_STATE.yaml",
     ])["eligible"]
+
+
+@pytest.mark.parametrize("code_path", [
+    "setup.py",
+    "scripts/repair.py",
+    "tools/candidate_generator.py",
+    "docs/hidden_runtime.py",
+    "pkg/extensions/agent.ts",
+    "ops/pipeline.yml",
+    "config/runtime.json",
+    "nested/Makefile",
+])
+def test_scorer_cannot_hide_a_second_code_change_in_any_directory(guard, code_path):
+    result = guard.check_files([
+        "source/src/wls/benchmark.py", code_path,
+    ])
+    assert result["status"] == "REJECT_MIXED_EVALUATOR_AND_CODE"
+    assert code_path in result["other_code_files"]
+
+
+def test_scorer_and_prose_only_can_still_be_reviewed(guard):
+    result = guard.check_files([
+        "source/src/wls/benchmark.py",
+        "README.md",
+        "docs/review-notes.md",
+        "CURRENT_STATE.yaml",
+    ])
+    assert result["eligible"] is True
