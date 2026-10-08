@@ -11,6 +11,8 @@ on:
       - "source/tests/test_rsi_evolution.py"
       - "source/tests/test_rsi_artifact_gate.py"
       - "source/src/wls/rsi_artifact_gate.py"
+      - "source/src/wls/rsi_model_port.py"
+      - "source/tests/test_rsi_model_port.py"
       - "source/tests/test_coding_workers.py"
       - "docs/RSI_PILOT_FIVE_GATES.md"
       - "source/scripts/verify_rsi_100_generations.py"
@@ -39,7 +41,7 @@ jobs:
       - name: Windows repository invariant and targeted WLS RSI regressions
         run: |
           python source/scripts/verify_packaging_layout.py
-          python -m pytest -q source/tests/test_rsi_evolution.py source/tests/test_experiment_decision.py source/tests/test_loop_control.py source/tests/test_coding_workers.py source/tests/test_rsi_artifact_gate.py
+          python -m pytest -q source/tests/test_rsi_evolution.py source/tests/test_experiment_decision.py source/tests/test_loop_control.py source/tests/test_coding_workers.py source/tests/test_rsi_artifact_gate.py source/tests/test_rsi_model_port.py
       - name: Windows 100-generation durability proof
         run: python source/scripts/verify_rsi_100_generations.py --report rsi-100-windows.json
       - name: Windows RSI 50-round adversarial audit
@@ -72,7 +74,7 @@ jobs:
         run: python source/scripts/verify_packaging_layout.py
       - name: RSI pilot and existing decision regressions
         run: |
-          python -m pytest -q source/tests/test_rsi_evolution.py             source/tests/test_experiment_decision.py             source/tests/test_loop_control.py             source/tests/test_coding_workers.py             source/tests/test_rsi_artifact_gate.py
+          python -m pytest -q source/tests/test_rsi_evolution.py             source/tests/test_experiment_decision.py             source/tests/test_loop_control.py             source/tests/test_coding_workers.py             source/tests/test_rsi_artifact_gate.py source/tests/test_rsi_model_port.py
       - name: Execute 100-generation / 200-candidate deterministic stress proof
         run: python source/scripts/verify_rsi_100_generations.py --report rsi-100-proof.json
       - name: Run 50-round fault-injection matrix against real WLS state
@@ -88,4 +90,4 @@ jobs:
           if-no-files-found: warn
       - name: Lint changed RSI surfaces
         run: |
-          python -m ruff check             source/src/wls/rsi_evolution.py             source/src/wls/rsi_artifact_gate.py             source/src/wls/experiment_decision.py             source/src/wls/loop_control.py             source/src/wls/coding_workers.py             source/tests/test_rsi_evolution.py             source/tests/test_rsi_artifact_gate.py             source/scripts/verify_rsi_100_generations.py             source/scripts/verify_rsi_50_faults.py
+          python -m ruff check             source/src/wls/rsi_evolution.py             source/src/wls/rsi_artifact_gate.py             source/src/wls/rsi_model_port.py             source/src/wls/experiment_decision.py             source/src/wls/loop_control.py             source/src/wls/coding_workers.py             source/tests/test_rsi_evolution.py             source/tests/test_rsi_artifact_gate.py             source/tests/test_rsi_model_port.py             source/scripts/verify_rsi_100_generations.py             source/scripts/verify_rsi_50_faults.py
