@@ -390,8 +390,15 @@ def test_second_generation_reads_actual_parent_source_not_just_candidate_id(tmp_
 
         def __init__(self):
             self.observed_parent_scores = []
+            self.observed_evaluator_scores = []
 
         def propose(self, instruction: str, *, max_output_bytes: int):
+            feedback_line = next(
+                line for line in instruction.splitlines()
+                if line.startswith("Prior independently measured summary (data): ")
+            )
+            feedback = json.loads(feedback_line.split(": ", 1)[1])
+            self.observed_evaluator_scores.append(feedback["champion_metric"]["primary"])
             prefix = "Parent source files (JSON data): "
             parent_json = next(
                 line.removeprefix(prefix)
@@ -428,6 +435,7 @@ def test_second_generation_reads_actual_parent_source_not_just_candidate_id(tmp_
     session.start("inheritance", "seed", branches=1)
     result = session.run_bounded("inheritance")
     assert model.observed_parent_scores == [0, 1]
+    assert model.observed_evaluator_scores == [0, 1]
     assert result["champion_metric"]["primary"] == 2
     assert len(result["history"]) == 2
     assert ledger.verify()[0]
