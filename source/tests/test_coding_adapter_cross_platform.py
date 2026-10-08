@@ -51,8 +51,8 @@ def test_real_model_generated_ads_repair_rejects_hidden_ntfs_streams(
 
 
 @pytest.mark.parametrize("poisoned", [
-    "module\\nother.py", "module\\rother.py",
-    "pkg/module\\nnext.py", "pkg/module\\rnext.py",
+    "module\nother.py", "module\rother.py",
+    "pkg/module\nnext.py", "pkg/module\rnext.py",
 ])
 def test_second_real_model_generated_repair_rejects_crlf_audit_injection(
     tmp_path: Path, poisoned: str,
