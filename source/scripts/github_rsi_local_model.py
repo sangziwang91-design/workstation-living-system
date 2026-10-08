@@ -70,14 +70,30 @@ def bounded_expression(reply: str) -> str | None:
         if (
             0 < len(expr) < 160
             and all(isinstance(node, allowed) for node in nodes)
-            and all(not isinstance(node, ast.Name) or node.id == "relative_file" for node in nodes)
+            and all(
+                not isinstance(node, ast.Name)
+                or node.id in {"relative_file", "path"}
+                for node in nodes
+            )
             and all(
                 not isinstance(node, ast.Constant)
                 or (isinstance(node.value, str) and len(node.value) < 20)
                 for node in nodes
             )
         ):
-            return expr
+            # A real 0.5B coder tends to wrap a correct guard in a function
+            # with parameter "path". Extract ONLY its pure if-condition,
+            # normalize the parameter name, and let the frozen tests decide.
+            class CanonicalizeParameter(ast.NodeTransformer):
+                def visit_Name(self, node: ast.Name) -> ast.Name:
+                    if node.id == "path":
+                        return ast.copy_location(
+                            ast.Name(id="relative_file", ctx=node.ctx), node
+                        )
+                    return node
+
+            safe_tree = CanonicalizeParameter().visit(tree)
+            return ast.unparse(safe_tree)
     return None
 
 
