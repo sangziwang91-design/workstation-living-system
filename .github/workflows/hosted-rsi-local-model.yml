@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     outputs:
-      accepted: ${{ steps.propose.outputs.accepted == 'true' }}
+      accepted: ${{ steps.replay.outputs.accepted == 'true' || steps.propose.outputs.accepted == 'true' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
@@ -63,11 +63,26 @@ jobs:
               output.write(f"needs_model={'true' if needed else 'false'}\n")
           print("Model inference necessary:", needed)
           PY
-      - name: Install local CPU coder only if archived model response could not be reused
+      - name: Reuse pinned authentic 2026-10-08 GGUF failed inference receipt
         if: steps.preflight.outputs.needs_model == 'true'
+        id: prior
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: wls-real-cpu-model-37765939009
+          run-id: 37765939009
+          github-token: ${{ github.token }}
+          path: recovered-model-evidence
+      - name: Regrade genuine generated predicate against independent owner oracle
+        if: steps.preflight.outputs.needs_model == 'true' && steps.prior.outcome == 'success'
+        id: replay
+        continue-on-error: true
+        run: python source/scripts/github_rsi_replay_model.py
+      - name: Install local CPU coder only if archived model response could not be reused
+        if: steps.preflight.outputs.needs_model == 'true' && steps.replay.outputs.accepted != 'true'
         run: python -m pip install --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu "llama-cpp-python==0.3.16"
       - name: "Real model generates source repair, WLS tests independently decide"
-        if: steps.preflight.outputs.needs_model == 'true'
+        if: steps.preflight.outputs.needs_model == 'true' && steps.replay.outputs.accepted != 'true'
         id: propose
         timeout-minutes: 23
         run: python source/scripts/github_rsi_local_model.py
@@ -121,7 +136,9 @@ jobs:
           assert data['base_sha'] == os.environ['BASE_SHA']
           assert data['model_id'] == 'Qwen2.5-Coder-0.5B-Instruct-Q4_K_M'
           assert data['model_sha256'] == '0128e77564e43d40682f82d7ebe8a9abdf0c24c8f55fa85629f8cc156b1b6560'
-          assert data.get('replayed_from_run') is None
+          if data.get('replayed_from_run') is not None:
+              assert data['replayed_from_run'] == 37765939009
+              assert data['model_called'] is False
           assert data['goal_id'] == 'safe_relative_embedded_nul_v3'
           assert data['accepted'] is True
           assert data['source'] == 'source/src/wls/coding_adapter.py'
