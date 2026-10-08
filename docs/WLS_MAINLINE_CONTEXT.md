@@ -22,6 +22,40 @@ Evidence, health, rollback, retention, readiness, and audit features remain
 important, but they are immune-system organs. They protect action chains; they
 are not the main product experience.
 
+## 2026-10-08 long-term identity and candidate growth contract
+
+The enduring objective is a **continually improving autonomous long-running
+agent**, not an automatic code repair product. Code repair is one measurable
+skill. The July 2026 "repo continuity" product cut was a delivery strategy,
+not a cancellation of the living-agent objective.
+
+Source of intent: [Notion EXP-082](https://app.notion.com/p/38940ff6ad6281b6bd69d700c9322d77),
+including the 2026-07-17 hypothesis archive and 2026-07-19 mainline reset.
+GitHub runtime, code, real executed outcomes, and CI remain engineering truth.
+
+**Candidate PR #36 integration:**
+
+1. Every canonical LivingSystem.run_cycle() may read a bounded window of
+   completed actual WLS tool failures. Unknown-side-effect, rejected,
+   unstarted and unverified outcomes are not treated as learning labels.
+2. LearningSystem creates at most one new stable failure hypothesis per
+   cycle (after three matched real failures). New occurrence counts do not
+   create duplicate candidates; an unchanged rejected hypothesis stays rejected.
+3. AutonomySystem may select one supported candidate as an endogenous,
+   read-only inspection goal in canonical GoalStore. Its evidence and goal
+   persist over restarts. It cannot silently re-open that goal.
+4. A growth goal is **not** authority to run arbitrary generated code,
+   self-edit policy/approval boundaries, or automatically promote skills.
+   Existing GrowthCycle experiments, independent scoring, owner approval,
+   verification and rollback remain in force.
+5. Model-proposed RSI candidates still require an independently isolated
+   evaluator, matched frozen-improver control, held-out tasks and longitudinal
+   real-task evidence before any general RSI claim.
+
+Acceptance: observed-failure goal formation != verified transfer gain !=
+improver improves its own improvement efficiency. PR checks are candidate
+evidence, not installed owner-host or multi-week autonomy proof.
+
 ## Canonical Trunk
 
 ```text
