@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import hashlib
 import runpy
+from pathlib import Path
 
 import pytest
-from pathlib import Path
 
 from wls.coding_adapter import CodingTaskContract
 
