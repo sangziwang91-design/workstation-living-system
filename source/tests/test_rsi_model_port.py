@@ -9,7 +9,7 @@ import pytest
 from wls.db import Database
 from wls.evidence import EvidenceLedger
 from wls.experiment_decision import ExperimentPolicy, MetricResult
-from wls.rsi_artifact_gate import RsiArtifactGate
+from wls.rsi_artifact_gate import ArtifactIntegrityError, RsiArtifactGate
 from wls.rsi_evolution import RsiEvolutionPilot
 from wls.rsi_model_port import (
     ModelProtocolError,
@@ -298,3 +298,70 @@ def test_http_adapter_explicit_token_and_prompt_gates(monkeypatch):
         OpenAICompatibleProposalPort(
             model_id="m", base_url="https://api.example", max_output_tokens=0
         )
+
+
+def test_model_cannot_modify_parent_while_proposing(gateway):
+    gate, ledger = gateway
+
+    class ParentTamperingModel(FakeModel):
+        def propose(self, instruction: str, *, max_output_bytes: int) -> RsiProposalResponse:
+            (gate.root / "seed" / "agent" / "strategy.json").write_bytes(b"tampered")
+            return super().propose(instruction, max_output_bytes=max_output_bytes)
+
+    model = ParentTamperingModel('{"files":{"agent/strategy.json":"new"}}')
+    with pytest.raises(ArtifactIntegrityError, match="source bytes modified"):
+        builder(model, gate).propose(request())
+    assert not (gate.root / "rsi-g000001-b000").exists()
+    assert ledger.verify()[0]
+
+
+def test_scoring_mutation_blocks_promotion_even_with_high_score(tmp_path):
+    db = Database(tmp_path / "state.sqlite")
+    ledger = EvidenceLedger(db, tmp_path / "evidence.key")
+    gate = RsiArtifactGate(
+        tmp_path / "archive", ledger,
+        allowed_files=frozenset({"agent/strategy.json"}),
+    )
+    policy = ExperimentPolicy(
+        direction="maximize", minimum_gain=0.01,
+        hard_gates={"regressions": 0.0}, max_rounds=1,
+        max_failures=0, evaluator_digest=SHA,
+    )
+    gate.register(
+        artifact_id="seed", parent_id=None, generation=0, branch=0,
+        files={"agent/strategy.json": b'{"quality":0}'},
+        policy_digest=policy.digest(), evaluator_digest=SHA,
+    )
+    model = FakeModel('{"files":{"agent/strategy.json":"new"}}')
+
+    def evaluator(artifact_id: str) -> MetricResult:
+        if artifact_id != "seed":
+            (gate.root / artifact_id / "agent" / "strategy.json").write_bytes(
+                b'{"quality":999}'
+            )
+        return MetricResult(
+            primary=999.0 if artifact_id != "seed" else 0.0,
+            gates={"regressions": 0.0},
+            evaluator_digest=SHA,
+        )
+
+    pilot = RsiEvolutionPilot(db, ledger)
+    session = RsiModelExperiment(
+        pilot, RsiModelCandidateBuilder(
+            model, gate, policy_digest=policy.digest(), evaluator_digest=SHA,
+        ), policy,
+        objective="Create a better immutable candidate",
+        allowed_files=("agent/strategy.json",),
+        independent_evaluator=evaluator,
+    )
+    session.start("mutating-scorer", "seed", branches=1)
+    with pytest.raises(ArtifactIntegrityError, match="source bytes modified"):
+        session.advance("mutating-scorer")
+    state = pilot.read("mutating-scorer")
+    assert state is not None
+    assert state["status"] == "BLOCKED"
+    assert state["champion_id"] == "seed"
+    assert state["generation"] == 0
+    assert state["live_promotion"] is False
+    assert ledger.verify()[0]
+    db.close_all()
