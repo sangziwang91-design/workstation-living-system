@@ -75,6 +75,58 @@ def command(*args: str, timeout: int = 1200) -> subprocess.CompletedProcess[str]
     )
 
 
+def normalize_bounded_any_guard(expr: str) -> str | None:
+    """Conservatively reduce the *observed* Qwen any-equality predicate.
+
+    A pure single-character equality comprehension is mathematically the
+    same as string membership. Never execute the untrusted model's call,
+    comprehension, imports, function definition or surrounding statements.
+    Do not admit .endswith(), which misses embedded NUL characters.
+    """
+    try:
+        tree = ast.parse(expr, mode="eval")
+    except SyntaxError:
+        return None
+    body = tree.body
+    if (
+        not isinstance(body, ast.Call)
+        or not isinstance(body.func, ast.Name)
+        or body.func.id != "any"
+        or body.keywords
+        or len(body.args) != 1
+        or not isinstance(body.args[0], ast.GeneratorExp)
+    ):
+        return None
+    generator = body.args[0]
+    if len(generator.generators) != 1:
+        return None
+    comprehension = generator.generators[0]
+    if (
+        comprehension.is_async or comprehension.ifs
+        or not isinstance(comprehension.target, ast.Name)
+        or not isinstance(comprehension.iter, ast.Name)
+        or comprehension.iter.id not in {"relative_file", "filename", "path"}
+    ):
+        return None
+    predicate = generator.elt
+    if (
+        not isinstance(predicate, ast.Compare)
+        or not isinstance(predicate.left, ast.Name)
+        or predicate.left.id != comprehension.target.id
+        or len(predicate.ops) != 1
+        or not isinstance(predicate.ops[0], ast.Eq)
+        or len(predicate.comparators) != 1
+        or not isinstance(predicate.comparators[0], ast.Constant)
+        or predicate.comparators[0].value != "\\x00"
+    ):
+        return None
+    return ast.unparse(ast.Compare(
+        left=ast.Constant(value="\\x00"),
+        ops=[ast.In()],
+        comparators=[ast.Name(id="relative_file", ctx=ast.Load())],
+    ))
+
+
 def bounded_expression(reply: str) -> str | None:
     for line in reply.replace(chr(96), "").splitlines():
         expr = line.strip()
@@ -85,6 +137,9 @@ def bounded_expression(reply: str) -> str | None:
             # a function-level return. Extract the expression, never execute
             # the surrounding function, imports, or its statements.
             expr = expr[7:].strip()
+        recovered = normalize_bounded_any_guard(expr)
+        if recovered is not None:
+            return recovered
         try:
             tree = ast.parse(expr, mode="eval")
         except SyntaxError:
