@@ -13174,7 +13174,34 @@ class LivingSystem:
         stat = document_path.stat()
         if stat.st_size > max_bytes:
             raise ValueError("document exceeds max_bytes")
-        data = document_path.read_bytes()
+        # An explicitly ingested local document is a single-file read grant,
+        # not a reason to expose the entire WLS-home parent directory.
+        # Validate this owner-selected path against the same private-state
+        # denylist used for model tools BEFORE accessing the bytes.
+        read_roots = list(self.config.tool_policy.get("allowed_read_roots", []))
+        granted = not any(
+            self.policy._contained(document_path, Path(root).expanduser().resolve())
+            for root in read_roots
+        )
+        if granted:
+            self.config.tool_policy["allowed_read_roots"] = [
+                *read_roots, str(document_path),
+            ]
+        try:
+            self.policy.validate_arguments(
+                ActionSpec(
+                    tool="read_file",
+                    arguments={"path": str(document_path)},
+                    purpose="owner-provided document ingress",
+                    expected_result="read only the exact selected document",
+                    risk=RiskLevel.READ,
+                )
+            )
+            data = document_path.read_bytes()
+        except Exception:
+            if granted:
+                self.config.tool_policy["allowed_read_roots"] = read_roots
+            raise
         content_sha256 = hashlib.sha256(data).hexdigest()
         mime_type, encoding = mimetypes.guess_type(document_path.name)
         message = ChannelMessage(
