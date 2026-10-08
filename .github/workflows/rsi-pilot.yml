@@ -19,6 +19,34 @@ permissions:
   contents: read
 
 jobs:
+  # GitHub-hosted Windows proof does not depend on the owner's offline
+  # self-hosted runner. A short deadline bounds included-minute usage.
+  windows-candidate-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.13"
+      - name: Install minimum proof dependencies
+        run: python -m pip install -e . "pytest>=8"
+      - name: Windows repository invariant and targeted WLS RSI regressions
+        run: |
+          python source/scripts/verify_packaging_layout.py
+          python -m pytest -q source/tests/test_rsi_evolution.py source/tests/test_experiment_decision.py source/tests/test_loop_control.py source/tests/test_coding_workers.py
+      - name: Windows 100-generation durability proof
+        run: python source/scripts/verify_rsi_100_generations.py --report rsi-100-windows.json
+      - name: Upload Windows proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rsi-harness-100-windows
+          path: rsi-100-windows.json
+          if-no-files-found: warn
+
   candidate-proof:
     runs-on: ubuntu-latest
     timeout-minutes: 20
