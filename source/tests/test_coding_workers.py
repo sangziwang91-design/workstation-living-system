@@ -182,6 +182,17 @@ class TestCodingWorkerExecution:
         from wls.coding_workers import CodingWorkerResult
 
         r = CodingWorkerResult("w", "t", 0, "", "", 0.5, tests_passed=True)
-        assert r.succeeded
-        r2 = CodingWorkerResult("w", "t", 1, "", "", 0.5, tests_passed=True)
+        assert not r.succeeded  # a model-reported PASS is never independent proof
+        assert not r.receipt("wt", "sha", ["rollback"]).tests
+
+        verified = CodingWorkerResult(
+            "w", "t", 0, "", "", 0.5, tests=["pytest"],
+            independent_tests_passed=True,
+        )
+        assert verified.succeeded
+        assert verified.receipt("wt", "sha", ["rollback"]).tests == ["pytest"]
+
+        r2 = CodingWorkerResult(
+            "w", "t", 1, "", "", 0.5, independent_tests_passed=True
+        )
         assert not r2.succeeded
