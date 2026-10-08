@@ -565,7 +565,7 @@ def run_rsi_risk(args: argparse.Namespace) -> int:
     from hashlib import sha256
 
     from .experiment_decision import ExperimentPolicy
-    from .rsi_model_port import OpenAICompatibleProposalPort
+    from .rsi_model_port import OpenAICompatibleProposalPort, RsiModelExperiment
     from .task_admission import RsiRiskAdmissionEvaluator
 
     if not 1 <= args.generations <= 3 or not 1 <= args.branches <= 2:
@@ -645,7 +645,7 @@ def run_rsi_risk(args: argparse.Namespace) -> int:
             base_url=args.base_url,
             max_output_tokens=args.max_output_tokens,
         )
-        session = runtime.bind_rsi_model_experiment(
+        session: RsiModelExperiment = runtime.bind_rsi_model_experiment(
             model_port=model,
             policy=policy,
             objective=(
