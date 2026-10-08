@@ -16,6 +16,9 @@ from pathlib import Path
 
 SOURCE = Path("source/src/wls/coding_adapter.py")
 MODEL_ID = "Qwen2.5-Coder-0.5B-Instruct-Q4_K_M"
+# Measured on the actual accepted GitHub-hosted model run 37738806754.
+# A size check alone cannot pin a model's identity or stop upstream drift.
+EXPECTED_MODEL_SHA256 = "0128e77564e43d40682f82d7ebe8a9abdf0c24c8f55fa85629f8cc156b1b6560"
 MODEL_URL = (
     "https://huggingface.co/bartowski/"
     "Qwen2.5-Coder-0.5B-Instruct-GGUF/resolve/main/"
@@ -138,6 +141,8 @@ def trial() -> dict[str, object]:
     if not 300_000_000 <= model_file.stat().st_size <= 480_000_000:
         raise RuntimeError("unexpected downloaded model size")
     model_sha = hashlib.sha256(model_file.read_bytes()).hexdigest()
+    if model_sha != EXPECTED_MODEL_SHA256:
+        raise RuntimeError("downloaded model SHA256 differs from independently recorded proof")
     from llama_cpp import Llama
 
     model = Llama(model_path=str(model_file), n_ctx=2048, n_threads=2, verbose=False)
