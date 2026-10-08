@@ -8,8 +8,9 @@ changes into the live WLS runtime. A disposable external worker and independent
 evaluator are required before use on real software candidates.
 """
 
+from collections.abc import Callable
 from dataclasses import asdict
-from typing import Any, Callable
+from typing import Any
 
 from .db import Database
 from .evidence import EvidenceLedger
