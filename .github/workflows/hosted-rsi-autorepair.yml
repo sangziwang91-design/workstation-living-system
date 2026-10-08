@@ -3,15 +3,14 @@ name: WLS GitHub RSI Source Repair
 on:
   pull_request:
     paths:
-      - "source/scripts/github_rsi_autorepair.py"
+      - "source/scripts/**"
+      - "source/src/wls/**"
       - ".github/workflows/hosted-rsi-autorepair.yml"
-      - "source/scripts/build_capability_inventory.py"
-      - "source/scripts/build_delivery_handoff.py"
-      - "source/scripts/run_delivery_self_check.py"
-      - "source/src/wls/coding_workers.py"
-      - "source/src/wls/coding_adapter.py"
-      - "source/src/wls/rsi_evolution.py"
   workflow_dispatch:
+  # Bounded, low-frequency autonomous improvement. Runs on GitHub default
+  # branch; candidates are retained in a separate lineage feature branch.
+  schedule:
+    - cron: "37 3 * * 6"
 
 permissions:
   contents: read
@@ -27,10 +26,31 @@ jobs:
     timeout-minutes: 25
     outputs:
       eligible: ${{ steps.mutate.outputs.eligible }}
+      base_sha: ${{ steps.source.outputs.sha }}
     steps:
+      - name: Resolve exact inherited generation or default baseline
+        id: source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_EVENT: ${{ github.event_name }}
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          sha="$SOURCE_SHA"
+          if [ "$RUN_EVENT" = "schedule" ]; then
+            archived="$(gh api "repos/$REPOSITORY/git/ref/heads/feat/rsi-autonomous-improvement" --jq '.object.sha' 2>/dev/null || true)"
+            if [ -n "$archived" ]; then
+              sha="$archived"
+            fi
+          fi
+          if ! [[ "$sha" =~ ^[a-f0-9]{40}$ ]]; then
+            exit 2
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ steps.source.outputs.sha }}
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
@@ -56,21 +76,26 @@ jobs:
   persist-tested-candidate:
     needs: candidate
     if: >-
-      github.event_name == 'pull_request' &&
       needs.candidate.outputs.eligible == 'true' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      startsWith(github.event.pull_request.head.ref, 'feat/rsi-')
+      (github.event_name == 'schedule' ||
+        (github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          startsWith(github.event.pull_request.head.ref, 'feat/rsi-')))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: write
+      pull-requests: write
+      actions: write
     env:
-      HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
-      BASE_SHA: ${{ github.event.pull_request.head.sha }}
+      GH_TOKEN: ${{ github.token }}
+      RUN_EVENT: ${{ github.event_name }}
+      HEAD_BRANCH: ${{ github.event_name == 'schedule' && 'feat/rsi-autonomous-improvement' || github.event.pull_request.head.ref }}
+      BASE_SHA: ${{ needs.candidate.outputs.base_sha }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ needs.candidate.outputs.base_sha }}
           fetch-depth: 0
           persist-credentials: true
       - uses: actions/download-artifact@v4
@@ -92,15 +117,25 @@ jobs:
           assert report['base_sha'] == os.environ['BASE_SHA']
           assert hashlib.sha256(raw).hexdigest() == report['patch_sha256']
           assert report['gain'] > 0
-          frozen = {
-              'source/scripts/build_capability_inventory.py',
-              'source/scripts/build_delivery_handoff.py',
-              'source/scripts/run_delivery_self_check.py',
-              'source/src/wls/coding_workers.py',
-              'source/src/wls/coding_adapter.py',
-              'source/src/wls/rsi_evolution.py',
+          scope = report['scope']
+          changed = report['changed_files']
+          assert isinstance(scope, list) and 1 <= len(scope) <= 2
+          assert isinstance(changed, list) and 1 <= len(changed) <= 2
+          assert set(changed) <= set(scope)
+          blocked = {
+              'source/scripts/github_rsi_autorepair.py',
+              'source/scripts/github_rsi_local_model.py',
+              'source/scripts/github_rsi_replay_model.py',
+              'source/src/wls/evidence.py',
+              'source/src/wls/db.py',
+              'source/src/wls/rsi_artifact_gate.py',
           }
-          assert set(report['changed_files']) <= frozen
+          for name in scope:
+              assert isinstance(name, str) and name.endswith('.py')
+              assert name not in blocked
+              assert name.startswith('source/scripts/') or name.startswith('source/src/wls/')
+              assert all(piece not in {'.', '..', ''} for piece in name.split('/'))
+              assert Path(name).is_file() and not Path(name).is_symlink()
           assert report['changed_files']
           assert report['test_exit_code'] == 0
           subprocess.run(['git', 'apply', '--check', 'rsi-repair-candidate.patch'], check=True)
@@ -114,6 +149,26 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- source/scripts/build_capability_inventory.py source/scripts/build_delivery_handoff.py source/scripts/run_delivery_self_check.py source/src/wls/coding_workers.py source/src/wls/coding_adapter.py source/src/wls/rsi_evolution.py
+          python - <<'PY'
+          import json
+          import subprocess
+          from pathlib import Path
+          report = json.loads(Path('rsi-repair-report.json').read_text(encoding='utf-8'))
+          subprocess.run(['git', 'add', '--', *report['changed_files']], check=True)
+          PY
           git commit -m "RSI: retain independently graded WLS source repair"
           git push origin "HEAD:refs/heads/$HEAD_BRANCH"
+
+      - name: Open or update one permanent self-improvement PR on schedule
+        if: github.event_name == 'schedule'
+        shell: bash
+        run: |
+          count="$(gh pr list --head "$HEAD_BRANCH" --state open --json number --jq 'length')"
+          if [ "$count" = "0" ]; then
+            gh pr create --base main --head "$HEAD_BRANCH" \
+              --title "WLS: independently verified ongoing GitHub source improvements" \
+              --body "Autonomously selected safe source-only Ruff repairs; the candidate job has independently run the complete WLS tests and preserved the patch, baseline SHA and measured issue reduction. Nothing modifies main directly."
+          fi
+          # GitHub-token pushes do not necessarily create normal PR checks.
+          # workflow_dispatch is an explicitly supported exception.
+          gh workflow run ci.yml --ref "$HEAD_BRANCH"
