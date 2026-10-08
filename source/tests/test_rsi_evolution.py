@@ -3,7 +3,6 @@ from __future__ import annotations
 import math
 
 import pytest
-
 from wls.coding_workers import CodexWorker
 from wls.db import Database
 from wls.evidence import EvidenceLedger
