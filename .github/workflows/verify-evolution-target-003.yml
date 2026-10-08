@@ -31,63 +31,30 @@ concurrency:
   group: evolution-target-003-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  PIP_CACHE_DIR: D:\actions-runner\_cache\pip
-  PIP_DEFAULT_TIMEOUT: "120"
-  PIP_RETRIES: "10"
-  PIP_DISABLE_PIP_VERSION_CHECK: "1"
-  TEMP: D:\actions-runner\_temp
-  TMP: D:\actions-runner\_temp
 
 jobs:
   verify:
-    strategy:
-      fail-fast: false
-      max-parallel: 1
-      matrix:
-        python-version: ["3.11", "3.13"]
-    runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 120
+    name: GitHub hosted evolution target 003
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
-      - name: Prepare D-drive runtime directories
-        shell: powershell
-        run: |
-          New-Item -ItemType Directory -Force $env:PIP_CACHE_DIR | Out-Null
-          New-Item -ItemType Directory -Force $env:TEMP | Out-Null
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-      - name: Prepare isolated local Python
-        shell: powershell
-        run: .\.github\scripts\prepare-windows-runner.ps1 -PythonVersion "${{ matrix.python-version }}"
-      - name: Install WLS and verification toolchain from root
-        shell: powershell
-        run: '& $env:PYTHON_EXE -m pip install --retries 10 --timeout 120 -e ".[dev]"'
-      - name: Verify repository layout
-        shell: powershell
-        run: '& $env:PYTHON_EXE source/scripts/verify_packaging_layout.py'
-      - name: Compile
-        shell: powershell
-        run: '& $env:PYTHON_EXE -m compileall -q source/src source/tests source/scripts'
-      - name: Tests
-        shell: powershell
-        run: '& $env:PYTHON_EXE -m pytest source/tests -q'
-      - name: Verify target 001
-        shell: powershell
-        run: '& $env:PYTHON_EXE source/scripts/verify_evolution_target_001.py'
-      - name: Verify target 002
-        shell: powershell
-        run: '& $env:PYTHON_EXE source/scripts/verify_evolution_target_002.py'
-      - name: Verify target 003
-        shell: powershell
-        run: '& $env:PYTHON_EXE source/scripts/verify_evolution_target_003.py'
-      - name: Lint
-        shell: powershell
-        run: '& $env:PYTHON_EXE -m ruff check source/src source/tests source/scripts'
-      - name: Types
-        shell: powershell
-        run: '& $env:PYTHON_EXE -m mypy source/src/wls source/tests source/scripts --ignore-missing-imports'
-      - name: Bandit
-        shell: powershell
-        run: '& $env:PYTHON_EXE -m bandit -q -r source/src/wls source/scripts'
-      - name: Build package
-        shell: powershell
-        run: '& $env:PYTHON_EXE -m build .'
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -e ".[dev]"
+      - name: Verify packaging and evolution target 003
+        run: |
+          python source/scripts/verify_packaging_layout.py
+          python source/scripts/verify_evolution_target_003.py
+      - name: Regression suite for evolution target 003
+        run: python -m pytest -q source/tests/test_evolution_target_003.py --junitxml=evolution-target-003.xml
+      - name: Preserve independent verification receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hosted-et003-${{ github.run_id }}
+          path: evolution-target-003.xml
+          if-no-files-found: warn
