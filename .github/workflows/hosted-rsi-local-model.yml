@@ -4,11 +4,13 @@ on:
   pull_request:
     paths:
       - "source/scripts/github_rsi_local_model.py"
+      - "source/scripts/github_rsi_replay_model.py"
       - ".github/workflows/hosted-rsi-local-model.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: wls-real-model-${{ github.ref }}
@@ -20,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     outputs:
-      accepted: ${{ steps.propose.outputs.accepted }}
+      accepted: ${{ steps.replay.outputs.accepted == 'true' || steps.propose.outputs.accepted == 'true' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
@@ -59,10 +61,25 @@ jobs:
               output.write(f"needs_model={'true' if needed else 'false'}\n")
           print("Model inference necessary:", needed)
           PY
-      - name: Install local CPU coder only when WLS still fails the owner regression
+      - name: Reuse previous real GGUF reply from signed GitHub run evidence
         if: steps.preflight.outputs.needs_model == 'true'
+        id: prior
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: wls-real-cpu-model-37758577790
+          run-id: 37758577790
+          github-token: ${{ github.token }}
+          path: recovered-model-evidence
+      - name: Regrade archived model response with repaired safe AST extractor
+        if: steps.preflight.outputs.needs_model == 'true' && steps.prior.outcome == 'success'
+        id: replay
+        run: python source/scripts/github_rsi_replay_model.py
+      - name: Install local CPU coder only if archived model response could not be reused
+        if: steps.preflight.outputs.needs_model == 'true' && steps.replay.outputs.accepted != 'true'
         run: python -m pip install --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu "llama-cpp-python==0.3.16"
       - name: "Real model generates source repair, WLS tests independently decide"
+        if: steps.replay.outputs.accepted != 'true'
         id: propose
         timeout-minutes: 23
         run: python source/scripts/github_rsi_local_model.py
@@ -115,6 +132,11 @@ jobs:
           assert data['schema'] == 'wls.hosted_small_llm_coding.v1'
           assert data['base_sha'] == os.environ['BASE_SHA']
           assert data['model_id'] == 'Qwen2.5-Coder-0.5B-Instruct-Q4_K_M'
+          assert data['model_sha256'] == '0128e77564e43d40682f82d7ebe8a9abdf0c24c8f55fa85629f8cc156b1b6560'
+          if data.get('replayed_from_run') is not None:
+              assert data['replayed_from_run'] == 37758577790
+              assert data['model_called'] is False
+              assert data['goal_id'] == 'safe_relative_control_characters_v2'
           assert data['accepted'] is True
           assert data['source'] == 'source/src/wls/coding_adapter.py'
           assert data['original_hidden_test_exit'] != 0
