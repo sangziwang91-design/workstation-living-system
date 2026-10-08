@@ -44,11 +44,17 @@ GitHub runtime, code, real executed outcomes, and CI remain engineering truth.
 3. AutonomySystem may select one supported candidate as an endogenous,
    read-only inspection goal in canonical GoalStore. Its evidence and goal
    persist over restarts. It cannot silently re-open that goal.
-4. A growth goal is **not** authority to run arbitrary generated code,
+4. A newly selected eligible goal triggers at most one existing GrowthCycle
+   contract_recovery experiment for bounded fixed tools (noop/read_file/
+   list_directory), with independent result checking and candidate skill
+   validation. This uses a path-rewritten test directory and is **not**
+   OS isolation for model-authored executable code. No failed or ambiguous
+   experiment is silently replayed after interruption.
+5. A growth goal is **not** authority to run arbitrary generated code,
    self-edit policy/approval boundaries, or automatically promote skills.
-   Existing GrowthCycle experiments, independent scoring, owner approval,
-   verification and rollback remain in force.
-5. Model-proposed RSI candidates still require an independently isolated
+   Skill validation is candidate-only; existing owner approval, real-task
+   transfer verification and rollback remain in force.
+6. Model-proposed RSI candidates still require an independently isolated
    evaluator, matched frozen-improver control, held-out tasks and longitudinal
    real-task evidence before any general RSI claim.
 
