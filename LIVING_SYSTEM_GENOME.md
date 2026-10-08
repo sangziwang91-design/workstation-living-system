@@ -24,7 +24,7 @@ WLS is an engineering system. It does **not** claim subjective consciousness, ge
 - **System name:** Workstation Living System
 - **Abbreviation:** WLS
 - **Current declared release family:** 1.0
-- **Repository:** `sangziwang91-design/workstation-living-system-private`
+- **Repository:** `sangziwang91-design/workstation-living-system`
 - **Authority:** the repository owner retains final authority over policy, approvals, promotion, external action, publication, and irreversible change.
 - **Source of truth order:** executable code and tests → `CURRENT_STATE.yaml` → this genome → release documentation → conversation history.
 - Conversation history, model memory, screenshots, and prior plans are not authoritative unless reconciled into the repository.
