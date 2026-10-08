@@ -16,7 +16,6 @@ from wls.experiment_decision import (
 from wls.loop_control import LoopBudget, LoopController
 from wls.rsi_evolution import RsiEvolutionPilot
 
-
 DIGEST = "a" * 64
 
 
