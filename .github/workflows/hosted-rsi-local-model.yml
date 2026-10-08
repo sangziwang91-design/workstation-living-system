@@ -48,7 +48,7 @@ jobs:
               contract = CodingTaskContract(
                   task_id="preflight", base_sha="head",
                   worktree=Path(folder).resolve(),
-                  changed_files=["module.py\\nother.py"], tests=["pytest"],
+                  changed_files=["module.py\nother.py"], tests=["pytest"],
                   rollback=["discard"],
               )
               try:
