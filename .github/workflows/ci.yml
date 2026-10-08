@@ -120,3 +120,54 @@ jobs:
             dist-windows/
           if-no-files-found: warn
 
+  # Produces observed CI feedback even when earlier jobs failed. This is
+  # advisory, non-authoritative, and contains NO private Nuomi holdout tasks.
+  ci-feedback:
+    name: Generate WLS FEEDBACK and Derived State
+    if: always()
+    needs: [github-hosted-full-validation, github-hosted-windows-full-validation]
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout read-only candidate snapshot
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - name: Configure Python for feedback extraction
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.13"
+      - name: Collect all available hosted test XML artifacts
+        if: always()
+        uses: actions/download-artifact@v4
+        with:
+          pattern: hosted-*-${{ github.run_id }}
+          path: ci-evidence
+          merge-multiple: false
+      - name: Generate FEEDBACK.json and derived CURRENT_STATE.yaml
+        if: always()
+        env:
+          # Never expose a repository Actions token to PR-provided code.
+          # Previous-run comparison is permitted only on trusted main pushes.
+          GH_TOKEN: ${{ github.event_name == 'push' && github.token || '' }}
+          # `needs` is owned by GitHub's control plane, not a PR checkout.
+          # Both task execution and required JUnit coverage must be observed.
+          WLS_CI_REQUIRE_HOSTED_MATRIX: "true"
+          WLS_CI_LINUX_RESULT: ${{ needs['github-hosted-full-validation'].result }}
+          WLS_CI_WINDOWS_RESULT: ${{ needs['github-hosted-windows-full-validation'].result }}
+        run: |
+          python -m pip install -e . PyYAML
+          python source/scripts/generate_ci_feedback.py \
+            --repo . --evidence ci-evidence --output ci-feedback
+      - name: Publish inspectable feedback including unsuccessful checks
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wls-feedback-${{ github.run_id }}
+          path: |
+            ci-feedback/FEEDBACK.json
+            ci-feedback/CURRENT_STATE.yaml
+          if-no-files-found: error
