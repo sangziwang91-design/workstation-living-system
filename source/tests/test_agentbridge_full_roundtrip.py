@@ -55,7 +55,7 @@ def test_two_actual_repositories_exchange_and_accept_work(tmp_path: Path):
         "    print('--format --dir --agent --title')\n"
         "    raise SystemExit(0)\n"
         "Path('inspection.txt').write_text('inspected', encoding='utf-8')\n"
-        "print('{\\"type\\":\\"text\\",\\"text\\":\\"inspection complete\\"}')\n",
+        "print('inspection complete')\n",
         encoding="utf-8",
     )
     shim.chmod(0o755)
