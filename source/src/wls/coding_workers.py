@@ -1,20 +1,18 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any
 import hashlib
 import re
 import shutil
 import subprocess
 import time
+from dataclasses import dataclass, field
+from typing import Any
 
 from .coding_adapter import (
     ChangedFileReceipt,
     CodingCandidateReceipt,
     CodingTaskContract,
 )
-from .schemas import new_id, utc_now
 
 
 @dataclass(slots=True)
@@ -78,6 +76,7 @@ class BaseCodingWorker:
                 capture_output=True,
                 text=True,
                 timeout=self.timeout_seconds,
+                check=False,
             )
             elapsed = time.monotonic() - start
         except subprocess.TimeoutExpired:
@@ -146,11 +145,11 @@ class BaseCodingWorker:
     def _parse_test_results(self, stdout: str, stderr: str) -> bool:
         """Conservative hint only; independent evaluator evidence is still required."""
         combined = stdout + "\n" + stderr
-        if re.search(r"\b(fail(?:ed|ures)?|errors?|traceback)\b", combined, re.I):
+        if re.search(r"\b(fail(?:ed|ures)?|errors?|traceback)\b", combined, re.IGNORECASE):
             return False
         return bool(
-            re.search(r"\b\d+\s+passed\b", combined, re.I)
-            or re.search(r"\btests?\s+passed\b", combined, re.I)
+            re.search(r"\b\d+\s+passed\b", combined, re.IGNORECASE)
+            or re.search(r"\btests?\s+passed\b", combined, re.IGNORECASE)
             or re.search(r"(?m)^\s*(?:OK|PASS)\s*$", combined)
         )
 
