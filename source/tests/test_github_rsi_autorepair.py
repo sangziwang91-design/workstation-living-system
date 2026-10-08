@@ -75,3 +75,38 @@ def test_no_safe_fix_is_explicit_verified_no_gain_without_candidate(
     assert not (tmp_path / "rsi-repair-candidate.patch").exists()
     stored = json.loads((tmp_path / "rsi-repair-report.json").read_text())
     assert stored == result
+
+
+def test_signed_candidate_cannot_select_benchmark_or_promotion_code(
+    repair_module, monkeypatch, tmp_path,
+):
+    """Positive and negative scopes use the existing deterministic selector."""
+    protected = {
+        "source/src/wls/benchmark.py",
+        "source/src/wls/evaluator.py",
+        "source/src/wls/experiment_decision.py",
+        "source/src/wls/rsi_evolution.py",
+    }
+    assert protected <= repair_module.BLOCKED_FILES
+    allowed = "source/src/wls/other_feature.py"
+    paths = sorted(protected | {allowed})
+    monkeypatch.chdir(tmp_path)
+    for name in paths:
+        file = tmp_path / name
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text("x=1\n", encoding="utf-8")
+
+    def fake_call(*argv, **kwargs):
+        assert argv[:3] == ("git", "ls-files", "--")
+        return subprocess.CompletedProcess(argv, 0, "\n".join(paths), "")
+
+    monkeypatch.setattr(repair_module, "call", fake_call)
+    monkeypatch.setattr(
+        repair_module, "diagnostics",
+        lambda *args: [
+            {"filename": str((tmp_path / name).resolve()),
+             "fix": {"applicability": "safe"}}
+            for name in paths
+        ],
+    )
+    assert repair_module.select_scope() == (allowed,)
