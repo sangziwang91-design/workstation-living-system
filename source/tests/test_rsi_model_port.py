@@ -515,7 +515,7 @@ def test_child_preserves_unedited_parent_files(gateway):
 def test_canonical_living_system_binds_rsi_without_new_database(tmp_path):
     runtime = LivingSystem(default_config(tmp_path / "wls-home"))
     p = ExperimentPolicy("maximize", 0.01, {"regressions": 0.0}, 1, 0, SHA)
-    model = FakeModel('{"files":{"agent/strategy.json":"{\\"score\\":1}"}}')
+    model = FakeModel(json.dumps({"files": {"agent/strategy.json": '{"score":1}'}}))
 
     def evaluate(candidate_id: str):
         assert candidate_id
