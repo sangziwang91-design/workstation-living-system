@@ -190,12 +190,20 @@ class RsiModelCandidateBuilder:
             raise ModelProtocolError("candidate file contents must be UTF-8 text")
         namespace = f"{spec.experiment_id}-" if spec.experiment_id else ""
         candidate_id = f"rsi-{namespace}g{spec.generation:06d}-b{spec.branch:03d}"
+        # A child is a complete snapshot in the allowed source scope, not
+        # merely a patch. Preserve unchanged parent files across generations.
+        inherited_files = {
+            name: body.encode("utf-8") for name, body in parent_files.items()
+        }
+        inherited_files.update({
+            name: body.encode("utf-8") for name, body in files.items()
+        })
         self.artifact_gate.register(
             artifact_id=candidate_id,
             parent_id=spec.parent_id,
             generation=spec.generation,
             branch=spec.branch,
-            files={name: value.encode("utf-8") for name, value in files.items()},
+            files=inherited_files,
             policy_digest=self.policy_digest,
             evaluator_digest=self.evaluator_digest,
         )
