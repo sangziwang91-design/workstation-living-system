@@ -133,6 +133,10 @@ class RsiModelCandidateBuilder:
             f"Allowed files: {json.dumps(sorted(spec.allowed_files))}\n"
         )
         response = self.port.propose(instruction, max_output_bytes=spec.max_output_bytes)
+        # The provider is outside the trust boundary: reject parent mutations
+        # before accepting the model's response as a child of that parent.
+        if self.artifact_gate.verify(spec.parent_id)["manifest_digest"] != parent["manifest_digest"]:
+            raise ModelProtocolError("parent candidate changed during proposal")
         if response.model_id != spec.model_id:
             raise ModelProtocolError("response model does not match request")
         if len(response.text.encode("utf-8")) > spec.max_output_bytes:
@@ -300,14 +304,25 @@ class RsiModelExperiment:
             raise ModelProtocolError("baseline evaluator does not match policy")
         if manifest["policy_digest"] != self.policy.digest():
             raise ModelProtocolError("baseline policy does not match run")
-        baseline = self.independent_evaluator(baseline_id)
-        if not isinstance(baseline, MetricResult):
-            raise TypeError("independent evaluator must return MetricResult")
+        baseline = self._measure_verified(baseline_id)
         return self.pilot.start(
             run_id=run_id, policy=self.policy, baseline_id=baseline_id,
             baseline=baseline, branches=branches,
             max_no_gain_rounds=self.policy.max_rounds,
         )
+
+    def _measure_verified(self, artifact_id: str) -> MetricResult:
+        # A score applies only to immutable bytes admitted to the HMAC ledger.
+        # Neither model output nor a trusted scoring callback can bypass this
+        # check by changing the candidate after reading its source.
+        before = self.builder.artifact_gate.verify(artifact_id)
+        measured = self.independent_evaluator(artifact_id)
+        after = self.builder.artifact_gate.verify(artifact_id)
+        if after["manifest_digest"] != before["manifest_digest"]:
+            raise ModelProtocolError("candidate identity changed during evaluation")
+        if not isinstance(measured, MetricResult):
+            raise TypeError("independent evaluator must return MetricResult")
+        return measured
 
     def advance(self, run_id: str) -> dict:
         # The run ID is hashed rather than embedded verbatim in filesystem paths.
@@ -327,7 +342,7 @@ class RsiModelExperiment:
 
         return self.pilot.advance(
             run_id, policy=self.policy, propose=propose,
-            evaluate=self.independent_evaluator,
+            evaluate=self._measure_verified,
         )
 
     def run_bounded(self, run_id: str) -> dict:
