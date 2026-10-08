@@ -1240,7 +1240,8 @@ def validate_phase2_research_composite_readonly_execution(
     home: Path,
 ) -> ArchitecturePassResult:
     home.mkdir(parents=True, exist_ok=True)
-    fixture = home / "research-source.txt"
+    fixture = home / "runtime" / "inbox" / "research-source.txt"
+    fixture.parent.mkdir(parents=True, exist_ok=True)
     fixture.write_text("traceable research fixture", encoding="utf-8")
     server = ThreadingHTTPServer(("127.0.0.1", 0), _BrowserFixtureHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -1255,7 +1256,7 @@ def validate_phase2_research_composite_readonly_execution(
                 owner_intent="Inspect local and loopback research sources",
                 inputs={
                     "file_path": str(fixture),
-                    "dir_path": str(home),
+                    "dir_path": str(fixture.parent),
                     "url": f"http://127.0.0.1:{port}/page",
                     "max_bytes": 4096,
                     "limit": 10,
@@ -1342,7 +1343,8 @@ def validate_phase2_multimodal_asset_readonly_execution(
     home: Path,
 ) -> ArchitecturePassResult:
     home.mkdir(parents=True, exist_ok=True)
-    asset = home / "sample.png"
+    asset = home / "runtime" / "inbox" / "sample.png"
+    asset.parent.mkdir(parents=True, exist_ok=True)
     asset.write_bytes(
         b"\x89PNG\r\n\x1a\n"
         b"\x00\x00\x00\rIHDR"
@@ -1431,7 +1433,7 @@ def validate_phase2_multimodal_asset_readonly_execution(
 def validate_phase2_coding_candidate_readonly_execution(
     home: Path,
 ) -> ArchitecturePassResult:
-    worktree = home / "worktree"
+    worktree = home / "runtime" / "inbox" / "worktree"
     worktree.mkdir(parents=True, exist_ok=True)
     candidate_file = worktree / "candidate_patch.py"
     candidate_file.write_text("print('candidate receipt')\n", encoding="utf-8")
@@ -1861,7 +1863,7 @@ def validate_phase2_provider_route_runtime_receipts(
 def validate_phase2_skill_candidate_extraction_receipts(
     home: Path,
 ) -> ArchitecturePassResult:
-    source = home / "skill-source.txt"
+    source = home / "runtime" / "inbox" / "skill-source.txt"
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_text("repeatable read-only skill evidence\n", encoding="utf-8")
     runtime = LivingSystem(default_config(home / "runtime"))
@@ -1954,7 +1956,7 @@ def validate_phase2_skill_candidate_extraction_receipts(
 def validate_phase2_learning_epoch_review_receipts(
     home: Path,
 ) -> ArchitecturePassResult:
-    source = home / "learning-source.txt"
+    source = home / "runtime" / "inbox" / "learning-source.txt"
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_text("repeatable learning epoch evidence\n", encoding="utf-8")
     runtime = LivingSystem(default_config(home / "runtime"))
@@ -2049,7 +2051,7 @@ def validate_phase2_learning_epoch_review_receipts(
 def validate_phase2_capability_epoch_audit_receipts(
     home: Path,
 ) -> ArchitecturePassResult:
-    source = home / "epoch-source.txt"
+    source = home / "runtime" / "inbox" / "epoch-source.txt"
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_text("repeatable capability epoch evidence\n", encoding="utf-8")
     runtime = LivingSystem(default_config(home / "runtime"))
