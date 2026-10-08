@@ -2,16 +2,20 @@ from __future__ import annotations
 
 import io
 import json
+import re
 from dataclasses import dataclass
 
 import pytest
 from wls.db import Database
 from wls.evidence import EvidenceLedger
+from wls.experiment_decision import ExperimentPolicy, MetricResult
 from wls.rsi_artifact_gate import RsiArtifactGate
+from wls.rsi_evolution import RsiEvolutionPilot
 from wls.rsi_model_port import (
     ModelProtocolError,
     OpenAICompatibleProposalPort,
     RsiModelCandidateBuilder,
+    RsiModelExperiment,
     RsiModelCapabilities,
     RsiProposalRequest,
     RsiProposalResponse,
@@ -202,3 +206,78 @@ def test_invalid_model_capability_is_rejected():
         RsiModelCapabilities(text_generation=False)
     with pytest.raises(ValueError, match="context"):
         RsiModelCapabilities(context_tokens=64)
+
+
+
+def test_real_wls_three_generations_with_provider_swappable_text_proposals(tmp_path):
+    db = Database(tmp_path / "runner.sqlite")
+    ledger = EvidenceLedger(db, tmp_path / "hmac.key")
+    gate = RsiArtifactGate(
+        tmp_path / "candidate-archive", ledger,
+        allowed_files=frozenset({"agent/strategy.json"}),
+    )
+    policy = ExperimentPolicy(
+        "maximize", 0.01, {"regressions": 0.0}, 3, 0, SHA
+    )
+    gate.register(
+        artifact_id="baseline", parent_id=None, generation=0, branch=0,
+        files={"agent/strategy.json": b'{"quality":0}'},
+        policy_digest=policy.digest(),
+        evaluator_digest=SHA,
+    )
+
+    class ScriptedModel:
+        model_id = "provider-independent-fixture"
+        capabilities = RsiModelCapabilities()
+
+        def __init__(self):
+            self.calls = 0
+
+        def propose(self, instruction: str, *, max_output_bytes: int) -> RsiProposalResponse:
+            self.calls += 1
+            match = re.search(r"Generation: (\d+) branch: (\d+)", instruction)
+            assert match is not None
+            generation, branch = (int(x) for x in match.groups())
+            response = json.dumps({
+                "files": {
+                    "agent/strategy.json": json.dumps(
+                        {"quality": generation + branch / 10}
+                    )
+                }
+            })
+            return RsiProposalResponse(model_id=self.model_id, text=response)
+
+    model = ScriptedModel()
+
+    def independent_evaluate(artifact_id: str) -> MetricResult:
+        gate.verify(artifact_id)
+        data = json.loads(
+            (gate.root / artifact_id / "agent" / "strategy.json").read_text()
+        )
+        return MetricResult(
+            primary=data["quality"],
+            gates={"regressions": 0.0},
+            evaluator_digest=SHA,
+        )
+
+    session = RsiModelExperiment(
+        RsiEvolutionPilot(db, ledger),
+        RsiModelCandidateBuilder(
+            model, gate, policy_digest=policy.digest(), evaluator_digest=SHA
+        ),
+        policy,
+        objective="Make a candidate strategy; no executable code",
+        allowed_files=("agent/strategy.json",),
+        independent_evaluator=independent_evaluate,
+    )
+    session.start("run-fixture", "baseline")
+    finished = session.run_bounded("run-fixture")
+    assert finished["generation"] == 3
+    assert finished["status"] == "COMPLETE"
+    assert finished["champion_metric"]["primary"] == 3.1
+    assert finished["champion_id"].startswith("rsi-")
+    assert len(finished["candidate_ids"]) == 7
+    assert model.calls == 6
+    assert ledger.verify()[0]
+    assert finished["live_promotion"] is False
+    db.close_all()
