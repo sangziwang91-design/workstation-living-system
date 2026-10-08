@@ -61,3 +61,17 @@ def test_second_real_model_generated_repair_rejects_crlf_audit_injection(
     # This permanent test guards against later regression of that real repair.
     with pytest.raises(ValueError, match="relative paths"):
         _contract(tmp_path, poisoned).validate()
+
+
+
+@pytest.mark.parametrize("bad", [
+    "module\x00other.py", "src/module\x00next.py",
+])
+def test_third_real_model_generated_repair_rejects_nul_paths_with_canonical_error(
+    tmp_path: Path, bad: str,
+) -> None:
+    # An actual Qwen2.5-Coder reply from GitHub run 37765939009 was
+    # independently transformed via an equivalence-checked AST reduction,
+    # red/green tested, and persisted in candidate run 37766766079.
+    with pytest.raises(ValueError, match="changed files must be relative paths"):
+        _contract(tmp_path, bad).validate()
