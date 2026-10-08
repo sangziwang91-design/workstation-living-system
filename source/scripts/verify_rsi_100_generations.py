@@ -20,9 +20,8 @@ from wls.experiment_decision import ExperimentPolicy, MetricResult
 from wls.rsi_evolution import RsiEvolutionPilot
 
 TARGETS = {str(i): i * i for i in range(100)}
-SPEC_DIGEST = hashlib.sha256(
-    json.dumps(TARGETS, sort_keys=True).encode("utf-8")
-).hexdigest()
+# Bind the policy to the entire fixed evaluator implementation, not just cases.
+SPEC_DIGEST = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
 
 def run_hundred_generations(root: Path) -> dict[str, Any]:
@@ -51,7 +50,10 @@ def run_hundred_generations(root: Path) -> dict[str, Any]:
     digests: dict[str, str] = {"baseline": store("baseline", {})}
 
     def propose(parent: str, generation: int, branch: int) -> str:
-        data = json.loads((artifact_root / (parent + ".json")).read_text(encoding="utf-8"))
+        parent_bytes = (artifact_root / (parent + ".json")).read_bytes()
+        if hashlib.sha256(parent_bytes).hexdigest() != digests[parent]:
+            raise ValueError("parent artifact mutated after evaluation")
+        data = json.loads(parent_bytes)
         if branch == 1:
             item = generation - 1
             data[str(item)] = item * item
