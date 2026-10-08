@@ -44,6 +44,12 @@ on:
 permissions:
   contents: read
 
+# A superseded PR head must not continue consuming three hosted runners.
+# workflow_dispatch runs remain keyed by ref and are not merged with PR jobs.
+concurrency:
+  group: wls-rsi-pilot-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # GitHub-hosted Windows proof does not depend on the owner's offline
   # self-hosted runner. A short deadline bounds included-minute usage.
