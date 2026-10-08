@@ -1,0 +1,40 @@
+name: WLS RSI Pilot Candidate Gate
+
+on:
+  pull_request:
+    paths:
+      - "source/src/wls/rsi_evolution.py"
+      - "source/src/wls/experiment_decision.py"
+      - "source/src/wls/loop_control.py"
+      - "source/src/wls/coding_workers.py"
+      - "source/src/wls/runtime.py"
+      - "source/tests/test_rsi_evolution.py"
+      - ".github/workflows/rsi-pilot.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  candidate-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install verified root package and tools
+        run: python -m pip install -e ".[dev]"
+      - name: Repository invariant
+        run: python source/scripts/verify_packaging_layout.py
+      - name: RSI pilot and existing decision regressions
+        run: |
+          python -m pytest -q source/tests/test_rsi_evolution.py             source/tests/test_experiment_decision.py             source/tests/test_loop_control.py             source/tests/test_coding_workers.py
+      - name: Lint changed RSI surfaces
+        run: |
+          python -m ruff check             source/src/wls/rsi_evolution.py             source/src/wls/experiment_decision.py             source/src/wls/loop_control.py             source/src/wls/coding_workers.py             source/tests/test_rsi_evolution.py
