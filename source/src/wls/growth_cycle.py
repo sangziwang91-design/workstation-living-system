@@ -173,6 +173,37 @@ class GrowthCycleManager:
                 )
                 # An interrupted autonomous investigation is not an active
                 # success or a new license to replay the failed action.
+                # A crash may occur after the RUNNING receipt is saved but
+                # before the candidate transitions from PROPOSED to SANDBOXED.
+                # Freeze this incomplete attempt so an automatic discovery
+                # cycle cannot create a new goal that it cannot safely replay.
+                staging = connection.execute(
+                    "UPDATE evolution_candidates "
+                    "SET status='SANDBOXED',experiment_json=?,updated_at=? "
+                    "WHERE candidate_id=? AND status='PROPOSED'",
+                    (
+                        json.dumps(
+                            {
+                                "experiment_id": row["experiment_id"],
+                                "status": "INTERRUPTED",
+                                "automatic_replay": False,
+                            },
+                            sort_keys=True,
+                        ),
+                        recovered_at,
+                        row["candidate_id"],
+                    ),
+                )
+                if staging.rowcount:
+                    self.ledger.append(
+                        "growth_candidate_interrupted_before_stage",
+                        {
+                            "candidate_id": row["candidate_id"],
+                            "experiment_id": row["experiment_id"],
+                            "manual_reconciliation_required": True,
+                        },
+                        connection,
+                    )
                 connection.execute(
                     "UPDATE goals SET status='FAILED',updated_at=? "
                     "WHERE source='autonomy.learning' AND title=? AND status='ACTIVE'",
