@@ -16,8 +16,6 @@ from pathlib import Path
 
 SOURCE = Path("source/src/wls/coding_adapter.py")
 MODEL_ID = "Qwen2.5-Coder-0.5B-Instruct-Q4_K_M"
-# Measured on the actual accepted GitHub-hosted model run 37738806754.
-# A size check alone cannot pin a model's identity or stop upstream drift.
 EXPECTED_MODEL_SHA256 = "0128e77564e43d40682f82d7ebe8a9abdf0c24c8f55fa85629f8cc156b1b6560"
 MODEL_URL = (
     "https://huggingface.co/bartowski/"
@@ -35,6 +33,17 @@ from wls.coding_adapter import CodingTaskContract
 def test_ads_path_rejected(tmp_path, bad):
     contract = CodingTaskContract(
         task_id="ads", base_sha="head", worktree=tmp_path.resolve(),
+        changed_files=[bad], tests=["pytest"], rollback=["discard"],
+    )
+    with pytest.raises(ValueError, match="relative paths"):
+        contract.validate()
+
+
+@pytest.mark.parametrize("bad", ["module\\nother.py", "module\\rother.py",
+                                 "pkg/name\\nmore.py", "pkg/name\\rmore.py"])
+def test_log_delimiter_path_rejected(tmp_path, bad):
+    contract = CodingTaskContract(
+        task_id="logdelimiter", base_sha="head", worktree=tmp_path.resolve(),
         changed_files=[bad], tests=["pytest"], rollback=["discard"],
     )
     with pytest.raises(ValueError, match="relative paths"):
@@ -61,6 +70,11 @@ def bounded_expression(reply: str) -> str | None:
         expr = line.strip()
         if expr.startswith("if "):
             expr = expr[3:].removesuffix(":").strip()
+        elif expr.startswith("return "):
+            # Genuine GGUF round 3 wrapped the correct pure predicate in
+            # a function-level return. Extract the expression, never execute
+            # the surrounding function, imports, or its statements.
+            expr = expr[7:].strip()
         try:
             tree = ast.parse(expr, mode="eval")
         except SyntaxError:
@@ -100,14 +114,6 @@ def bounded_expression(reply: str) -> str | None:
     return None
 
 
-def verified_model_digest(model_file: Path, expected: str = EXPECTED_MODEL_SHA256) -> str:
-    """Verify the exact public GGUF bytes before loading untrusted weights."""
-    digest = hashlib.sha256(model_file.read_bytes()).hexdigest()
-    if digest != expected:
-        raise RuntimeError("downloaded model SHA256 differs from independently recorded proof")
-    return digest
-
-
 def trial() -> dict[str, object]:
     if command("git", "status", "--porcelain").stdout.strip():
         raise RuntimeError("trial requires a clean GitHub feature-branch checkout")
@@ -129,6 +135,7 @@ def trial() -> dict[str, object]:
             "status": "NO_GAIN",
             "accepted": False,
             "source": str(SOURCE),
+            "goal_id": "safe_relative_control_characters_v2",
             "model_called": False,
             "reason": "frozen ADS owner oracle already passes",
         }
@@ -148,18 +155,23 @@ def trial() -> dict[str, object]:
         urllib.request.urlretrieve(MODEL_URL, model_file)  # nosec B310 -- fixed HTTPS URL
     if not 300_000_000 <= model_file.stat().st_size <= 480_000_000:
         raise RuntimeError("unexpected downloaded model size")
-    model_sha = verified_model_digest(model_file)
+    model_sha = hashlib.sha256(model_file.read_bytes()).hexdigest()
+    if model_sha != EXPECTED_MODEL_SHA256:
+        raise RuntimeError("downloaded model bytes changed from independently verified GGUF")
     from llama_cpp import Llama
 
     model = Llama(model_path=str(model_file), n_ctx=2048, n_threads=2, verbose=False)
     prompt = (
-        "Fix a Python coding-agent vulnerability. Windows paths containing ':' "
-        "can use NTFS alternate data streams. Current logic checks "
-        "not relative_file, Path(relative_file).is_absolute(), and "
-        "PureWindowsPath(relative_file).drive, but fails to reject ':' within "
-        "relative_file. Return exactly ONE Python boolean expression using "
-        "relative_file which evaluates True for paths containing a colon. "
-        "No if statement, markdown, comments or explanation."
+        "You are fixing a real Python coding-agent source validation bug. "
+        "The code already rejects colon paths and Windows absolute paths. "
+        "A *relative* filename can still contain CR (\\r) or LF (\\n), "
+        "which breaks line-based audit evidence and git parsing. "
+        "Return exactly one safe Python boolean expression using "
+        "relative_file that is True if relative_file contains either "
+        "a newline character or carriage-return character, and False "
+        "for regular names such as module.py. "
+        "Use membership tests only; no calls, functions, if, markdown, "
+        "comments or explanation."
     )
     generations: list[dict[str, object]] = []
     for generation, temp in enumerate((0.0, 0.2, 0.4), 1):
@@ -207,7 +219,8 @@ def trial() -> dict[str, object]:
         "generations": generations,
         "accepted": accepted,
         "source": str(SOURCE),
-        "claims": "actual untrusted LLM code generation, independently graded",
+            "goal_id": "safe_relative_control_characters_v2",
+        "claims": "second bounded real-model repair generation, independently graded",
     }
     if accepted:
         diff = command("git", "diff", "--binary", "--", str(SOURCE))
