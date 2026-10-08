@@ -182,6 +182,67 @@ class TestCodingWorkerExecution:
         from wls.coding_workers import CodingWorkerResult
 
         r = CodingWorkerResult("w", "t", 0, "", "", 0.5, tests_passed=True)
-        assert r.succeeded
-        r2 = CodingWorkerResult("w", "t", 1, "", "", 0.5, tests_passed=True)
+        assert not r.succeeded  # a model-reported PASS is never independent proof
+        assert not r.receipt("wt", "sha", ["rollback"]).tests
+
+        verified = CodingWorkerResult(
+            "w", "t", 0, "", "", 0.5, tests=["pytest"],
+            independent_tests_passed=True,
+        )
+        assert verified.succeeded
+        assert verified.receipt("wt", "sha", ["rollback"]).tests == ["pytest"]
+
+        r2 = CodingWorkerResult(
+            "w", "t", 1, "", "", 0.5, independent_tests_passed=True
+        )
         assert not r2.succeeded
+
+
+def test_worker_rejects_path_escape_before_cli_run(tmp_path, monkeypatch):
+    from wls.coding_workers import CodexWorker
+
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    (tmp_path / "outside.py").write_text("SECRET", encoding="utf-8")
+    contract = CodingTaskContract(
+        task_id="escape",
+        base_sha="abc123",
+        worktree=worktree,
+        changed_files=["../outside.py"],
+        tests=["pytest -q"],
+        rollback=["do not mutate parent"],
+    )
+    worker = CodexWorker()
+    monkeypatch.setattr(worker, "is_available", lambda: True)
+    monkeypatch.setattr(
+        worker, "_build_command",
+        lambda _: pytest.fail("unsafe contract reached CLI"),
+    )
+    result = worker.execute(contract)
+    assert result.exit_code == -1
+    assert not result.succeeded
+    assert "escapes worktree" in result.error
+
+
+def test_worker_does_not_hash_symlink_target_outside_worktree(tmp_path, monkeypatch):
+    from wls.coding_workers import CodexWorker
+
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    outside = tmp_path / "private.txt"
+    outside.write_text("PRIVATE", encoding="utf-8")
+    link = worktree / "linked.py"
+    try:
+        link.symlink_to(outside)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlink creation unavailable on runner")
+    contract = CodingTaskContract(
+        task_id="symlink-escape", base_sha="abc123", worktree=worktree,
+        changed_files=["linked.py"], tests=["pytest -q"],
+        rollback=["owner-gated rollback"],
+    )
+    worker = CodexWorker()
+    monkeypatch.setattr(worker, "is_available", lambda: True)
+    monkeypatch.setattr(worker, "_build_command", lambda _: pytest.fail("unsafe CLI"))
+    result = worker.execute(contract)
+    assert "escapes worktree" in result.error

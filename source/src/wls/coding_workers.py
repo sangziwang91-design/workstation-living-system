@@ -1,19 +1,18 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any
 import hashlib
+import re
 import shutil
 import subprocess
 import time
+from dataclasses import dataclass, field
+from typing import Any
 
 from .coding_adapter import (
     ChangedFileReceipt,
     CodingCandidateReceipt,
     CodingTaskContract,
 )
-from .schemas import new_id, utc_now
 
 
 @dataclass(slots=True)
@@ -26,7 +25,8 @@ class CodingWorkerResult:
     elapsed_seconds: float
     changed_files: list[ChangedFileReceipt] = field(default_factory=list)
     tests: list[str] = field(default_factory=list)
-    tests_passed: bool = False
+    tests_passed: bool = False  # untrusted text hint from model output
+    independent_tests_passed: bool = False  # populated only by an external grader
     tests_output: str = ""
     error: str = ""
 
@@ -36,13 +36,14 @@ class CodingWorkerResult:
             base_sha=base_sha,
             worktree=worktree,
             changed_files=self.changed_files,
-            tests=self.tests if self.tests_passed else [],
+            tests=self.tests if self.independent_tests_passed else [],
             rollback=rollback,
         )
 
     @property
     def succeeded(self) -> bool:
-        return self.exit_code == 0 and self.tests_passed
+        # The worker's own stdout is not a trustworthy test receipt.
+        return self.exit_code == 0 and self.independent_tests_passed
 
 
 class BaseCodingWorker:
@@ -56,6 +57,19 @@ class BaseCodingWorker:
         return shutil.which(self._cli_name()) is not None
 
     def execute(self, contract: CodingTaskContract) -> CodingWorkerResult:
+        # Validate workspace containment before invoking any external CLI.
+        try:
+            contract.validate()
+        except ValueError as exc:
+            return CodingWorkerResult(
+                worker_id=self.worker_id,
+                task_id=contract.task_id,
+                exit_code=-1,
+                stdout="",
+                stderr="",
+                elapsed_seconds=0.0,
+                error=f"invalid coding task contract: {exc}",
+            )
         if not self.is_available():
             return CodingWorkerResult(
                 worker_id=self.worker_id,
@@ -77,6 +91,7 @@ class BaseCodingWorker:
                 capture_output=True,
                 text=True,
                 timeout=self.timeout_seconds,
+                check=False,
             )
             elapsed = time.monotonic() - start
         except subprocess.TimeoutExpired:
@@ -132,7 +147,7 @@ class BaseCodingWorker:
     def _detect_changes(self, contract: CodingTaskContract) -> list[ChangedFileReceipt]:
         files: list[ChangedFileReceipt] = []
         for rel in contract.changed_files:
-            fp = contract.worktree / rel
+            fp = contract._resolve_changed_file(rel)
             if fp.is_file():
                 content = fp.read_bytes()
                 files.append({
@@ -143,12 +158,15 @@ class BaseCodingWorker:
         return files
 
     def _parse_test_results(self, stdout: str, stderr: str) -> bool:
-        combined = stdout + stderr
-        if "PASS" in combined or "passed" in combined or "ok" in combined.lower():
-            return True
-        if "FAIL" in combined or "error" in combined.lower():
+        """Conservative hint only; independent evaluator evidence is still required."""
+        combined = stdout + "\n" + stderr
+        if re.search(r"\b(fail(?:ed|ures)?|errors?|traceback)\b", combined, re.IGNORECASE):
             return False
-        return True
+        return bool(
+            re.search(r"\b\d+\s+passed\b", combined, re.IGNORECASE)
+            or re.search(r"\btests?\s+passed\b", combined, re.IGNORECASE)
+            or re.search(r"(?m)^\s*(?:OK|PASS)\s*$", combined)
+        )
 
 
 class ClaudeCodeWorker(BaseCodingWorker):

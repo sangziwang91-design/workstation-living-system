@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
 import hashlib
-from pathlib import Path
+from dataclasses import asdict, dataclass, field
+from pathlib import Path, PureWindowsPath
 from typing import Any, TypedDict
 
 
@@ -79,10 +79,22 @@ class CodingTaskContract:
         )
 
     def _resolve_changed_file(self, relative_file: str) -> Path:
-        if not relative_file or Path(relative_file).is_absolute():
+        # Accept a Windows-style relative source path on both Linux CI and
+        # Windows. Without normalization, '..\\secret.py' is a *literal
+        # filename* on Linux, so an unsafe Windows traversal silently passes
+        # the containment check and is only rejected as a missing file.
+        if (
+            not relative_file
+            or ('\x00' in relative_file)
+            or ('\n' in relative_file or '\r' in relative_file)
+            or (':' in relative_file)
+            or Path(relative_file).is_absolute()
+            or PureWindowsPath(relative_file).drive
+        ):
             raise ValueError("changed files must be relative paths")
+        canonical_relative = relative_file.replace("\\", "/")
         root = self.worktree.resolve()
-        candidate = (root / relative_file).resolve()
-        if candidate != root and root not in candidate.parents:
+        candidate = (root / canonical_relative).resolve()
+        if candidate == root or root not in candidate.parents:
             raise ValueError("changed file escapes worktree")
         return candidate

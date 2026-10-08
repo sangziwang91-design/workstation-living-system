@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import json
 
 from .config import RuntimeConfig
 from .db import Database
 from .evidence import EvidenceLedger
-from .schemas import Goal
+from .schemas import Goal, RiskLevel
 from .stores import GoalStore
 from .world import WorldModel
 
@@ -28,6 +29,82 @@ class AutonomySystem:
         self.goals = goals
         self.world = world
         self.config = config
+
+
+    def _observed_growth_goal(self) -> Goal | None:
+        """Select one real failure hypothesis from canonical WLS history.
+
+        A candidate is an investigation request, never permission to modify
+        code, execute untrusted proposals, or promote a skill.
+        """
+        candidates = self.db.query_all(
+            """
+            SELECT candidate_id, source_ids_json FROM evolution_candidates
+            WHERE candidate_type='failure_repair' AND status='PROPOSED'
+            ORDER BY created_at ASC LIMIT 32
+            """
+        )
+        for candidate in candidates:
+            candidate_id = str(candidate["candidate_id"])
+            title = f"Inspect recurring failures: {candidate_id}"
+            # Check every status, including completed/failed goals, so a
+            # restart or an unchanged failed hypothesis cannot loop forever.
+            if self.db.query_one("SELECT goal_id FROM goals WHERE title=?", (title,)):
+                continue
+            try:
+                source_ids = json.loads(candidate["source_ids_json"])
+            except (TypeError, ValueError):
+                continue
+            if (
+                not isinstance(source_ids, list)
+                or not 3 <= len(source_ids) <= 64
+                or any(not isinstance(item, str) or not item for item in source_ids)
+                or len(set(source_ids)) != len(source_ids)
+            ):
+                continue
+            placeholders = ",".join("?" for _ in source_ids)
+            outcomes = self.db.query_all(
+                f"""SELECT action_id, result_json FROM actions
+                WHERE action_id IN ({placeholders})
+                  AND status='FAILED' AND started_at IS NOT NULL
+                  AND finished_at IS NOT NULL AND result_json IS NOT NULL""",
+                tuple(source_ids),
+            )
+            if len(outcomes) != len(source_ids):
+                continue
+            try:
+                if any(
+                    json.loads(row["result_json"]).get("evaluation", {}).get("accepted")
+                    is not False
+                    for row in outcomes
+                ):
+                    continue
+            except (TypeError, ValueError, AttributeError):
+                continue
+            return Goal(
+                title=title,
+                description=(
+                    "Inspect the actual failed WLS action evidence and formulate "
+                    "one bounded, independently testable recovery experiment. "
+                    "Do not execute untrusted code, grant permissions, or promote "
+                    "a candidate without the existing owner gate."
+                ),
+                priority=0.7,
+                success_criteria=[
+                    "one source-linked hypothesis and a bounded read-only investigation",
+                    "subsequent skill promotion remains owner-authorized",
+                ],
+                source="autonomy.learning",
+                autonomous=True,
+                risk=RiskLevel.READ,
+                task_spec={
+                    "operation": "INSPECT",
+                    "candidate_id": candidate_id,
+                    "source_action_ids": source_ids,
+                    "proposal_only": True,
+                },
+            )
+        return None
 
     def consider(self) -> list[str]:
         autonomous_count = self.goals.autonomous_count()
@@ -93,6 +170,9 @@ class AutonomySystem:
                     autonomous=True,
                 )
             )
+        growth_goal = self._observed_growth_goal()
+        if growth_goal is not None:
+            proposals.append(growth_goal)
         created: list[str] = []
         for goal in proposals:
             if self.goals.autonomous_count() >= self.config.max_autonomous_goals:

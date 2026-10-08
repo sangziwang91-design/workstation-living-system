@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
 import json
 import subprocess  # nosec B404
 import sys
-
+from pathlib import Path
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SOURCE_ROOT = REPO_ROOT / "source" / "src"
@@ -14,8 +13,8 @@ OUTPUT = REPO_ROOT / ".evolution" / "capabilities" / "current.json"
 if str(SOURCE_ROOT) not in sys.path:
     sys.path.insert(0, str(SOURCE_ROOT))
 
-from wls.capabilities import CANONICAL_AUTHORITIES, baseline_registry  # noqa: E402
-from wls.schemas import digest_json  # noqa: E402
+from wls.capabilities import CANONICAL_AUTHORITIES, baseline_registry
+from wls.schemas import digest_json
 
 
 def _git_value(args: list[str]) -> str:

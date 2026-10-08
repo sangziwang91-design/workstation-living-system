@@ -53,6 +53,7 @@ from .a2a_adapter import A2AAdapter, ArtifactEnvelope, TaskContract
 from .mcp_adapter import McpCandidate, McpTrustGate
 from .read_only_organs import ReadOnlyTaskReceipt, ReadOnlyTaskRequest
 from .repo_explorer import RepoExplorer
+from .rsi_evolution import RsiEvolutionPilot
 from .schemas import (
     ActionSpec,
     ActionStatus,
@@ -144,6 +145,7 @@ class LivingSystem:
         self.growth = GrowthCycleManager(self)
         self.agentic = AgenticHarness(self.db, self.ledger)
         self.offspring = OffspringRegistry(config, self.db, self.ledger)
+        self.rsi_pilot = RsiEvolutionPilot(self.db, self.ledger)
         self.capabilities = baseline_registry()
         self.capabilities.assert_no_duplicate_authority()
         self.channel_gateway = ChannelGateway()
@@ -155,6 +157,43 @@ class LivingSystem:
         self.worker_id = f"wls-{os.getpid()}-{new_id('worker')[-8:]}"
         self._stop = False
         self._initialize_runtime()
+
+    def bind_rsi_model_experiment(
+        self,
+        *,
+        model_port: Any,
+        policy: Any,
+        objective: str,
+        allowed_files: tuple[str, ...],
+        independent_evaluator: Any,
+    ) -> Any:
+        """Bind an owner-started RSI candidate trial to canonical WLS authority.
+
+        Reuses the existing WLS database, evidence ledger, evolution pilot and
+        sandbox *directory* for candidate artifacts. This does not execute
+        model-authored code or establish OS-grade sandbox isolation.
+        """
+        from .rsi_artifact_gate import RsiArtifactGate
+        from .rsi_model_port import RsiModelCandidateBuilder, RsiModelExperiment
+
+        gate = RsiArtifactGate(
+            self.config.sandbox_path / "rsi_candidate_artifacts",
+            self.ledger,
+            allowed_files=frozenset(allowed_files),
+        )
+        return RsiModelExperiment(
+            self.rsi_pilot,
+            RsiModelCandidateBuilder(
+                model_port,
+                gate,
+                policy_digest=policy.digest(),
+                evaluator_digest=policy.evaluator_digest,
+            ),
+            policy,
+            objective=objective,
+            allowed_files=allowed_files,
+            independent_evaluator=independent_evaluator,
+        )
 
     def _load_plugins(self) -> None:
         for module_name in self.config.plugin_modules:
@@ -14055,6 +14094,20 @@ class LivingSystem:
                     "elapsed_seconds": round(time.monotonic() - step_started, 4),
                     "limit": reserve_limit,
                     "reserved": len(reserved),
+                }
+            )
+            step_started = time.monotonic()
+            # The existing LearningSystem owns candidate identity; the existing
+            # AutonomySystem chooses whether a candidate warrants a read-only
+            # endogenous goal. Never invoke a model or a repair worker here.
+            newly_observed_growth = self.learning.create_failure_candidates(
+                minimum_repeats=3, lookback_days=30, max_new_candidates=1
+            )
+            event_goal_timings.append(
+                {
+                    "step": "real_failure_growth_discovery",
+                    "elapsed_seconds": round(time.monotonic() - step_started, 4),
+                    "new_candidates": len(newly_observed_growth),
                 }
             )
             step_started = time.monotonic()
