@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import shutil
 import tempfile
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -132,14 +133,37 @@ class RsiArtifactGate:
             if (self.root / artifact_id).exists():
                 raise ValueError("concurrent artifact admission collision")
             stage.rename(self.root / artifact_id)
-        self.ledger.append(
-            "rsi_candidate_artifact_registered",
-            {
-                "artifact_id": artifact_id,
-                "parent_id": parent_id,
-                "manifest_digest": payload["manifest_digest"],
-            },
-        )
+        try:
+            self.ledger.append(
+                "rsi_candidate_artifact_registered",
+                {
+                    "artifact_id": artifact_id,
+                    "parent_id": parent_id,
+                    "manifest_digest": payload["manifest_digest"],
+                },
+            )
+        except Exception:
+            # File rename and SQLite append cannot be one atomic operation.
+            # If append certainly did not persist, compensate the staged
+            # rename so this generation can retry under the same candidate
+            # identity. If the DB cannot be read, or the signed receipt was
+            # committed before an exceptional return, preserve the artifact:
+            # deleting it would invalidate canonical WLS evidence.
+            try:
+                rows = self.ledger.db.query_all(
+                    "SELECT payload_json FROM evidence "
+                    "WHERE event_type='rsi_candidate_artifact_registered'"
+                )
+            except Exception:
+                rows = None
+            if rows is not None and not any(
+                json.loads(row["payload_json"]).get("artifact_id") == artifact_id
+                for row in rows
+            ):
+                folder = self.root / artifact_id
+                if folder.is_dir() and not folder.is_symlink():
+                    shutil.rmtree(folder)
+            raise
         return payload
 
     def verify(self, artifact_id: str) -> dict[str, Any]:
