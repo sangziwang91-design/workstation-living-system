@@ -63,6 +63,13 @@ def test_real_failure_growth_is_selected_once_and_survives_restart(tmp_path: Pat
     assert goals[0]["title"] == f"Inspect recurring failures: {candidate_id}"
     assert goals[0]["risk"] == "READ"
     assert goals[0]["autonomous"] == 1
+    # The existing GrowthCycle performs a fixed-tool sandbox experiment and
+    # validates a candidate, without authorizing it to run in production.
+    growth_rows = runtime.db.query_all("SELECT status FROM growth_cycles")
+    assert len(growth_rows) == 1
+    assert growth_rows[0]["status"] == "SKILL_VALIDATED"
+    assert len(runtime.db.query_all("SELECT experiment_id FROM recovery_experiments")) == 1
+    assert runtime.db.query_all("SELECT skill_id FROM skills WHERE status='PROMOTED'") == []
 
     # Further observations must not create a new proposal fingerprint.
     record_real_failure(runtime)
@@ -77,6 +84,10 @@ def test_real_failure_growth_is_selected_once_and_survives_restart(tmp_path: Pat
     assert len(restored.db.query_all(
         "SELECT goal_id FROM goals WHERE source='autonomy.learning'"
     )) == 1
+    assert len(restored.db.query_all(
+        "SELECT experiment_id FROM recovery_experiments"
+    )) == 1
+    assert restored.db.query_all("SELECT skill_id FROM skills WHERE status='PROMOTED'") == []
     assert len(source_ids) == 3
     assert restored.verify_integrity(full=True)["ok"] is True
 
