@@ -16,6 +16,10 @@ from pathlib import Path
 SOURCE_FILES = (
     "source/scripts/build_capability_inventory.py",
     "source/scripts/build_delivery_handoff.py",
+    "source/scripts/run_delivery_self_check.py",
+    "source/src/wls/coding_workers.py",
+    "source/src/wls/coding_adapter.py",
+    "source/src/wls/rsi_evolution.py",
 )
 
 
