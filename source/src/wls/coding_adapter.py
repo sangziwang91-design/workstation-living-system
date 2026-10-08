@@ -85,6 +85,7 @@ class CodingTaskContract:
         # the containment check and is only rejected as a missing file.
         if (
             not relative_file
+            or ('\n' in relative_file or '\r' in relative_file)
             or (':' in relative_file)
             or Path(relative_file).is_absolute()
             or PureWindowsPath(relative_file).drive
