@@ -1,0 +1,120 @@
+"""Fail-closed scorer/code PR separation. Trusted base-branch execution only."""
+from __future__ import annotations
+import argparse
+import json
+import os
+import re
+import sys
+from pathlib import PurePosixPath
+from urllib.request import Request, urlopen
+
+EVALUATORS = frozenset({
+    "source/src/wls/task_admission.py",
+    "source/src/wls/benchmark.py",
+    "source/src/wls/evaluator.py",
+    "source/src/wls/experiment_decision.py",
+    "source/scripts/github_rsi_replay_model.py",
+})
+CODE_SUFFIXES = frozenset({
+    ".py", ".pyi", ".js", ".ts", ".tsx", ".jsx", ".rs", ".go",
+    ".sh", ".ps1", ".yml", ".yaml", ".toml", ".json",
+})
+MAX_FILES = 3000
+
+
+def is_other_code(path: str) -> bool:
+    if path == ".github/CODEOWNERS":
+        return True
+    return (
+        path.startswith(("source/", ".github/", "agent/"))
+        and PurePosixPath(path).suffix.lower() in CODE_SUFFIXES
+    )
+
+
+def check_files(files: list[str]) -> dict:
+    if not files or len(files) > MAX_FILES:
+        return {"eligible": False, "status": "UNMEASURED",
+                "reason": "missing or truncated changed-file listing"}
+    changed = set(files)
+    scoring = sorted(changed & EVALUATORS)
+    other = sorted(path for path in changed if path not in EVALUATORS
+                   and is_other_code(path))
+    mixed = bool(scoring and other)
+    return {
+        "eligible": not mixed,
+        "status": "REJECT_MIXED_EVALUATOR_AND_CODE" if mixed else "PASS",
+        "evaluator_files": scoring,
+        "other_code_files": other,
+    }
+
+
+def fetch_pr_files(repo: str, pr: int, token: str) -> list[str]:
+    """No PR checkout, downloaded source, or execution of candidate code."""
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
+        raise ValueError("invalid repository")
+    if not token or pr < 1:
+        raise ValueError("missing token or PR number")
+    files: list[str] = []
+    for page in range(1, 32):
+        request = Request(
+            f"https://api.github.com/repos/{repo}/pulls/{pr}/files"
+            f"?per_page=100&page={page}",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+                "User-Agent": "WLS-evaluator-change-guard",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+        with urlopen(request, timeout=20) as response:  # nosec B310 trusted API
+            rows = json.load(response)
+        if not isinstance(rows, list):
+            raise ValueError("invalid GitHub PR files")
+        for row in rows:
+            if not isinstance(row, dict) or not isinstance(row.get("filename"), str):
+                raise ValueError("malformed PR path")
+            files.append(row["filename"])
+            if row.get("status") == "renamed":
+                previous = row.get("previous_filename")
+                if not isinstance(previous, str):
+                    raise ValueError("rename missing previous filename")
+                files.append(previous)
+        if len(files) > MAX_FILES:
+            raise ValueError("changed-file count exceeds safe bound")
+        if len(rows) < 100:
+            return files
+    raise ValueError("GitHub file-list pagination overflow")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--github-pr", type=int)
+    parser.add_argument("--repository")
+    parser.add_argument("--fixture-file", help="test fixture only; not CI authority")
+    args = parser.parse_args()
+    try:
+        if args.fixture_file and args.github_pr is None:
+            with open(args.fixture_file, encoding="utf-8") as handle:
+                files = json.load(handle)
+            if not isinstance(files, list) or not all(
+                isinstance(x, str) for x in files
+            ):
+                raise ValueError("fixture not a list of paths")
+        elif args.github_pr and not args.fixture_file:
+            files = fetch_pr_files(
+                args.repository or os.environ.get("GITHUB_REPOSITORY", ""),
+                args.github_pr, os.environ.get("GH_TOKEN", ""),
+            )
+        else:
+            raise ValueError("must select exactly one input mode")
+        result = check_files(files)
+        print(json.dumps(result, sort_keys=True))
+        return 0 if result["eligible"] else 2
+    except (ValueError, OSError, TypeError) as exc:
+        print(json.dumps({"eligible": False, "status": "UNMEASURED",
+                          "error": str(exc)}, sort_keys=True))
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())
