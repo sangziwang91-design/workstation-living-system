@@ -1493,7 +1493,7 @@ def test_runtime_preflights_admitted_read_only_plan_without_execution(
             request_id="preflight-file-1",
             organ_id="file",
             owner_intent="inspect files before execution",
-            inputs={"path": str(tmp_path), "limit": 10},
+            inputs={"path": str(runtime.config.inbox_path), "limit": 10},
         )
     )
     admission = runtime.admit_read_only_plan_preview("preflight-file-1")
@@ -1527,13 +1527,13 @@ def test_runtime_executes_preflighted_read_only_plan_with_receipts(
     tmp_path: Path,
 ) -> None:
     runtime = LivingSystem(default_config(tmp_path / "home"))
-    (tmp_path / "fixture.txt").write_text("hello", encoding="utf-8")
+    (runtime.config.inbox_path / "fixture.txt").write_text("hello", encoding="utf-8")
     runtime.intake_read_only_task(
         ReadOnlyTaskRequest(
             request_id="execute-file-1",
             organ_id="file",
             owner_intent="inspect files after preflight",
-            inputs={"path": str(tmp_path), "limit": 10},
+            inputs={"path": str(runtime.config.inbox_path), "limit": 10},
         )
     )
     admission = runtime.admit_read_only_plan_preview("execute-file-1")
@@ -1577,7 +1577,7 @@ def test_runtime_proposes_skill_candidates_from_repeated_readonly_receipts(
     tmp_path: Path,
 ) -> None:
     runtime = LivingSystem(default_config(tmp_path / "home"))
-    source = tmp_path / "skill-source.txt"
+    source = runtime.config.inbox_path / "skill-source.txt"
     source.write_text("repeatable skill evidence", encoding="utf-8")
     for index in range(3):
         request_id = f"skill-source-{index}"
@@ -1635,7 +1635,7 @@ def test_runtime_reviews_learning_epoch_with_candidate_only_authorization(
     tmp_path: Path,
 ) -> None:
     runtime = LivingSystem(default_config(tmp_path / "home"))
-    source = tmp_path / "learning-source.txt"
+    source = runtime.config.inbox_path / "learning-source.txt"
     source.write_text("repeatable learning evidence", encoding="utf-8")
     for index in range(3):
         request_id = f"learning-source-{index}"
@@ -1689,7 +1689,7 @@ def test_runtime_records_capability_epoch_audit_without_promotion_or_deploy(
     tmp_path: Path,
 ) -> None:
     runtime = LivingSystem(default_config(tmp_path / "home"))
-    source = tmp_path / "epoch-source.txt"
+    source = runtime.config.inbox_path / "epoch-source.txt"
     source.write_text("repeatable epoch evidence", encoding="utf-8")
     for index in range(3):
         request_id = f"epoch-source-{index}"
@@ -1745,7 +1745,7 @@ def test_runtime_projects_read_only_execution_receipt_as_candidate_memory_world(
             request_id="project-file-1",
             organ_id="file",
             owner_intent="project inspected files",
-            inputs={"path": str(tmp_path), "limit": 10},
+            inputs={"path": str(runtime.config.inbox_path), "limit": 10},
         )
     )
     admission = runtime.admit_read_only_plan_preview("project-file-1")
@@ -1799,7 +1799,7 @@ def test_runtime_reviews_and_rolls_back_candidate_projection(
             request_id="review-file-1",
             organ_id="file",
             owner_intent="review projected files",
-            inputs={"path": str(tmp_path), "limit": 10},
+            inputs={"path": str(runtime.config.inbox_path), "limit": 10},
         )
     )
     admission = runtime.admit_read_only_plan_preview("review-file-1")
