@@ -114,3 +114,80 @@ def test_next_action_uses_declared_gap_without_ci_failure(feedback, tmp_path):
     assert len(report["runtime_gaps_top5"]) == 5
     assert all(gap["source_type"] == "CURRENT_STATE_DECLARED_NOT_CI_OBSERVED"
                for gap in report["runtime_gaps_top5"])
+
+
+def test_partial_platform_xml_cannot_report_green(
+    feedback, tmp_path: Path,
+) -> None:
+    evidence = tmp_path / "evidence"
+    _xml(evidence / "hosted-full-wls-123", failing=False)
+    result = feedback.test_evidence(
+        evidence, require_hosted_matrix=True,
+        ci_job_results={"hosted-linux": "success", "hosted-windows": "success"},
+    )
+    assert result["failed"] == 0
+    assert result["status"] == "UNMEASURED"
+    assert result["missing_platforms"] == ["windows-py311", "windows-py313"]
+    output = {"tests": result}
+    action, reason = feedback.next_action(output)
+    assert reason == "CI_REQUIRED_PLATFORM_UNMEASURED"
+    assert "windows-py311" in action
+
+
+def test_failed_windows_install_job_never_masks_green_linux_xml(
+    feedback, tmp_path: Path,
+) -> None:
+    evidence = tmp_path / "evidence"
+    _xml(evidence / "hosted-full-wls-123", failing=False)
+    result = feedback.test_evidence(
+        evidence, require_hosted_matrix=True,
+        ci_job_results={"hosted-linux": "success", "hosted-windows": "failure"},
+    )
+    assert result["status"] == "FAILED"
+    assert result["failed_ci_jobs"] == [
+        {"job": "hosted-windows", "result": "failure"}
+    ]
+    _, reason = feedback.next_action({"tests": result})
+    assert reason == "CI_REQUIRED_JOB_FAILED"
+
+
+def test_full_three_platform_matrix_has_observed_pass(
+    feedback, tmp_path: Path,
+) -> None:
+    evidence = tmp_path / "evidence"
+    for artifact in (
+        "hosted-full-wls-123",
+        "hosted-windows-full-wls-3.11-123",
+        "hosted-windows-full-wls-3.13-123",
+    ):
+        _xml(evidence / artifact, failing=False)
+    result = feedback.test_evidence(
+        evidence, require_hosted_matrix=True,
+        ci_job_results={"hosted-linux": "success", "hosted-windows": "success"},
+    )
+    assert result["status"] == "OBSERVED_PASS"
+    assert result["report_count"] == 3
+    assert result["missing_platforms"] == []
+    assert result["failed_ci_jobs"] == []
+
+
+def test_cancelled_required_job_never_looks_like_pass(
+    feedback, tmp_path: Path,
+) -> None:
+    evidence = tmp_path / "evidence"
+    for artifact in (
+        "hosted-full-wls-123",
+        "hosted-windows-full-wls-3.11-123",
+        "hosted-windows-full-wls-3.13-123",
+    ):
+        _xml(evidence / artifact, failing=False)
+    result = feedback.test_evidence(
+        evidence, require_hosted_matrix=True,
+        ci_job_results={"hosted-linux": "success", "hosted-windows": "cancelled"},
+    )
+    assert result["status"] == "UNMEASURED"
+    assert result["incomplete_ci_jobs"] == [
+        {"job": "hosted-windows", "result": "cancelled"}
+    ]
+    _, reason = feedback.next_action({"tests": result})
+    assert reason == "UNMEASURED_TEST_EVIDENCE"

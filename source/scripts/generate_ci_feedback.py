@@ -30,8 +30,19 @@ EVALUATOR_FILES = (
     "source/scripts/github_rsi_replay_model.py",
 )
 
+# Exact GitHub Actions artifact names are created by the existing hosted jobs.
+# A single green Linux report must never masquerade as full multiplatform CI.
+REQUIRED_JUNIT_ARTIFACT_PREFIXES = {
+    "linux-py313": "hosted-full-wls-",
+    "windows-py311": "hosted-windows-full-wls-3.11-",
+    "windows-py313": "hosted-windows-full-wls-3.13-",
+}
 
-def test_evidence(root: Path) -> dict:
+
+def test_evidence(
+    root: Path, *, require_hosted_matrix: bool = False,
+    ci_job_results: dict[str, str] | None = None,
+) -> dict:
     reports = sorted(root.rglob("*.xml")) if root.is_dir() else []
     observed: list[dict] = []
     for file in reports:
@@ -62,10 +73,36 @@ def test_evidence(root: Path) -> dict:
             "coverage": "PARTIAL_ON_FAILURE" if failed else "OBSERVED",
         })
     failures = [item for report in observed for item in report["failed_tests"]]
+    seen = {str(file.relative_to(root).parts[0]) for file in reports}
+    missing_platforms = (
+        [
+            name for name, prefix in REQUIRED_JUNIT_ARTIFACT_PREFIXES.items()
+            if not any(entry.startswith(prefix) for entry in seen)
+        ] if require_hosted_matrix else []
+    )
+    job_results = ci_job_results or {}
+    failed_jobs = [
+        {"job": name, "result": result}
+        for name, result in sorted(job_results.items()) if result == "failure"
+    ]
+    incomplete_jobs = [
+        {"job": name, "result": result}
+        for name, result in sorted(job_results.items())
+        if result != "success" and result != "failure"
+    ]
+    if failures or failed_jobs:
+        status = "FAILED"
+    elif not reports or missing_platforms or incomplete_jobs:
+        status = "UNMEASURED"
+    else:
+        status = "OBSERVED_PASS"
     return {
-        "status": "UNMEASURED" if not reports else (
-            "FAILED" if failures else "OBSERVED_PASS"
-        ),
+        "status": status,
+        "required_platforms": list(REQUIRED_JUNIT_ARTIFACT_PREFIXES)
+        if require_hosted_matrix else [],
+        "missing_platforms": missing_platforms,
+        "failed_ci_jobs": failed_jobs,
+        "incomplete_ci_jobs": incomplete_jobs,
         "reports": observed,
         "report_count": len(observed),
         "executed_cases": sum(r["cases_observed"] for r in observed),
@@ -213,14 +250,29 @@ def fetch_previous_feedback(repo: str, branch: str, current_run: str,
 
 
 def next_action(feedback: dict) -> tuple[str, str]:
-    failures = feedback["tests"]["failed_tests"]
+    tests = feedback["tests"]
+    failures = tests["failed_tests"]
     if failures:
         return (
             f"Repair the first observed CI failure: {failures[0]['test']}; "
             "rerun all Linux and Windows checks before claiming recovery.",
             "CI_OBSERVED_FAILURE",
         )
-    if feedback["tests"]["status"] == "UNMEASURED":
+    if tests.get("failed_ci_jobs"):
+        failed = tests["failed_ci_jobs"][0]
+        return (
+            f"Investigate failed hosted CI job {failed['job']} before "
+            "claiming a complete benchmark or choosing RSI next work.",
+            "CI_REQUIRED_JOB_FAILED",
+        )
+    if tests.get("missing_platforms"):
+        return (
+            "Restore the missing required JUnit artifacts for "
+            + ", ".join(tests["missing_platforms"])
+            + "; do not count the remaining green reports as full CI.",
+            "CI_REQUIRED_PLATFORM_UNMEASURED",
+        )
+    if tests["status"] == "UNMEASURED":
         return ("Restore JUnit CI evidence before selecting a next task.",
                 "UNMEASURED_TEST_EVIDENCE")
     if feedback["previous_round"]["status"] == "INVALID_STANDARDS_CHANGED":
@@ -246,7 +298,9 @@ def next_action(feedback: dict) -> tuple[str, str]:
 
 
 def generate(root: Path, evidence_root: Path, previous: dict | None,
-             *, run_id: str, head: str, branch: str) -> tuple[dict, str]:
+             *, run_id: str, head: str, branch: str,
+             require_hosted_matrix: bool = False,
+             ci_job_results: dict[str, str] | None = None) -> tuple[dict, str]:
     state_path = root / "CURRENT_STATE.yaml"
     state_source = state_path.read_text(encoding="utf-8")
     state = yaml.safe_load(state_source)
@@ -257,7 +311,10 @@ def generate(root: Path, evidence_root: Path, previous: dict | None,
         "generated_utc": datetime.now(timezone.utc).isoformat(),
         "ci": {"run_id": run_id, "head_sha": head, "branch": branch},
         "authority": "CI_OBSERVATION_NON_PROMOTABLE",
-        "tests": test_evidence(evidence_root),
+        "tests": test_evidence(
+            evidence_root, require_hosted_matrix=require_hosted_matrix,
+            ci_job_results=ci_job_results,
+        ),
         "evaluations": {"public_dev_risk": public_dev_risk_metric(root)},
         "runtime_gaps_top5": declared_gaps(state),
         "holdout": {"status": "EXTERNAL_NUOMI_ONLY", "cases_in_repository": 0},
@@ -316,9 +373,19 @@ def main() -> int:
             )
         except (OSError, ValueError, KeyError, zipfile.BadZipFile, json.JSONDecodeError):
             previous = None
+    require_hosted_matrix = os.getenv("WLS_CI_REQUIRE_HOSTED_MATRIX") == "true"
+    job_results = (
+        {
+            "hosted-linux": os.getenv("WLS_CI_LINUX_RESULT", "unavailable"),
+            "hosted-windows": os.getenv("WLS_CI_WINDOWS_RESULT", "unavailable"),
+        }
+        if require_hosted_matrix else None
+    )
     feedback, rendered = generate(
         root, args.evidence, previous, run_id=run_id,
         head=os.getenv("GITHUB_SHA", "local"), branch=branch,
+        require_hosted_matrix=require_hosted_matrix,
+        ci_job_results=job_results,
     )
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / "FEEDBACK.json").write_text(
