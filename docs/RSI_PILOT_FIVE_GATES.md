@@ -67,3 +67,51 @@ scores correspond to real independent tests.
 - **Next:** implement one disposable Codex adapter plus a frozen independent
   evaluator, measure performance against a fixed-improver control and require
   exact-head Windows verification before allowing real unattended work.
+
+
+## Follow-up: one hundred measured harness generations
+
+The owner requested 100 iterations as an RSI evaluation. This is interpreted
+**only for this proof** as 100 generations of *actual artifact production,
+scoring, selection, persistence and inheritance*. These are not 100 source
+revisions of WLS and must not be represented as 100 autonomous AI improvements.
+
+`python source/scripts/verify_rsi_100_generations.py --report rsi-100-proof.json`
+runs a deterministic reference task on real JSON candidate artifacts in a
+disposable directory. It starts with zero known answers. Each generation
+produces two new separately hashed artifacts: a no-gain branch and a branch
+which adds exactly one correct case to its parent's artifact. The objective
+scorer checks content of the artifacts, not candidate names, and independently
+reopens the persisted state and HMAC ledger after all 100 generations.
+
+| Generations | Expected verified coverage |
+|---|---|
+| 001–010 | 10/100 |
+| 011–020 | 20/100 |
+| 021–030 | 30/100 |
+| 031–040 | 40/100 |
+| 041–050 | 50/100 |
+| 051–060 | 60/100 |
+| 061–070 | 70/100 |
+| 071–080 | 80/100 |
+| 081–090 | 90/100 |
+| 091–100 | 100/100 |
+
+**Acceptance**: 100 different parent-to-champion transitions, 200 evaluated
+candidate artifacts, 201 distinct candidate/baseline IDs, 401 HMAC-backed
+receipts, policy/evaluator digest continuity, artifact byte-digest continuity,
+100/100 fixture cases and verification on a reopened database. The CI workflow
+exports the full 100-row lineage JSON. It must pass on Python 3.11 and 3.13.
+
+The experiment uses a scripted deterministic proposer which already knows
+how to compute the next correct case. Therefore the increase from 0 to 100
+is **designed and expected by the test author**; it is a reliable demonstration
+of long-horizon harness mechanics, not evidence of LLM learning, discovery,
+generalization, recursive reasoning or improvement of its own improver.
+It has no sealed task set, no API calls and no cost-per-generation evidence.
+
+Before calling the system actual RSI, an additional study must replace the
+scripted proposer with a bounded real coding model, use an independently
+maintained held-out test corpus, match budgets to a fixed-improver control and
+demonstrate improved capacity to *generate improvements*, rather than only
+improved task accuracy.
