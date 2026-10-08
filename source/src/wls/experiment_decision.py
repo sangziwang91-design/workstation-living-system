@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from enum import StrEnum
 from math import isfinite
-from typing import Mapping
 
 from .schemas import digest_json
 
