@@ -30,9 +30,6 @@ def test_evolution_chain_validator_passes() -> None:
         capture_output=True,
         text=True,
     )
-    if result.returncode != 0 and "Notion" in (result.stdout + result.stderr):
-        import pytest
-        pytest.skip("Notion-dependent validator requires online context")
     assert result.returncode == 0, result.stdout + result.stderr
     report = json.loads(result.stdout)
     assert report["success"] is True
