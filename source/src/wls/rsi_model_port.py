@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 from collections.abc import Callable
@@ -185,6 +186,7 @@ class OpenAICompatibleProposalPort:
         base_url: str,
         api_key_env: str = "WLS_RSI_API_KEY",
         timeout_seconds: float = 45,
+        max_output_tokens: int = 1024,
     ) -> None:
         uri = parse.urlsplit(base_url)
         if (
@@ -198,12 +200,15 @@ class OpenAICompatibleProposalPort:
             raise ValueError("base_url must be HTTPS or loopback HTTP without credentials")
         if not re.fullmatch(r"[A-Z][A-Z0-9_]{1,80}", api_key_env):
             raise ValueError("invalid credential environment variable")
-        if not model_id.strip() or timeout_seconds <= 0 or timeout_seconds > 180:
+        if not model_id.strip() or not math.isfinite(timeout_seconds) or timeout_seconds <= 0 or timeout_seconds > 180:
             raise ValueError("invalid model or timeout")
+        if not 1 <= max_output_tokens <= 8192:
+            raise ValueError("invalid per-call token limit")
         self._base_url = base_url.rstrip("/")
         self._model_id = model_id
         self._api_key_env = api_key_env
         self._timeout = timeout_seconds
+        self._max_output_tokens = max_output_tokens
         self._opener = request.build_opener(_NoRedirect())
 
     @property
@@ -217,12 +222,15 @@ class OpenAICompatibleProposalPort:
     def propose(self, instruction: str, *, max_output_bytes: int) -> RsiProposalResponse:
         if not 1 <= max_output_bytes <= 1_000_000:
             raise ValueError("invalid output size cap")
+        if not instruction or len(instruction) > 12_000:
+            raise ValueError("prompt too long or empty")
         key = os.environ.get(self._api_key_env, "")
         if not key and not self._base_url.startswith(("http://localhost", "http://127.0.0.1", "http://[::1]")):
             raise RuntimeError("model credential not configured")
         body = json.dumps({
             "model": self._model_id,
             "messages": [{"role": "user", "content": instruction}],
+            "max_tokens": self._max_output_tokens,
         }).encode("utf-8")
         req = request.Request(
             self._base_url + "/v1/chat/completions",
