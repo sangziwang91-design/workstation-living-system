@@ -83,6 +83,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install verified root package and tools
         run: python -m pip install -e ".[dev]"
+      - name: Repository invariant
+        run: python source/scripts/verify_packaging_layout.py
       # Test *both actual packages together*, not just JSON stand-ins.
       # Open bridge commit is pinned; it is public and never receives WLS secrets.
       - name: Checkout pinned public AgentBridge for live protocol integration
@@ -96,8 +98,6 @@ jobs:
       - name: Install public bridge for cross-repository process roundtrip
         if: matrix.python-version == '3.13'
         run: python -m pip install -e ./external-agentbridge
-      - name: Repository invariant
-        run: python source/scripts/verify_packaging_layout.py
       - name: RSI pilot and existing decision regressions
         run: |
           python -m pytest -q source/tests/test_rsi_evolution.py             source/tests/test_experiment_decision.py             source/tests/test_loop_control.py             source/tests/test_coding_workers.py             source/tests/test_rsi_artifact_gate.py source/tests/test_rsi_model_port.py source/tests/test_rsi_risk_cli.py source/tests/test_agentbridge_handoff.py source/tests/test_agentbridge_full_roundtrip.py
