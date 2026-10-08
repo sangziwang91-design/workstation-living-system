@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from http.client import HTTPConnection
 from types import SimpleNamespace
+from typing import Any
 import json
 import threading
 import time
@@ -12,7 +13,7 @@ from wls.server import WLSServer
 class ServerLifeStateRuntime:
     def __init__(self, secret_path) -> None:
         self.config = SimpleNamespace(secret_path=secret_path)
-        self.feedback_calls = []
+        self.feedback_calls: list[dict[str, Any]] = []
 
     def life_state(self):
         return {
