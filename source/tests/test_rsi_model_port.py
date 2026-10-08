@@ -365,3 +365,106 @@ def test_scoring_mutation_blocks_promotion_even_with_high_score(tmp_path):
     assert state["live_promotion"] is False
     assert ledger.verify()[0]
     db.close_all()
+
+
+
+def test_second_generation_reads_actual_parent_source_not_just_candidate_id(tmp_path):
+    db = Database(tmp_path / "state.sqlite")
+    ledger = EvidenceLedger(db, tmp_path / "ledger.key")
+    gate = RsiArtifactGate(
+        tmp_path / "artifacts", ledger,
+        allowed_files=frozenset({"agent/strategy.json"}),
+    )
+    p = ExperimentPolicy(
+        "maximize", 0.01, {"regressions": 0.0}, 2, 0, SHA
+    )
+    gate.register(
+        artifact_id="seed", parent_id=None, generation=0, branch=0,
+        files={"agent/strategy.json": b'{"quality":0}'},
+        policy_digest=p.digest(), evaluator_digest=SHA,
+    )
+
+    class InheritingModel:
+        model_id = "source-aware-mock"
+        capabilities = RsiModelCapabilities()
+
+        def __init__(self):
+            self.observed_parent_scores = []
+
+        def propose(self, instruction: str, *, max_output_bytes: int):
+            prefix = "Parent source files (JSON data): "
+            parent_json = next(
+                line.removeprefix(prefix)
+                for line in instruction.splitlines()
+                if line.startswith(prefix)
+            )
+            parent_files = json.loads(parent_json)
+            parent_quality = json.loads(parent_files["agent/strategy.json"])["quality"]
+            self.observed_parent_scores.append(parent_quality)
+            return RsiProposalResponse(
+                model_id=self.model_id,
+                text=json.dumps({"files": {
+                    "agent/strategy.json": json.dumps({"quality": parent_quality + 1})
+                }}),
+            )
+
+    model = InheritingModel()
+
+    def measure(candidate):
+        gate.verify(candidate)
+        score = json.loads(
+            (gate.root / candidate / "agent" / "strategy.json").read_text(encoding="utf-8")
+        )["quality"]
+        return MetricResult(score, {"regressions": 0.0}, SHA)
+
+    session = RsiModelExperiment(
+        RsiEvolutionPilot(db, ledger),
+        RsiModelCandidateBuilder(model, gate, policy_digest=p.digest(), evaluator_digest=SHA),
+        p,
+        objective="Improve the agent configuration from its actual ancestor",
+        allowed_files=("agent/strategy.json",),
+        independent_evaluator=measure,
+    )
+    session.start("inheritance", "seed", branches=1)
+    result = session.run_bounded("inheritance")
+    assert model.observed_parent_scores == [0, 1]
+    assert result["champion_metric"]["primary"] == 2
+    assert len(result["history"]) == 2
+    assert ledger.verify()[0]
+    db.close_all()
+
+
+def test_parent_over_context_limit_never_reaches_model(gateway):
+    gate, _ = gateway
+    gate.register(
+        artifact_id="oversize", parent_id=None, generation=0, branch=0,
+        files={"agent/strategy.json": b"x" * 12_001},
+        policy_digest=SHA, evaluator_digest=SHA,
+    )
+    model = FakeModel('{"files":{"agent/strategy.json":"valid"}}')
+    spec = RsiProposalRequest(
+        model_id=model.model_id, parent_id="oversize",
+        generation=1, branch=0, objective="Improve this long file",
+        allowed_files=("agent/strategy.json",),
+    )
+    with pytest.raises(ModelProtocolError, match="context cap"):
+        builder(model, gate).propose(spec)
+    assert model.calls == 0
+
+
+def test_non_utf8_parent_never_reaches_model(gateway):
+    gate, _ = gateway
+    gate.register(
+        artifact_id="binary", parent_id=None, generation=0, branch=0,
+        files={"agent/module.py": b"\\xff\\xfe"},
+        policy_digest=SHA, evaluator_digest=SHA,
+    )
+    model = FakeModel('{"files":{"agent/module.py":"print(1)"}}')
+    spec = RsiProposalRequest(
+        model_id=model.model_id, parent_id="binary",
+        generation=1, branch=0, objective="Modify the candidate",
+        allowed_files=("agent/module.py",),
+    )
+    with pytest.raises(ModelProtocolError, match="not UTF-8"):
+        builder(model, gate).propose(spec)
+    assert model.calls == 0
