@@ -21,7 +21,6 @@ from .experiment_decision import (
     decide_experiment,
 )
 
-
 Proposer = Callable[[str, int, int], str]
 Evaluator = Callable[[str], MetricResult]
 
