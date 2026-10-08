@@ -262,3 +262,5 @@ def paired_rsi_metric(
         gates={"critical_regressions": float(len(comparison["regressions"]))},
         evaluator_digest=evaluator_digest,
     )
+
+# NEGATIVE_CI_PROBE_ONLY: deliberately mixed scorer/test change; do not merge.
