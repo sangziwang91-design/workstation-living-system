@@ -8,6 +8,7 @@ import pytest
 
 from wls.config import default_config
 from wls.policy import PolicyEngine
+from wls.runtime import LivingSystem
 from wls.schemas import ActionSpec, RiskLevel
 from wls.tools import ToolRegistry
 
@@ -124,3 +125,42 @@ def test_symlink_to_secret_is_denied_even_from_task_inbox(tmp_path: Path) -> Non
     assert ToolRegistry(PolicyEngine(cfg)).execute(
         action("read_file", alias)
     ).success is False
+
+
+def test_document_ingress_grants_exact_owner_selected_file_not_parent(
+    tmp_path: Path,
+) -> None:
+    cfg = default_config(tmp_path / "home")
+    runtime = LivingSystem(cfg)
+    external = tmp_path / "selected.pdf"
+    external.write_bytes(b"%PDF-1.4\\nowner-selected file\\n")
+    neighbor = tmp_path / "unrelated.pdf"
+    neighbor.write_bytes(b"%PDF-1.4\\nnot selected\\n")
+    denied_before = runtime.tools.execute(action("read_file", external))
+    assert denied_before.success is False
+
+    receipt = runtime.intake_document_asset(
+        document_id="owner-selected-1", path=external, source="owner",
+    )
+    assert receipt["status"] == "QUEUED_EVENT_ONLY"
+    assert str(external.resolve()) in runtime.config.tool_policy["allowed_read_roots"]
+    assert str(tmp_path.resolve()) not in runtime.config.tool_policy["allowed_read_roots"]
+    assert runtime.tools.execute(action("read_file", external)).success is True
+    assert runtime.tools.execute(action("read_file", neighbor)).success is False
+    runtime.db.close_all()
+
+
+def test_document_ingress_cannot_use_owner_read_grant_to_expose_keys(
+    tmp_path: Path,
+) -> None:
+    runtime = LivingSystem(default_config(tmp_path / "home"))
+    with pytest.raises(PermissionError, match="protected WLS private runtime path"):
+        runtime.intake_document_asset(
+            document_id="private-config-1",
+            path=runtime.config.secret_path,
+            source="owner",
+        )
+    assert str(runtime.config.secret_path) not in runtime.config.tool_policy[
+        "allowed_read_roots"
+    ]
+    runtime.db.close_all()
