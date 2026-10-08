@@ -238,7 +238,7 @@ class OpenAICompatibleProposalPort:
                 # Bound server-provided bytes; never embed raw service responses
                 # in logs or evidence (could contain credentials).
                 raw = response.read(max_output_bytes * 4 + 1)
-        except (error.HTTPError, error.URLError, TimeoutError) as exc:
+        except (error.HTTPError, error.URLError, TimeoutError):
             raise RuntimeError("model endpoint request failed") from None
         if len(raw) > max_output_bytes * 4:
             raise ModelProtocolError("model endpoint response exceeds byte cap")
@@ -254,7 +254,7 @@ class OpenAICompatibleProposalPort:
                 input_tokens=usage.get("prompt_tokens"),
                 output_tokens=usage.get("completion_tokens"),
             )
-        except (KeyError, IndexError, ValueError, TypeError) as exc:
+        except (KeyError, IndexError, ValueError, TypeError):
             raise ModelProtocolError("model endpoint response is invalid") from None
 
 
