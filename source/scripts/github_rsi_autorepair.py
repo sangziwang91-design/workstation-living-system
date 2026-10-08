@@ -17,6 +17,7 @@ from pathlib import Path
 # Candidate models cannot alter tests, workflow security or the promotion gate.
 ROOTS = ("source/src/wls", "source/scripts")
 MAX_FILES_PER_GENERATION = 2
+MAX_PATCH_BYTES_PER_GENERATION = 128_000
 BLOCKED_FILES = frozenset({
     "source/scripts/github_rsi_autorepair.py",
     "source/scripts/github_rsi_local_model.py",
@@ -140,6 +141,8 @@ def run() -> dict[str, object]:
     if diff.returncode or not diff.stdout.strip():
         raise RuntimeError("repair patch missing")
     patch_bytes = diff.stdout.encode("utf-8")
+    if len(patch_bytes) > MAX_PATCH_BYTES_PER_GENERATION:
+        raise RuntimeError("bounded improvement patch size exceeded")
     Path("rsi-repair-candidate.patch").write_bytes(patch_bytes)
 
     # Grader is independent of the repair program. Work is rejected if even
