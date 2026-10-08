@@ -127,6 +127,18 @@ from wls.wechat_adapter import WeChatW0W1Adapter
 from wls.workbench import WorkbenchTemplate
 
 
+
+def _owner_fixture_config(tmp_path: Path):
+    """Explicitly authorize the temporary test workspace for owner-intake tests.
+
+    Production defaults must not permit reading a WLS home's parent directory.
+    This suite intentionally inspects fixture files immediately beside home.
+    """
+    config = default_config(tmp_path / "home")
+    config.tool_policy["allowed_read_roots"].append(str(tmp_path))
+    return config
+
+
 def test_capability_registry_rejects_duplicate_authority() -> None:
     with pytest.raises(ValueError, match="canonical authority"):
         CapabilityManifest(
@@ -207,7 +219,7 @@ def test_channel_and_scheduler_emit_events_only() -> None:
 
 
 def test_channel_and_scheduler_submit_through_event_store(tmp_path: Path) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     channel_event_id, channel_inserted = ChannelGateway().submit(
         ChannelMessage("owner_console", "owner", "status?", "m2"),
         runtime.events,
@@ -232,7 +244,7 @@ def test_channel_and_scheduler_submit_through_event_store(tmp_path: Path) -> Non
 
 
 def test_living_system_status_exposes_capability_projection(tmp_path: Path) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     status = runtime.status()
     assert status["capabilities"]["authority_model"] == "canonical WLS owners only"
     assert status["capabilities"]["count"] >= 10
@@ -241,7 +253,7 @@ def test_living_system_status_exposes_capability_projection(tmp_path: Path) -> N
 
 
 def test_living_system_exposes_channel_and_scheduler_ingress(tmp_path: Path) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     channel_id, channel_inserted = runtime.ingest_channel_message(
         ChannelMessage("owner_console", "owner", "status?", "m-runtime")
     )
@@ -262,7 +274,7 @@ def test_living_system_exposes_channel_and_scheduler_ingress(tmp_path: Path) -> 
 def test_living_system_intakes_scheduled_event_with_receipt_only(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     before = {
         name: runtime.db.query_one(f"SELECT COUNT(*) AS count FROM {name}")["count"]
         for name in ("goals", "plans", "actions")
@@ -298,7 +310,7 @@ def test_living_system_intakes_scheduled_event_with_receipt_only(
 def test_living_system_intakes_voice_transcript_as_event_only(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     before = {
         name: runtime.db.query_one(f"SELECT COUNT(*) AS count FROM {name}")["count"]
         for name in ("goals", "plans", "actions")
@@ -347,7 +359,7 @@ def test_living_system_intakes_voice_transcript_as_event_only(
 def test_living_system_drafts_local_notification_without_delivery(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     before = {
         name: runtime.db.query_one(f"SELECT COUNT(*) AS count FROM {name}")["count"]
         for name in ("goals", "plans", "actions")
@@ -396,7 +408,7 @@ def test_living_system_drafts_local_notification_without_delivery(
 def test_living_system_intakes_screen_snapshot_as_event_only(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     snapshot = tmp_path / "screen.png"
     snapshot.write_bytes(b"\x89PNG\r\n\x1a\nWLS-SCREEN")
     before = {
@@ -446,7 +458,7 @@ def test_living_system_intakes_screen_snapshot_as_event_only(
 def test_living_system_drafts_browser_form_without_submission(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     before = {
         name: runtime.db.query_one(f"SELECT COUNT(*) AS count FROM {name}")["count"]
         for name in ("goals", "plans", "actions")
@@ -490,7 +502,7 @@ def test_living_system_drafts_browser_form_without_submission(
 def test_living_system_drafts_download_quarantine_without_fetch(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     before = {
         name: runtime.db.query_one(f"SELECT COUNT(*) AS count FROM {name}")["count"]
         for name in ("goals", "plans", "actions")
@@ -539,7 +551,7 @@ def test_living_system_drafts_download_quarantine_without_fetch(
 def test_living_system_intakes_document_asset_as_event_only(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     document = tmp_path / "sample.pdf"
     document.write_bytes(b"%PDF-1.4\nWLS document fixture\n")
     before = {
@@ -591,7 +603,7 @@ def test_living_system_intakes_document_asset_as_event_only(
 def test_living_system_prepares_document_retrieval_preview_without_execution(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     document = tmp_path / "sample.pdf"
     document.write_bytes(b"%PDF-1.4\nWLS document fixture\n")
     source = runtime.intake_document_asset(
@@ -646,7 +658,7 @@ def test_living_system_prepares_document_retrieval_preview_without_execution(
 def test_document_organ_executes_local_readonly_inspection(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     document = tmp_path / "sample.pdf"
     document.write_bytes(b"%PDF-1.4\nWLS document execution fixture\n")
     source = runtime.intake_document_asset(
@@ -699,7 +711,7 @@ def test_document_organ_executes_local_readonly_inspection(
 def test_document_readonly_execution_projects_and_rolls_back_candidate(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     document = tmp_path / "sample.pdf"
     document.write_bytes(b"%PDF-1.4\nWLS document projection fixture\n")
     source = runtime.intake_document_asset(
@@ -779,7 +791,7 @@ def test_document_readonly_execution_projects_and_rolls_back_candidate(
 def test_document_repeated_readonly_execution_proposes_skill_candidate(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     document = tmp_path / "sample.pdf"
     document.write_bytes(b"%PDF-1.4\nWLS document skill fixture\n")
     before_active = len(runtime.skills.active())
@@ -847,7 +859,7 @@ def test_document_repeated_readonly_execution_proposes_skill_candidate(
 def test_document_skill_candidate_starts_sandbox_without_promotion(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     document = tmp_path / "sample.pdf"
     document.write_bytes(b"%PDF-1.4\nWLS document sandbox fixture\n")
     before_active = len(runtime.skills.active())
@@ -975,7 +987,7 @@ def test_planner_provider_route_matches_config_and_blocks_silent_remote(tmp_path
 def test_runtime_records_provider_route_receipt_without_model_call(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     before = {
         name: runtime.db.query_one(f"SELECT COUNT(*) AS count FROM {name}")["count"]
         for name in ("plans", "actions")
@@ -1145,7 +1157,7 @@ def test_a2a_artifact_remains_candidate_only() -> None:
 def test_runtime_records_external_handoffs_as_candidate_receipts(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     before = {
         name: runtime.db.query_one(f"SELECT COUNT(*) AS count FROM {name}")["count"]
         for name in ("goals", "actions", "memories")
@@ -1249,7 +1261,7 @@ def test_owner_projection_and_wechat_w0_w1_are_read_only() -> None:
 def test_wechat_w2_approval_channel_queues_decision_event_only(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     action = _insert_waiting_write_action(
         runtime, runtime.config.sandbox_path / "approval.txt", "candidate"
     )
@@ -1287,7 +1299,7 @@ def test_wechat_w2_approval_channel_queues_decision_event_only(
 def test_owner_console_product_projection_and_wechat_digest_are_read_only(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     projection = OwnerConsoleProductProjection().project(runtime.status())
     assert projection["mode"] == "READ_ONLY_PROJECTION"
     assert projection["writes_canonical_state"] is False
@@ -1333,7 +1345,7 @@ def test_owner_console_product_projection_and_wechat_digest_are_read_only(
 def test_read_only_task_organs_submit_events_without_actions_or_goals(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     before_actions = runtime.db.query_one("SELECT COUNT(*) AS count FROM actions")
     before_goals = runtime.db.query_one("SELECT COUNT(*) AS count FROM goals")
     request = ReadOnlyTaskRequest(
@@ -1412,7 +1424,7 @@ def test_typed_read_only_organs_produce_planner_candidates() -> None:
 def test_runtime_intakes_read_only_task_as_preview_without_execution(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     before_plans = runtime.db.query_one("SELECT COUNT(*) AS count FROM plans")
     before_actions = runtime.db.query_one("SELECT COUNT(*) AS count FROM actions")
     result = runtime.intake_read_only_task(
@@ -1449,7 +1461,7 @@ def test_runtime_intakes_read_only_task_as_preview_without_execution(
 def test_runtime_admits_read_only_preview_as_planned_actions_without_execution(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     runtime.intake_read_only_task(
         ReadOnlyTaskRequest(
             request_id="admit-file-1",
@@ -1487,7 +1499,7 @@ def test_runtime_admits_read_only_preview_as_planned_actions_without_execution(
 def test_runtime_preflights_admitted_read_only_plan_without_execution(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     runtime.intake_read_only_task(
         ReadOnlyTaskRequest(
             request_id="preflight-file-1",
@@ -1526,7 +1538,7 @@ def test_runtime_preflights_admitted_read_only_plan_without_execution(
 def test_runtime_executes_preflighted_read_only_plan_with_receipts(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     (tmp_path / "fixture.txt").write_text("hello", encoding="utf-8")
     runtime.intake_read_only_task(
         ReadOnlyTaskRequest(
@@ -1576,7 +1588,7 @@ def test_runtime_executes_preflighted_read_only_plan_with_receipts(
 def test_runtime_proposes_skill_candidates_from_repeated_readonly_receipts(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     source = tmp_path / "skill-source.txt"
     source.write_text("repeatable skill evidence", encoding="utf-8")
     for index in range(3):
@@ -1634,7 +1646,7 @@ def test_runtime_proposes_skill_candidates_from_repeated_readonly_receipts(
 def test_runtime_reviews_learning_epoch_with_candidate_only_authorization(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     source = tmp_path / "learning-source.txt"
     source.write_text("repeatable learning evidence", encoding="utf-8")
     for index in range(3):
@@ -1688,7 +1700,7 @@ def test_runtime_reviews_learning_epoch_with_candidate_only_authorization(
 def test_runtime_records_capability_epoch_audit_without_promotion_or_deploy(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     source = tmp_path / "epoch-source.txt"
     source.write_text("repeatable epoch evidence", encoding="utf-8")
     for index in range(3):
@@ -1739,7 +1751,7 @@ def test_runtime_records_capability_epoch_audit_without_promotion_or_deploy(
 def test_runtime_projects_read_only_execution_receipt_as_candidate_memory_world(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     runtime.intake_read_only_task(
         ReadOnlyTaskRequest(
             request_id="project-file-1",
@@ -1793,7 +1805,7 @@ def test_runtime_projects_read_only_execution_receipt_as_candidate_memory_world(
 def test_runtime_reviews_and_rolls_back_candidate_projection(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     runtime.intake_read_only_task(
         ReadOnlyTaskRequest(
             request_id="review-file-1",
@@ -2584,7 +2596,7 @@ def test_architecture_validation_checks_sandbox_adapter_contract(
 def test_sandbox_adapter_probe_records_destroyed_local_fixture(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     receipt = runtime.run_sandbox_adapter_probe(
         adapter_id="pytest-local-fixture",
         tool="write_file",
@@ -2625,7 +2637,7 @@ def test_architecture_validation_checks_offspring_birth_contract(
 def test_offspring_birth_contract_preserves_identity_boundary(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     receipt = runtime.draft_offspring_birth_contract(
         parent_head="unit-test-head",
         mission="read-only child candidate for inspection",
@@ -2675,7 +2687,7 @@ def test_architecture_validation_checks_offspring_isolated_state_budget(
 def test_offspring_isolated_state_records_budget_without_runtime_start(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     birth = runtime.draft_offspring_birth_contract(
         parent_head="unit-test-head",
         mission="read-only child candidate for isolated state",
@@ -2733,7 +2745,7 @@ def test_architecture_validation_checks_offspring_retirement_tombstone(
 def test_offspring_retirement_tombstone_blocks_absorption(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     birth = runtime.draft_offspring_birth_contract(
         parent_head="unit-test-head",
         mission="read-only child candidate for retirement",
@@ -2800,7 +2812,7 @@ def test_architecture_validation_checks_offspring_budget_no_gain_stop(
 def test_offspring_budget_blocks_overgrant_and_records_no_gain_stop(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     birth = runtime.draft_offspring_birth_contract(
         parent_head="unit-test-head",
         mission="read-only child candidate for budget",
@@ -2875,7 +2887,7 @@ def test_architecture_validation_checks_offspring_checkpoint_fork(
 def test_offspring_checkpoint_detects_tamper_and_forks_independent_children(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     birth = runtime.draft_offspring_birth_contract(
         parent_head="unit-test-head",
         mission="read-only child candidate for checkpoint",
@@ -2963,7 +2975,7 @@ def test_architecture_validation_checks_offspring_mailbox_envelope(
 def test_offspring_mailbox_quarantines_unknown_and_damaged_envelopes(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     birth = runtime.draft_offspring_birth_contract(
         parent_head="unit-test-head",
         mission="read-only child candidate for mailbox",
@@ -3063,7 +3075,7 @@ def test_architecture_validation_checks_offspring_retirement_cleanup(
 def test_offspring_retirement_cleanup_preserves_evidence_and_removes_residuals(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     birth = runtime.draft_offspring_birth_contract(
         parent_head="unit-test-head",
         mission="read-only child candidate for cleanup",
@@ -3154,7 +3166,7 @@ def test_architecture_validation_checks_paired_baseline_candidate_experiment(
 def test_paired_candidate_experiment_invalidates_condition_drift(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     preregistration = {
         "model": "local-fixture-model",
         "harness": "paired-fixture-v1",
@@ -3245,7 +3257,7 @@ def test_architecture_validation_checks_holdout_epoch_immutability(
 def test_holdout_epoch_blocks_threshold_drift_and_requires_rebaseline(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     evaluator = {"name": "exact-match", "version": "1", "code_digest": "eval-1"}
     holdout = {
         "manifest_id": "holdout-a",
@@ -3311,7 +3323,7 @@ def test_architecture_validation_checks_promotion_bundle_gate(
 def test_promotion_bundle_requires_owner_scope_and_rollback_assets(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     bundle = runtime.draft_promotion_bundle(
         capability_ids=["capability.alpha", "capability.beta"],
         patch={"files": [{"path": "source/src/wls/example.py", "sha256": "patch"}]},
@@ -3380,7 +3392,7 @@ def test_architecture_validation_checks_transfer_efficiency_audit(
 def test_transfer_audit_rejects_best_only_and_inefficient_candidates(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     partial = runtime.record_transfer_efficiency_audit(
         capability_id="capability.alpha",
         transfer_cases=[
@@ -3472,7 +3484,7 @@ def test_architecture_validation_checks_final_delivery_audit(
 def test_final_delivery_audit_blocks_claims_above_evidence(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     console_trace = [
         {
             "result_id": "task-graph-result",
@@ -3551,7 +3563,7 @@ def test_architecture_validation_checks_delivery_readiness_audit(
 def test_delivery_readiness_audit_blocks_missing_candidate_boundaries(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     owner_commands = {
         "R01_R05": (
             "D:\\WLS-Dev\\workstation-living-system-private\\scripts\\"
@@ -3641,7 +3653,7 @@ def test_architecture_validation_checks_packaging_layout_audit(
 def test_packaging_layout_audit_blocks_duplicate_authority(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     checks = {
         "single_project_manifest": True,
         "no_setup_py": True,
@@ -3713,7 +3725,7 @@ def test_architecture_validation_checks_installed_tail_check_audit(
 def test_installed_tail_check_audit_blocks_live_hash_drift(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     checks = {
         "install_root_exists": True,
         "live_home_exists": True,
@@ -3799,7 +3811,7 @@ def test_architecture_validation_checks_operational_preflight_audit(
 def test_operational_preflight_audit_blocks_unready_runtime(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     runtime.run_cycle()
     status_snapshot = runtime.status()
     integrity_report = {
@@ -3881,7 +3893,7 @@ def test_architecture_validation_checks_delivery_handoff_package(
 def test_delivery_handoff_package_blocks_incomplete_handoff(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     ready = runtime.record_delivery_handoff_package(
         readiness_summary={"overall_status": "CANDIDATE_READY", "missing_or_blocked": []},
         candidate={"branch": "living-agent-os-capabilities-001", "commit": "abc"},
@@ -3998,7 +4010,7 @@ def test_architecture_validation_checks_offspring_ecology_audit(
 def test_offspring_ecology_audit_tracks_population_without_absorption(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     receipt = runtime.audit_offspring_ecology(
         population=[
             {
@@ -4056,7 +4068,7 @@ def test_architecture_validation_checks_delivery_gap_audit(
 def test_delivery_gap_audit_tracks_owner_gates_without_live_mutation(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     receipt = runtime.record_delivery_gap_audit(
         package_coverage={
             "WLS_30_ROUND_DIRECT_ITERATION_TASK": "COVERED",
@@ -4106,7 +4118,7 @@ def test_architecture_validation_checks_ui_package_absorption_audit(
 def test_ui_package_absorption_tracks_package_without_overwrite(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     receipt = runtime.record_ui_package_absorption(
         package_name="WLS_UI_RUNTIME_V1_1_HARDENED_CONTINUATION_INSTALL_PACKAGE",
         package_hash=(
@@ -4164,7 +4176,7 @@ def test_architecture_validation_checks_final_route_absorption_audit(
 def test_final_route_absorption_preserves_owner_campaign_gates(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     receipt = runtime.record_final_route_absorption(
         package_hash=(
             "c58fcde5dbb2be2e6dfb51e297bd61d8f0242cc92e3b0644548136ce9c972c5f"
@@ -4211,7 +4223,7 @@ def test_architecture_validation_checks_source_artifact_inventory_audit(
 def test_source_artifact_inventory_blocks_missing_or_untracked_artifacts(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     ready = runtime.record_source_artifact_inventory(
         artifact_hashes={"artifact.zip": "1" * 64},
         coverage={"artifact.zip": "ABSORBED"},
@@ -4254,7 +4266,7 @@ def test_architecture_validation_checks_delivery_self_check_audit(
 def test_delivery_self_check_blocks_dirty_or_mismatched_handoff(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     validation_results = [
         {"pass_id": f"P{index:02d}", "verdict": "ADMIT_SHADOW_ONLY"}
         for index in range(81, 89)
@@ -4306,7 +4318,7 @@ def test_delivery_self_check_blocks_dirty_or_mismatched_handoff(
 def test_release_state_audit_blocks_missing_evidence(
     tmp_path: Path,
 ) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     counts = {
         "final_delivery_audit": 1,
         "delivery_readiness": 1,
@@ -4365,7 +4377,7 @@ def test_release_state_audit_blocks_missing_evidence(
 
 
 def test_write_file_tool_receipt_succeeds_in_sandbox(tmp_path: Path) -> None:
-    runtime = LivingSystem(default_config(tmp_path / "home"))
+    runtime = LivingSystem(_owner_fixture_config(tmp_path))
     target = runtime.config.sandbox_path / "receipt.txt"
     result = runtime.tools.execute(
         ActionSpec(
