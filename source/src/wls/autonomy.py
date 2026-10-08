@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import hashlib
 import json
 
 from .config import RuntimeConfig
@@ -178,13 +179,32 @@ class AutonomySystem:
                     autonomous=True,
                 )
             )
-        unknown_actions = self.db.query_one(
-            "SELECT COUNT(*) AS n FROM actions WHERE status='UNKNOWN_SIDE_EFFECT'"
+        unknown_snapshot = self.db.query_one(
+            "SELECT COUNT(*) AS total, MIN(action_id) AS first_id, "
+            "MAX(action_id) AS last_id FROM actions "
+            "WHERE status='UNKNOWN_SIDE_EFFECT'"
         )
-        if unknown_actions and int(unknown_actions["n"]) > 0:
+        if unknown_snapshot and int(unknown_snapshot["total"]) > 0:
+            sample_rows = self.db.query_all(
+                "SELECT action_id FROM actions WHERE status='UNKNOWN_SIDE_EFFECT' "
+                "ORDER BY action_id LIMIT 64"
+            )
+            source_ids = [str(row["action_id"]) for row in sample_rows]
+            total = int(unknown_snapshot["total"])
+            fingerprint = hashlib.sha256(
+                json.dumps(
+                    {
+                        "total": total,
+                        "first_id": unknown_snapshot["first_id"],
+                        "last_id": unknown_snapshot["last_id"],
+                        "sample": source_ids,
+                    },
+                    sort_keys=True,
+                ).encode("utf-8")
+            ).hexdigest()[:16]
             proposals.append(
                 Goal(
-                    title="Preserve action-state truth",
+                    title=f"Preserve action-state truth: {fingerprint}",
                     description="Reconcile actions with unknown side effects without replaying them automatically.",
                     priority=0.9,
                     success_criteria=[
@@ -192,6 +212,12 @@ class AutonomySystem:
                     ],
                     source="autonomy.safety",
                     autonomous=True,
+                    risk=RiskLevel.READ,
+                    task_spec={
+                        "source_action_ids": source_ids,
+                        "unknown_action_count": total,
+                        "proposal_only": True,
+                    },
                 )
             )
         growth_goal = self._observed_growth_goal()
@@ -203,10 +229,15 @@ class AutonomySystem:
                 break
             if not goal.title.startswith(self.ALLOWED_PREFIXES):
                 continue
-            existing = self.db.query_one(
-                "SELECT goal_id FROM goals WHERE title=? AND status IN ('ACTIVE','BLOCKED')",
-                (goal.title,),
-            )
+            if goal.source == "autonomy.safety":
+                existing = self.db.query_one(
+                    "SELECT goal_id FROM goals WHERE title=?", (goal.title,)
+                )
+            else:
+                existing = self.db.query_one(
+                    "SELECT goal_id FROM goals WHERE title=? AND status IN ('ACTIVE','BLOCKED')",
+                    (goal.title,),
+                )
             if existing:
                 continue
             created.append(self.goals.add(goal))
