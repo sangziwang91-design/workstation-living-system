@@ -47,3 +47,17 @@ def test_real_model_generated_ads_repair_rejects_hidden_ntfs_streams(
     # of whether a candidate file happens to exist on Linux.
     with pytest.raises(ValueError, match="relative paths"):
         _contract(tmp_path, ads).validate()
+
+
+
+@pytest.mark.parametrize("poisoned", [
+    "module\\nother.py", "module\\rother.py",
+    "pkg/module\\nnext.py", "pkg/module\\rnext.py",
+])
+def test_second_real_model_generated_repair_rejects_crlf_audit_injection(
+    tmp_path: Path, poisoned: str,
+) -> None:
+    # Qwen-generated predicate, independently graded then retained via GitHub.
+    # This permanent test guards against later regression of that real repair.
+    with pytest.raises(ValueError, match="relative paths"):
+        _contract(tmp_path, poisoned).validate()
