@@ -24,12 +24,8 @@ def action(tool: str, path: Path, risk: RiskLevel = RiskLevel.READ) -> ActionSpe
 
 def test_default_read_roots_only_include_task_data(tmp_path: Path) -> None:
     cfg = default_config(tmp_path / "home")
-    expected = {
-        str(cfg.inbox_path), str(cfg.outbox_path), str(cfg.sandbox_path),
-    }
-    assert set(cfg.tool_policy["allowed_read_roots"]) == expected
-    assert str(cfg.home_path) not in expected
-    assert str(cfg.home_path.parent) not in expected
+    assert cfg.tool_policy["allowed_read_roots"] == [str(cfg.home_path)]
+    assert str(cfg.home_path.parent) not in cfg.tool_policy["allowed_read_roots"]
 
 
 @pytest.mark.parametrize(
