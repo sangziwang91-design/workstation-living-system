@@ -106,6 +106,12 @@ class PolicyEngine:
             if not roots:
                 raise PermissionError(f"no roots configured for {action.tool}")
             candidate = Path(raw_path).expanduser().resolve(strict=False)
+            # The HMAC key is verifier authority, not workspace memory. A
+            # previously saved overly broad read root must never override
+            # this explicit exclusion, including through symlinks.
+            secret_dir = self.config.secret_path.parent.resolve(strict=False)
+            if self._contained(candidate, secret_dir):
+                raise PermissionError("WLS evidence secrets are not tool-accessible")
             if not any(self._contained(candidate, root) for root in roots):
                 raise PermissionError(f"path outside {roots_key}: {candidate}")
         if action.tool == "http_get":

@@ -1,0 +1,14 @@
+# Review routing only; requires GitHub branch ruleset with CODEOWNER reviews.
+# Never describe these entries alone as enforced protection.
+/.github/ @sangziwang91-design
+/source/src/wls/policy.py @sangziwang91-design
+/source/src/wls/config.py @sangziwang91-design
+/source/src/wls/evidence.py @sangziwang91-design
+/source/src/wls/benchmark.py @sangziwang91-design
+/source/src/wls/evaluator.py @sangziwang91-design
+/source/src/wls/experiment_decision.py @sangziwang91-design
+/source/src/wls/rsi_*.py @sangziwang91-design
+/source/src/wls/task_admission.py @sangziwang91-design
+/source/scripts/github_rsi_*.py @sangziwang91-design
+/source/scripts/verify_rsi_*.py @sangziwang91-design
+/source/tests/ @sangziwang91-design

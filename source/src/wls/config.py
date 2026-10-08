@@ -165,7 +165,9 @@ def default_config(home: str | Path | None = None) -> RuntimeConfig:
         home=str(home_path),
         sensors=list(DEFAULT_SENSORS),
         tool_policy={
-            "allowed_read_roots": [str(home_path), str(home_path.parent)],
+            # Parent directories may contain SSH keys and unrelated user data.
+            # External workspaces require explicit, scoped owner configuration.
+            "allowed_read_roots": [str(home_path)],
             "allowed_write_roots": [
                 str(home_path / "sandbox"),
                 str(home_path / "outbox"),
@@ -193,6 +195,15 @@ def load_config(path: str | Path) -> RuntimeConfig:
     raw = json.loads(source.read_text(encoding="utf-8"))
     sensors = [SensorConfig(**item) for item in raw.pop("sensors", [])]
     config = RuntimeConfig(sensors=sensors, **raw)
+    # Migrate the exact unsafe legacy default from previously saved configs.
+    # Explicit additional project roots still require owner management.
+    read_roots = config.tool_policy.get("allowed_read_roots", [])
+    old_default_roots = [
+        str(config.home_path),
+        str(config.home_path.parent),
+    ]
+    if read_roots == old_default_roots:
+        config.tool_policy["allowed_read_roots"] = [str(config.home_path)]
     config.validate()
     return config
 
