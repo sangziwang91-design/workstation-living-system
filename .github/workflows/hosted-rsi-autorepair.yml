@@ -107,6 +107,9 @@ jobs:
           from pathlib import Path
           report = json.loads(Path('rsi-repair-report.json').read_text(encoding='utf-8'))
           raw = Path('rsi-repair-candidate.patch').read_bytes()
+          # Independent write-token job must recheck size; do not trust a
+          # model-produced patch or the candidate runner's acceptance alone.
+          assert 0 < len(raw) <= 128_000
           assert report['schema'] == 'wls.github_rsi_autorepair.v1'
           assert report['eligible'] is True
           assert report['base_sha'] == os.environ['BASE_SHA']
