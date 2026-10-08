@@ -12,6 +12,7 @@ on:
       - "source/tests/test_coding_workers.py"
       - "docs/RSI_PILOT_FIVE_GATES.md"
       - "source/scripts/verify_rsi_100_generations.py"
+      - "source/scripts/verify_rsi_50_faults.py"
       - ".github/workflows/rsi-pilot.yml"
   workflow_dispatch:
 
@@ -39,12 +40,16 @@ jobs:
           python -m pytest -q source/tests/test_rsi_evolution.py source/tests/test_experiment_decision.py source/tests/test_loop_control.py source/tests/test_coding_workers.py
       - name: Windows 100-generation durability proof
         run: python source/scripts/verify_rsi_100_generations.py --report rsi-100-windows.json
+      - name: Windows RSI 50-round adversarial audit
+        run: python source/scripts/verify_rsi_50_faults.py --report rsi-50-windows.json
       - name: Upload Windows proof
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: rsi-harness-100-windows
-          path: rsi-100-windows.json
+          path: |
+            rsi-100-windows.json
+            rsi-50-windows.json
           if-no-files-found: warn
 
   candidate-proof:
@@ -68,13 +73,17 @@ jobs:
           python -m pytest -q source/tests/test_rsi_evolution.py             source/tests/test_experiment_decision.py             source/tests/test_loop_control.py             source/tests/test_coding_workers.py
       - name: Execute 100-generation / 200-candidate deterministic stress proof
         run: python source/scripts/verify_rsi_100_generations.py --report rsi-100-proof.json
+      - name: Run 50-round fault-injection matrix against real WLS state
+        run: python source/scripts/verify_rsi_50_faults.py --report rsi-50-proof.json
       - name: Upload 100-generation proof
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: rsi-harness-100-${{ matrix.python-version }}
-          path: rsi-100-proof.json
+          path: |
+            rsi-100-proof.json
+            rsi-50-proof.json
           if-no-files-found: warn
       - name: Lint changed RSI surfaces
         run: |
-          python -m ruff check             source/src/wls/rsi_evolution.py             source/src/wls/experiment_decision.py             source/src/wls/loop_control.py             source/src/wls/coding_workers.py             source/tests/test_rsi_evolution.py             source/scripts/verify_rsi_100_generations.py
+          python -m ruff check             source/src/wls/rsi_evolution.py             source/src/wls/experiment_decision.py             source/src/wls/loop_control.py             source/src/wls/coding_workers.py             source/tests/test_rsi_evolution.py             source/scripts/verify_rsi_100_generations.py             source/scripts/verify_rsi_50_faults.py
