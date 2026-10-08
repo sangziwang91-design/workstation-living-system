@@ -100,6 +100,14 @@ def bounded_expression(reply: str) -> str | None:
     return None
 
 
+def verified_model_digest(model_file: Path, expected: str = EXPECTED_MODEL_SHA256) -> str:
+    """Verify the exact public GGUF bytes before loading untrusted weights."""
+    digest = hashlib.sha256(model_file.read_bytes()).hexdigest()
+    if digest != expected:
+        raise RuntimeError("downloaded model SHA256 differs from independently recorded proof")
+    return digest
+
+
 def trial() -> dict[str, object]:
     if command("git", "status", "--porcelain").stdout.strip():
         raise RuntimeError("trial requires a clean GitHub feature-branch checkout")
@@ -140,9 +148,7 @@ def trial() -> dict[str, object]:
         urllib.request.urlretrieve(MODEL_URL, model_file)  # nosec B310 -- fixed HTTPS URL
     if not 300_000_000 <= model_file.stat().st_size <= 480_000_000:
         raise RuntimeError("unexpected downloaded model size")
-    model_sha = hashlib.sha256(model_file.read_bytes()).hexdigest()
-    if model_sha != EXPECTED_MODEL_SHA256:
-        raise RuntimeError("downloaded model SHA256 differs from independently recorded proof")
+    model_sha = verified_model_digest(model_file)
     from llama_cpp import Llama
 
     model = Llama(model_path=str(model_file), n_ctx=2048, n_threads=2, verbose=False)
