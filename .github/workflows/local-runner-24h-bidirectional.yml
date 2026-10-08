@@ -1,16 +1,15 @@
 name: Local Runner 24h Bidirectional Soak
 
 on:
-  workflow_run:
-    workflows:
-      - WLS CI
-      - Verify Repository Invariants
-      - Verify Repo-Native Evolution Chain
-      - Verify EVOLUTION-TARGET-001
-      - Verify EVOLUTION-TARGET-002
-      - Verify EVOLUTION-TARGET-003
-    types: [completed]
-    branches: [main]
+  # Public CI must never wake the owner's workstation automatically.
+  # This device-dependent soak is an explicit owner-host diagnostic only.
+  workflow_dispatch:
+    inputs:
+      confirm_owner_host:
+        description: "I explicitly authorize running the 24-hour soak on my Windows runner"
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   actions: read
@@ -31,11 +30,7 @@ jobs:
   guard:
     # Public fork PRs (even a fork branch named 'main') must never schedule
     # owner's Windows runner. Only a successful push on this repo's own main.
-    if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_branch == 'main' &&
-      github.event.workflow_run.head_repository.full_name == github.repository
+    if: github.event_name == 'workflow_dispatch' && inputs.confirm_owner_host == true
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 15
     outputs:
@@ -48,7 +43,7 @@ jobs:
         shell: powershell
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
+          TARGET_SHA: ${{ github.sha }}
         run: |
           $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force $env:STATE_ROOT | Out-Null
