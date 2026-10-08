@@ -210,8 +210,8 @@ def trial() -> dict[str, object]:
         )
         output = os.environ.get("GITHUB_OUTPUT")
         if output:
-            with Path(output).open("a", encoding="utf-8") as receipt:
-                receipt.write("accepted=false\n")
+            with Path(output).open("a", encoding="utf-8") as github_output_file:
+                github_output_file.write("accepted=false\n")
         print(json.dumps(record, ensure_ascii=False), flush=True)
         return record
 
