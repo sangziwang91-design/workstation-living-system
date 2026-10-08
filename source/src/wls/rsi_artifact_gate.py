@@ -10,6 +10,7 @@ import hashlib
 import json
 import re
 import shutil
+import sqlite3
 import tempfile
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -154,7 +155,7 @@ class RsiArtifactGate:
                     "SELECT payload_json FROM evidence "
                     "WHERE event_type='rsi_candidate_artifact_registered'"
                 )
-            except Exception:
+            except (OSError, sqlite3.Error):
                 rows = None
             if rows is not None and not any(
                 json.loads(row["payload_json"]).get("artifact_id") == artifact_id
