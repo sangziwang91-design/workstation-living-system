@@ -1,16 +1,9 @@
 name: Local Runner 24h Bidirectional Soak
 
+# This is an optional owner-operated 24-hour local hardware soak.
+# Hosted GitHub PR/main CI must never implicitly queue an offline D-drive job.
 on:
-  workflow_run:
-    workflows:
-      - WLS CI
-      - Verify Repository Invariants
-      - Verify Repo-Native Evolution Chain
-      - Verify EVOLUTION-TARGET-001
-      - Verify EVOLUTION-TARGET-002
-      - Verify EVOLUTION-TARGET-003
-    types: [completed]
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   actions: read
@@ -29,7 +22,7 @@ env:
 
 jobs:
   guard:
-    if: github.event.workflow_run.conclusion == 'success'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 15
     outputs:
@@ -42,7 +35,7 @@ jobs:
         shell: powershell
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
+          TARGET_SHA: ${{ github.sha }}
         run: |
           $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force $env:STATE_ROOT | Out-Null
