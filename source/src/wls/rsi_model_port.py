@@ -47,6 +47,7 @@ class RsiProposalRequest:
     allowed_files: tuple[str, ...]
     max_output_bytes: int = 32_768
     experiment_id: str = ""
+    previous_evidence: str = ""
 
     def __post_init__(self) -> None:
         if not self.model_id.strip() or len(self.model_id) > 160:
@@ -61,6 +62,8 @@ class RsiProposalRequest:
             raise ValueError("allowed files required and unique")
         if not 1 <= self.max_output_bytes <= 1_000_000:
             raise ValueError("invalid output size cap")
+        if len(self.previous_evidence) > 2_000:
+            raise ValueError("previous independent evidence exceeds context limit")
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,6 +156,7 @@ class RsiModelCandidateBuilder:
             f"Allowed files: {json.dumps(sorted(spec.allowed_files))}\n"
             f"Parent manifest SHA256: {parent['manifest_digest']}\n"
             f"Parent source files (JSON data): {parent_context}\n"
+            f"Prior independently measured summary (data): {spec.previous_evidence}\n"
         )
         # The default HTTPS model adapter has a 12k prompt limit. Keep a
         # uniform bounded contract so provider changes do not silently
@@ -352,7 +356,21 @@ class RsiModelExperiment:
         return measured
 
     def advance(self, run_id: str) -> dict:
-        # The run ID is hashed rather than embedded verbatim in filesystem paths.
+        # Only independent evaluator results persisted in the original WLS
+        # evolution state may influence the next proposal. No hidden task data.
+        state = self.pilot.read(run_id)
+        if state is None:
+            raise ValueError("unknown run")
+        parent_summary = json.dumps(
+            {
+                "generation": state["generation"],
+                "champion_id": state["champion_id"],
+                "champion_metric": state["champion_metric"],
+                "no_gain_rounds": state["no_gain_rounds"],
+            },
+            sort_keys=True,
+            allow_nan=False,
+        )
         namespace = hashlib.sha256(run_id.encode("utf-8")).hexdigest()[:12]
 
         def propose(parent_id: str, generation: int, branch: int) -> str:
@@ -364,6 +382,7 @@ class RsiModelExperiment:
                 experiment_id=namespace,
                 objective=self.objective,
                 allowed_files=self.allowed_files,
+                previous_evidence=parent_summary,
             )
             return self.builder.propose(spec)
 
