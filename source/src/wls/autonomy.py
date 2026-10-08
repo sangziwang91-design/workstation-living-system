@@ -64,13 +64,22 @@ class AutonomySystem:
                 continue
             placeholders = ",".join("?" for _ in source_ids)
             outcomes = self.db.query_all(
-                f"""SELECT action_id, result_json FROM actions
+                f"""SELECT action_id, result_json, tool, risk FROM actions
                 WHERE action_id IN ({placeholders})
                   AND status='FAILED' AND started_at IS NOT NULL
                   AND finished_at IS NOT NULL AND result_json IS NOT NULL""",
                 tuple(source_ids),
             )
             if len(outcomes) != len(source_ids):
+                continue
+            # Do not occupy the finite autonomous-goal budget with a
+            # proposal that the only executable growth organ will decline.
+            # Other-tool failures remain recorded for later owner review.
+            if any(
+                row["risk"] != RiskLevel.READ.value
+                or row["tool"] not in {"noop", "read_file", "list_directory"}
+                for row in outcomes
+            ):
                 continue
             try:
                 if any(
