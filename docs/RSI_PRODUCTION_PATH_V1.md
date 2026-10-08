@@ -158,3 +158,66 @@ portable **model proposal side** and a three-generation scripted end-to-end
 contract test. It does NOT show real remote/local model access, code execution
 sandbox strength, hidden-set improvement, cross-provider real usage or
 recursive improvement of the improver. Those claims require gates G2–G9.
+
+
+## First usable GitHub-native path (candidate implementation, 2026-10-08)
+
+The first working application of the existing WLS RSI code is **task risk
+admission improvement**, not arbitrary software execution. It is intentionally
+data-only: a provider proposes `agent/strategy.json` containing literal
+`risk_terms` for `REVERSIBLE_WRITE`, `HIGH`, and `IRREVERSIBLE`. An
+independent WLS function scores 17 frozen Chinese/English task scenarios.
+The proposal cannot lower deterministic risk, change the evaluator, modify
+approval logic, execute Python, push code, or deploy a candidate. Winning
+candidate source is archived; no live admission rule changes automatically.
+
+After installing the candidate branch with `python -m pip install -e .`,
+you can inspect an untouched run without credentials:
+
+```sh
+wls --config /path/to/wls/config.json rsi-risk --run-id trial-001 --mode status
+```
+
+For an **owner-consented** model experiment (the model provider may charge
+for two calls), configure `WLS_RSI_API_KEY` in the current environment
+(or run a loopback server that needs no API key), and invoke:
+
+```sh
+wls --config /path/to/wls/config.json rsi-risk \
+  --run-id trial-001 --mode run \
+  --model-id YOUR_COMPATIBLE_MODEL --base-url https://YOUR_TRUSTED_ENDPOINT \
+  --generations 2 --branches 1 --confirm-model-usage
+```
+
+The command emits measured champion score, artifact ID, generation and
+candidate count. Re-run `--mode status` from another process to inspect
+the persisted WLS SQLite result. Candidate files are stored under the
+WLS home `sandbox/rsi_candidate_artifacts`. The word "sandbox" here is
+a **folder name**, not an OS security isolation claim.
+
+The same private GitHub repository now contains an optional
+`workflow_dispatch` job in `.github/workflows/rsi-pilot.yml`. This job
+requires **manual `approve_model_usage`**, and it must run against trusted
+**main**, never a PR branch or unreviewed fork. It requires:
+
+- Repository **secret** `WLS_RSI_API_KEY` (provider credential).
+- Repository **variable** `WLS_RSI_BASE_URL` (provider HTTPS base URL).
+- Repository **variable** `WLS_RSI_MODEL_ID` (selected compatible model).
+
+It makes at most two model proposal calls, records the measured candidate
+score, and uploads the candidate data files plus a result JSON artifact to
+the private GitHub Actions run. The workflow only becomes clickable from
+GitHub UI when the file exists on the default branch after a separately
+reviewed/approved merge. **Do not merge solely to launch this trial**.
+
+The test suite also exercises the command and WLS state/ledger using an
+offline fake port to avoid billing or credential usage in pull-request CI.
+This confirms the routing loop, not actual remote inference.
+
+**Evidence ceiling:** The first usable path improves a concrete WLS task
+risk-classifier strategy under frozen checks. It does not prove general
+coding improvement, autonomous code execution, multi-model interoperability,
+long-term cost-safe operation, or recursion in the improver's capability.
+Those remain explicit separately measurable milestones. GitHub Models
+retired in July 2026; do not design new clients against the retired API.
+GitHub Copilot CLI is a possible later adapter with its own billing policy.
