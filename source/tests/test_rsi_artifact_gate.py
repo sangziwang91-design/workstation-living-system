@@ -177,7 +177,12 @@ def test_late_ledger_exception_does_not_destroy_committed_evidence(
     original = ledger.append
 
     def append_then_fail(*args, **kwargs):
-        original(*args, **kwargs)
+        # Bypass the monkeypatched public method inside the nested
+        # EvidenceLedger.append transaction; otherwise its internal
+        # self.append(...) recursion triggers the injected exception BEFORE
+        # COMMIT and tests rollback rather than genuine after-commit loss.
+        with ledger.db.transaction() as connection:
+            original(*args, connection=connection)
         raise OSError("response lost after durable commit")
 
     monkeypatch.setattr(ledger, "append", append_then_fail)
