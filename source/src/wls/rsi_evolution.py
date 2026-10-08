@@ -10,7 +10,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import asdict
+from math import isfinite
 from typing import Any
+import re
 
 from .db import Database
 from .evidence import EvidenceLedger
@@ -23,6 +25,23 @@ from .experiment_decision import (
 
 Proposer = Callable[[str, int, int], str]
 Evaluator = Callable[[str], MetricResult]
+
+
+def _valid_artifact_id(value: str) -> bool:
+    return isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", value) is not None
+
+
+def _safe_metric_payload(value: MetricResult) -> dict[str, Any]:
+    """Persist invalid evaluator results as JSON null, never NaN/Infinity."""
+    result = asdict(value)
+    score = result["primary"]
+    if not isinstance(score, (int, float)) or not isfinite(score):
+        result["primary"] = None
+    result["gates"] = {
+        key: number if isinstance(number, (int, float)) and isfinite(number) else None
+        for key, number in result["gates"].items()
+    }
+    return result
 
 
 class RsiEvolutionPilot:
@@ -52,8 +71,8 @@ class RsiEvolutionPilot:
         branches: int = 2,
         max_no_gain_rounds: int = 3,
     ) -> dict[str, Any]:
-        if not baseline_id.strip():
-            raise ValueError("baseline_id is required")
+        if not _valid_artifact_id(baseline_id):
+            raise ValueError("baseline_id must be a safe artifact identifier")
         if branches < 1 or branches > 8:
             raise ValueError("branches must be in 1..8")
         if max_no_gain_rounds < 1:
@@ -63,8 +82,10 @@ class RsiEvolutionPilot:
             policy, baseline=baseline, candidate=baseline,
             completed_rounds=0, failures=0,
         )
-        if valid.verdict is ExperimentVerdict.INVALID:
+        if valid.verdict in {ExperimentVerdict.INVALID, ExperimentVerdict.CRASH}:
             raise ValueError(f"invalid baseline: {valid.reasons}")
+        if any(float(baseline.gates[name]) > limit for name, limit in policy.hard_gates.items()):
+            raise ValueError("baseline violates a mandatory hard gate")
         state: dict[str, Any] = {
             "run_id": run_id, "policy_digest": policy.digest(),
             "evaluator_digest": policy.evaluator_digest,
@@ -72,6 +93,7 @@ class RsiEvolutionPilot:
             "champion_id": baseline_id, "champion_metric": asdict(baseline),
             "branches": branches, "max_no_gain_rounds": max_no_gain_rounds,
             "no_gain_rounds": 0, "failures": 0, "history": [],
+            "candidate_ids": [baseline_id],
             "authority": "candidate_only", "live_promotion": False,
         }
         key = self._key(run_id)
@@ -119,12 +141,12 @@ class RsiEvolutionPilot:
         old_id = str(state["champion_id"])
         baseline = MetricResult(**state["champion_metric"])
         results: list[dict[str, Any]] = []
-        seen: set[str] = {old_id}
+        seen: set[str] = set(state["candidate_ids"])
         try:
             for branch in range(int(state["branches"])):
                 candidate_id = propose(old_id, gen, branch)
-                if not isinstance(candidate_id, str) or not candidate_id.strip():
-                    raise ValueError("candidate_id missing")
+                if not _valid_artifact_id(candidate_id):
+                    raise ValueError("candidate_id must be a safe artifact identifier")
                 if candidate_id in seen:
                     raise ValueError("candidate_id reused in generation")
                 seen.add(candidate_id)
@@ -137,12 +159,13 @@ class RsiEvolutionPilot:
                 )
                 results.append({
                     "candidate_id": candidate_id,
-                    "metric": asdict(metrics),
+                    "metric": _safe_metric_payload(metrics),
                     "decision": decision.to_dict(),
                 })
                 # Each candidate is persisted before the next callback, so a crash
                 # does not erase the evidence or invite an automatic replay.
                 state["pending_candidates"] = results
+                state["candidate_ids"].append(candidate_id)
                 with self.db.transaction() as conn:
                     self.db.set_runtime(key, state, conn)
                     self.ledger.append("rsi_candidate_measured", {
