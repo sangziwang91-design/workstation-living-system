@@ -176,3 +176,59 @@ def test_machine_transitions_reject_fabricated_evidence(tmp_path: Path) -> None:
             CandidateStatus.SANDBOXED,
             {"passed": True},
         )
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    ["unknown", "missing_result", "accepted", "missing_start", "missing_source", "duplicate"],
+)
+def test_recovery_rejects_untrusted_failure_evidence(
+    tmp_path: Path, tamper: str,
+) -> None:
+    """A manual API call must not reinterpret unresolved/fabricated actions."""
+    import json
+
+    runtime = make_runtime(tmp_path)
+    ids = [
+        record_failed_action(
+            runtime,
+            tool="noop",
+            arguments={"reason": "negative evidence control"},
+            acceptance=["output contains impossible"],
+            purpose="real independently evaluated failed tool",
+        )
+        for _ in range(3)
+    ]
+    candidate = runtime.learning.create_failure_candidates(minimum_repeats=3)[0]
+    if tamper == "unknown":
+        runtime.db.execute(
+            "UPDATE actions SET status='UNKNOWN_SIDE_EFFECT' WHERE action_id=?",
+            (ids[0],),
+        )
+    elif tamper == "missing_result":
+        runtime.db.execute(
+            "UPDATE actions SET result_json=NULL WHERE action_id=?", (ids[0],)
+        )
+    elif tamper == "accepted":
+        runtime.db.execute(
+            "UPDATE actions SET result_json=? WHERE action_id=?",
+            (json.dumps({"evaluation": {"accepted": True}}), ids[0]),
+        )
+    elif tamper == "missing_start":
+        runtime.db.execute(
+            "UPDATE actions SET started_at=NULL WHERE action_id=?", (ids[0],)
+        )
+    elif tamper == "missing_source":
+        runtime.db.execute(
+            "UPDATE evolution_candidates SET source_ids_json=? WHERE candidate_id=?",
+            (json.dumps([ids[0], ids[1], "missing-action-id"]), candidate),
+        )
+    else:
+        runtime.db.execute(
+            "UPDATE evolution_candidates SET source_ids_json=? WHERE candidate_id=?",
+            (json.dumps([ids[0], ids[0], ids[1]]), candidate),
+        )
+    with pytest.raises(ValueError, match="recovery"):
+        runtime.growth.run_recovery_experiment(candidate)
+    assert runtime.db.query_all("SELECT experiment_id FROM recovery_experiments") == []
+    assert runtime.db.query_all("SELECT skill_id FROM skills WHERE status='PROMOTED'") == []
