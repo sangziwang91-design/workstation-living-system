@@ -1523,6 +1523,53 @@ class AgenticHarness:
         return payload if isinstance(payload, dict) else None
 
     def _result_fencing_violation(self, envelope: Any) -> dict[str, Any] | None:
+        # AgentBridge is a transport/executor, never an authority to invent
+        # graph work. Require a previously exported WLS message for this exact
+        # graph/node/lease and actual independent executor verification.
+        if envelope.sender == "SZ-AgentBridge":
+            if envelope.recipient != "LivingSystem.AgenticHarness":
+                return {"reason": "bridge_wrong_recipient"}
+            row = self.db.query_one(
+                """
+                SELECT payload_json FROM evidence
+                WHERE event_type='agentic_task_envelope_exported'
+                  AND json_extract(payload_json, '$.message_id')=?
+                ORDER BY seq DESC LIMIT 1
+                """,
+                (envelope.in_reply_to,),
+            )
+            if row is None:
+                return {"reason": "bridge_unknown_original_task"}
+            exported = json.loads(str(row["payload_json"]))
+            if (
+                exported.get("graph_id") != envelope.graph_id
+                or exported.get("node_id") != envelope.node_id
+                or exported.get("lease_id") != envelope.lease_id
+                or exported.get("recipient") != "agentbridge"
+            ):
+                return {"reason": "bridge_original_task_mismatch"}
+            if envelope.payload.get("lease_fencing_token") != self._lease_fencing_token(
+                graph_id=envelope.graph_id,
+                node_id=envelope.node_id,
+                lease_id=envelope.lease_id,
+            ):
+                return {"reason": "bridge_missing_or_invalid_fencing_token"}
+            if envelope.status.upper() == "SUCCEEDED":
+                checks = envelope.payload.get("verified_checks")
+                if (
+                    envelope.payload.get("agentbridge_state") != "COMPLETED"
+                    or envelope.payload.get("checked_scope")
+                    != "agentbridge_declared_acceptance_only"
+                    or not envelope.payload.get("agentbridge_run_id")
+                    or not envelope.payload.get("agentbridge_attempt_id")
+                    or not isinstance(checks, list)
+                    or not checks
+                    or any(
+                        not isinstance(item, dict) or item.get("status") != "PASS"
+                        for item in checks
+                    )
+                ):
+                    return {"reason": "bridge_missing_verified_completion"}
         lease = self.db.query_one(
             """
             SELECT lease_id,graph_id,node_id,worker_id,status,acquired_at,expires_at,released_at
