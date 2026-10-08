@@ -7,14 +7,18 @@ candidate artifacts and the WLS evidence ledger.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 from urllib import error, parse, request
 
+from .experiment_decision import ExperimentPolicy, MetricResult
 from .rsi_artifact_gate import RsiArtifactGate
+from .rsi_evolution import RsiEvolutionPilot
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,10 +44,13 @@ class RsiProposalRequest:
     objective: str
     allowed_files: tuple[str, ...]
     max_output_bytes: int = 32_768
+    experiment_id: str = ""
 
     def __post_init__(self) -> None:
         if not self.model_id.strip() or len(self.model_id) > 160:
             raise ValueError("model_id required")
+        if self.experiment_id and not re.fullmatch(r"[a-z0-9-]{1,32}", self.experiment_id):
+            raise ValueError("invalid experiment_id")
         if self.generation < 1 or self.branch < 0:
             raise ValueError("invalid generation or branch")
         if not self.objective.strip() or len(self.objective) > 8_192:
@@ -145,7 +152,8 @@ class RsiModelCandidateBuilder:
             raise ModelProtocolError("candidate contains unauthorized files")
         if any(not isinstance(value, str) for value in files.values()):
             raise ModelProtocolError("candidate file contents must be UTF-8 text")
-        candidate_id = f"rsi-g{spec.generation:06d}-b{spec.branch:03d}"
+        namespace = f"{spec.experiment_id}-" if spec.experiment_id else ""
+        candidate_id = f"rsi-{namespace}g{spec.generation:06d}-b{spec.branch:03d}"
         self.artifact_gate.register(
             artifact_id=candidate_id,
             parent_id=spec.parent_id,
@@ -248,3 +256,76 @@ class OpenAICompatibleProposalPort:
             )
         except (KeyError, IndexError, ValueError, TypeError) as exc:
             raise ModelProtocolError("model endpoint response is invalid") from None
+
+
+class RsiModelExperiment:
+    """End-to-end owner-started model -> candidate archive -> *trusted* evaluator.
+
+    Candidate bytes are never executed here. The externally provided evaluator
+    must use its own isolated and pinned scoring process for executable code.
+    """
+
+    def __init__(
+        self,
+        pilot: RsiEvolutionPilot,
+        builder: RsiModelCandidateBuilder,
+        policy: ExperimentPolicy,
+        *,
+        objective: str,
+        allowed_files: tuple[str, ...],
+        independent_evaluator: Callable[[str], MetricResult],
+    ) -> None:
+        if builder.policy_digest != policy.digest():
+            raise ValueError("pilot policy does not match artifact builder")
+        if builder.evaluator_digest != policy.evaluator_digest:
+            raise ValueError("pilot evaluator does not match artifact builder")
+        self.pilot = pilot
+        self.builder = builder
+        self.policy = policy
+        self.objective = objective
+        self.allowed_files = allowed_files
+        self.independent_evaluator = independent_evaluator
+
+    def start(self, run_id: str, baseline_id: str, *, branches: int = 2) -> dict:
+        manifest = self.builder.artifact_gate.verify(baseline_id)
+        if manifest["evaluator_digest"] != self.policy.evaluator_digest:
+            raise ModelProtocolError("baseline evaluator does not match policy")
+        if manifest["policy_digest"] != self.policy.digest():
+            raise ModelProtocolError("baseline policy does not match run")
+        baseline = self.independent_evaluator(baseline_id)
+        if not isinstance(baseline, MetricResult):
+            raise TypeError("independent evaluator must return MetricResult")
+        return self.pilot.start(
+            run_id=run_id, policy=self.policy, baseline_id=baseline_id,
+            baseline=baseline, branches=branches,
+            max_no_gain_rounds=self.policy.max_rounds,
+        )
+
+    def advance(self, run_id: str) -> dict:
+        # The run ID is hashed rather than embedded verbatim in filesystem paths.
+        namespace = hashlib.sha256(run_id.encode("utf-8")).hexdigest()[:12]
+
+        def propose(parent_id: str, generation: int, branch: int) -> str:
+            spec = RsiProposalRequest(
+                model_id=self.builder.port.model_id,
+                parent_id=parent_id,
+                generation=generation,
+                branch=branch,
+                experiment_id=namespace,
+                objective=self.objective,
+                allowed_files=self.allowed_files,
+            )
+            return self.builder.propose(spec)
+
+        return self.pilot.advance(
+            run_id, policy=self.policy, propose=propose,
+            evaluate=self.independent_evaluator,
+        )
+
+    def run_bounded(self, run_id: str) -> dict:
+        state = self.pilot.read(run_id)
+        if state is None:
+            raise ValueError("unknown run")
+        while state["status"] == "READY":
+            state = self.advance(run_id)
+        return state
