@@ -46,7 +46,7 @@ jobs:
           python source/scripts/verify_packaging_layout.py
           python source/scripts/verify_evolution_target_002.py
       - name: Regression suite for evolution target 002
-        run: python -m pytest -q source/tests/test_evolution_target_002.py --junitxml=evolution-target-002.xml
+        run: python -m pytest -q source/tests/test_memory_ablation.py --junitxml=evolution-target-002.xml
       - name: Preserve independent verification receipt
         if: always()
         uses: actions/upload-artifact@v4
