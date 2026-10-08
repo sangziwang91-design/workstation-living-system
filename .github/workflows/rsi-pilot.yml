@@ -116,7 +116,7 @@ jobs:
       WLS_RSI_API_KEY: ${{ secrets.WLS_RSI_API_KEY }}
       WLS_RSI_BASE_URL: ${{ vars.WLS_RSI_BASE_URL }}
       WLS_RSI_MODEL_ID: ${{ vars.WLS_RSI_MODEL_ID }}
-      WLS_HOME: ${{ runner.temp }}/wls-risk-home
+      WLS_HOME: ${{ github.workspace }}/.wls-risk-home
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
@@ -148,5 +148,5 @@ jobs:
           name: wls-rsi-risk-${{ github.run_id }}
           path: |
             rsi-risk-result.json
-            ${{ runner.temp }}/wls-risk-home/sandbox/rsi_candidate_artifacts
+            ${{ github.workspace }}/.wls-risk-home/sandbox/rsi_candidate_artifacts
           if-no-files-found: warn
