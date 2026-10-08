@@ -13,6 +13,12 @@ from wls.rsi_model_port import RsiModelCapabilities, RsiProposalResponse
 from wls.task_admission import RsiRiskAdmissionEvaluator
 
 
+@pytest.fixture(autouse=True)
+def isolate_wls_home(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    """Never let hosted or local RSI tests write to the operator's WLS home."""
+    monkeypatch.setenv("WLS_HOME", str(tmp_path / "isolated-wls-home"))
+
+
 class LocalModelFixture:
     model_id = "fixture"
     capabilities = RsiModelCapabilities()
