@@ -153,6 +153,11 @@ jobs:
           # Never expose a repository Actions token to PR-provided code.
           # Previous-run comparison is permitted only on trusted main pushes.
           GH_TOKEN: ${{ github.event_name == 'push' && github.token || '' }}
+          # `needs` is owned by GitHub's control plane, not a PR checkout.
+          # Both task execution and required JUnit coverage must be observed.
+          WLS_CI_REQUIRE_HOSTED_MATRIX: "true"
+          WLS_CI_LINUX_RESULT: ${{ needs['github-hosted-full-validation'].result }}
+          WLS_CI_WINDOWS_RESULT: ${{ needs['github-hosted-windows-full-validation'].result }}
         run: |
           python -m pip install -e . PyYAML
           python source/scripts/generate_ci_feedback.py \
