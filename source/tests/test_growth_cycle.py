@@ -6,7 +6,7 @@ import pytest
 
 from wls.config import default_config
 from wls.runtime import LivingSystem
-from wls.schemas import ActionSpec, CandidateStatus, Plan, RiskLevel, new_id, utc_now
+from wls.schemas import ActionSpec, CandidateStatus, Goal, GoalStatus, Plan, RiskLevel, new_id, utc_now
 
 
 def make_runtime(tmp_path: Path) -> LivingSystem:
@@ -232,3 +232,127 @@ def test_recovery_rejects_untrusted_failure_evidence(
         runtime.growth.run_recovery_experiment(candidate)
     assert runtime.db.query_all("SELECT experiment_id FROM recovery_experiments") == []
     assert runtime.db.query_all("SELECT skill_id FROM skills WHERE status='PROMOTED'") == []
+
+
+def test_crashed_recovery_is_durable_and_not_replayed_on_restart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A real persisted RUNNING trial is an interruption, never a proven fix."""
+    runtime = make_runtime(tmp_path)
+    for _ in range(3):
+        record_failed_action(
+            runtime, tool="noop", arguments={"reason": "crash recovery case"},
+            acceptance=["output contains impossible"],
+            purpose="repeated failure before process termination",
+        )
+    candidate_id = runtime.learning.create_failure_candidates()[0]
+    goal_id = runtime.goals.add(Goal(
+        title=f"Inspect recurring failures: {candidate_id}",
+        description="Investigate an observed failure",
+        source="autonomy.learning", autonomous=True, risk=RiskLevel.READ,
+    ))
+
+    def simulated_crash(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("simulated process termination during sandbox execution")
+
+    monkeypatch.setattr(runtime.growth, "_run_recovery_case", simulated_crash)
+    with pytest.raises(RuntimeError, match="simulated process termination"):
+        runtime.growth.run_recovery_experiment(candidate_id)
+
+    before = runtime.db.query_one(
+        "SELECT experiment_id,status,result_json FROM recovery_experiments WHERE candidate_id=?",
+        (candidate_id,),
+    )
+    assert before is not None
+    assert before["status"] == "RUNNING"
+    assert before["result_json"] is None
+    runtime.db.close_all()
+
+    restored = make_runtime(tmp_path)
+    after = restored.db.query_one(
+        "SELECT experiment_id,status,finished_at,result_json FROM recovery_experiments "
+        "WHERE candidate_id=?", (candidate_id,),
+    )
+    assert after is not None
+    assert after["experiment_id"] == before["experiment_id"]
+    assert after["status"] == "INTERRUPTED"
+    assert after["finished_at"] is not None
+    assert after["result_json"] is None
+    goal = restored.goals.get(goal_id)
+    assert goal is not None and goal.status == GoalStatus.FAILED
+    assert restored.goals.autonomous_count() == 0
+    assert restored.db.query_all("SELECT skill_id FROM skills WHERE status='PROMOTED'") == []
+    assert restored.growth.recover_interrupted_experiments() == {
+        "recovery": 0, "validation": 0,
+    }
+    restored.run_cycle()
+    assert len(restored.db.query_all(
+        "SELECT experiment_id FROM recovery_experiments WHERE candidate_id=?",
+        (candidate_id,),
+    )) == 1
+    assert restored.verify_integrity(full=True)["ok"] is True
+
+
+def test_crashed_skill_validation_never_silently_promotes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A half-finished validation requires reconciliation, not automatic approval."""
+    from wls.growth_cycle import IsolatedToolHarness
+
+    runtime = make_runtime(tmp_path)
+    for _ in range(3):
+        record_failed_action(
+            runtime, tool="noop", arguments={"reason": "crash skill experiment"},
+            acceptance=["output contains impossible"],
+            purpose="recovery evidence for interrupted validation",
+        )
+    candidate_id = runtime.learning.create_failure_candidates()[0]
+    recovery = runtime.growth.run_recovery_experiment(candidate_id)
+    assert recovery["status"] == "PASSED"
+    proposed = runtime.growth.propose_skill_from_recovery(
+        candidate_id, recovery["experiment_id"],
+    )
+    growth_id = proposed["growth_cycle_id"]
+    skill_id = proposed["skill_id"]
+
+    def simulated_crash(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("simulated process termination during skill validation")
+
+    with monkeypatch.context() as patcher:
+        patcher.setattr(IsolatedToolHarness, "execute", simulated_crash)
+        with pytest.raises(RuntimeError, match="simulated process termination"):
+            runtime.growth.validate_skill(growth_id)
+    started = runtime.db.query_one(
+        "SELECT experiment_id,status FROM skill_experiments WHERE skill_id=?",
+        (skill_id,),
+    )
+    assert started is not None and started["status"] == "RUNNING"
+    runtime.db.close_all()
+
+    restored = make_runtime(tmp_path)
+    recovered = restored.db.query_one(
+        "SELECT experiment_id,status,finished_at,result_json "
+        "FROM skill_experiments WHERE skill_id=?",
+        (skill_id,),
+    )
+    assert recovered is not None
+    assert recovered["experiment_id"] == started["experiment_id"]
+    assert recovered["status"] == "INTERRUPTED"
+    assert recovered["finished_at"] is not None
+    assert recovered["result_json"] is None
+    record = restored.db.query_one(
+        "SELECT status FROM growth_cycles WHERE growth_cycle_id=?", (growth_id,),
+    )
+    assert record is not None and record["status"] == "RECONCILIATION_REQUIRED"
+    assert restored.db.query_all(
+        "SELECT skill_id FROM skills WHERE skill_id=? AND status='PROMOTED'",
+        (skill_id,),
+    ) == []
+    with pytest.raises(ValueError, match="promotion cannot start"):
+        restored.growth.approve_and_promote(
+            growth_id, "owner-fixture", "test://recovery", human_approved=True,
+        )
+    assert restored.growth.recover_interrupted_experiments() == {
+        "recovery": 0, "validation": 0,
+    }
+    assert restored.verify_integrity(full=True)["ok"] is True
