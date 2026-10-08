@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 
 import pytest
+from wls.config import default_config
 from wls.db import Database
 from wls.evidence import EvidenceLedger
 from wls.experiment_decision import ExperimentPolicy, MetricResult
@@ -20,6 +21,7 @@ from wls.rsi_model_port import (
     RsiProposalRequest,
     RsiProposalResponse,
 )
+from wls.runtime import LivingSystem
 
 SHA = "c" * 64
 
@@ -507,3 +509,43 @@ def test_child_preserves_unedited_parent_files(gateway):
         (gate.root / child / "agent" / "strategy.json").read_text()
     )["step"] == 1
     assert ledger.verify()[0]
+
+
+
+def test_canonical_living_system_binds_rsi_without_new_database(tmp_path):
+    runtime = LivingSystem(default_config(tmp_path / "wls-home"))
+    p = ExperimentPolicy("maximize", 0.01, {"regressions": 0.0}, 1, 0, SHA)
+    model = FakeModel('{"files":{"agent/strategy.json":"{\\"score\\":1}"}}')
+
+    def evaluate(candidate_id: str):
+        assert candidate_id
+        return MetricResult(
+            primary=0.0 if candidate_id == "baseline" else 1.0,
+            gates={"regressions": 0.0},
+            evaluator_digest=SHA,
+        )
+
+    try:
+        session = runtime.bind_rsi_model_experiment(
+            model_port=model,
+            policy=p,
+            objective="Make a verified strategy candidate",
+            allowed_files=("agent/strategy.json",),
+            independent_evaluator=evaluate,
+        )
+        assert session.pilot is runtime.rsi_pilot
+        assert session.builder.artifact_gate.ledger is runtime.ledger
+        session.builder.artifact_gate.register(
+            artifact_id="baseline", parent_id=None, generation=0, branch=0,
+            files={"agent/strategy.json": b'{"score":0}'},
+            policy_digest=p.digest(), evaluator_digest=SHA,
+        )
+        session.start("canonical-binding", "baseline", branches=1)
+        finished = session.run_bounded("canonical-binding")
+        assert finished["status"] == "COMPLETE"
+        assert finished["generation"] == 1
+        assert finished["champion_metric"]["primary"] == 1.0
+        assert runtime.rsi_pilot.read("canonical-binding") == finished
+        assert runtime.ledger.verify()[0]
+    finally:
+        runtime.db.close_all()
