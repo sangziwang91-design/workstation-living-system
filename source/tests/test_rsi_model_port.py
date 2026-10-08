@@ -476,3 +476,34 @@ def test_non_utf8_parent_never_reaches_model(gateway):
     with pytest.raises(ModelProtocolError, match="not UTF-8"):
         builder(model, gate).propose(spec)
     assert model.calls == 0
+
+
+
+def test_child_preserves_unedited_parent_files(gateway):
+    gate, ledger = gateway
+    gate.register(
+        artifact_id="two-file-parent", parent_id=None, generation=0, branch=0,
+        files={
+            "agent/strategy.json": b'{"step":0}',
+            "agent/module.py": b"def capability(): return 42\n",
+        },
+        policy_digest=SHA, evaluator_digest=SHA,
+    )
+    model = FakeModel(json.dumps({
+        "files": {"agent/strategy.json": '{"step":1}'}
+    }))
+    spec = RsiProposalRequest(
+        model_id=model.model_id, parent_id="two-file-parent",
+        generation=1, branch=0, objective="Improve step without deleting tools",
+        allowed_files=("agent/strategy.json", "agent/module.py"),
+    )
+    child = builder(model, gate).propose(spec)
+    manifest = gate.verify(child)
+    assert set(manifest["files"]) == {"agent/strategy.json", "agent/module.py"}
+    assert (gate.root / child / "agent" / "module.py").read_bytes() == (
+        gate.root / "two-file-parent" / "agent" / "module.py"
+    ).read_bytes()
+    assert json.loads(
+        (gate.root / child / "agent" / "strategy.json").read_text()
+    )["step"] == 1
+    assert ledger.verify()[0]
