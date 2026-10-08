@@ -32,7 +32,7 @@ jobs:
           python-version: "3.13"
       - name: Install deterministic source repair and independent grader
         run: python -m pip install -e ".[dev]"
-      - name: RSI iteration: apply limited repair, compare defects, run complete WLS tests
+      - name: "RSI iteration: apply limited repair, compare defects, run complete WLS tests"
         id: mutate
         run: python source/scripts/github_rsi_autorepair.py
       - name: Archive candidate source and grader evidence, including failed tests
