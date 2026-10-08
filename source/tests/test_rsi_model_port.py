@@ -37,7 +37,7 @@ class FakeModel:
     def propose(self, instruction: str, *, max_output_bytes: int) -> RsiProposalResponse:
         self.calls += 1
         assert "never executed" in instruction
-        assert "agent/strategy.json" in instruction
+        assert "Allowed files:" in instruction
         return RsiProposalResponse(model_id=self._id, text=self.text)
 
 
