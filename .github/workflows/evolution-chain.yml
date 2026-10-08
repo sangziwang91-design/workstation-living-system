@@ -19,12 +19,6 @@ on:
       - ".github/workflows/evolution-chain.yml"
       - ".github/scripts/prepare-windows-runner.ps1"
   workflow_dispatch:
-    inputs:
-      run_owner_host:
-        description: "Run the explicit owner-controlled Windows self-hosted diagnostic"
-        type: boolean
-        required: false
-        default: false
 
 permissions:
   contents: read
@@ -33,41 +27,7 @@ concurrency:
   group: evolution-chain-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  PIP_CACHE_DIR: D:\actions-runner\_cache\pip
-  PIP_DEFAULT_TIMEOUT: "120"
-  PIP_RETRIES: "10"
-  PIP_DISABLE_PIP_VERSION_CHECK: "1"
-  TEMP: D:\actions-runner\_temp
-  TMP: D:\actions-runner\_temp
-
 jobs:
-  # Public contributors never dispatch untrusted PR code to the owner's PC.
-  # Preserve local diagnostics only behind an explicit owner-host opt-in.
-  verify-control-plane:
-    if: github.event_name == 'workflow_dispatch' && inputs.run_owner_host == true
-    runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 45
-    steps:
-      - name: Prepare D-drive runtime directories
-        shell: powershell
-        run: |
-          New-Item -ItemType Directory -Force $env:PIP_CACHE_DIR | Out-Null
-          New-Item -ItemType Directory -Force $env:TEMP | Out-Null
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-      - name: Prepare isolated local Python
-        shell: powershell
-        run: .\.github\scripts\prepare-windows-runner.ps1 -PythonVersion "3.11"
-      - name: Install focused test dependency
-        shell: powershell
-        run: '& $env:PYTHON_EXE -m pip install --retries 10 --timeout 120 pytest'
-      - name: Validate evolution control plane
-        shell: powershell
-        run: '& $env:PYTHON_EXE source/scripts/validate_evolution_chain.py'
-      - name: Run focused evolution-chain tests
-        shell: powershell
-        run: '& $env:PYTHON_EXE -m pytest source/tests/test_evolution_chain.py -q'
-
   verify-hosted:
     name: Hosted evolution chain verification
     runs-on: ubuntu-latest
