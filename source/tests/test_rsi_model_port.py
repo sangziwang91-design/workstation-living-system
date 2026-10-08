@@ -15,8 +15,8 @@ from wls.rsi_model_port import (
     ModelProtocolError,
     OpenAICompatibleProposalPort,
     RsiModelCandidateBuilder,
-    RsiModelExperiment,
     RsiModelCapabilities,
+    RsiModelExperiment,
     RsiProposalRequest,
     RsiProposalResponse,
 )
