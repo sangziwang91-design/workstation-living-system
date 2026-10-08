@@ -92,7 +92,7 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           repository: sangziwang91-design/open
-          ref: 44e237bf6e610b32d79cc6e9fdd9e989211e035a
+          ref: ec480eedefbcae76abe2dd898f79b9f59e684452
           path: external-agentbridge
           persist-credentials: false
       - name: Install public bridge for cross-repository process roundtrip
