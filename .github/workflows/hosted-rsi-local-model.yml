@@ -55,7 +55,7 @@ jobs:
               else:
                   needed = True
           with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
-              output.write(f"needs_model={'true' if needed else 'false'}\\n")
+              output.write(f"needs_model={'true' if needed else 'false'}\n")
           print("Model inference necessary:", needed)
           PY
       - name: Install local CPU coder only when WLS still fails the owner regression
