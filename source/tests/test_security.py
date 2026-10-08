@@ -226,3 +226,26 @@ def test_default_wls_test_home_is_isolated(tmp_path, monkeypatch):
     configured = default_config()
     assert configured.home_path.parent == tmp_path
     assert configured.home_path.name == "default-wls-home"
+
+
+def test_legacy_parent_read_scope_is_narrowed_on_config_load(tmp_path):
+    from wls.config import default_config, load_config, save_config
+
+    config = default_config(tmp_path / "wls")
+    config.tool_policy["allowed_read_roots"] = [
+        str(config.home_path), str(config.home_path.parent)
+    ]
+    cfg = tmp_path / "config.json"
+    save_config(config, cfg)
+    reloaded = load_config(cfg)
+    assert reloaded.tool_policy["allowed_read_roots"] == [str(config.home_path)]
+
+    # Distinct owner-selected project roots are not silently discarded.
+    config.tool_policy["allowed_read_roots"] = [
+        str(config.home_path), str(tmp_path / "consented-repo")
+    ]
+    save_config(config, cfg)
+    explicit = load_config(cfg)
+    assert explicit.tool_policy["allowed_read_roots"] == [
+        str(config.home_path), str(tmp_path / "consented-repo")
+    ]
