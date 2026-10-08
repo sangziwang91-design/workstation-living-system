@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from collections.abc import Sequence
 from typing import Any
 
 from .schemas import Goal
@@ -15,7 +16,7 @@ class GoalPressureRanker:
 
     def rank(
         self,
-        goals: list[Goal | dict[str, Any]],
+        goals: Sequence[Goal | dict[str, Any]],
         *,
         daily_perception: dict[str, Any] | None = None,
         recent_actions: list[dict[str, Any]] | None = None,

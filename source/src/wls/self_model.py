@@ -119,9 +119,10 @@ class SelfModel:
             row = connection.execute(
                 "SELECT * FROM self_model WHERE key=?", (key,)
             ).fetchone()
-        value = (
-            json.loads(row["value_json"])
-            if row is not None
+        raw_value = json.loads(row["value_json"]) if row is not None else None
+        value: dict[str, Any] = (
+            dict(raw_value)
+            if isinstance(raw_value, dict)
             else {
                 "helped": 0,
                 "failed": 0,

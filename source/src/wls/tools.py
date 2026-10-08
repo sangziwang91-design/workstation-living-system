@@ -455,7 +455,8 @@ class ToolRegistry:
         pr_body = pull_request.get("body") if pull_request.get("ok") else {}
         if not isinstance(pr_body, dict):
             pr_body = {}
-        head = pr_body.get("head") if isinstance(pr_body.get("head"), dict) else {}
+        raw_head = pr_body.get("head")
+        head: dict[str, Any] = raw_head if isinstance(raw_head, dict) else {}
         head_sha = str(head.get("sha") or "").strip()
         head_ref = str(head.get("ref") or "").strip()
         statuses: dict[str, Any] = {"ok": False, "reason": "PR head sha unavailable"}
@@ -684,7 +685,8 @@ class ToolRegistry:
                 conclusion = str(item.get("conclusion") or "").lower()
                 status = str(item.get("status") or "").lower()
                 if conclusion in {"failure", "cancelled", "timed_out", "action_required"}:
-                    output = item.get("output") if isinstance(item.get("output"), dict) else {}
+                    raw_output = item.get("output")
+                    output: dict[str, Any] = raw_output if isinstance(raw_output, dict) else {}
                     failures.append(
                         {
                             "kind": "check_run",

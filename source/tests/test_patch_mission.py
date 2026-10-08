@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -2680,7 +2681,7 @@ def test_patch_mission_repeated_success_creates_repair_skill_candidate(
     assert len(approved_outcomes_after_success) == 2
     assert len(promoted_outcome_rows) == 1
 
-    def create_promoted_skill_next_action(project_name: str) -> dict[str, object]:
+    def create_promoted_skill_next_action(project_name: str) -> dict[str, Any]:
         repo = make_failing_repo(tmp_path / project_name)
         mission_record = runtime.start_patch_mission(
             repo_path=repo,

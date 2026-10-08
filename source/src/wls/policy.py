@@ -154,8 +154,11 @@ class PolicyEngine:
                 if not re.fullmatch(r"[A-Za-z0-9_.-]+", value.strip()):
                     raise ValueError(f"{field} contains unsupported characters")
             if action.tool == "inspect_github_pr_status":
+                raw_number = action.arguments.get("number")
+                if raw_number is None:
+                    raise ValueError("number must be a positive integer")
                 try:
-                    number = int(action.arguments.get("number"))
+                    number = int(raw_number)
                 except (TypeError, ValueError) as exc:
                     raise ValueError("number must be a positive integer") from exc
                 if number <= 0:

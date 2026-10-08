@@ -1,0 +1,41 @@
+name: Verify WLS mypy baseline repair
+
+on:
+  push:
+    branches:
+      - maintenance/mypy-baseline-20261007
+    paths:
+      - "source/src/wls/**"
+      - "source/tests/**"
+      - ".github/workflows/mypy-baseline.yml"
+  pull_request:
+    paths:
+      - "source/src/wls/**"
+      - "source/tests/**"
+      - ".github/workflows/mypy-baseline.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  type-and-regression:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install WLS development toolchain
+        run: python -m pip install --retries 10 --timeout 120 -e ".[dev]"
+      - name: Compile
+        run: python -m compileall -q source/src source/tests source/scripts
+      - name: Full mypy
+        run: python -m mypy source/src/wls source/tests source/scripts --ignore-missing-imports --explicit-package-bases
+      - name: Full pytest
+        run: python -m pytest source/tests -q
