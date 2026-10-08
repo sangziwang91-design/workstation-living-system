@@ -25,7 +25,8 @@ class CodingWorkerResult:
     elapsed_seconds: float
     changed_files: list[ChangedFileReceipt] = field(default_factory=list)
     tests: list[str] = field(default_factory=list)
-    tests_passed: bool = False
+    tests_passed: bool = False  # untrusted text hint from model output
+    independent_tests_passed: bool = False  # populated only by an external grader
     tests_output: str = ""
     error: str = ""
 
@@ -35,13 +36,14 @@ class CodingWorkerResult:
             base_sha=base_sha,
             worktree=worktree,
             changed_files=self.changed_files,
-            tests=self.tests if self.tests_passed else [],
+            tests=self.tests if self.independent_tests_passed else [],
             rollback=rollback,
         )
 
     @property
     def succeeded(self) -> bool:
-        return self.exit_code == 0 and self.tests_passed
+        # The worker's own stdout is not a trustworthy test receipt.
+        return self.exit_code == 0 and self.independent_tests_passed
 
 
 class BaseCodingWorker:
