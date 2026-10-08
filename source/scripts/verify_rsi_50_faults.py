@@ -19,7 +19,6 @@ from wls.evidence import EvidenceLedger
 from wls.experiment_decision import ExperimentPolicy, MetricResult
 from wls.rsi_evolution import RsiEvolutionPilot
 
-
 FAMILIES = (
     "gain", "no_gain", "hard_gate", "nan_primary", "inf_gate",
     "digest_mismatch", "duplicate_id", "changed_policy",
