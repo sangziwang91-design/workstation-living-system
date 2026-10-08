@@ -19,6 +19,12 @@ on:
       - ".github/workflows/evolution-chain.yml"
       - ".github/scripts/prepare-windows-runner.ps1"
   workflow_dispatch:
+    inputs:
+      run_owner_host:
+        description: "Run the explicit owner-controlled Windows self-hosted diagnostic"
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -36,7 +42,10 @@ env:
   TMP: D:\actions-runner\_temp
 
 jobs:
+  # Public contributors never dispatch untrusted PR code to the owner's PC.
+  # Preserve local diagnostics only behind an explicit owner-host opt-in.
   verify-control-plane:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_owner_host == true
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 45
     steps:
@@ -58,3 +67,21 @@ jobs:
       - name: Run focused evolution-chain tests
         shell: powershell
         run: '& $env:PYTHON_EXE -m pytest source/tests/test_evolution_chain.py -q'
+
+  verify-hosted:
+    name: Hosted evolution chain verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.11"
+      - name: Install isolated test runner
+        run: python -m pip install pytest
+      - name: Validate the tracked evolution control plane
+        run: python source/scripts/validate_evolution_chain.py
+      - name: Test the repository evolution chain
+        run: python -m pytest -q source/tests/test_evolution_chain.py
