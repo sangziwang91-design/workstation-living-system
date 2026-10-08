@@ -3,7 +3,7 @@ schema_version: "2.0"
 system:
   name: "Workstation Living System"
   abbreviation: "WLS"
-  repository: "sangziwang91-design/workstation-living-system-private"
+  repository: "sangziwang91-design/workstation-living-system"
   development_version: "0.9.0.dev2"
   canonical_identity_file: "LIVING_SYSTEM_GENOME.md"
   canonical_runtime: "source/src/wls/runtime.py::LivingSystem"
@@ -58,10 +58,17 @@ mission_status:
   capability_gaps_et004_closed: true
 
 current_capabilities:
-  status: "92_MODULES_62_TESTS_LIFE_LOOP_PATCH_MISSION_SOURCE_CONSOLIDATED"
-  module_count: 92
-  test_file_count: 62
+  status: "PUBLIC_MAINLINE_HOSTED_CI_VALIDATED_LONGITUDINAL_PROOF_PENDING"
+  module_count: 104
+  test_file_count: 74
   architecture_passes: 89
+  repository_inventory_snapshot:
+    commit: "ae6fcee9d6c3a747635d5ac189b416f8cc7d8d29"
+    counted_at: "2026-10-08"
+    source_python_files_including_init: 107
+    source_python_files_excluding_init: 104
+    test_python_files: 74
+    claim: "Git tree path counts, not independent functional capabilities"
   verified:
     - "The authoritative runtime remains source/src/wls/runtime.py::LivingSystem."
     - "MemoryStore remains the sole memory authority."
@@ -353,6 +360,11 @@ verification:
     pass_count: 89
     fail_count: 0
     acceptable_verdicts: ["ADMIT", "ADMIT_SHADOW_ONLY"]
+    verdict_distribution:
+      ADMIT: 1
+      ADMIT_SHADOW_ONLY: 88
+      BLOCKED: 0
+    claim_boundary: "Historical architecture admission, not 89 production capabilities"
     instance: "D:\\WLS\\wls-0.9.0.dev1-ui-20260706"
     evidence: "D:\\WLS\\wls-0.9.0.dev1-ui-20260706\\acceptance\\p01_p89_v0.9.0.dev2.json"
 
