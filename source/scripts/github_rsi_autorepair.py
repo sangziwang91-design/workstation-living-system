@@ -55,9 +55,36 @@ def run() -> dict[str, object]:
     if fix.returncode not in {0, 1}:
         raise RuntimeError("repair tool failed unexpectedly")
     changed = call("git", "diff", "--name-only").stdout.splitlines()
-    if not changed or not set(changed).issubset(SOURCE_FILES):
-        raise RuntimeError("repair did not produce a bounded source-only candidate")
+    if not set(changed).issubset(SOURCE_FILES):
+        raise RuntimeError("repair touched files outside frozen scope")
     after = lint_count()
+    if not changed and after == before:
+        # A previous GitHub generation has already absorbed every available
+        # safe fix. This is a verified stop, not a failed test or a reason to
+        # re-run a model or commit an empty patch.
+        report: dict[str, object] = {
+            "schema": "wls.github_rsi_autorepair.v1",
+            "base_sha": original_sha.stdout.strip(),
+            "repair_operator": "ruff-fix",
+            "status": "NO_GAIN",
+            "scope": list(SOURCE_FILES),
+            "changed_files": [],
+            "before_ruff_issues": before,
+            "after_ruff_issues": after,
+            "gain": 0,
+            "eligible": False,
+            "claims": "no further frozen mechanical fixes; code unchanged",
+        }
+        Path("rsi-repair-report.json").write_text(
+            json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        output_path = os.environ.get("GITHUB_OUTPUT")
+        if output_path:
+            with Path(output_path).open("a", encoding="utf-8") as output:
+                output.write("eligible=false\n")
+        print(json.dumps(report, ensure_ascii=False, sort_keys=True))
+        return report
     if after >= before:
         raise RuntimeError("repair did not strictly lower frozen lint faults")
 
@@ -111,4 +138,4 @@ if __name__ == "__main__":
         )
         print(f"RSI candidate refused: {type(error).__name__}: {error}", file=sys.stderr)
         raise SystemExit(2) from error
-    raise SystemExit(0 if result["eligible"] else 1)
+    raise SystemExit(0 if result["eligible"] or result.get("status") == "NO_GAIN" else 1)
