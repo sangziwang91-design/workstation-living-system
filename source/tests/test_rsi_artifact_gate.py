@@ -148,3 +148,41 @@ def test_resealed_manifest_cannot_override_canonical_evidence(archive):
     with pytest.raises(ArtifactIntegrityError, match="signed WLS evidence"):
         gate.verify("baseline")
     assert ledger.verify()[0]
+
+
+
+def test_ledger_failure_does_not_strand_unregistered_rsi_candidate(archive, monkeypatch):
+    gate, ledger = archive
+    original = ledger.append
+
+    def fail_before_persistence(*args, **kwargs):
+        raise OSError("simulated disk-write failure")
+
+    monkeypatch.setattr(ledger, "append", fail_before_persistence)
+    with pytest.raises(OSError, match="disk-write"):
+        baseline(gate)
+    assert not (gate.root / "baseline").exists()
+    assert ledger.verify()[0]
+
+    # A new real attempt can reuse the exact same generation identifier.
+    monkeypatch.setattr(ledger, "append", original)
+    receipt = baseline(gate)
+    assert gate.verify("baseline")["manifest_digest"] == receipt["manifest_digest"]
+
+
+def test_late_ledger_exception_does_not_destroy_committed_evidence(
+    archive, monkeypatch,
+):
+    gate, ledger = archive
+    original = ledger.append
+
+    def append_then_fail(*args, **kwargs):
+        original(*args, **kwargs)
+        raise OSError("response lost after durable commit")
+
+    monkeypatch.setattr(ledger, "append", append_then_fail)
+    with pytest.raises(OSError, match="response lost"):
+        baseline(gate)
+    assert (gate.root / "baseline" / "manifest.json").is_file()
+    assert gate.verify("baseline")["authority"] == "candidate_only"
+    assert ledger.verify()[0]
