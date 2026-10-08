@@ -1236,6 +1236,18 @@ def validate_phase2_browser_readonly_runtime_execution(home: Path) -> Architectu
         thread.join(timeout=2)
 
 
+def _fixture_read_runtime(home: Path) -> LivingSystem:
+    """Explicit permission for synthetic owner-provided fixtures only.
+
+    Production WLS cannot inherit the parent of its home as a read root.
+    These architecture demonstrations use disposable evidence alongside the
+    nested `home/runtime` state and opt into only that fixture directory.
+    """
+    config = default_config(home / "runtime")
+    config.tool_policy["allowed_read_roots"].append(str(home.resolve()))
+    return LivingSystem(config)
+
+
 def validate_phase2_research_composite_readonly_execution(
     home: Path,
 ) -> ArchitecturePassResult:
@@ -1247,7 +1259,7 @@ def validate_phase2_research_composite_readonly_execution(
     thread.start()
     try:
         port = int(server.server_port)
-        runtime = LivingSystem(default_config(home / "runtime"))
+        runtime = _fixture_read_runtime(home)
         runtime.intake_read_only_task(
             ReadOnlyTaskRequest(
                 request_id="phase2-research-composite-1",
@@ -1348,7 +1360,7 @@ def validate_phase2_multimodal_asset_readonly_execution(
         b"\x00\x00\x00\rIHDR"
         b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00"
     )
-    runtime = LivingSystem(default_config(home / "runtime"))
+    runtime = _fixture_read_runtime(home)
     runtime.intake_read_only_task(
         ReadOnlyTaskRequest(
             request_id="phase2-multimodal-asset-1",
@@ -1435,7 +1447,7 @@ def validate_phase2_coding_candidate_readonly_execution(
     worktree.mkdir(parents=True, exist_ok=True)
     candidate_file = worktree / "candidate_patch.py"
     candidate_file.write_text("print('candidate receipt')\n", encoding="utf-8")
-    runtime = LivingSystem(default_config(home / "runtime"))
+    runtime = _fixture_read_runtime(home)
     runtime.intake_read_only_task(
         ReadOnlyTaskRequest(
             request_id="phase2-coding-candidate-1",
@@ -1864,7 +1876,7 @@ def validate_phase2_skill_candidate_extraction_receipts(
     source = home / "skill-source.txt"
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_text("repeatable read-only skill evidence\n", encoding="utf-8")
-    runtime = LivingSystem(default_config(home / "runtime"))
+    runtime = _fixture_read_runtime(home)
     before_active = len(runtime.skills.active())
     for index in range(3):
         request_id = f"phase2-skill-source-{index}"
@@ -1957,7 +1969,7 @@ def validate_phase2_learning_epoch_review_receipts(
     source = home / "learning-source.txt"
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_text("repeatable learning epoch evidence\n", encoding="utf-8")
-    runtime = LivingSystem(default_config(home / "runtime"))
+    runtime = _fixture_read_runtime(home)
     for index in range(3):
         request_id = f"phase2-learning-source-{index}"
         runtime.intake_read_only_task(
@@ -2052,7 +2064,7 @@ def validate_phase2_capability_epoch_audit_receipts(
     source = home / "epoch-source.txt"
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_text("repeatable capability epoch evidence\n", encoding="utf-8")
-    runtime = LivingSystem(default_config(home / "runtime"))
+    runtime = _fixture_read_runtime(home)
     for index in range(3):
         request_id = f"phase2-epoch-source-{index}"
         runtime.intake_read_only_task(
@@ -2737,7 +2749,7 @@ def validate_phase2_document_retrieval_preview(
 def validate_phase2_document_readonly_execution(
     home: Path,
 ) -> ArchitecturePassResult:
-    runtime = LivingSystem(default_config(home / "runtime"))
+    runtime = _fixture_read_runtime(home)
     document_path = home / "fixtures" / "phase2-document-execution.pdf"
     document_path.parent.mkdir(parents=True, exist_ok=True)
     document_path.write_bytes(b"%PDF-1.4\n% WLS document execution fixture\n")
@@ -2826,7 +2838,7 @@ def validate_phase2_document_readonly_execution(
 def validate_phase2_document_projection_review(
     home: Path,
 ) -> ArchitecturePassResult:
-    runtime = LivingSystem(default_config(home / "runtime"))
+    runtime = _fixture_read_runtime(home)
     document_path = home / "fixtures" / "phase2-document-projection.pdf"
     document_path.parent.mkdir(parents=True, exist_ok=True)
     document_path.write_bytes(b"%PDF-1.4\n% WLS document projection fixture\n")
@@ -2957,7 +2969,7 @@ def validate_phase2_document_projection_review(
 def validate_phase2_document_skill_candidate_receipts(
     home: Path,
 ) -> ArchitecturePassResult:
-    runtime = LivingSystem(default_config(home / "runtime"))
+    runtime = _fixture_read_runtime(home)
     document_path = home / "fixtures" / "phase2-document-skill.pdf"
     document_path.parent.mkdir(parents=True, exist_ok=True)
     document_path.write_bytes(b"%PDF-1.4\n% WLS document skill fixture\n")
@@ -3066,7 +3078,7 @@ def validate_phase2_document_skill_candidate_receipts(
 def validate_phase2_document_skill_sandbox_receipts(
     home: Path,
 ) -> ArchitecturePassResult:
-    runtime = LivingSystem(default_config(home / "runtime"))
+    runtime = _fixture_read_runtime(home)
     document_path = home / "fixtures" / "phase2-document-sandbox.pdf"
     document_path.parent.mkdir(parents=True, exist_ok=True)
     document_path.write_bytes(b"%PDF-1.4\n% WLS document sandbox fixture\n")
