@@ -119,7 +119,7 @@ jobs:
           assert report['gain'] > 0
           scope = report['scope']
           changed = report['changed_files']
-          assert isinstance(scope, list) and 1 <= len(scope) <= 6
+          assert isinstance(scope, list) and 1 <= len(scope) <= 2
           assert isinstance(changed, list) and 1 <= len(changed) <= 2
           assert set(changed) <= set(scope)
           blocked = {
