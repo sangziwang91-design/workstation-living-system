@@ -63,6 +63,7 @@ def test_real_failure_growth_is_selected_once_and_survives_restart(tmp_path: Pat
     assert goals[0]["title"] == f"Inspect recurring failures: {candidate_id}"
     assert goals[0]["risk"] == "READ"
     assert goals[0]["autonomous"] == 1
+    assert goals[0]["status"] == "SUCCEEDED"  # investigation, not skill promotion
     # The existing GrowthCycle performs a fixed-tool sandbox experiment and
     # validates a candidate, without authorizing it to run in production.
     growth_rows = runtime.db.query_all("SELECT status FROM growth_cycles")
