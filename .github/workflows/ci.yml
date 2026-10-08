@@ -77,3 +77,52 @@ jobs:
       - name: Build package
         shell: powershell
         run: '& $env:PYTHON_EXE -m build .'
+
+
+  # Primary PR check runs entirely on GitHub-hosted infrastructure.
+  # It needs neither the owner's Windows PC nor the offline self-hosted runner.
+  github-hosted-full-validation:
+    name: Hosted full WLS tests and release checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PIP_CACHE_DIR: /tmp/wls-pip-cache
+      TEMP: /tmp
+      TMP: /tmp
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.13"
+      - name: Install WLS and verification dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Enforce canonical packaging root
+        run: python source/scripts/verify_packaging_layout.py
+      - name: Compile source, tests, and executable checks
+        run: python -m compileall -q source/src source/tests source/scripts
+      - name: Run complete test suite with inspectable result XML
+        run: python -m pytest -q source/tests --maxfail=1 --junitxml=hosted-full-pytest.xml
+      - name: Verify shipped WLS evolution targets
+        run: |
+          python source/scripts/verify_evolution_target_001.py
+          python source/scripts/verify_evolution_target_002.py
+          python source/scripts/verify_evolution_target_003.py
+      - name: Lint all WLS source, scripts and tests
+        run: python -m ruff check source/src source/tests source/scripts
+      - name: Type-check all WLS modules and tests
+        run: python -m mypy source/src/wls source/tests source/scripts --ignore-missing-imports
+      - name: Scan WLS and verification scripts
+        run: python -m bandit -q -r source/src/wls source/scripts
+      - name: Build installable wheel and sdist
+        run: python -m build .
+      - name: Save complete hosted evidence, including failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hosted-full-wls-${{ github.run_id }}
+          path: |
+            hosted-full-pytest.xml
+            dist/
+          if-no-files-found: warn
