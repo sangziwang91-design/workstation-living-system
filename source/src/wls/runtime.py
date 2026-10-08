@@ -158,6 +158,43 @@ class LivingSystem:
         self._stop = False
         self._initialize_runtime()
 
+    def bind_rsi_model_experiment(
+        self,
+        *,
+        model_port: Any,
+        policy: Any,
+        objective: str,
+        allowed_files: tuple[str, ...],
+        independent_evaluator: Any,
+    ) -> Any:
+        """Bind an owner-started RSI candidate trial to canonical WLS authority.
+
+        Reuses the existing WLS database, evidence ledger, evolution pilot and
+        sandbox *directory* for candidate artifacts. This does not execute
+        model-authored code or establish OS-grade sandbox isolation.
+        """
+        from .rsi_artifact_gate import RsiArtifactGate
+        from .rsi_model_port import RsiModelCandidateBuilder, RsiModelExperiment
+
+        gate = RsiArtifactGate(
+            self.config.sandbox_path / "rsi_candidate_artifacts",
+            self.ledger,
+            allowed_files=frozenset(allowed_files),
+        )
+        return RsiModelExperiment(
+            self.rsi_pilot,
+            RsiModelCandidateBuilder(
+                model_port,
+                gate,
+                policy_digest=policy.digest(),
+                evaluator_digest=policy.evaluator_digest,
+            ),
+            policy,
+            objective=objective,
+            allowed_files=allowed_files,
+            independent_evaluator=independent_evaluator,
+        )
+
     def _load_plugins(self) -> None:
         for module_name in self.config.plugin_modules:
             module = importlib.import_module(module_name)
