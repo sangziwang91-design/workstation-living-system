@@ -8,11 +8,11 @@ evaluator are required before use on real software candidates.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from dataclasses import asdict
 from math import isfinite
 from typing import Any
-import re
 
 from .db import Database
 from .evidence import EvidenceLedger
