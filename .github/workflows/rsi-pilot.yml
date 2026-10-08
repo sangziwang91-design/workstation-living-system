@@ -61,7 +61,7 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           repository: sangziwang91-design/open
-          ref: ec480eedefbcae76abe2dd898f79b9f59e684452
+          ref: a5c5920abdb3abf7af53093915768e2288f1f0c5
           path: external-agentbridge
           persist-credentials: false
       - name: Install public bridge on hosted Windows
@@ -106,7 +106,7 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           repository: sangziwang91-design/open
-          ref: ec480eedefbcae76abe2dd898f79b9f59e684452
+          ref: a5c5920abdb3abf7af53093915768e2288f1f0c5
           path: external-agentbridge
           persist-credentials: false
       - name: Install public bridge for cross-repository process roundtrip
