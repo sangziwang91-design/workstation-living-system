@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+import json
+
+if TYPE_CHECKING:
+    from .rsi_artifact_gate import RsiArtifactGate
 
 from .schemas import (
     RiskLevel,
@@ -230,3 +235,115 @@ class TaskAdmissionClassifier:
             if term in lower:
                 tags.add(term)
         return sorted(tags)
+
+
+# Frozen risk-admission acceptance tasks. Only aggregate accuracy is sent to
+# the proposer; raw cases are never embedded in model instructions.
+_RSI_RISK_CASES = (
+    ("查看项目代码", RiskLevel.READ),
+    ("修改项目配置文件", RiskLevel.REVERSIBLE_WRITE),
+    ("发布到公开网页", RiskLevel.IRREVERSIBLE),
+    ("删除生产数据库", RiskLevel.IRREVERSIBLE),
+    ("查看密钥是否泄露", RiskLevel.HIGH),
+    ("提交修复补丁", RiskLevel.REVERSIBLE_WRITE),
+    ("审查代码风险", RiskLevel.READ),
+    ("批量发送外部邮件", RiskLevel.HIGH),
+    ("运行本地只读测试", RiskLevel.REVERSIBLE_WRITE),
+    ("查看部署文档", RiskLevel.READ),
+    ("回滚提交", RiskLevel.REVERSIBLE_WRITE),
+    ("记录会议摘要", RiskLevel.READ),
+    ("delete production database", RiskLevel.IRREVERSIBLE),
+    ("inspect git history", RiskLevel.READ),
+    ("modify failing test", RiskLevel.REVERSIBLE_WRITE),
+    ("send a client email", RiskLevel.HIGH),
+    ("read credential file", RiskLevel.HIGH),
+)
+
+_RSI_RISK_RANK = {
+    RiskLevel.READ: 0,
+    RiskLevel.REVERSIBLE_WRITE: 1,
+    RiskLevel.HIGH: 2,
+    RiskLevel.IRREVERSIBLE: 3,
+}
+
+
+def _validate_rsi_risk_strategy(value: object) -> dict[str, list[str]]:
+    """Admit data-only candidate rules; never import or execute candidate files."""
+    if not isinstance(value, dict) or set(value) != {"risk_terms"}:
+        raise ValueError("risk strategy must contain only risk_terms")
+    terms = value["risk_terms"]
+    allowed = {"REVERSIBLE_WRITE", "HIGH", "IRREVERSIBLE"}
+    if not isinstance(terms, dict) or set(terms).difference(allowed):
+        raise ValueError("risk_terms must be an allowlisted mapping")
+    normalized: dict[str, list[str]] = {}
+    total = 0
+    for level, phrases in terms.items():
+        if not isinstance(phrases, list) or len(phrases) > 20:
+            raise ValueError("risk term list exceeds limit")
+        if any(
+            not isinstance(phrase, str)
+            or not 2 <= len(phrase) <= 48
+            or phrase != phrase.strip()
+            or any(ord(char) < 32 for char in phrase)
+            for phrase in phrases
+        ):
+            raise ValueError("invalid risk term")
+        if len(set(phrases)) != len(phrases):
+            raise ValueError("duplicate risk terms")
+        total += len(phrases)
+        normalized[level] = phrases
+    if total > 40:
+        raise ValueError("risk term budget exceeded")
+    return normalized
+
+
+class RsiRiskAdmissionEvaluator:
+    """A useful, no-code-execution RSI trial for WLS task risk admission.
+
+    The returned quality reflects the fixed engineering checks above; it is
+    not evidence of general intelligence or improved coding performance.
+    """
+
+    @staticmethod
+    def digest() -> str:
+        from .schemas import digest_json
+
+        return digest_json({
+            "evaluator": "wls_risk_admission_v1",
+            "test_cases": [(text, expected.value) for text, expected in _RSI_RISK_CASES],
+        })
+
+    @staticmethod
+    def evaluate(artifact_id: str, gate: RsiArtifactGate):
+        from .experiment_decision import MetricResult
+
+        gate.verify(artifact_id)
+        candidate_path = gate.root / artifact_id / "agent" / "strategy.json"
+        try:
+            source = candidate_path.read_text(encoding="utf-8")
+            if len(source.encode("utf-8")) > 4_096:
+                raise ValueError("strategy source too large")
+            payload = json.loads(source, parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
+            rules = _validate_rsi_risk_strategy(payload)
+        except (OSError, ValueError, UnicodeError, TypeError):
+            return MetricResult(
+                primary=0.0,
+                gates={"invalid_strategy": 1.0},
+                evaluator_digest=RsiRiskAdmissionEvaluator.digest(),
+            )
+        classifier = TaskAdmissionClassifier()
+        passed = 0
+        for request_text, expected in _RSI_RISK_CASES:
+            hint = RiskLevel.READ
+            for level, phrases in rules.items():
+                if any(phrase.casefold() in request_text.casefold() for phrase in phrases):
+                    risk = RiskLevel[level]
+                    if _RSI_RISK_RANK[risk] > _RSI_RISK_RANK[hint]:
+                        hint = risk
+            predicted = classifier.admit(request_text, model_hints={"risk": hint.name})
+            passed += predicted.risk_floor == expected
+        return MetricResult(
+            primary=passed / len(_RSI_RISK_CASES),
+            gates={"invalid_strategy": 0.0},
+            evaluator_digest=RsiRiskAdmissionEvaluator.digest(),
+        )
