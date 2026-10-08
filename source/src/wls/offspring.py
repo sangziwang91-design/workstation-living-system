@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
-from pathlib import Path
-from typing import Any
 import hashlib
 import json
 import os
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Any
 
 from .config import RuntimeConfig
 from .db import Database
@@ -1001,7 +1001,7 @@ class OffspringRegistry:
             raise ValueError("offspring birth reason is required")
         if not isinstance(budget, dict) or not budget:
             raise ValueError("bounded offspring budget is required")
-        if budget.get("writes", 0) not in {0, "0", False}:
+        if budget.get("writes", 0) not in {0, "0"}:
             raise ValueError("P59 offspring birth contract must be read-only")
         if not isinstance(inheritance_manifest, dict) or not inheritance_manifest:
             raise ValueError("inheritance_manifest is required")
@@ -1151,11 +1151,11 @@ class OffspringRegistry:
                 continue
             relative = str(resolved.relative_to(child_home)).replace("\\", "/")
             lowered = relative.lower()
-            if any(part in lowered.split("/") for part in {"secrets", "tmp_credentials"}):
+            if any(part in lowered.split("/") for part in ("secrets", "tmp_credentials")):
                 secret_paths.append(relative)
-            if any(part in lowered.split("/") for part in {"leases"}):
+            if any(part in lowered.split("/") for part in ("leases",)):
                 lease_paths.append(relative)
-            if any(part in lowered.split("/") for part in {"mounts", "sandbox"}):
+            if any(part in lowered.split("/") for part in ("mounts", "sandbox")):
                 mount_paths.append(relative)
         return {
             "secret_paths": sorted(secret_paths),

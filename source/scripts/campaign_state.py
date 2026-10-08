@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
-from pathlib import Path
-from typing import Any, Literal
 import hashlib
 import json
 import os
 import shutil
-
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any, Literal
 
 ALLOWED_ROUND_STATUSES = {
     "PENDING",
@@ -90,7 +89,7 @@ class CampaignPaths:
     campaign_home: Path
     wls_python: Path
 
-    def resolve(self) -> "CampaignPaths":
+    def resolve(self) -> CampaignPaths:
         return CampaignPaths(
             install_root=self.install_root.expanduser().resolve(),
             live_home=self.live_home.expanduser().resolve(),
@@ -121,7 +120,7 @@ class CampaignLock:
         self.path = path
         self.acquired = False
 
-    def __enter__(self) -> "CampaignLock":
+    def __enter__(self) -> CampaignLock:
         try:
             self.path.mkdir(parents=True, exist_ok=False)
         except FileExistsError as exc:
@@ -149,7 +148,7 @@ class CampaignState:
     @classmethod
     def load_or_create(
         cls, path: Path, spec: dict[str, Any], paths: CampaignPaths
-    ) -> "CampaignState":
+    ) -> CampaignState:
         round_ids = validate_campaign_spec(spec)
         if path.exists():
             data = load_json(path)
