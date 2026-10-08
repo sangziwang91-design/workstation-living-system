@@ -226,6 +226,7 @@ class LivingSystem:
         self.db.set_runtime("read_only", self.config.read_only)
         self._recover_cycles()
         self._recover_actions()
+        self.growth.recover_interrupted_experiments()
         self.events.recover_stale_reservations(
             (datetime.now(UTC) - timedelta(minutes=10)).isoformat()
         )
