@@ -10,6 +10,8 @@ on:
       - "source/src/wls/runtime.py"
       - "source/src/wls/autonomy.py"
       - "source/src/wls/learning.py"
+      - "source/src/wls/growth_cycle.py"
+      - "source/tests/test_growth_cycle.py"
       - "source/tests/test_autonomous_growth.py"
       - "source/tests/test_rsi_evolution.py"
       - "source/tests/test_rsi_artifact_gate.py"
@@ -60,7 +62,7 @@ jobs:
       - name: Windows repository invariant and targeted WLS RSI regressions
         run: |
           python source/scripts/verify_packaging_layout.py
-          python -m pytest -q source/tests/test_rsi_evolution.py source/tests/test_experiment_decision.py source/tests/test_loop_control.py source/tests/test_coding_workers.py source/tests/test_rsi_artifact_gate.py source/tests/test_rsi_lineage_integrity.py source/tests/test_github_rsi_local_model.py source/tests/test_rsi_model_port.py source/tests/test_rsi_risk_cli.py source/tests/test_agentbridge_handoff.py source/tests/test_agentbridge_full_roundtrip.py source/tests/test_autonomous_growth.py
+          python -m pytest -q source/tests/test_rsi_evolution.py source/tests/test_experiment_decision.py source/tests/test_loop_control.py source/tests/test_coding_workers.py source/tests/test_rsi_artifact_gate.py source/tests/test_rsi_lineage_integrity.py source/tests/test_github_rsi_local_model.py source/tests/test_rsi_model_port.py source/tests/test_rsi_risk_cli.py source/tests/test_agentbridge_handoff.py source/tests/test_agentbridge_full_roundtrip.py source/tests/test_autonomous_growth.py source/tests/test_growth_cycle.py
       # Hosted Windows is sufficient for the actual process and graph
       # contract. No private on-premises PC and no external model token.
       - name: Checkout tested public bridge on GitHub-hosted Windows
@@ -120,7 +122,7 @@ jobs:
         run: python -m pip install -e ./external-agentbridge
       - name: RSI pilot and existing decision regressions
         run: |
-          python -m pytest -q source/tests/test_rsi_evolution.py             source/tests/test_experiment_decision.py             source/tests/test_loop_control.py             source/tests/test_coding_workers.py             source/tests/test_rsi_artifact_gate.py source/tests/test_rsi_lineage_integrity.py source/tests/test_github_rsi_local_model.py source/tests/test_rsi_model_port.py source/tests/test_rsi_risk_cli.py source/tests/test_agentbridge_handoff.py source/tests/test_agentbridge_full_roundtrip.py source/tests/test_autonomous_growth.py
+          python -m pytest -q source/tests/test_rsi_evolution.py             source/tests/test_experiment_decision.py             source/tests/test_loop_control.py             source/tests/test_coding_workers.py             source/tests/test_rsi_artifact_gate.py source/tests/test_rsi_lineage_integrity.py source/tests/test_github_rsi_local_model.py source/tests/test_rsi_model_port.py source/tests/test_rsi_risk_cli.py source/tests/test_agentbridge_handoff.py source/tests/test_agentbridge_full_roundtrip.py source/tests/test_autonomous_growth.py source/tests/test_growth_cycle.py
       - name: Prove real accepted and rejected source patches on hosted Linux
         if: matrix.python-version == '3.13'
         run: python -m pytest -q source/tests/test_agentbridge_full_roundtrip.py --junitxml=bridge-linux.xml
