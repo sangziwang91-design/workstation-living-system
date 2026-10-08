@@ -64,6 +64,21 @@ def build_parser() -> argparse.ArgumentParser:
         "capabilities",
         help="Show ordinary-user capability labels and productization status",
     )
+    rsi_risk = sub.add_parser(
+        "rsi-risk",
+        help="Run or inspect a bounded model-driven improvement of WLS task-risk rules",
+    )
+    rsi_risk.add_argument("--run-id", required=True)
+    rsi_risk.add_argument("--mode", choices=("status", "run"), default="status")
+    rsi_risk.add_argument("--model-id", default="")
+    rsi_risk.add_argument("--base-url", default="")
+    rsi_risk.add_argument("--generations", type=int, default=2)
+    rsi_risk.add_argument("--branches", type=int, default=1)
+    rsi_risk.add_argument("--max-output-tokens", type=int, default=1024)
+    rsi_risk.add_argument(
+        "--confirm-model-usage", action="store_true",
+        help="Owner explicitly authorizes a capped external model inference trial",
+    )
     sub.add_parser("sleep", help="Run offline memory and skill consolidation")
     sub.add_parser("verify", help="Verify database and evidence chain")
     sub.add_parser("self-check", help="Run installation and runtime self-check")
@@ -539,6 +554,104 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def run_rsi_risk(args: argparse.Namespace) -> int:
+    """One usable WLS-native experiment: risk-policy rules as safe JSON data.
+
+    This entrypoint cannot execute a proposed program, merge a PR, or promote
+    runtime policy. It does call a provider if and only if the owner explicitly
+    selects 'run' and confirms inference consumption.
+    """
+    from hashlib import sha256
+
+    from .experiment_decision import ExperimentPolicy
+    from .rsi_model_port import OpenAICompatibleProposalPort
+    from .task_admission import RsiRiskAdmissionEvaluator
+
+    if not 1 <= args.generations <= 3 or not 1 <= args.branches <= 2:
+        raise ValueError("risk trial limited to three generations and two branches")
+    runtime = runtime_from_args(args)
+    try:
+        state = runtime.rsi_pilot.read(args.run_id)
+        if args.mode == "status":
+            if state is None:
+                print_json({"run_id": args.run_id, "status": "NOT_STARTED"})
+                return 0
+            print_json({
+                "run_id": args.run_id,
+                "status": state["status"],
+                "generation": state["generation"],
+                "champion_id": state["champion_id"],
+                "score": state["champion_metric"]["primary"],
+                "candidates": len(state["candidate_ids"]),
+                "claim": "data_only_risk_policy_trial",
+            })
+            return 0
+        if not args.confirm_model_usage:
+            raise PermissionError("external inference requires --confirm-model-usage")
+        if not args.model_id or not args.base_url:
+            raise ValueError("--model-id and --base-url are required in run mode")
+        if state is not None and state["status"] != "READY":
+            raise ValueError("existing run is not READY; inspect status before continuing")
+        policy = ExperimentPolicy(
+            direction="maximize",
+            minimum_gain=0.001,
+            hard_gates={"invalid_strategy": 0.0},
+            max_rounds=args.generations,
+            max_failures=0,
+            evaluator_digest=RsiRiskAdmissionEvaluator.digest(),
+        )
+        model = OpenAICompatibleProposalPort(
+            model_id=args.model_id,
+            base_url=args.base_url,
+            max_output_tokens=args.max_output_tokens,
+        )
+        session = runtime.bind_rsi_model_experiment(
+            model_port=model,
+            policy=policy,
+            objective=(
+                "Improve task admission classification, particularly Chinese "
+                "requests. Edit only agent/strategy.json as STRICT JSON whose "
+                "only key is risk_terms; risk_terms maps optional "
+                "REVERSIBLE_WRITE, HIGH, IRREVERSIBLE to lists of short literal "
+                "substrings. Raising too much risk on read-only tasks is a "
+                "regression. Never change evaluation, approval or runtime code. "
+                "Only score from independent frozen task cases counts."
+            ),
+            allowed_files=("agent/strategy.json",),
+            independent_evaluator=lambda artifact: RsiRiskAdmissionEvaluator.evaluate(
+                artifact, session.builder.artifact_gate
+            ),
+        )
+        # The evaluator does not read the session until invoked, after binding.
+        if state is None:
+            baseline_id = "risk-seed-" + sha256(
+                args.run_id.encode("utf-8")
+            ).hexdigest()[:16]
+            session.builder.artifact_gate.register(
+                artifact_id=baseline_id,
+                parent_id=None,
+                generation=0,
+                branch=0,
+                files={"agent/strategy.json": b'{"risk_terms":{}}'},
+                policy_digest=policy.digest(),
+                evaluator_digest=policy.evaluator_digest,
+            )
+            session.start(args.run_id, baseline_id, branches=args.branches)
+        finished = session.run_bounded(args.run_id)
+        print_json({
+            "run_id": args.run_id,
+            "status": finished["status"],
+            "generation": finished["generation"],
+            "champion_id": finished["champion_id"],
+            "score": finished["champion_metric"]["primary"],
+            "candidates": len(finished["candidate_ids"]),
+            "claim": "data_only_risk_policy_trial_not_recursive_model_self_improvement",
+        })
+        return 0
+    finally:
+        runtime.db.close_all()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -574,6 +687,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "performance-audit":
             print_json(run_performance_audit(args))
             return 0
+        if args.command == "rsi-risk":
+            return run_rsi_risk(args)
         runtime = runtime_from_args(args)
         if args.command == "once":
             print_json(runtime.run_cycle())
