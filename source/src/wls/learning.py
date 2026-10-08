@@ -130,7 +130,9 @@ class LearningSystem:
         groups: dict[str, list[Any]] = defaultdict(list)
         for row in rows:
             error = str(row["error"] or "unknown")
-            key = f"{row['tool']}::{error[:160]}"
+            # An identical tool-wide "acceptance criteria failed" is not
+            # evidence of one recurring defect across unrelated tasks.
+            key = f"{row['tool']}::{str(row['purpose'])[:100]}::{error[:120]}"
             groups[key].append(row)
         created: list[str] = []
         for key, group in sorted(groups.items(), key=lambda pair: (-len(pair[1]), pair[0])):
