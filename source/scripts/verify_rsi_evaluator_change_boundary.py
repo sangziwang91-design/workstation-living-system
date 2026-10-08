@@ -23,13 +23,20 @@ MAX_FILES = 3000
 
 
 def is_other_code(path: str) -> bool:
-    if path == ".github/CODEOWNERS":
-        return True
+    # GitHub's file list is repository-global. Limiting classification to
+    # source/ or .github/ lets a PR conceal implementation under scripts/,
+    # tools/, nested packages or a root-level entrypoint while also editing
+    # the evaluator. Fail closed on executable/config suffixes *anywhere*.
+    # CURRENT_STATE is an advisory owner-facing status record, not code.
+    if path in {"README.md", "CURRENT_STATE.yaml"}:
+        return False
     return (
-        (path.startswith(("source/", ".github/", "agent/", "evals/", "tests/"))
-         and PurePosixPath(path).suffix.lower() in CODE_SUFFIXES)
-        or path in {"pyproject.toml", "Dockerfile", "Makefile", "tox.ini",
-                    "pytest.ini", "uv.lock", "requirements.txt"}
+        path == ".github/CODEOWNERS"
+        or PurePosixPath(path).suffix.lower() in CODE_SUFFIXES
+        or PurePosixPath(path).name in {
+            "Dockerfile", "Makefile", "tox.ini", "pytest.ini",
+            "uv.lock", "requirements.txt",
+        }
     )
 
 
