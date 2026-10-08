@@ -47,10 +47,55 @@ jobs:
           set -euo pipefail
           /tmp/wls-gitleaks/gitleaks git \
             --log-opts="--all" \
+            --exit-code=0 \
             --redact=100 \
             --report-format=json \
             --report-path=/tmp/wls-gitleaks-history-redacted.json \
             --no-banner
+      - name: Fail on any unreviewed historical credential finding
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import subprocess
+          from pathlib import Path
+
+          report = Path("/tmp/wls-gitleaks-history-redacted.json")
+          findings = json.loads(report.read_text(encoding="utf-8")) if report.is_file() else []
+          # A 2026-07 synthetic security-test literal is deliberately shaped
+          # like a token so WLS can verify its own credential redaction.
+          # This exception is fixed to ONE rule, source line, and Git commit;
+          # actual secret values are never published by this diagnostic.
+          known = (
+              "generic-api-key",
+              "source/tests/test_security.py",
+              104,
+              "277515d4905e83500ee6d640c103998bbc71e3d9",
+          )
+          historical = subprocess.check_output(
+              ["git", "show", f"{known[3]}:{known[1]}"], text=True
+          ).splitlines()
+          assert "test_detect_github_token" in historical[102]
+          assert "1234567890" in historical[103]  # synthetic sequence, not a live token
+          exceptions = 0
+          unreviewed = []
+          for finding in findings:
+              identity = (
+                  finding.get("RuleID"),
+                  finding.get("File"),
+                  finding.get("StartLine"),
+                  finding.get("Commit"),
+              )
+              if identity == known:
+                  exceptions += 1
+              else:
+                  unreviewed.append(identity)
+          print(f"historical synthetic fixtures={exceptions}; unreviewed findings={len(unreviewed)}")
+          for rule, file, line, commit in unreviewed:
+              print(f"UNREVIEWED rule={rule} file={file} line={line} commit={commit}")
+          if exceptions > 1 or unreviewed:
+              raise SystemExit(1)
+          PY
       - name: Print safe finding identifiers (never leak token values)
         if: always()
         shell: bash
