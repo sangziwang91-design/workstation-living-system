@@ -190,26 +190,28 @@ def run(args) -> tuple[int, dict]:
         load_strategy(args.baseline)
         baseline_digest = sha256(args.baseline.read_bytes()).hexdigest()
     if args.manifest_only:
+        if baseline_digest is None:
+            return 2, {"schema": VERSION, "status": "UNMEASURED",
+                       "reason": "baseline required to freeze sealed manifest"}
         return 0, {
             "schema": VERSION, "status": "MANIFEST_ONLY",
             "case_sha256": case_digest, "evaluator_sha256": source_digest,
             "baseline_sha256": baseline_digest,
             "private_cases_in_git": False,
         }
-    if not args.expected_case_sha256 or not args.expected_evaluator_sha256:
+    if (not args.expected_case_sha256 or not args.expected_evaluator_sha256
+            or not args.expected_baseline_sha256):
         return 2, {"schema": VERSION, "status": "UNMEASURED",
-                   "reason": "frozen manifest not supplied"}
+                   "reason": "frozen case, scorer and baseline digests required"}
     if not HEX_SHA256.fullmatch(args.expected_case_sha256) or not HEX_SHA256.fullmatch(args.expected_evaluator_sha256):
         return 2, {"schema": VERSION, "status": "UNMEASURED",
                    "reason": "invalid frozen manifest digest"}
-    if args.expected_baseline_sha256 is not None:
-        if not HEX_SHA256.fullmatch(args.expected_baseline_sha256):
-            return 2, {"schema": VERSION, "status": "UNMEASURED",
-                       "reason": "invalid frozen baseline digest"}
+    if not HEX_SHA256.fullmatch(args.expected_baseline_sha256):
+        return 2, {"schema": VERSION, "status": "UNMEASURED",
+                   "reason": "invalid frozen baseline digest"}
     if (case_digest != args.expected_case_sha256
             or source_digest != args.expected_evaluator_sha256
-            or (args.expected_baseline_sha256 is not None
-                and baseline_digest != args.expected_baseline_sha256)):
+            or baseline_digest != args.expected_baseline_sha256):
         return 3, {
             "schema": VERSION, "status": "STANDARD_MOVED",
             "case_sha256": case_digest, "evaluator_sha256": source_digest,
