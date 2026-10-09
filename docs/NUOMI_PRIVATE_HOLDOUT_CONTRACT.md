@@ -1,10 +1,10 @@
 # Nuomi external holdout — G4 candidate scoring contract
 
-The **private holdout belongs to Nuomi** and must never be committed, pasted into PRs,
+The **private holdout is assigned to Nuomi, the owner's Notion built-in AI**, and must never be committed, pasted into PRs,
 uploaded as GitHub Actions artifacts, or passed through ChatGPT. This package adds
 only a public command-line *interface*, not a private case set or score.
 
-Run the scorer from a trusted, exact WLS checkout (not from a candidate branch).
+Nuomi is a Notion AI assistant, not an automatically reachable standalone execution server; this contract does not claim Notion AI can invoke Python or access a private host. The trusted operator must separately arrange private execution without sharing sealed case text or labels with ChatGPT or GitHub.\n\nRun the scorer from a trusted, exact WLS checkout (not from a candidate branch).
 The only candidate-controlled input is bounded `risk_terms` JSON; no candidate
 Python is imported or executed.
 
@@ -28,12 +28,13 @@ The example above is a **schema illustration**, not actual sealed test data.
 
 ```sh
 python source/scripts/run_external_risk_holdout.py \
-  --repo . --cases /external-private/nuomi-cases.json --manifest-only
+  --repo . --cases /external-private/nuomi-cases.json \\
+  --baseline baseline-strategy.json --manifest-only
 ```
 
-Nuomi retains both SHA-256 values out of band, along with scorer checkout SHA,
+Nuomi retains all three SHA-256 values (case set, scorer, and baseline strategy) out of band, along with scorer checkout SHA,
 case count, selection policy, model version, and one-time evaluation budget.
-A changed scorer, case file, or labels yields `STANDARD_MOVED`.
+A changed scorer, case file, labels, or baseline strategy yields `STANDARD_MOVED`. An absent baseline hash yields `UNMEASURED`. Set all three hashes **before** inspecting any selected candidate.
 
 **2. Evaluate a baseline and one selected candidate**, each a data-only JSON
 file such as `{"risk_terms":{"HIGH":["some phrase"]}}`:
@@ -43,7 +44,8 @@ python source/scripts/run_external_risk_holdout.py \
   --repo . --cases /external-private/nuomi-cases.json \
   --baseline baseline-strategy.json --candidate candidate-strategy.json \
   --expected-case-sha256 <frozen-case-hash> \
-  --expected-evaluator-sha256 <frozen-scorer-hash>
+  --expected-evaluator-sha256 <frozen-scorer-hash> \\
+  --expected-baseline-sha256 <frozen-baseline-hash>
 ```
 
 Exit/status mapping: `0 QUALIFIED_CANDIDATE_ONLY`;
@@ -52,7 +54,7 @@ A candidate qualifies only with a positive paired score change, zero regressions
 and one-sided exact paired-test p below 0.05. This is a conservative candidate
 admission gate, **not** proof of general RSI nor approval for deployment.
 
-Output contains only aggregate scores, counts, Wilson 95% intervals, pairwise
+Output contains only aggregate scores, counts, the three digests, Wilson 95% intervals, pairwise
 discordance, source/case hashes, and claim limits. No private test text,
 identifiers, expected labels or per-case feedback are disclosed.
 
