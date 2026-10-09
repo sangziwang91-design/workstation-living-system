@@ -29,6 +29,10 @@ BLOCKED_FILES = frozenset({
     "source/src/wls/evaluator.py",
     "source/src/wls/experiment_decision.py",
     "source/src/wls/rsi_evolution.py",
+    "source/src/wls/schemas.py",
+    "source/scripts/generate_ci_feedback.py",
+    "source/src/wls/task_admission.py",
+    "source/scripts/run_external_risk_holdout.py",
 })
 
 
