@@ -24,7 +24,7 @@ from wls.task_admission import (
 SCHEMA = "wls.risk_holdout.v1"
 VERSION = "wls.private_holdout_result.v1"
 MAX_BYTES = 512_000
-MAX_CASES = 2_000
+MAX_CASES = 500
 MAX_STRATEGY_BYTES = 4_096
 MIN_CASES = 60
 HEX_SHA256 = re.compile(r"[0-9a-f]{64}\Z")
@@ -99,7 +99,9 @@ def load_strategy(path: Path) -> dict[str, list[str]]:
     value = load_json(path, MAX_STRATEGY_BYTES)
     if not isinstance(value, dict):
         raise ValueError("strategy must be an object")
-    rules = value.get("risk_terms")
+    if set(value) != {"risk_terms"}:
+        raise ValueError("unexpected strategy fields")
+    rules = value["risk_terms"]
     return _validate_rsi_risk_strategy({"risk_terms": rules})
 
 
@@ -157,8 +159,13 @@ def run(args) -> tuple[int, dict]:
     else:
         raise ValueError("private cases must be outside the repository checkout")
 
-    case_digest = sha256(cases_path.read_bytes()).hexdigest()
+    raw = cases_path.read_bytes()
+    if not raw or len(raw) > MAX_BYTES:
+        raise ValueError("invalid private case file size")
+    case_digest = sha256(raw).hexdigest()
     source_digest = evaluator_digest(repo)
+    # A digest of malformed or duplicate cases is never a valid sealed manifest.
+    cases = parse_cases(load_json(cases_path, MAX_BYTES))
     if args.manifest_only:
         return 0, {
             "schema": VERSION, "status": "MANIFEST_ONLY",
@@ -177,7 +184,6 @@ def run(args) -> tuple[int, dict]:
             "case_sha256": case_digest, "evaluator_sha256": source_digest,
             "eligible": False, "claim": "no cross-standard improvement allowed",
         }
-    cases = parse_cases(load_json(cases_path, MAX_BYTES))
     if len(cases) < args.min_n:
         return 2, {"schema": VERSION, "status": "UNMEASURED",
                    "n": len(cases), "minimum_n": args.min_n,
