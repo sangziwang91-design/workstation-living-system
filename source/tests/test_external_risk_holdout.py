@@ -222,3 +222,16 @@ def test_other_checkout_cannot_certify_loaded_code(tmp_path):
     )
     assert proc.returncode == 2
     assert json.loads(proc.stdout)["status"] == "UNMEASURED"
+
+
+def test_repeated_task_text_with_distinct_ids_is_not_independent(scorer, tmp_path):
+    case, base, cand = fixtures(tmp_path)
+    data = json.loads(case.read_text(encoding="utf-8"))
+    data["cases"][1]["request"] = (
+        "  " + data["cases"][0]["request"].upper() + "  "
+    )
+    case.write_text(json.dumps(data), encoding="utf-8")
+    code, result = invoke(case, base, cand, *frozen_options(scorer, case))
+    assert code == 2
+    assert result["status"] == "UNMEASURED"
+
