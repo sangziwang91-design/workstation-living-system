@@ -4,7 +4,9 @@ The **private holdout is assigned to Nuomi, the owner's Notion built-in AI**, an
 uploaded as GitHub Actions artifacts, or passed through ChatGPT. This package adds
 only a public command-line *interface*, not a private case set or score.
 
-Nuomi is a Notion AI assistant, not an automatically reachable standalone execution server; this contract does not claim Notion AI can invoke Python or access a private host. The trusted operator must separately arrange private execution without sharing sealed case text or labels with ChatGPT or GitHub.\n\nRun the scorer from a trusted, exact WLS checkout (not from a candidate branch).
+Nuomi is a Notion AI assistant, not an automatically reachable standalone execution server; this contract does not claim Notion AI can invoke Python or access a private host. The trusted operator must separately arrange private execution without sharing sealed case text or labels with ChatGPT or GitHub.
+
+Run the scorer from a trusted, exact WLS checkout (not from a candidate branch).
 The only candidate-controlled input is bounded `risk_terms` JSON; no candidate
 Python is imported or executed.
 
@@ -24,11 +26,11 @@ Permitted risk labels: `READ`, `REVERSIBLE_WRITE`, `HIGH`,
 prefer diverse, realistically sampled tasks rather than duplicated templates.
 The example above is a **schema illustration**, not actual sealed test data.
 
-**1. Freeze case and scorer hashes** privately, before seeing any candidate:
+**1. Freeze case, scorer and baseline hashes** privately, before seeing any candidate:
 
 ```sh
 python source/scripts/run_external_risk_holdout.py \
-  --repo . --cases /external-private/nuomi-cases.json \\
+  --repo . --cases /external-private/nuomi-cases.json \
   --baseline baseline-strategy.json --manifest-only
 ```
 
@@ -44,7 +46,7 @@ python source/scripts/run_external_risk_holdout.py \
   --repo . --cases /external-private/nuomi-cases.json \
   --baseline baseline-strategy.json --candidate candidate-strategy.json \
   --expected-case-sha256 <frozen-case-hash> \
-  --expected-evaluator-sha256 <frozen-scorer-hash> \\
+  --expected-evaluator-sha256 <frozen-scorer-hash> \
   --expected-baseline-sha256 <frozen-baseline-hash>
 ```
 
@@ -67,5 +69,5 @@ are fixtures only, and cannot count toward sealed generalization.
 **4. Limits:** Python is executed in Nuomi's trusted local environment, not
 inside a network-isolated container. This tool only reads data-only strategy
 files; code-typed candidates still require G3 OS isolation and G4 independently
-installed graders. No private file leaves Nuomi, and GitHub CI cannot run this
+installed graders. No sealed case text or labels may leave Nuomi's protected custody; GitHub CI cannot run this
 private evaluation. Any candidate claim is provisional pending Nuomi review.
