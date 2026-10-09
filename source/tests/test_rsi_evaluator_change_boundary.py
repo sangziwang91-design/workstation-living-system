@@ -53,6 +53,7 @@ def test_evaluator_only_code_only_and_documents_are_legal(guard, paths):
     "source/src/wls/evaluator.py",
     "source/src/wls/experiment_decision.py",
     "source/scripts/github_rsi_replay_model.py",
+    "source/scripts/run_external_risk_holdout.py",
 ])
 def test_every_scoring_source_protected(guard, scorer):
     out = guard.check_files([scorer, "source/src/wls/runtime.py"])
