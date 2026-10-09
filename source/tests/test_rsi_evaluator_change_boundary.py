@@ -48,6 +48,10 @@ def test_evaluator_only_code_only_and_documents_are_legal(guard, paths):
 
 
 @pytest.mark.parametrize("scorer", [
+    "source/src/wls/schemas.py",
+    "source/src/wls/rsi_artifact_gate.py",
+    "source/src/wls/rsi_evolution.py",
+    "source/scripts/generate_ci_feedback.py",
     "source/src/wls/task_admission.py",
     "source/src/wls/benchmark.py",
     "source/src/wls/evaluator.py",
@@ -121,3 +125,36 @@ def test_scorer_and_prose_only_can_still_be_reviewed(guard):
         "CURRENT_STATE.yaml",
     ])
     assert result["eligible"] is True
+
+
+@pytest.mark.parametrize("grading_dependency", [
+    "source/src/wls/schemas.py",
+    "source/src/wls/rsi_artifact_gate.py",
+    "source/src/wls/rsi_evolution.py",
+    "source/scripts/generate_ci_feedback.py",
+])
+@pytest.mark.parametrize("implementation", [
+    "source/src/wls/runtime.py",
+    "source/tests/test_external_risk_holdout.py",
+    "ops/rsi_settings.json",
+])
+def test_indirect_grading_authority_cannot_change_with_candidate(
+    guard, grading_dependency, implementation,
+):
+    """Indirection through schema/grade feedback is still evaluator drift."""
+    result = guard.check_files([grading_dependency, implementation])
+    assert result["eligible"] is False
+    assert result["status"] == "REJECT_MIXED_EVALUATOR_AND_CODE"
+    assert grading_dependency in result["evaluator_files"]
+    assert implementation in result["other_code_files"]
+
+
+def test_grading_only_files_can_still_be_reviewed_without_candidate_code(guard):
+    grading_only = [
+        "source/src/wls/schemas.py",
+        "source/src/wls/task_admission.py",
+        "source/src/wls/benchmark.py",
+    ]
+    result = guard.check_files(grading_only)
+    assert result["eligible"] is True
+    assert result["other_code_files"] == []

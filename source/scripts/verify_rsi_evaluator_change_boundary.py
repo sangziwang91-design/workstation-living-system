@@ -9,6 +9,12 @@ from pathlib import PurePosixPath
 from urllib.request import Request, urlopen
 
 EVALUATORS = frozenset({
+    # These dependencies define grade semantics or acceptance authority, even
+    # when a PR does not touch the top-level benchmark implementation.
+    "source/src/wls/schemas.py",
+    "source/src/wls/rsi_artifact_gate.py",
+    "source/src/wls/rsi_evolution.py",
+    "source/scripts/generate_ci_feedback.py",
     "source/src/wls/task_admission.py",
     "source/src/wls/benchmark.py",
     "source/src/wls/evaluator.py",
