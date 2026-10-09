@@ -1,6 +1,7 @@
 """Independent scope-selection tests for the scheduled GitHub RSI code repair."""
 from __future__ import annotations
 
+import ast
 import importlib.util
 import json
 import subprocess
@@ -109,4 +110,59 @@ def test_signed_candidate_cannot_select_benchmark_or_promotion_code(
             for name in paths
         ],
     )
+    assert repair_module.select_scope() == (allowed,)
+
+
+def test_all_trusted_scorers_protected_by_both_autorepair_gates(repair_module):
+    """Every grader input stays frozen in candidate selection and write-token job."""
+    scripts = Path(__file__).resolve().parents[1] / "scripts"
+    spec = importlib.util.spec_from_file_location(
+        "trusted_scorer_catalog", scripts / "verify_rsi_evaluator_change_boundary.py"
+    )
+    assert spec is not None and spec.loader is not None
+    guard = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(guard)
+    protected = set(guard.EVALUATORS)
+    assert protected <= repair_module.BLOCKED_FILES
+
+    # Statically parse the token-bearing promotion job; do not execute YAML.
+    workflow_path = Path(__file__).resolve().parents[2] / (
+        ".github/workflows/hosted-rsi-autorepair.yml"
+    )
+    workflow = workflow_path.read_text(encoding="utf-8")
+    start_marker = "          blocked = {"
+    assert workflow.count(start_marker) == 1
+    source = workflow.split(start_marker, 1)[1].split("          }", 1)[0]
+    trusted_blocked = ast.literal_eval("{" + source + "}")
+    assert isinstance(trusted_blocked, set)
+    assert protected <= trusted_blocked
+
+
+def test_grade_files_are_not_selected_even_if_ruff_fixes_them(
+    repair_module, monkeypatch, tmp_path,
+):
+    monkeypatch.chdir(tmp_path)
+    protected = [
+        "source/src/wls/schemas.py",
+        "source/src/wls/task_admission.py",
+        "source/scripts/generate_ci_feedback.py",
+        "source/scripts/run_external_risk_holdout.py",
+    ]
+    allowed = "source/src/wls/ordinary_module.py"
+    paths = protected + [allowed]
+    for name in paths:
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x=1\\n", encoding="utf-8")
+
+    def fake_call(*argv, **kwargs):
+        assert argv[:3] == ("git", "ls-files", "--")
+        return subprocess.CompletedProcess(argv, 0, "\\n".join(paths), "")
+
+    monkeypatch.setattr(repair_module, "call", fake_call)
+    monkeypatch.setattr(repair_module, "diagnostics", lambda *args: [
+        {"filename": str((tmp_path / name).resolve()),
+         "fix": {"applicability": "safe"}}
+        for name in paths
+    ])
     assert repair_module.select_scope() == (allowed,)
