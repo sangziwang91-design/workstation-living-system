@@ -29,7 +29,7 @@ def fixtures(tmp_path: Path, *, regressions: int = 0):
     for i in range(60):
         cases.append({
             "id": f"synthetic-{i:03d}",
-            "request": f"quartzbananae24 marker for synthetic fixture {i}",
+            "request": f"quartzbananae24 neutral observation number {i}",
             "expected_risk": "READ" if i < regressions else "HIGH",
         })
     question_path = tmp_path / "nuomi-private-placeholder.json"
