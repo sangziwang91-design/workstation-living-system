@@ -86,6 +86,7 @@ def parse_cases(value) -> list[tuple[str, RiskLevel]]:
     if not isinstance(rows, list) or not 1 <= len(rows) <= MAX_CASES:
         raise ValueError("invalid case count")
     seen = set()
+    seen_requests = set()
     cases = []
     for row in rows:
         if not isinstance(row, dict) or set(row) != {"id", "request", "expected_risk"}:
@@ -101,7 +102,12 @@ def parse_cases(value) -> list[tuple[str, RiskLevel]]:
             or risk not in RiskLevel.__members__
         ):
             raise ValueError("invalid case identity, input or expected label")
+        # Distinct IDs alone do not make repeated inputs independent cases.
+        normalized_request = " ".join(request.split()).casefold()
+        if normalized_request in seen_requests:
+            raise ValueError("duplicate independent case input")
         seen.add(case_id)
+        seen_requests.add(normalized_request)
         cases.append((request, RiskLevel[risk]))
     return cases
 
