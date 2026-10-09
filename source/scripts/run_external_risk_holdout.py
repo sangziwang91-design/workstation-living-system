@@ -58,13 +58,13 @@ def evaluator_digest(repo: Path) -> str:
     ]
     # The hashed checkout must be the code this process will actually run.
     # A --repo pointing at another checkout must not attest to imported code.
+    admission_file = sys.modules[admit_with_rsi_risk_strategy.__module__].__file__
+    schema_file = sys.modules[RiskLevel.__module__].__file__
+    if admission_file is None or schema_file is None:
+        raise ValueError("trusted evaluator module has no source path")
     loaded_sources = {
-        "source/src/wls/task_admission.py": Path(
-            sys.modules[admit_with_rsi_risk_strategy.__module__].__file__
-        ).resolve(),
-        "source/src/wls/schemas.py": Path(
-            sys.modules[RiskLevel.__module__].__file__
-        ).resolve(),
+        "source/src/wls/task_admission.py": Path(admission_file).resolve(),
+        "source/src/wls/schemas.py": Path(schema_file).resolve(),
         "source/scripts/run_external_risk_holdout.py": Path(__file__).resolve(),
     }
     digest = sha256()
