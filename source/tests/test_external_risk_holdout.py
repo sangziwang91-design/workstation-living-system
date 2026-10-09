@@ -58,7 +58,9 @@ def invoke(question_path: Path, base: Path, candidate: Path,
 
 def frozen_options(scorer, case_path: Path):
     from hashlib import sha256
+    baseline_path = case_path.parent / "baseline.json"
     return (
+        "--expected-baseline-sha256", sha256(baseline_path.read_bytes()).hexdigest(),
         "--expected-case-sha256", sha256(case_path.read_bytes()).hexdigest(),
         "--expected-evaluator-sha256", scorer.evaluator_digest(ROOT),
     )
@@ -235,3 +237,37 @@ def test_repeated_task_text_with_distinct_ids_is_not_independent(scorer, tmp_pat
     assert code == 2
     assert result["status"] == "UNMEASURED"
 
+
+
+def test_baseline_replacement_is_standard_moved(scorer, tmp_path):
+    case, base, cand = fixtures(tmp_path)
+    frozen = frozen_options(scorer, case)
+    # The evaluator and sealed cases do not change; only the baseline does.
+    base.write_text('{"risk_terms":{"HIGH":["neutral"]}}', encoding="utf-8")
+    code, response = invoke(case, base, cand, *frozen)
+    assert code == 3
+    assert response["status"] == "STANDARD_MOVED"
+    assert response["eligible"] is False
+    assert "metric" not in response
+
+
+def test_manifest_carries_baseline_digest_without_exposing_strategy(scorer, tmp_path):
+    from hashlib import sha256
+    case, base, cand = fixtures(tmp_path)
+    code, manifest = invoke(case, base, cand, "--manifest-only")
+    assert code == 0
+    assert manifest["baseline_sha256"] == sha256(base.read_bytes()).hexdigest()
+    assert manifest["evaluator_sha256"] == scorer.evaluator_digest(ROOT)
+    assert "risk_terms" not in json.dumps(manifest)
+    code, result = invoke(case, base, cand, *frozen_options(scorer, case))
+    assert code == 0
+    assert result["baseline_sha256"] == manifest["baseline_sha256"]
+
+
+def test_malformed_expected_baseline_digest_is_unmeasured(scorer, tmp_path):
+    case, base, cand = fixtures(tmp_path)
+    options = list(frozen_options(scorer, case))
+    options[1] = "invalid"
+    code, report = invoke(case, base, cand, *options)
+    assert code == 2
+    assert report["status"] == "UNMEASURED"
