@@ -183,10 +183,17 @@ def run(args) -> tuple[int, dict]:
     source_digest = evaluator_digest(repo)
     # A digest of malformed or duplicate cases is never a valid sealed manifest.
     cases = parse_cases(load_json(cases_path, MAX_BYTES))
+    # The baseline is part of the evaluation standard, not a candidate choice.
+    # Hash the actual baseline bytes before any candidate is evaluated.
+    baseline_digest = None
+    if args.baseline is not None:
+        load_strategy(args.baseline)
+        baseline_digest = sha256(args.baseline.read_bytes()).hexdigest()
     if args.manifest_only:
         return 0, {
             "schema": VERSION, "status": "MANIFEST_ONLY",
             "case_sha256": case_digest, "evaluator_sha256": source_digest,
+            "baseline_sha256": baseline_digest,
             "private_cases_in_git": False,
         }
     if not args.expected_case_sha256 or not args.expected_evaluator_sha256:
@@ -195,10 +202,18 @@ def run(args) -> tuple[int, dict]:
     if not HEX_SHA256.fullmatch(args.expected_case_sha256) or not HEX_SHA256.fullmatch(args.expected_evaluator_sha256):
         return 2, {"schema": VERSION, "status": "UNMEASURED",
                    "reason": "invalid frozen manifest digest"}
-    if case_digest != args.expected_case_sha256 or source_digest != args.expected_evaluator_sha256:
+    if args.expected_baseline_sha256 is not None:
+        if not HEX_SHA256.fullmatch(args.expected_baseline_sha256):
+            return 2, {"schema": VERSION, "status": "UNMEASURED",
+                       "reason": "invalid frozen baseline digest"}
+    if (case_digest != args.expected_case_sha256
+            or source_digest != args.expected_evaluator_sha256
+            or (args.expected_baseline_sha256 is not None
+                and baseline_digest != args.expected_baseline_sha256)):
         return 3, {
             "schema": VERSION, "status": "STANDARD_MOVED",
             "case_sha256": case_digest, "evaluator_sha256": source_digest,
+            "baseline_sha256": baseline_digest,
             "eligible": False, "claim": "no cross-standard improvement allowed",
         }
     if len(cases) < args.min_n:
@@ -216,6 +231,7 @@ def run(args) -> tuple[int, dict]:
         "status": "QUALIFIED_CANDIDATE_ONLY" if qualified else "NO_MEASURED_GAIN",
         "eligible": qualified, "metric": result,
         "case_sha256": case_digest, "evaluator_sha256": source_digest,
+        "baseline_sha256": baseline_digest,
         "source_type": "private_external_holdout",
         "authority": "Nuomi_review_required_no_live_promotion",
         "case_content_in_report": False,
@@ -231,6 +247,7 @@ def main() -> int:
     parser.add_argument("--candidate", type=Path)
     parser.add_argument("--expected-case-sha256")
     parser.add_argument("--expected-evaluator-sha256")
+    parser.add_argument("--expected-baseline-sha256")
     parser.add_argument("--min-n", type=int, default=MIN_CASES)
     parser.add_argument("--manifest-only", action="store_true")
     args = parser.parse_args()
