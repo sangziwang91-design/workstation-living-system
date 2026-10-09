@@ -14,6 +14,7 @@ EVALUATORS = frozenset({
     "source/src/wls/evaluator.py",
     "source/src/wls/experiment_decision.py",
     "source/scripts/github_rsi_replay_model.py",
+    "source/scripts/run_external_risk_holdout.py",
 })
 CODE_SUFFIXES = frozenset({
     ".py", ".pyi", ".js", ".ts", ".tsx", ".jsx", ".rs", ".go",
