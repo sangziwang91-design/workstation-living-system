@@ -153,11 +153,11 @@ def test_grade_files_are_not_selected_even_if_ruff_fixes_them(
     for name in paths:
         path = tmp_path / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("x=1\\n", encoding="utf-8")
+        path.write_text("x=1\n", encoding="utf-8")
 
     def fake_call(*argv, **kwargs):
         assert argv[:3] == ("git", "ls-files", "--")
-        return subprocess.CompletedProcess(argv, 0, "\\n".join(paths), "")
+        return subprocess.CompletedProcess(argv, 0, "\n".join(paths), "")
 
     monkeypatch.setattr(repair_module, "call", fake_call)
     monkeypatch.setattr(repair_module, "diagnostics", lambda *args: [
