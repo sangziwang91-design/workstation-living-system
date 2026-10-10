@@ -107,7 +107,7 @@ jobs:
           fi
       - name: Preserve redacted findings for owner review
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: wls-redacted-history-alerts-${{ github.run_id }}
           path: /tmp/wls-gitleaks-history-redacted.json

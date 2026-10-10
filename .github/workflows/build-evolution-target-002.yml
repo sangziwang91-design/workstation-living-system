@@ -49,7 +49,7 @@ jobs:
         run: python -m pytest -q source/tests/test_memory_ablation.py --junitxml=evolution-target-002.xml
       - name: Preserve independent verification receipt
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: hosted-et002-${{ github.run_id }}
           path: evolution-target-002.xml

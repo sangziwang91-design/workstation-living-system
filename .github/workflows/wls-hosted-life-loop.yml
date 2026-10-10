@@ -20,7 +20,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: wls-hosted-life-readonly
+  # Keep PR probes from displacing scheduled self-run observations.
+  group: wls-hosted-life-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -69,7 +70,7 @@ jobs:
           PY
       - name: Preserve candidate-only lifecycle receipt
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: wls-hosted-life-receipt
           path: wls-hosted-life-receipt.json
