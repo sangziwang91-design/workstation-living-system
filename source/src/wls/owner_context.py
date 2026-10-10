@@ -54,7 +54,13 @@ class OwnerContextBridge:
             payload = json.loads(raw.decode("utf-8"))
         except (UnicodeError, json.JSONDecodeError) as exc:
             raise ValueError("owner context is not valid UTF-8 JSON") from exc
-        return self.import_bundle(payload, source_sha256=hashlib.sha256(raw).hexdigest())
+        digest = hashlib.sha256(raw).hexdigest()
+        previous = self.db.get_runtime("owner_context_last_import", {})
+        if (isinstance(previous, dict)
+                and previous.get("status") == "IMPORTED"
+                and previous.get("source_sha256") == digest):
+            return {"status": "UNCHANGED", "imported": 0}
+        return self.import_bundle(payload, source_sha256=digest)
 
     def import_bundle(
         self, payload: Any, *, source_sha256: str,
