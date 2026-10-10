@@ -148,7 +148,7 @@ def consistent_sqlite_snapshot(path: Path) -> bytes:
         finally:
             source.close()
         data = target.read_bytes()
-    if not data.startswith(b"SQLite format 3\\x00") or len(data) > MAX_ARTIFACT_BYTES:
+    if not data.startswith(b"SQLite format 3\x00") or len(data) > MAX_ARTIFACT_BYTES:
         raise ValueError("invalid or oversized portable SQLite snapshot")
     return data
 
@@ -159,7 +159,7 @@ def validated_portable_sqlite(raw: bytes) -> bytes:
     The original digest is checked first by restore_checkpoint(). Everything
     here occurs in an isolated temporary directory, before writing WLS_HOME.
     """
-    if not raw.startswith(b"SQLite format 3\\x00") or len(raw) > MAX_ARTIFACT_BYTES:
+    if not raw.startswith(b"SQLite format 3\x00") or len(raw) > MAX_ARTIFACT_BYTES:
         raise ValueError("checkpoint database is not a bounded SQLite file")
     with tempfile.TemporaryDirectory(prefix="wls-g1-db-restore-") as base:
         path = Path(base) / "restored.sqlite3"
@@ -178,7 +178,7 @@ def validated_portable_sqlite(raw: bytes) -> bytes:
         finally:
             connection.close()
         clean = path.read_bytes()
-    if len(clean) > MAX_ARTIFACT_BYTES or clean[18:20] != b"\\x01\\x01":
+    if len(clean) > MAX_ARTIFACT_BYTES or clean[18:20] != b"\x01\x01":
         raise ValueError("checkpoint database not portable after normalization")
     return clean
 
