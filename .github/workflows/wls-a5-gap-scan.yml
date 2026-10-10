@@ -9,6 +9,8 @@ on:
       - "source/scripts/build_wls_gap_scan.py"
       - "source/tests/test_wls_gap_scan.py"
       - ".github/workflows/wls-a5-gap-scan.yml"
+      - "source/scripts/sync_wls_gap_issues.py"
+      - "source/tests/test_wls_gap_issue_triage.py"
 
 permissions:
   contents: read
@@ -34,7 +36,7 @@ jobs:
       - name: Install canonical source
         run: python -m pip install -e ".[dev]"
       - name: Verify gap scanner contracts
-        run: python -m pytest -q source/tests/test_wls_gap_scan.py
+        run: python -m pytest -q source/tests/test_wls_gap_scan.py source/tests/test_wls_gap_issue_triage.py
       - name: Observe WLS targeted tests repeat one
         continue-on-error: true
         run: |
@@ -68,3 +70,29 @@ jobs:
             gap-ruff.json
             wls-gap-scan.json
           if-no-files-found: warn
+
+  schedule-only-issue-intake:
+    name: Create deduplicated issues for actual repeated CI defects
+    needs: daily-observed-gap
+    # Untrusted PRs and manually dispatched probes NEVER get an issue-write token.
+    if: github.event_name == 'schedule' && needs.daily-observed-gap.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - name: Checkout trusted main only, without persisted credentials
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Download exact current-run read-only evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: wls-a5-gap-scan-${{ github.run_id }}
+      - name: Promote evidence to at most three deduplicated candidate issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python source/scripts/sync_wls_gap_issues.py --report wls-gap-scan.json
