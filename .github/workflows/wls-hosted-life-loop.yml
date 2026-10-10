@@ -20,7 +20,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: wls-hosted-life-readonly
+  # Keep PR probes from displacing scheduled self-run observations.
+  group: wls-hosted-life-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
