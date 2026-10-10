@@ -153,6 +153,10 @@ class RsiEvolutionPilot:
         results: list[dict[str, Any]] = []
         seen: set[str] = set(state["candidate_ids"])
         proposal_parents: dict[str, str] = {}
+        # Only ancestors from *completed* generations may be parents. A
+        # branch measured in the current generation cannot leak forward.
+        parent_pool = [dict(item) for item in state.get("archive", [])]
+        issued: dict[str, int] = {}
         try:
             for branch in range(int(state["branches"])):
                 # Non-champion archive parents are an opt-in exploratory arm.
@@ -164,16 +168,17 @@ class RsiEvolutionPilot:
                 )
                 if exploratory:
                     pool = [
-                        item for item in state.get("archive", [])
+                        item for item in parent_pool
                         if item["candidate_id"] != old_id
                     ]
                     if pool:
                         parent_id = min(pool, key=lambda item: (
-                            int(item["children"]),
+                            int(item["children"]) + issued.get(item["candidate_id"], 0),
                             -float(item["primary"]) if policy.direction == "maximize"
                             else float(item["primary"]),
                             int(item["generation"]), item["candidate_id"],
                         ))["candidate_id"]
+                issued[parent_id] = issued.get(parent_id, 0) + 1
                 candidate_id = propose(parent_id, gen, branch)
                 if not _valid_artifact_id(candidate_id):
                     raise ValueError("candidate_id must be a safe artifact identifier")
