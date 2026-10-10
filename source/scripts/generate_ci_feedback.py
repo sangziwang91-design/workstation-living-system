@@ -22,6 +22,8 @@ import zipfile
 import yaml
 
 SCHEMA = "wls.ci_feedback.v1"
+MAX_PREVIOUS_FEEDBACK_JSON_BYTES = 500_000
+MAX_PREVIOUS_FEEDBACK_ARCHIVE_ENTRIES = 32
 EVALUATOR_FILES = (
     "source/src/wls/task_admission.py",
     "source/src/wls/benchmark.py",
@@ -204,6 +206,38 @@ class _SafeRedirect(HTTPRedirectHandler):
         return next_request
 
 
+def read_bounded_previous_feedback(payload: bytes) -> dict | None:
+    """Read one historical feedback record without unbounded ZIP expansion.
+
+    Artifacts are CI observations, not trusted instructions. We refuse ZIPs
+    with many entries, oversized embedded JSON, or ambiguous feedback files.
+    """
+    with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+        infos = archive.infolist()
+        if len(infos) > MAX_PREVIOUS_FEEDBACK_ARCHIVE_ENTRIES:
+            raise ValueError("previous feedback archive contains too many files")
+        matches = [
+            info for info in infos
+            if info.filename == "FEEDBACK.json"
+            or info.filename.endswith("/FEEDBACK.json")
+        ]
+        if not matches:
+            return None
+        if len(matches) != 1 or matches[0].is_dir():
+            raise ValueError("ambiguous previous feedback file")
+        info = matches[0]
+        if info.file_size > MAX_PREVIOUS_FEEDBACK_JSON_BYTES:
+            raise ValueError("previous feedback decompressed JSON too large")
+        with archive.open(info) as stream:
+            raw = stream.read(MAX_PREVIOUS_FEEDBACK_JSON_BYTES + 1)
+        if len(raw) > MAX_PREVIOUS_FEEDBACK_JSON_BYTES:
+            raise ValueError("previous feedback exceeds decompression bound")
+        previous = json.loads(raw)
+        if not isinstance(previous, dict):
+            raise ValueError("previous feedback must be a JSON object")
+        return previous if previous.get("schema") == SCHEMA else None
+
+
 def fetch_previous_feedback(repo: str, branch: str, current_run: str,
                             token: str) -> dict | None:
     """Best-effort previous GitHub artifact; no private task data is fetched."""
@@ -238,14 +272,9 @@ def fetch_previous_feedback(repo: str, branch: str, current_run: str,
             candidates.append(item)
     for item in sorted(candidates, key=lambda x: x.get("created_at", ""), reverse=True)[:3]:
         payload = get(item["archive_download_url"])
-        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
-            names = [name for name in archive.namelist() if name.endswith("FEEDBACK.json")]
-            if not names:
-                continue
-            with archive.open(names[0]) as stream:
-                previous = json.load(stream)
-            if previous.get("schema") == SCHEMA:
-                return previous
+        previous = read_bounded_previous_feedback(payload)
+        if previous is not None:
+            return previous
     return None
 
 
