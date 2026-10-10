@@ -112,13 +112,19 @@ def mine(repo: Path, *, head: str, max_commits: int = 120,
         if match is None:
             skips["not_pr_merge"] = skips.get("not_pr_merge", 0) + 1
             continue
+        # Classify *all* historical edits before restricting to files that
+        # still exist. A deletion or rename of a trusted scorer also changes
+        # the evaluation standard, even though diff-filter=AM hides removals.
+        all_paths = git(
+            repo, "diff", "--name-only", "--no-renames", parent, commit
+        ).splitlines()
+        if set(all_paths) & protected:
+            skips["scorer_authority_changed"] = skips.get("scorer_authority_changed", 0) + 1
+            continue
         paths = git(
             repo, "diff", "--name-only", "--diff-filter=AM", parent, commit
         ).splitlines()
         sources, tests = classify(paths)
-        if set(paths) & protected:
-            skips["scorer_authority_changed"] = skips.get("scorer_authority_changed", 0) + 1
-            continue
         if not sources or not tests:
             skips["no_source_and_test_pair"] = (
                 skips.get("no_source_and_test_pair", 0) + 1
