@@ -1,0 +1,70 @@
+name: WLS C2 Public Historical TaskPack
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "source/scripts/build_wls_public_taskpack.py"
+      - "source/tests/test_wls_public_taskpack.py"
+      - ".github/workflows/wls-c2-taskpack.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wls-c2-taskpack-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  historical-taskpack:
+    name: Mine actual git repairs without publishing fixes to worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout complete public ancestry without credentials
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Configure Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.13"
+      - name: Install canonical WLS verification environment
+        run: python -m pip install -e ".[dev]"
+      - name: Verify pre-fix history lineage and contamination controls
+        run: python -m pytest -q source/tests/test_wls_public_taskpack.py
+      - name: Mine real bounded historical candidate tasks
+        shell: bash
+        run: |
+          python source/scripts/build_wls_public_taskpack.py \
+            --repo . --head "$(git rev-parse HEAD)" --limit 20 \
+            --output wls-public-taskpack.json \
+            --worker-output wls-public-worker-tasks.json
+      - name: Confirm no hidden test replay or sealed-eval promotion claims
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          audit = json.loads(Path("wls-public-taskpack.json").read_text())
+          worker = json.loads(Path("wls-public-worker-tasks.json").read_text())
+          assert audit["schema"] == "wls.public_repair_taskpack.v1"
+          assert audit["status"] != "UNMEASURED"
+          assert audit["sealing"]["eligible_for_rsi_gain_claim"] is False
+          assert audit["sealing"]["independent_holdout"] is False
+          assert audit["task_count"] == len(worker["tasks"])
+          for task in worker["tasks"]:
+              assert "fix_merge_sha" not in task
+              assert "source_files" not in task
+              assert task["source_type"] == "public_historical_training"
+          print({"task_count": audit["task_count"], "status": audit["status"]})
+          PY
+      - name: Store inspectable auditor and candidate-only manifests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wls-c2-public-taskpack-${{ github.run_id }}
+          path: |
+            wls-public-taskpack.json
+            wls-public-worker-tasks.json
+          if-no-files-found: warn
