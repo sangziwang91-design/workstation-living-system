@@ -40,6 +40,9 @@ jobs:
       - name: Replay fixed test against both known WLS versions twice
         shell: bash
         run: |
+          # Actions starts bash with -e; expected baseline red is not a job
+          # failure. Capture both exit statuses and verify exact JUnit cause.
+          set +e
           set -uo pipefail
           TEST=source/tests/test_life_campaign_30.py::test_runner_executes_short_r15_minimum_life
           for round in 1 2; do
