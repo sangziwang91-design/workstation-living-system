@@ -6,6 +6,9 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+import os
+import subprocess
+import sys
 
 import pytest
 import yaml
@@ -111,3 +114,50 @@ def test_model_and_repair_workers_have_no_write_authority() -> None:
         assert doc["jobs"][writer]["permissions"]["contents"] == "write"
         assert doc["jobs"][writer]["needs"] == candidate
         assert "if" in doc["jobs"][writer]
+
+
+def test_write_token_python_never_imports_code_from_pr_checkout() -> None:
+    """Publisher has write token and checks out code from a PR.
+
+    Normal python stdin execution can import arbitrary code from cwd.
+    Isolated Python must guard the stdlib-only inline admission scripts.
+    """
+    for name, job in (
+        ("hosted-rsi-autorepair.yml", "persist-tested-candidate"),
+        ("hosted-rsi-local-model.yml", "persist-verified-model-fix"),
+    ):
+        document, _ = workflow(name)
+        publisher = document["jobs"][job]
+        assert publisher["permissions"]["contents"] == "write"
+        scripts = [
+            step["run"] for step in publisher["steps"]
+            if isinstance(step.get("run"), str) and "python" in step["run"]
+        ]
+        assert scripts, "publisher admission must be inspected"
+        assert any("python -I -S - <<'PY'" in script for script in scripts)
+        for script in scripts:
+            assert "python - <<'PY'" not in script, (
+                "write-token publisher may load a malicious PR-local module"
+            )
+            assert "python -I -S - <<'PY'" in script
+
+
+def test_python_isolation_defeats_checkout_and_pythonpath_module_poisoning(
+    tmp_path: Path,
+) -> None:
+    """Prove -I -S disables both cwd and attacker-set PYTHONPATH."""
+    (tmp_path / "wls_untrusted_shadow_probe.py").write_text(
+        "raise RuntimeError('untrusted code executed')\n", encoding="utf-8"
+    )
+    code = (
+        "import importlib.util\n"
+        "assert importlib.util.find_spec('wls_untrusted_shadow_probe') is None\n"
+    )
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(tmp_path)
+    result = subprocess.run(
+        [sys.executable, "-I", "-S", "-c", code],
+        cwd=tmp_path, env=env, check=False, capture_output=True,
+        timeout=15, text=True,
+    )
+    assert result.returncode == 0, result.stderr
