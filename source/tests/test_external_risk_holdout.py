@@ -161,3 +161,77 @@ def test_small_private_holdout_is_unmeasured_even_when_perfect(scorer, tmp_path)
     assert code == 2
     assert result["status"] == "UNMEASURED"
     assert result["n"] == 4
+
+
+@pytest.mark.parametrize("minimum", [1, 59])
+def test_caller_cannot_lower_sealed_minimum(scorer, tmp_path, minimum):
+    case, base, cand = fixtures(tmp_path)
+    code, result = invoke(
+        case, base, cand, *frozen_options(scorer, case),
+        "--min-n", str(minimum),
+    )
+    assert code == 2
+    assert result["status"] == "UNMEASURED"
+    assert result["eligible"] is False
+
+
+def test_caller_can_raise_sealed_minimum(scorer, tmp_path):
+    case, base, cand = fixtures(tmp_path)
+    code, result = invoke(
+        case, base, cand, *frozen_options(scorer, case), "--min-n", "61",
+    )
+    assert code == 2
+    assert result["status"] == "UNMEASURED"
+    assert result["n"] == 60
+
+
+@pytest.mark.parametrize("module_name", ["wls.schemas", "wls.task_admission"])
+def test_imported_grading_code_must_match_hashed_checkout(
+    scorer, monkeypatch, tmp_path, module_name,
+):
+    module = sys.modules[module_name]
+    monkeypatch.setattr(module, "__file__", str(tmp_path / "shadow.py"))
+    with pytest.raises(ValueError, match="trusted evaluator source"):
+        scorer.evaluator_digest(ROOT)
+
+
+def test_scorer_script_must_match_hashed_checkout(scorer, monkeypatch, tmp_path):
+    monkeypatch.setattr(scorer, "__file__", str(tmp_path / "shadow.py"))
+    with pytest.raises(ValueError, match="trusted evaluator source"):
+        scorer.evaluator_digest(ROOT)
+
+
+def test_other_checkout_cannot_certify_loaded_code(tmp_path):
+    # Identical bytes are not enough: the scorer must execute the hashed checkout.
+    copied = tmp_path / "other_checkout"
+    for relative in (
+        "source/src/wls/task_admission.py",
+        "source/src/wls/schemas.py",
+        "source/scripts/run_external_risk_holdout.py",
+    ):
+        destination = copied / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes((ROOT / relative).read_bytes())
+    case, base, cand = fixtures(tmp_path)
+    proc = subprocess.run(
+        [
+            sys.executable, str(SCRIPT), "--repo", str(copied),
+            "--cases", str(case), "--manifest-only",
+        ],
+        check=False, capture_output=True, text=True,
+    )
+    assert proc.returncode == 2
+    assert json.loads(proc.stdout)["status"] == "UNMEASURED"
+
+
+def test_repeated_task_text_with_distinct_ids_is_not_independent(scorer, tmp_path):
+    case, base, cand = fixtures(tmp_path)
+    data = json.loads(case.read_text(encoding="utf-8"))
+    data["cases"][1]["request"] = (
+        "  " + data["cases"][0]["request"].upper() + "  "
+    )
+    case.write_text(json.dumps(data), encoding="utf-8")
+    code, result = invoke(case, base, cand, *frozen_options(scorer, case))
+    assert code == 2
+    assert result["status"] == "UNMEASURED"
+
