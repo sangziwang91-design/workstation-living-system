@@ -13,9 +13,23 @@ from pathlib import Path
 import re
 import xml.etree.ElementTree as ET
 
+MAX_JUNIT_XML_BYTES = 8_000_000
+
 
 def junit_outcomes(path: Path) -> dict[str, str]:
-    root = ET.parse(path).getroot()
+    if path.is_symlink():
+        raise ValueError("JUnit evidence must be a regular file, not a symlink")
+    with path.open("rb") as stream:
+        raw = stream.read(MAX_JUNIT_XML_BYTES + 1)
+    if len(raw) > MAX_JUNIT_XML_BYTES:
+        raise ValueError("JUnit evidence exceeds bounded XML budget")
+    # JUnit evidence is UTF-8. Reject UTF-16/other encodings that can hide
+    # a DTD from raw ASCII byte scanning while ElementTree expands it.
+    inspected = raw.decode("utf-8-sig")
+    if "<!DOCTYPE" in inspected.upper() or "<!ENTITY" in inspected.upper():
+        raise ValueError("JUnit evidence must not declare entities or a DTD")
+    # Bounded input and explicit DTD/entity rejection before XML parsing.
+    root = ET.fromstring(raw)  # nosec B314
     outcomes: dict[str, str] = {}
     for node in root.iter("testcase"):
         identifier = node.get("classname", "") + "::" + node.get("name", "")
