@@ -194,12 +194,15 @@ class CausalMemoryIndex:
                     context["project_ids"].add(source.split(":", 1)[1])
         return {key: sorted(value) if isinstance(value, set) else value for key, value in context.items()}
 
-    def retrieve(self, query: str, limit: int = 8, *, context: dict[str, Any] | None = None, enabled: bool = True, frozen: bool = False) -> dict[str, Any]:
+    def retrieve(self, query: str, limit: int = 8, *, context: dict[str, Any] | None = None, enabled: bool = True, frozen: bool = False, excluded_memory_types: frozenset[str] = frozenset()) -> dict[str, Any]:
         self.ensure_all_indexed()
         if enabled and not frozen:
             self._expire_due()
         normalized_context = self._normalize_query_context(context or {})
-        rows = self._candidate_rows(query, normalized_context, limit)
+        rows = self._candidate_rows(
+            query, normalized_context, limit,
+            excluded_memory_types=excluded_memory_types,
+        )
         rolled_back_skills, rolled_back_candidates = (
             (set(), set()) if frozen else self._rolled_back_reference_sets()
         )
@@ -267,6 +270,7 @@ class CausalMemoryIndex:
             "selected": [self._render(row, score, reasons, applicability) for score, row, reasons, applicability in chosen],
             "suppressed": suppressed,
             "query_context": normalized_context,
+            "excluded_memory_types": sorted(excluded_memory_types),
         }
 
     def _candidate_rows(
@@ -274,8 +278,18 @@ class CausalMemoryIndex:
         query: str,
         context: dict[str, Any],
         limit: int,
+        *,
+        excluded_memory_types: frozenset[str] = frozenset(),
     ) -> list[sqlite3.Row]:
         candidate_limit = max(160, min(1000, int(limit) * 40))
+        # Remove excluded owner memory BEFORE top-k selection. Filtering only
+        # after retrieval would unfairly starve the frozen comparison arm of
+        # ordinary non-owner memories.
+        exclusions = tuple(sorted(excluded_memory_types))
+        exclusion_clause = (
+            " AND m.memory_type NOT IN (" + ",".join("?" for _ in exclusions) + ")"
+            if exclusions else ""
+        )
         rows: list[sqlite3.Row] = []
         seen: set[str] = set()
         clauses: list[str] = []
@@ -310,11 +324,11 @@ class CausalMemoryIndex:
                 f"""
                 SELECT m.*,i.* FROM memories m
                 JOIN causal_memory_index i ON i.memory_id=m.memory_id
-                WHERE m.active=1 AND ({' OR '.join(clauses)})
+                WHERE m.active=1 {exclusion_clause} AND ({' OR '.join(clauses)})
                 ORDER BY m.importance DESC, m.created_at DESC
                 LIMIT ?
                 """,
-                (*params, candidate_limit),
+                (*exclusions, *params, candidate_limit),
             )
             for row in structured_rows:
                 memory_id = str(row["memory_id"])
@@ -324,14 +338,14 @@ class CausalMemoryIndex:
         fallback_limit = candidate_limit - len(rows)
         if fallback_limit > 0:
             fallback_rows = self.db.query_all(
-                """
+                f"""
                 SELECT m.*,i.* FROM memories m
                 JOIN causal_memory_index i ON i.memory_id=m.memory_id
-                WHERE m.active=1
+                WHERE m.active=1 {exclusion_clause}
                 ORDER BY m.importance DESC, m.created_at DESC
                 LIMIT ?
                 """,
-                (fallback_limit,),
+                (*exclusions, fallback_limit),
             )
             for row in fallback_rows:
                 memory_id = str(row["memory_id"])
