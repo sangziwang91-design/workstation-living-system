@@ -49,7 +49,8 @@ def gh_json(*args: str) -> object:
         raise ValueError("invalid GitHub workflow metadata") from exc
 
 
-def prior_successful_run(repo: str, run_id: int, head: str) -> int | None:
+def previous_verified_run(repo: str, run_id: int) -> tuple[int, str] | None:
+    """Locate the prior trusted generation, preserving its actual source SHA."""
     raw = gh_json(
         "run", "list", "--repo", repo, "--workflow", WORKFLOW,
         "--branch", "main", "--limit", "50",
@@ -75,9 +76,21 @@ def prior_successful_run(repo: str, run_id: int, head: str) -> int | None:
     prior = max(candidates, key=lambda x: x["databaseId"])
     if prior.get("conclusion") != "success":
         raise ValueError("previous complete generation failed: no silent reset")
-    if prior.get("headSha") != head:
+    prior_sha = prior.get("headSha")
+    if not isinstance(prior_sha, str) or not SHA.fullmatch(prior_sha):
+        raise ValueError("previous generation has invalid source provenance")
+    return int(prior["databaseId"]), prior_sha
+
+
+def prior_successful_run(repo: str, run_id: int, head: str) -> int | None:
+    """Strict frozen-source contract retained for tests/manual admissions."""
+    prior = previous_verified_run(repo, run_id)
+    if prior is None:
+        return None
+    prior_id, prior_sha = prior
+    if prior_sha != head:
         raise ValueError("source SHA changed: frozen lineage needs fresh admission")
-    return int(prior["databaseId"])
+    return prior_id
 
 
 def download_checkpoint(repo: str, prior_run: int, directory: Path) -> Path:
@@ -183,6 +196,8 @@ def checkpoint(
             sha(prior_manifest_raw) if prior_manifest_raw is not None else None,
         "generation": generation, "cycle_count": count,
         "first_at": first_at, "created_at": now,
+        "parent_head_sha": parent["head_sha"] if parent is not None else None,
+        "source_transition": parent is not None and parent["head_sha"] != head,
         "synthetic_only": True,
         "files_sha256": {name: sha(data) for name, data in files.items()},
         "model_calls": 0, "autonomous_skill_gain_proven": False,
@@ -203,7 +218,13 @@ def run(repo: str, run_id: int, head: str, workspace: Path) -> dict:
     home = workspace / ".g1-windows" / "home"
     if home.exists() and any(home.iterdir()):
         raise ValueError("refuse to overwrite previously used generation home")
-    prior_id = prior_successful_run(repo, run_id, head)
+    # Public synthetic history may cross a mainline source update only by
+    # verifying the old checkpoint against its *own* run/source identity,
+    # then verifying the restored state with the current canonical WLS.
+    # The strict prior_successful_run() contract remains fail-closed.
+    previous = previous_verified_run(repo, run_id)
+    prior_id = previous[0] if previous is not None else None
+    prior_head = previous[1] if previous is not None else None
     parent = None
     parent_raw = None
     if prior_id is None:
@@ -213,8 +234,14 @@ def run(repo: str, run_id: int, head: str, workspace: Path) -> dict:
     else:
         archive = download_checkpoint(repo, prior_id, workspace / "g1-generation-prior")
         parent, parent_raw = restore_checkpoint(
-            archive, home, expected_head=head, expected_run=prior_id
+            archive, home, expected_head=str(prior_head), expected_run=prior_id
         )
+        # Cross-source transitions are admitted only for bounded, synthetic
+        # checkpoints with independently validated GitHub run provenance.
+        # The new executable must verify the old SQLite/evidence before any
+        # new cycle is allowed. No silent restart or private owner migration.
+        if prior_head != head and cli(home, "verify").get("ok") is not True:
+            raise ValueError("restored synthetic state incompatible with new source")
     before = cli(home, "status")
     previous = int(before["cycle_count"])
     if parent is not None and previous != parent["cycle_count"]:
@@ -248,6 +275,9 @@ def run(repo: str, run_id: int, head: str, workspace: Path) -> dict:
         "run_id": run_id, "head_sha": head, "generation": manifest["generation"],
         "parent_run_id": prior_id, "cycle_count": final_count,
         "restored_from_distinct_run": prior_id is not None,
+        "source_transition": manifest["source_transition"],
+        "parent_head_sha": manifest["parent_head_sha"],
+        "transition_scope": "verified_public_synthetic_checkpoint_only",
         "elapsed_generation_hours": round(age_hours, 4),
         "synthetic_only": True, "local_owner_deployed": False,
         "model_calls": 0, "autonomous_skill_gain_proven": False,
