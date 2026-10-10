@@ -205,6 +205,7 @@ def test_g1_serializes_trusted_generations_but_not_pull_requests():
     assert "github.event_name == 'pull_request'" in group
     assert "github.event.pull_request.number" in group
     assert "trusted-main" in group
+    assert doc["concurrency"]["queue"] == "max"
     assert doc["concurrency"]["cancel-in-progress"] is False
     assert doc["jobs"]["generation"]["needs"] == "regression"
     assert "refs/heads/main" in doc["jobs"]["generation"]["if"]
