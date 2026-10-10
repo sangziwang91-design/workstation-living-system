@@ -53,7 +53,7 @@ def build_command(image: str, name: str, source: str) -> list[str]:
         "--rm", "--pull=never", "--name", name,
         "--network=none", "--read-only", "--ipc=none",
         "--cap-drop=ALL", "--security-opt=no-new-privileges",
-        "--pids-limit=32", "--memory=128m", "--memory-swap=128m",
+        "--pids-limit=12", "--memory=128m", "--memory-swap=128m",
         "--cpus=1.0", "--ulimit=nofile=64:64", "--ulimit=fsize=1048576:1048576",
         "--user=65534:65534", "--workdir=/tmp",
         "--tmpfs=/tmp:rw,noexec,nosuid,nodev,size=8m",
