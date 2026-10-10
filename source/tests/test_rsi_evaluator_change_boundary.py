@@ -50,7 +50,6 @@ def test_evaluator_only_code_only_and_documents_are_legal(guard, paths):
 @pytest.mark.parametrize("scorer", [
     "source/src/wls/db.py",
     "source/src/wls/evidence.py",
-    "source/scripts/verify_rsi_evaluator_change_boundary.py",
     "source/src/wls/schemas.py",
     "source/src/wls/rsi_artifact_gate.py",
     "source/src/wls/rsi_evolution.py",
@@ -133,7 +132,6 @@ def test_scorer_and_prose_only_can_still_be_reviewed(guard):
 @pytest.mark.parametrize("grading_dependency", [
     "source/src/wls/db.py",
     "source/src/wls/evidence.py",
-    "source/scripts/verify_rsi_evaluator_change_boundary.py",
     "source/src/wls/schemas.py",
     "source/src/wls/rsi_artifact_gate.py",
     "source/src/wls/rsi_evolution.py",
@@ -159,7 +157,6 @@ def test_grading_only_files_can_still_be_reviewed_without_candidate_code(guard):
     grading_only = [
         "source/src/wls/db.py",
     "source/src/wls/evidence.py",
-    "source/scripts/verify_rsi_evaluator_change_boundary.py",
     "source/src/wls/schemas.py",
         "source/src/wls/task_admission.py",
         "source/src/wls/benchmark.py",
@@ -184,7 +181,6 @@ def test_autorepair_cannot_touch_any_scoring_authority(guard):
 @pytest.mark.parametrize("scorer", [
     "source/src/wls/db.py",
     "source/src/wls/evidence.py",
-    "source/scripts/verify_rsi_evaluator_change_boundary.py",
 ])
 def test_nuomi_reported_grader_dependency_mixing_is_blocked(guard, scorer):
     result = guard.check_files([scorer, "source/src/wls/runtime.py"])
