@@ -946,7 +946,9 @@ class CampaignRunner:
             run_state = load_json(run_path)
         else:
             run_state = {
-                "started_at": datetime.now(UTC).isoformat(timespec="seconds"),
+                # Sub-second tests and short recovery drills must not lose up to
+                # one full second by rounding the epoch start down.
+                "started_at": datetime.now(UTC).isoformat(timespec="microseconds"),
                 "duration_seconds": self.r15_duration_seconds,
                 "heartbeat_seconds": self.r15_heartbeat_seconds,
                 "heartbeats": [],
