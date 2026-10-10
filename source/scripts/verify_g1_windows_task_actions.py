@@ -6,6 +6,7 @@ owner data, trusted GitHub token, model calls, writes, or self-scoring.
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
 import hashlib
 import json
 from pathlib import Path
@@ -123,7 +124,9 @@ def execute(workspace: Path, head: str) -> dict[str, Any]:
         if (any(not isinstance(i, str) or not i.startswith("cycle_") for i in ids)
                 or ids[0] == ids[1]):
             raise ValueError("missing distinct canonical patch-mission cycles")
-        with sqlite3.connect(home / "state/wls.db") as conn:
+        # sqlite3.Connection.__exit__ commits/rolls back but does NOT
+        # close the handle; Windows refuses cleanup of an open DB file.
+        with closing(sqlite3.connect(home / "state/wls.db")) as conn:
             stored_cycles = conn.execute(
                 "SELECT cycle_id,status FROM cycles WHERE cycle_id IN (?,?)",
                 ids,
