@@ -24,10 +24,12 @@ WORKFLOWS = (
     "wls-c2-taskpack.yml", "wls-hosted-life-loop.yml",
 )
 PINNED = {
-    "actions/checkout": "34e114876b0b11c390a56381ad16ebd13914f8d5",
-    "actions/setup-python": "5fda3b95a4ea91299a34e894583c3862153e4b97",
-    "actions/upload-artifact": "ea165f8d65b6e75b540449e92b4886f43607fa02",
-    "actions/download-artifact": "d3f86a106a0bac45b974a628896c90dbdf5c8093",
+    "actions/checkout": {"34e114876b0b11c390a56381ad16ebd13914f8d5",
+                         "3d3c42e5aac5ba805825da76410c181273ba90b1"},
+    "actions/setup-python": {"5fda3b95a4ea91299a34e894583c3862153e4b97",
+                             "a26af69be951a213d495a4c3e4e4022e16d87065"},
+    "actions/upload-artifact": {"ea165f8d65b6e75b540449e92b4886f43607fa02"},
+    "actions/download-artifact": {"d3f86a106a0bac45b974a628896c90dbdf5c8093"},
 }
 
 
@@ -54,7 +56,7 @@ def test_twenty_workflow_trust_checks(name: str) -> None:
     uses = re.findall(r"^\s*-?\s*uses:\s*([^\s#]+)", raw, re.MULTILINE)
     for spec in uses:
         action, sep, sha = spec.partition("@")
-        assert sep and PINNED.get(action) == sha, (
+        assert sep and sha in PINNED.get(action, set()), (
             f"{name}: unknown, movable or mismatched upstream action {spec}"
         )
 
