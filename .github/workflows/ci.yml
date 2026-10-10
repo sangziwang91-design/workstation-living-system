@@ -59,6 +59,22 @@ jobs:
         run: python -m mypy source/src/wls/coding_adapter.py source/src/wls/rsi_model_port.py --ignore-missing-imports
       - name: Scan modified WLS coding and model-adapter boundary
         run: python -m bandit -q source/src/wls/coding_adapter.py source/src/wls/rsi_model_port.py
+      - name: Scan complete WLS Python source and automation for security findings
+        shell: bash
+        run: |
+          set +e
+          python -m bandit -r source/src/wls source/scripts -f json \
+            -o hosted-full-bandit.json
+          scan_exit=$?
+          set -e
+          if [ "$scan_exit" -ne 0 ] && [ "$scan_exit" -ne 1 ]; then
+            echo "Bandit failed to complete the full scan" >&2
+            exit "$scan_exit"
+          fi
+          python source/scripts/verify_full_python_security_report.py \
+            --bandit-json hosted-full-bandit.json \
+            --head "$(git rev-parse HEAD)" \
+            --output hosted-full-security-summary.json
       - name: Build installable wheel and sdist
         run: python -m build .
       - name: Save complete hosted evidence, including failures
@@ -69,6 +85,8 @@ jobs:
           path: |
             hosted-full-pytest.xml
             hosted-ruff-debt.json
+            hosted-full-bandit.json
+            hosted-full-security-summary.json
             dist/
           if-no-files-found: warn
 
