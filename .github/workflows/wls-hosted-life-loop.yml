@@ -1,0 +1,76 @@
+name: WLS Hosted Canonical Life Loop
+
+on:
+  schedule:
+    - cron: "41 3,15 * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/wls-hosted-life-loop.yml"
+      - "source/scripts/verify_hosted_living_loop.py"
+      - "source/tests/test_hosted_living_loop.py"
+  pull_request:
+    paths:
+      - ".github/workflows/wls-hosted-life-loop.yml"
+      - "source/scripts/verify_hosted_living_loop.py"
+      - "source/tests/test_hosted_living_loop.py"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wls-hosted-life-readonly
+  cancel-in-progress: false
+
+jobs:
+  actual-canonical-life:
+    name: Real WLS read-only cycles and restart continuity
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ""
+      GITHUB_TOKEN: ""
+      OPENAI_API_KEY: ""
+      ANTHROPIC_API_KEY: ""
+    steps:
+      - name: Checkout exact unprivileged WLS source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.13"
+      - name: Install canonical WLS package
+        run: python -m pip install -e ".[dev]"
+      - name: Reject fake evidence and token propagation
+        run: python -m pytest -q source/tests/test_hosted_living_loop.py
+      - name: Run real WLS observe learn act cycles in separate OS processes
+        run: |
+          python source/scripts/verify_hosted_living_loop.py \
+            --head "$(git rev-parse HEAD)" \
+            --output wls-hosted-life-receipt.json
+      - name: Assert actual hosted receipts are never interpreted as RSI
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path("wls-hosted-life-receipt.json").read_text())
+          assert data["status"] == "HOSTED_EPHEMERAL_LIFE_CYCLES_PASS"
+          assert data["cycle_count"] == data["distinct_cycle_ids"] == 3
+          assert data["sqlite_reused_across_processes"] is True
+          assert data["ledger_integrity_verified"] is True
+          assert data["read_only"] is True
+          assert data["home_persisted_across_runs"] is False
+          assert data["model_calls"] == 0
+          assert data["autonomous_skill_gain_proven"] is False
+          print({"observed_cycles": 3, "result": data["status"]})
+          PY
+      - name: Preserve candidate-only lifecycle receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wls-hosted-life-receipt
+          path: wls-hosted-life-receipt.json
+          if-no-files-found: warn
