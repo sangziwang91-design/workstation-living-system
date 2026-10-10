@@ -112,7 +112,7 @@ def test_only_owner_linked_decisions_are_counted_and_mixed_is_not_isolated(
     assert after["owner_linked_decisions"] == 2
     assert after["owner_only_memory_decisions"] == 1
     assert after["mixed_memory_decisions"] == 1
-    assert after["observed_task_success"] == 1
+    assert after["recorded_action_success_labels"] == 1
     assert after["recorded_action_failure_labels"] == 1
     assert after["transfer_advantage_proven"] is False
 
