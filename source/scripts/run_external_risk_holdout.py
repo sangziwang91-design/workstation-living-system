@@ -56,11 +56,22 @@ def evaluator_digest(repo: Path) -> str:
         "source/src/wls/schemas.py",
         "source/scripts/run_external_risk_holdout.py",
     ]
+    # The hashed checkout must be the code this process will actually run.
+    # A --repo pointing at another checkout must not attest to imported code.
+    admission_file = sys.modules[admit_with_rsi_risk_strategy.__module__].__file__
+    schema_file = sys.modules[RiskLevel.__module__].__file__
+    if admission_file is None or schema_file is None:
+        raise ValueError("trusted evaluator module has no source path")
+    loaded_sources = {
+        "source/src/wls/task_admission.py": Path(admission_file).resolve(),
+        "source/src/wls/schemas.py": Path(schema_file).resolve(),
+        "source/scripts/run_external_risk_holdout.py": Path(__file__).resolve(),
+    }
     digest = sha256()
     for path in paths:
         file = repo / path
-        if not file.is_file():
-            raise ValueError("trusted evaluator source unavailable")
+        if not file.is_file() or file.resolve() != loaded_sources[path]:
+            raise ValueError("trusted evaluator source unavailable or not loaded")
         digest.update(path.encode("utf-8") + b"\0")
         digest.update(sha256(file.read_bytes()).digest())
     return digest.hexdigest()
@@ -75,6 +86,7 @@ def parse_cases(value) -> list[tuple[str, RiskLevel]]:
     if not isinstance(rows, list) or not 1 <= len(rows) <= MAX_CASES:
         raise ValueError("invalid case count")
     seen = set()
+    seen_requests = set()
     cases = []
     for row in rows:
         if not isinstance(row, dict) or set(row) != {"id", "request", "expected_risk"}:
@@ -90,7 +102,12 @@ def parse_cases(value) -> list[tuple[str, RiskLevel]]:
             or risk not in RiskLevel.__members__
         ):
             raise ValueError("invalid case identity, input or expected label")
+        # Distinct IDs alone do not make repeated inputs independent cases.
+        normalized_request = " ".join(request.split()).casefold()
+        if normalized_request in seen_requests:
+            raise ValueError("duplicate independent case input")
         seen.add(case_id)
+        seen_requests.add(normalized_request)
         cases.append((request, RiskLevel[risk]))
     return cases
 
@@ -218,8 +235,8 @@ def main() -> int:
     parser.add_argument("--manifest-only", action="store_true")
     args = parser.parse_args()
     try:
-        if args.min_n < 1 or args.min_n > MAX_CASES:
-            raise ValueError("invalid minimum sample size")
+        if args.min_n < MIN_CASES or args.min_n > MAX_CASES:
+            raise ValueError("minimum sample size cannot be lowered below 60")
         if not args.manifest_only and (args.baseline is None or args.candidate is None):
             raise ValueError("baseline and candidate strategies required")
         code, response = run(args)
