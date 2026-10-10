@@ -22,6 +22,7 @@ import zipfile
 import yaml
 
 SCHEMA = "wls.ci_feedback.v1"
+MAX_CI_JUNIT_XML_BYTES = 8_000_000
 MAX_PREVIOUS_FEEDBACK_JSON_BYTES = 500_000
 MAX_PREVIOUS_FEEDBACK_ARCHIVE_ENTRIES = 32
 EVALUATOR_FILES = (
@@ -41,6 +42,23 @@ REQUIRED_JUNIT_ARTIFACT_PREFIXES = {
 }
 
 
+def bounded_junit_root(path: Path) -> ET.Element:
+    """Parse CI JUnit evidence with bounded bytes and no DTD/entities.
+
+    Evidence may be generated from arbitrary test names, so its XML is not
+    necessarily trusted even when the surrounding GitHub job succeeds.
+    """
+    if path.is_symlink():
+        raise ValueError("CI JUnit XML must be a regular file")
+    with path.open("rb") as stream:
+        raw = stream.read(MAX_CI_JUNIT_XML_BYTES + 1)
+    if len(raw) > MAX_CI_JUNIT_XML_BYTES:
+        raise ValueError("CI JUnit XML exceeds bounded evidence budget")
+    if b"<!DOCTYPE" in raw.upper() or b"<!ENTITY" in raw.upper():
+        raise ValueError("CI JUnit XML entity/DTD declarations are forbidden")
+    return ET.fromstring(raw)  # nosec B314: bounded size and DTD rejection
+
+
 def test_evidence(
     root: Path, *, require_hosted_matrix: bool = False,
     ci_job_results: dict[str, str] | None = None,
@@ -48,7 +66,7 @@ def test_evidence(
     reports = sorted(root.rglob("*.xml")) if root.is_dir() else []
     observed: list[dict] = []
     for file in reports:
-        parsed = ET.parse(file).getroot()
+        parsed = bounded_junit_root(file)
         nodes = parsed.findall(".//testcase")
         if parsed.tag == "testcase":
             nodes = [parsed]
