@@ -61,7 +61,7 @@ jobs:
             --output wls-gap-scan.json
       - name: Upload inspectable A5 evidence without publishing to main
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: wls-a5-gap-scan-${{ github.run_id }}
           path: |
@@ -89,7 +89,7 @@ jobs:
           ref: main
           persist-credentials: false
       - name: Download exact current-run read-only evidence
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: wls-a5-gap-scan-${{ github.run_id }}
       - name: Promote evidence to at most three deduplicated candidate issues
