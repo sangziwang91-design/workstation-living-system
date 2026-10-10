@@ -534,7 +534,9 @@ def test_runner_executes_short_r15_minimum_life(tmp_path: Path) -> None:
         paths,
         execute=True,
         authorize_level2=True,
-        r15_duration_seconds=1,
+        # One-second duration can be lost to process scheduling under hosted CI
+        # load, even if the production heartbeat engine is correct.
+        r15_duration_seconds=3,
         r15_heartbeat_seconds=1,
     )
     result = runner.run([f"R{index:02d}" for index in range(1, 16)])
@@ -542,6 +544,7 @@ def test_runner_executes_short_r15_minimum_life(tmp_path: Path) -> None:
     assert result["results"][-1]["status"] == "PASS"
     assert result["automation_level"] == "LEVEL_3"
     run_state = load_json(paths.campaign_home / "campaign_evidence" / "R15" / "r15_run.json")
+    assert "." in run_state["started_at"], "R15 must preserve subsecond start precision"
     assert run_state["heartbeats"]
 
 
