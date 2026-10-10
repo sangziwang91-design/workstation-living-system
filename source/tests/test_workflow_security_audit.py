@@ -1,6 +1,6 @@
-"""Twenty separate workflow trust-audit rounds and negative controls.
+"""Tracked workflow trust-audit rounds and negative controls.
 
-These are configuration reviews, not twenty measured RSI generations.
+These are configuration reviews, not measured RSI generations.
 """
 from __future__ import annotations
 
@@ -24,7 +24,8 @@ WORKFLOWS = (
     "patch-mission-status.yml", "rsi-c1-isolation.yml", "rsi-pilot.yml",
     "rsi-scoring-change-boundary.yml", "verify-evolution-target-003.yml",
     "wls-a5-gap-scan.yml", "wls-c2-known-regression-replay.yml",
-    "wls-c2-taskpack.yml", "wls-hosted-life-loop.yml",
+    "wls-c2-taskpack.yml", "wls-g1-windows-generation.yml",
+    "wls-hosted-life-loop.yml",
 )
 PINNED = {
     "actions/checkout": {"34e114876b0b11c390a56381ad16ebd13914f8d5",
