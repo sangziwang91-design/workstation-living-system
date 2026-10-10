@@ -74,6 +74,28 @@ def trusted_grader_paths(repo: Path) -> frozenset[str]:
     raise ValueError("trusted evaluator catalog missing EVALUATORS")
 
 
+def public_issue_hint(message: str) -> str | None:
+    """A bounded, untrusted PR title as task context, never an instruction.
+
+    Do not inject fix patches, test oracles, links, or PR numbers into the
+    worker prompt. Ambiguous or potentially directive titles are withheld.
+    """
+    lines = [line.strip() for line in message.splitlines() if line.strip()]
+    if len(lines) < 2 or PR.search(lines[0]) is None:
+        return None
+    candidate = " ".join(lines[1].split())
+    if not 8 <= len(candidate) <= 140:
+        return None
+    # No line breaks, markdown blocks, shell/template syntax, or directives.
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ,.:;()/+_-]*", candidate):
+        return None
+    blocked = ("ignore previous", "system prompt", "api key", "secret",
+               "password", "execute this", "run this", "follow these")
+    if any(phrase in candidate.casefold() for phrase in blocked):
+        return None
+    return candidate
+
+
 def classify(paths: list[str]) -> tuple[list[str], list[str]]:
     if len(paths) != len(set(paths)) or not all(_real_path(p) for p in paths):
         raise ValueError("non-canonical or duplicate git paths")
@@ -108,6 +130,7 @@ def mine(repo: Path, *, head: str, max_commits: int = 120,
             continue
         parent = ancestry[1]
         subject = git(repo, "log", "-1", "--format=%s", commit)
+        message = git(repo, "log", "-1", "--format=%B", commit)
         match = PR.search(subject)
         if match is None:
             skips["not_pr_merge"] = skips.get("not_pr_merge", 0) + 1
@@ -141,6 +164,7 @@ def mine(repo: Path, *, head: str, max_commits: int = 120,
             "task_id": task_id, "pr_number": int(match.group(1)),
             "base_sha": parent, "fix_sha": commit,
             "source_paths": sources, "oracle_test_paths": existing_tests,
+            "issue_hint": public_issue_hint(message),
             "status": "REPLAY_NOT_YET_VERIFIED",
             "oracle_access": "trusted_replay_only",
         })
@@ -151,6 +175,7 @@ def mine(repo: Path, *, head: str, max_commits: int = 120,
         "base_sha": task["base_sha"],
         "source_paths": task["source_paths"],
         "instruction": "Diagnose and repair a documented WLS regression in these source paths.",
+        "untrusted_public_issue_summary": task["issue_hint"],
         "oracle_visibility": "withheld_from_candidate",
     } for task in tasks]
     return {
