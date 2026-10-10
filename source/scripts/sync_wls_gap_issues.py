@@ -125,8 +125,8 @@ def run(report: dict, *, repo: str, head: str, run_id: str, token: str) -> dict:
         body = (
             item["marker"] + "\n"
             + "Machine-observed " + item["kind"] + " in WLS double-run hosted test subset.\n"
-            + "Test: `" + item["test"] + "\\x60\n"
-            + "Exact SHA: \\x60" + head + "\\x60\n"
+            + "Test: `" + item["test"] + "`\n"
+            + "Exact SHA: `" + head + "`\n"
             + "Evidence: https://github.com/" + repo + "/actions/runs/" + run_id + "\n"
             + "Acceptance: same test passes twice at one pinned source SHA.\n"
             + "Source: candidate task only. No automatic code promotion or RSI claim.\n"
