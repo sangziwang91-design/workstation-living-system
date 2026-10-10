@@ -1,0 +1,70 @@
+name: WLS A5 Daily Observed Gap Scan
+
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "source/scripts/build_wls_gap_scan.py"
+      - "source/tests/test_wls_gap_scan.py"
+      - ".github/workflows/wls-a5-gap-scan.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wls-daily-gap-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  daily-observed-gap:
+    name: Observe repeated WLS failures without source modification
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact unprivileged WLS source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - name: Install Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.13"
+      - name: Install canonical source
+        run: python -m pip install -e ".[dev]"
+      - name: Verify gap scanner contracts
+        run: python -m pytest -q source/tests/test_wls_gap_scan.py
+      - name: Observe WLS targeted tests repeat one
+        continue-on-error: true
+        run: |
+          python -m pytest -q source/tests/test_rsi_risk_cli.py source/tests/test_ci_feedback.py source/tests/test_rsi_evolution.py --junitxml=gap-first.xml
+      - name: Observe same tests repeat two
+        continue-on-error: true
+        run: |
+          python -m pytest -q source/tests/test_rsi_risk_cli.py source/tests/test_ci_feedback.py source/tests/test_rsi_evolution.py --junitxml=gap-second.xml
+      - name: Record existing lint debt separately from genuine regressions
+        if: always()
+        run: python -m ruff check source/src/wls source/scripts --output-format json > gap-ruff.json || true
+      - name: Generate fail-closed candidate task list from observed evidence
+        if: always()
+        shell: bash
+        run: |
+          python source/scripts/build_wls_gap_scan.py \
+            --repo . \
+            --head "$(git rev-parse HEAD)" \
+            --first gap-first.xml \
+            --second gap-second.xml \
+            --ruff-json gap-ruff.json \
+            --output wls-gap-scan.json
+      - name: Upload inspectable A5 evidence without publishing to main
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wls-a5-gap-scan-${{ github.run_id }}
+          path: |
+            gap-first.xml
+            gap-second.xml
+            gap-ruff.json
+            wls-gap-scan.json
+          if-no-files-found: warn
