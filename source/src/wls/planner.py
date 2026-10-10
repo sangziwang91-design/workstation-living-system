@@ -170,13 +170,42 @@ class OpenAICompatibleProvider(PlanningProvider):
             raise ValueError("invalid provider base_url")
         if parsed.scheme != "https" and parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
             raise ValueError("non-local provider endpoints require HTTPS")
+        self.remote_endpoint = parsed.hostname not in {"127.0.0.1", "localhost", "::1"}
+        # Import consent is LOCAL consent, not third-party model disclosure.
+        self.allow_owner_context_remote = settings.get("allow_owner_context_remote") is True
         self.model = str(settings.get("model", ""))
         self.api_key_env = str(settings.get("api_key_env", "OPENAI_API_KEY"))
         self.timeout = float(settings.get("timeout_seconds", 60.0))
         if not self.model:
             raise ValueError("provider model is required")
 
+    @classmethod
+    def _has_owner_context(cls, value: Any) -> bool:
+        """Conservatively detect canonical private context, including nested views."""
+        if isinstance(value, dict):
+            if any(
+                value.get(key) == "owner_context"
+                for key in ("memory_type", "source", "record_type")
+            ):
+                return True
+            return any(cls._has_owner_context(item) for item in value.values())
+        if isinstance(value, (list, tuple)):
+            return any(cls._has_owner_context(item) for item in value)
+        return isinstance(value, str) and (
+            value == "owner_context" or value.startswith("owner_context:")
+        )
+
     def create_plan(self, context: dict[str, Any]) -> dict[str, Any]:
+        # Guard the last outbound boundary, not merely the retrieval layer.
+        # The canonical local fallback can still plan with private memories.
+        if (
+            self.remote_endpoint
+            and not self.allow_owner_context_remote
+            and self._has_owner_context(context)
+        ):
+            raise PermissionError(
+                "private WLS owner context requires explicit remote disclosure opt-in"
+            )
         api_key = os.environ.get(self.api_key_env)
         if not api_key:
             raise RuntimeError(f"missing API key environment variable: {self.api_key_env}")
