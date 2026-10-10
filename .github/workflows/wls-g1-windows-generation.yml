@@ -1,0 +1,102 @@
+name: WLS G1 Windows Cross-Run Generations
+
+# Only trusted main starts a generation; PRs test the parser/validators,
+# never downloading an earlier artifact or receiving actions:read tokens.
+on:
+  schedule:
+    - cron: "23 2,14 * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/wls-g1-windows-generation.yml"
+      - "source/scripts/g1_hosted_windows_generation.py"
+      - "source/tests/test_g1_hosted_windows_generation.py"
+  pull_request:
+    paths:
+      - ".github/workflows/wls-g1-windows-generation.yml"
+      - "source/scripts/g1_hosted_windows_generation.py"
+      - "source/tests/test_g1_hosted_windows_generation.py"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wls-g1-cross-run-trusted-main
+  cancel-in-progress: false
+
+jobs:
+  regression:
+    name: G1 cross-run provenance and corruption negative controls
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.13"
+      - name: Verify pure checkpoint/source contracts without GitHub privileges
+        shell: pwsh
+        run: |
+          python -m pip install -e '.[dev]'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pytest -q source/tests/test_g1_hosted_windows_generation.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+  generation:
+    name: Frozen-source Windows state inheritance on separate Actions runs
+    needs: regression
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: windows-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+    env:
+      OPENAI_API_KEY: ''
+      ANTHROPIC_API_KEY: ''
+      WLS_RSI_API_KEY: ''
+    steps:
+      - name: Checkout trusted main without persisted credentials
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - name: Setup Windows Python 3.13
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.13"
+      - name: Install canonical WLS with no model credentials
+        shell: pwsh
+        run: |
+          python -m pip install -e '.[dev]'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify exact code and negative controls before any generation
+        shell: pwsh
+        run: |
+          python -m pytest -q source/tests/test_g1_hosted_windows_generation.py source/tests/test_hosted_living_loop.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Restore trusted previous run or perform one-time genesis
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python source/scripts/g1_hosted_windows_generation.py --repo "${{ github.repository }}" --run-id "${{ github.run_id }}" --head "${{ github.sha }}" --workspace "${{ github.workspace }}"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload completed synthetic generation checkpoint only on success
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wls-g1-windows-generation-state
+          path: g1-generation-checkpoint/checkpoint.zip
+          retention-days: 45
+          if-no-files-found: error
+      - name: Preserve bounded receipt even when blocked
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wls-g1-windows-generation-receipt
+          path: wls-g1-windows-generation-receipt.json
+          retention-days: 45
+          if-no-files-found: warn
