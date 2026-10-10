@@ -7,6 +7,7 @@ fix as a newly measured improvement.
 from __future__ import annotations
 
 import argparse
+import ast
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -36,6 +37,43 @@ def _real_path(path: str) -> bool:
     return ".." not in parts and all(part not in {"", "."} for part in parts)
 
 
+def trusted_grader_paths(repo: Path) -> frozenset[str]:
+    """Parse the current frozen scorer catalog as data: do not execute it.
+
+    A missing/dynamically constructed catalog fails closed instead of letting
+    a scorer-altering public PR become a normal worker training task.
+    """
+    path = repo / "source/scripts/verify_rsi_evaluator_change_boundary.py"
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, SyntaxError) as exc:
+        raise ValueError("trusted evaluator catalog unavailable") from exc
+    for stmt in tree.body:
+        if not isinstance(stmt, ast.Assign) or not any(
+            isinstance(target, ast.Name) and target.id == "EVALUATORS"
+            for target in stmt.targets
+        ):
+            continue
+        value = stmt.value
+        if not (
+            isinstance(value, ast.Call)
+            and isinstance(value.func, ast.Name)
+            and value.func.id == "frozenset"
+            and len(value.args) == 1 and not value.keywords
+        ):
+            raise ValueError("trusted evaluator catalog not a literal set")
+        try:
+            paths = ast.literal_eval(value.args[0])
+        except (ValueError, TypeError, SyntaxError) as exc:
+            raise ValueError("trusted evaluator catalog not literal") from exc
+        if not isinstance(paths, set) or not paths or not all(
+            isinstance(p, str) and _real_path(p) for p in paths
+        ):
+            raise ValueError("trusted evaluator catalog invalid")
+        return frozenset(paths)
+    raise ValueError("trusted evaluator catalog missing EVALUATORS")
+
+
 def classify(paths: list[str]) -> tuple[list[str], list[str]]:
     if len(paths) != len(set(paths)) or not all(_real_path(p) for p in paths):
         raise ValueError("non-canonical or duplicate git paths")
@@ -57,6 +95,7 @@ def mine(repo: Path, *, head: str, max_commits: int = 120,
         raise ValueError("shallow history is not adequate for task provenance")
     if git(repo, "rev-parse", "HEAD") != head:
         raise ValueError("HEAD moved relative to frozen taskpack")
+    protected = trusted_grader_paths(repo)
     commits = git(
         repo, "log", "--first-parent", "--format=%H", "-n", str(max_commits), head
     )
@@ -72,6 +111,15 @@ def mine(repo: Path, *, head: str, max_commits: int = 120,
         match = PR.search(subject)
         if match is None:
             skips["not_pr_merge"] = skips.get("not_pr_merge", 0) + 1
+            continue
+        # Classify *all* historical edits before restricting to files that
+        # still exist. A deletion or rename of a trusted scorer also changes
+        # the evaluation standard, even though diff-filter=AM hides removals.
+        all_paths = git(
+            repo, "diff", "--name-only", "--no-renames", parent, commit
+        ).splitlines()
+        if set(all_paths) & protected:
+            skips["scorer_authority_changed"] = skips.get("scorer_authority_changed", 0) + 1
             continue
         paths = git(
             repo, "diff", "--name-only", "--diff-filter=AM", parent, commit
