@@ -397,9 +397,13 @@ def test_historical_wal_header_checkpoint_is_normalized_after_provenance(
     (source / "config.json").write_text(
         json.dumps({"home": str(target)}), encoding="utf-8"
     )
-    with sqlite3.connect(source / "state/wls.db") as writer:
+    writer = sqlite3.connect(source / "state/wls.db")
+    try:
         assert writer.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
         writer.execute("INSERT INTO validated VALUES (42)")
+        writer.commit()
+    finally:
+        writer.close()  # checkpoint pending WAL pages before legacy raw-file sample
     legacy_raw = (source / "state/wls.db").read_bytes()
     assert legacy_raw[18:20] == b"\x02\x02"
     gen.checkpoint(
