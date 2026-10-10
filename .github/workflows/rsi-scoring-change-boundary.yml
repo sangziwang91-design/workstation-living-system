@@ -2,7 +2,9 @@ name: WLS Trusted RSI Scoring Change Boundary
 
 # Evaluator checks from the default branch. No PR source is checked out.
 on:
-  pull_request_target:
+  # The PR event is read-only, and this workflow checks out trusted main only.
+  # Avoid the public-repo pull_request_target policy deprecation.
+  pull_request:
     types: [opened, reopened, synchronize, ready_for_review]
 
 permissions:
