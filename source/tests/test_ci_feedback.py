@@ -239,3 +239,37 @@ def test_previous_feedback_refuses_nonobject_json(feedback):
         feedback.read_bounded_previous_feedback(
             _feedback_zip([("FEEDBACK.json", b"not json")])
         )
+
+
+def test_feedback_junit_rejects_dtd_and_entity_markup(feedback, tmp_path):
+    path = tmp_path / "hostile.xml"
+    path.write_bytes(
+        b'<!DOCTYPE testsuite [<!ENTITY x "expanded">]>'
+        b'<testsuite><testcase classname="a" name="&x;"/></testsuite>'
+    )
+    with pytest.raises(ValueError, match="DTD"):
+        feedback.test_evidence(tmp_path)
+
+
+def test_feedback_junit_rejects_oversize_and_symlink(feedback, tmp_path):
+    path = tmp_path / "large.xml"
+    with path.open("wb") as stream:
+        stream.write(b"<testsuite>")
+        stream.write(b"B" * (feedback.MAX_CI_JUNIT_XML_BYTES + 1))
+    with pytest.raises(ValueError, match="bounded"):
+        feedback.bounded_junit_root(path)
+    alias = tmp_path / "alias.xml"
+    try:
+        alias.symlink_to(path)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlink not supported on hosted platform")
+    with pytest.raises(ValueError, match="regular file"):
+        feedback.bounded_junit_root(alias)
+
+
+def test_feedback_junit_normal_failure_retained(feedback, tmp_path):
+    root = tmp_path / "valid"
+    _xml(root, failing=True)
+    result = feedback.test_evidence(root)
+    assert result["status"] == "FAILED"
+    assert result["failed_tests"][0]["test"] == "t::test_fault"
