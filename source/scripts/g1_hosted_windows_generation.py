@@ -19,6 +19,7 @@ import re
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import zipfile
 
 from verify_hosted_living_loop import cli, validate_cycle
@@ -127,6 +128,61 @@ def download_checkpoint(repo: str, prior_run: int, directory: Path) -> Path:
     return archive
 
 
+def consistent_sqlite_snapshot(path: Path) -> bytes:
+    """Take a committed SQLite backup, including changes in an active WAL.
+
+    A raw copy of wls.db with journal_mode=WAL is not portable to the
+    :memory: deserializer and may omit committed pages in wls.db-wal.
+    """
+    with tempfile.TemporaryDirectory(prefix="wls-g1-db-backup-") as base:
+        target = Path(base) / "portable.sqlite3"
+        source = sqlite3.connect(path, timeout=10)
+        try:
+            backup = sqlite3.connect(target)
+            try:
+                source.backup(backup)
+                if backup.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                    raise ValueError("WLS snapshot integrity failed")
+            finally:
+                backup.close()
+        finally:
+            source.close()
+        data = target.read_bytes()
+    if not data.startswith(b"SQLite format 3\\x00") or len(data) > MAX_ARTIFACT_BYTES:
+        raise ValueError("invalid or oversized portable SQLite snapshot")
+    return data
+
+
+def validated_portable_sqlite(raw: bytes) -> bytes:
+    """Validate a historical WAL-mode DB on disk, then convert to DELETE mode.
+
+    The original digest is checked first by restore_checkpoint(). Everything
+    here occurs in an isolated temporary directory, before writing WLS_HOME.
+    """
+    if not raw.startswith(b"SQLite format 3\\x00") or len(raw) > MAX_ARTIFACT_BYTES:
+        raise ValueError("checkpoint database is not a bounded SQLite file")
+    with tempfile.TemporaryDirectory(prefix="wls-g1-db-restore-") as base:
+        path = Path(base) / "restored.sqlite3"
+        path.write_bytes(raw)
+        connection = sqlite3.connect(path, timeout=10)
+        try:
+            if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                raise ValueError("checkpoint database integrity failed")
+            # A legacy checkpoint may have been copied directly from WAL mode.
+            # Opening it as a normal disk database works; changing to DELETE
+            # makes the normalized copy independent of sidecar files.
+            if connection.execute("PRAGMA journal_mode=DELETE").fetchone()[0] != "delete":
+                raise ValueError("checkpoint database could not normalize WAL")
+            if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                raise ValueError("normalized database integrity failed")
+        finally:
+            connection.close()
+        clean = path.read_bytes()
+    if len(clean) > MAX_ARTIFACT_BYTES or clean[18:20] != b"\\x01\\x01":
+        raise ValueError("checkpoint database not portable after normalization")
+    return clean
+
+
 def restore_checkpoint(
     archive: Path, home: Path, *, expected_head: str, expected_run: int,
 ) -> tuple[dict, bytes]:
@@ -174,13 +230,10 @@ def restore_checkpoint(
         raise ValueError("invalid serialized WLS configuration") from exc
     if not isinstance(config, dict) or config.get("home") != str(home):
         raise ValueError("checkpoint Windows home does not match current runner")
-    db = sqlite3.connect(":memory:")
-    try:
-        db.deserialize(payload["state/wls.db"])
-        if db.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
-            raise ValueError("checkpoint database integrity failed")
-    finally:
-        db.close()
+    # The upstream archive digest authenticates the *original* database;
+    # only then do we validate and normalize it on an isolated temp disk.
+    # Legacy WAL-mode blobs cannot be deserialized into an in-memory DB.
+    payload["state/wls.db"] = validated_portable_sqlite(payload["state/wls.db"])
     # Mutate only after every file and manifest passed validation.
     for name in FILES:
         dest = home / name
@@ -199,7 +252,10 @@ def checkpoint(
         path = home / name
         if not path.is_file() or path.is_symlink():
             raise ValueError("missing/unsafe public synthetic checkpoint source")
-        files[name] = path.read_bytes()
+        files[name] = (
+            consistent_sqlite_snapshot(path)
+            if name == "state/wls.db" else path.read_bytes()
+        )
     if any(len(data) > MAX_ARTIFACT_BYTES for data in files.values()):
         raise ValueError("checkpoint file too large")
     now = datetime.now(UTC).isoformat()
