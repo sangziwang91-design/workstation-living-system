@@ -62,6 +62,86 @@ class OwnerContextBridge:
             return {"status": "UNCHANGED", "imported": 0}
         return self.import_bundle(payload, source_sha256=digest)
 
+    def effect_report(self, *, limit: int = 500) -> dict[str, Any]:
+        """Read-only usage audit; NEVER equate all-memory ablation with owner gain.
+
+        The existing causal attribution records compare a decision with all
+        memories against one without any. That does not isolate the effect of
+        owner memories, especially when other memory types were selected.
+        No raw owner text or source references leave this report.
+        """
+        bounded_limit = max(1, min(int(limit), 2000))
+        ids = {
+            str(row["memory_id"])
+            for row in self.db.query_all(
+                "SELECT memory_id FROM memories "
+                "WHERE memory_type='owner_context' AND active=1"
+            )
+        }
+        rows = self.db.query_all(
+            """SELECT selected_memory_ids_json,memory_changed_decision,outcome_json
+            FROM memory_decision_attributions
+            ORDER BY created_at DESC,cycle_id DESC LIMIT ?""",
+            (bounded_limit,),
+        )
+        owner_linked = owner_only = mixed = changed = 0
+        successes = failures = unmeasured = 0
+        for row in rows:
+            try:
+                selected = json.loads(row["selected_memory_ids_json"])
+            except (ValueError, TypeError):
+                continue
+            if not isinstance(selected, list):
+                continue
+            selected_ids = {
+                item for item in selected if isinstance(item, str) and item
+            }
+            if not selected_ids.intersection(ids):
+                continue
+            owner_linked += 1
+            if selected_ids <= ids:
+                owner_only += 1
+            else:
+                mixed += 1
+            if bool(row["memory_changed_decision"]):
+                changed += 1
+            try:
+                outcome = json.loads(row["outcome_json"]) if row["outcome_json"] else None
+            except (ValueError, TypeError):
+                outcome = None
+            result = outcome.get("task_success") if isinstance(outcome, dict) else None
+            if result is True:
+                successes += 1
+            elif result is False:
+                failures += 1
+            else:
+                unmeasured += 1
+        status = (
+            "NO_IMPORTED_OWNER_MEMORY" if not ids
+            else "NO_OWNER_LINKED_DECISIONS" if owner_linked == 0
+            else "DECISION_DIFFERENCE_RECORDED" if changed
+            else "OWNER_CONTEXT_SELECTED_NO_DECISION_DIFFERENCE"
+        )
+        return {
+            "schema": "wls.owner_context_effect_audit.v1",
+            "status": status,
+            "active_owner_memories": len(ids),
+            "decision_records_scanned": len(rows),
+            "owner_linked_decisions": owner_linked,
+            "owner_only_memory_decisions": owner_only,
+            "mixed_memory_decisions": mixed,
+            "all_memory_counterfactual_changed": changed,
+            "observed_task_success": successes,
+            "observed_task_failure": failures,
+            "unmeasured_outcomes": unmeasured,
+            "owner_specific_ablation_performed": False,
+            "transfer_advantage_proven": False,
+            "claim_ceiling": (
+                "usage and all-memory counterfactual only; owner-specific "
+                "causal improvement needs independent frozen A/B holdout"
+            ),
+        }
+
     def import_bundle(
         self, payload: Any, *, source_sha256: str,
     ) -> dict[str, Any]:
