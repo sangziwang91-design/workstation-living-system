@@ -14,6 +14,8 @@ EVALUATORS = frozenset({
     # Database and evidence mutation can change persistent grading decisions.
     "source/src/wls/db.py",
     "source/src/wls/evidence.py",
+    # Self-modifying this verifier changes who can alter the grader.
+    "source/scripts/verify_rsi_evaluator_change_boundary.py",
     "source/src/wls/schemas.py",
     "source/src/wls/rsi_artifact_gate.py",
     "source/src/wls/rsi_evolution.py",
