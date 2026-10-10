@@ -14129,6 +14129,21 @@ class LivingSystem:
                 }
             )
             step_started = time.monotonic()
+            # Independent real prediction refutations can now become bounded
+            # inquiry proposals, even when no tool test has failed. This does
+            # not confer permission to modify the world model or promote skills.
+            prediction_learning = self.learning.create_prediction_error_candidates(
+                threshold=0.5, minimum_repeats=2,
+                lookback_days=30, max_new_candidates=1,
+            )
+            event_goal_timings.append(
+                {
+                    "step": "prediction_refutation_discovery",
+                    "elapsed_seconds": round(time.monotonic() - step_started, 4),
+                    "new_candidates": len(prediction_learning),
+                }
+            )
+            step_started = time.monotonic()
             autonomous_goal_ids = self.autonomy.consider()
             event_goal_timings.append(
                 {
