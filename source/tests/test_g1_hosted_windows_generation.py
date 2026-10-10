@@ -23,7 +23,13 @@ def gen():
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
+    # Direct script entrypoint has source/scripts on sys.path; the
+    # importlib-based unit fixture must reproduce that legitimate path.
+    sys.path.insert(0, str(SCRIPT.parent))
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.path.remove(str(SCRIPT.parent))
     return module
 
 
