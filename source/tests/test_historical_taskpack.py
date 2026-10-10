@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -103,3 +104,22 @@ def test_shallow_clone_cannot_certify_pre_fix_history(engine, tmp_path):
     )
     with pytest.raises(ValueError, match="shallow history"):
         engine.mine(shallow, head=head)
+
+
+def test_cli_keeps_worker_json_free_of_fix_and_oracle_paths(tmp_path):
+    repo, head = _sample(tmp_path)
+    worker = tmp_path / "worker.json"
+    trusted = tmp_path / "trusted.json"
+    run = subprocess.run(
+        [sys.executable, str(SCRIPT), "--repo", str(repo), "--head", head,
+         "--output", str(worker), "--trusted-output", str(trusted)],
+        check=True, capture_output=True, text=True,
+    )
+    assert "candidate_tasks" in run.stdout
+    published = json.loads(worker.read_text(encoding="utf-8"))
+    oracle = json.loads(trusted.read_text(encoding="utf-8"))
+    assert "trusted_oracles" not in published
+    assert "fix_sha" not in str(published)
+    assert "test_legacy.py" not in str(published)
+    assert oracle["trusted_oracles"][0]["fix_sha"] == head
+    assert oracle["access"] == "public_history_not_a_secret_holdout"
