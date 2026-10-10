@@ -11,6 +11,11 @@ from urllib.request import Request, urlopen
 EVALUATORS = frozenset({
     # These dependencies define grade semantics or acceptance authority, even
     # when a PR does not touch the top-level benchmark implementation.
+    # Database and evidence mutation can change persistent grading decisions.
+    "source/src/wls/db.py",
+    "source/src/wls/evidence.py",
+    # Protect the guard itself against PR-side co-edits and ruff self-repair.
+    "source/scripts/verify_rsi_evaluator_change_boundary.py",
     "source/src/wls/schemas.py",
     "source/src/wls/rsi_artifact_gate.py",
     "source/src/wls/rsi_evolution.py",
