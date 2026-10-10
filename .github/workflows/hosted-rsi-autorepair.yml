@@ -99,7 +99,7 @@ jobs:
       - name: Verify candidate identity, lower lint faults, exact file allowlist
         shell: bash
         run: |
-          python - <<'PY'
+          python -I -S - <<'PY'
           import hashlib
           import json
           import os
@@ -156,7 +156,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          python - <<'PY'
+          python -I -S - <<'PY'
           import json
           import subprocess
           from pathlib import Path
