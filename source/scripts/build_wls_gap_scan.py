@@ -23,7 +23,10 @@ def junit_outcomes(path: Path) -> dict[str, str]:
         raw = stream.read(MAX_JUNIT_XML_BYTES + 1)
     if len(raw) > MAX_JUNIT_XML_BYTES:
         raise ValueError("JUnit evidence exceeds bounded XML budget")
-    if b"<!DOCTYPE" in raw.upper() or b"<!ENTITY" in raw.upper():
+    # JUnit evidence is UTF-8. Reject UTF-16/other encodings that can hide
+    # a DTD from raw ASCII byte scanning while ElementTree expands it.
+    inspected = raw.decode("utf-8-sig")
+    if "<!DOCTYPE" in inspected.upper() or "<!ENTITY" in inspected.upper():
         raise ValueError("JUnit evidence must not declare entities or a DTD")
     # Bounded input and explicit DTD/entity rejection before XML parsing.
     root = ET.fromstring(raw)  # nosec B314
