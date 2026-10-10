@@ -49,7 +49,13 @@ def gh_json(*args: str) -> object:
         raise ValueError("invalid GitHub workflow metadata") from exc
 
 
-def prior_successful_run(repo: str, run_id: int, head: str) -> int | None:
+def previous_verified_run(repo: str, run_id: int) -> dict | None:
+    """Find the latest successful *persisted* generation, not a failed attempt.
+
+    At most three consecutive failed runs can be bypassed, and every bypass
+    is explicitly recorded in the next receipt. No state is sourced from a
+    failed run (the workflow uploads checkpoint only on success).
+    """
     raw = gh_json(
         "run", "list", "--repo", repo, "--workflow", WORKFLOW,
         "--branch", "main", "--limit", "50",
@@ -64,20 +70,43 @@ def prior_successful_run(repo: str, run_id: int, head: str) -> int | None:
         if row.get("event") not in {"push", "schedule", "workflow_dispatch"}:
             continue
         ident = row.get("databaseId")
-        # A retry of an older GitHub run must never restore a newer run's
-        # state and claim reversed provenance. IDs increase with creation.
+        # Replaying an older run must not adopt any future state.
         if type(ident) is not int or ident <= 0 or ident >= run_id:
             continue
         candidates.append(row)
     if not candidates:
         return None
-    # gh returns newest-first, and IDs are monotonically assigned.
-    prior = max(candidates, key=lambda x: x["databaseId"])
-    if prior.get("conclusion") != "success":
+    skipped: list[int] = []
+    for row in sorted(candidates, key=lambda x: x["databaseId"], reverse=True):
+        ident = row["databaseId"]
+        conclusion = row.get("conclusion")
+        if conclusion == "success":
+            prior_sha = row.get("headSha")
+            if not isinstance(prior_sha, str) or not SHA.fullmatch(prior_sha):
+                raise ValueError("previous generation has invalid source provenance")
+            return {
+                "run_id": ident,
+                "head_sha": prior_sha,
+                "skipped_failed_run_ids": skipped,
+            }
+        if conclusion not in {"failure", "cancelled"}:
+            raise ValueError("previous complete generation has unrecognized status")
+        skipped.append(ident)
+        if len(skipped) > 3:
+            raise ValueError("too many failed generation attempts: owner review required")
+    raise ValueError("previous complete generation failed: no silent reset")
+
+
+def prior_successful_run(repo: str, run_id: int, head: str) -> int | None:
+    """Strict compatibility check; never hides a failed prior generation."""
+    prior = previous_verified_run(repo, run_id)
+    if prior is None:
+        return None
+    if prior["skipped_failed_run_ids"]:
         raise ValueError("previous complete generation failed: no silent reset")
-    if prior.get("headSha") != head:
+    if prior["head_sha"] != head:
         raise ValueError("source SHA changed: frozen lineage needs fresh admission")
-    return int(prior["databaseId"])
+    return int(prior["run_id"])
 
 
 def download_checkpoint(repo: str, prior_run: int, directory: Path) -> Path:
@@ -183,6 +212,8 @@ def checkpoint(
             sha(prior_manifest_raw) if prior_manifest_raw is not None else None,
         "generation": generation, "cycle_count": count,
         "first_at": first_at, "created_at": now,
+        "parent_head_sha": parent["head_sha"] if parent is not None else None,
+        "source_transition": parent is not None and parent["head_sha"] != head,
         "synthetic_only": True,
         "files_sha256": {name: sha(data) for name, data in files.items()},
         "model_calls": 0, "autonomous_skill_gain_proven": False,
@@ -203,7 +234,17 @@ def run(repo: str, run_id: int, head: str, workspace: Path) -> dict:
     home = workspace / ".g1-windows" / "home"
     if home.exists() and any(home.iterdir()):
         raise ValueError("refuse to overwrite previously used generation home")
-    prior_id = prior_successful_run(repo, run_id, head)
+    # Public synthetic history may cross a mainline source update only by
+    # verifying the old checkpoint against its *own* run/source identity,
+    # then verifying the restored state with the current canonical WLS.
+    # The strict prior_successful_run() contract remains fail-closed.
+    previous_record = previous_verified_run(repo, run_id)
+    prior_id = previous_record["run_id"] if previous_record is not None else None
+    prior_head = previous_record["head_sha"] if previous_record is not None else None
+    skipped_attempts = (
+        previous_record["skipped_failed_run_ids"]
+        if previous_record is not None else []
+    )
     parent = None
     parent_raw = None
     if prior_id is None:
@@ -213,8 +254,14 @@ def run(repo: str, run_id: int, head: str, workspace: Path) -> dict:
     else:
         archive = download_checkpoint(repo, prior_id, workspace / "g1-generation-prior")
         parent, parent_raw = restore_checkpoint(
-            archive, home, expected_head=head, expected_run=prior_id
+            archive, home, expected_head=str(prior_head), expected_run=prior_id
         )
+        # Cross-source transitions are admitted only for bounded, synthetic
+        # checkpoints with independently validated GitHub run provenance.
+        # The new executable must verify the old SQLite/evidence before any
+        # new cycle is allowed. No silent restart or private owner migration.
+        if prior_head != head and cli(home, "verify").get("ok") is not True:
+            raise ValueError("restored synthetic state incompatible with new source")
     before = cli(home, "status")
     previous = int(before["cycle_count"])
     if parent is not None and previous != parent["cycle_count"]:
@@ -248,6 +295,10 @@ def run(repo: str, run_id: int, head: str, workspace: Path) -> dict:
         "run_id": run_id, "head_sha": head, "generation": manifest["generation"],
         "parent_run_id": prior_id, "cycle_count": final_count,
         "restored_from_distinct_run": prior_id is not None,
+        "failed_attempts_not_in_lineage": skipped_attempts,
+        "source_transition": manifest["source_transition"],
+        "parent_head_sha": manifest["parent_head_sha"],
+        "transition_scope": "verified_public_synthetic_checkpoint_only",
         "elapsed_generation_hours": round(age_hours, 4),
         "synthetic_only": True, "local_owner_deployed": False,
         "model_calls": 0, "autonomous_skill_gain_proven": False,
