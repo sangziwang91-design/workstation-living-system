@@ -25,6 +25,9 @@ concurrency:
   # Keep all trusted push/schedule/dispatch generations serialized, but do not
   # let unprivileged PR negative-control runs occupy the mainline writer queue.
   group: wls-g1-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'trusted-main' }}
+  # GitHub's default single pending run drops older queued generations.
+  # Retain up to 100 pending trusted writers; all still run one at a time.
+  queue: max
   cancel-in-progress: false
 
 jobs:
