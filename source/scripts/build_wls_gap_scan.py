@@ -94,15 +94,18 @@ def lint_debt(path: Path | None) -> dict:
 
 def largest_python_sources(repo: Path) -> list[dict]:
     folder = repo / "source/src/wls"
-    files = []
+    files: list[tuple[int, str]] = []
     for path in folder.glob("*.py"):
         if path.is_symlink() or not path.is_file():
             continue
-        files.append({
-            "path": path.relative_to(repo).as_posix(),
-            "lines": len(path.read_text(encoding="utf-8").splitlines()),
-        })
-    return sorted(files, key=lambda row: (-row["lines"], row["path"]))[:5]
+        files.append((
+            len(path.read_text(encoding="utf-8").splitlines()),
+            path.relative_to(repo).as_posix(),
+        ))
+    return [
+        {"path": name, "lines": count}
+        for count, name in sorted(files, key=lambda row: (-row[0], row[1]))[:5]
+    ]
 
 
 def generate(*, repo: Path, first: Path, second: Path, head: str,
