@@ -115,9 +115,21 @@ def execute(workspace: Path, head: str) -> dict[str, Any]:
         status = cli(home, "status")
         if status.get("read_only") is not True:
             raise ValueError("readonly permission changed")
-        # One completely separate WLS process sees the two persisted actions.
-        if status.get("cycle_count", 0) < 2:
-            raise ValueError("action results not persisted across WLS processes")
+        # Patch Missions create evidence-bound mission cycles, not ordinary
+        # wls-once cycles; status.cycle_count is NOT their canonical counter.
+        # Check the two source-linked mission cycles in the actual DB after
+        # a separate WLS process has reopened and verified the same home.
+        ids = (first.get("cycle_id"), second.get("cycle_id"))
+        if (any(not isinstance(i, str) or not i.startswith("cycle_") for i in ids)
+                or ids[0] == ids[1]):
+            raise ValueError("missing distinct canonical patch-mission cycles")
+        with sqlite3.connect(home / "state/wls.db") as conn:
+            stored_cycles = conn.execute(
+                "SELECT cycle_id,status FROM cycles WHERE cycle_id IN (?,?)",
+                ids,
+            ).fetchall()
+        if len(stored_cycles) != 2 or any(row[1] != "SUCCEEDED" for row in stored_cycles):
+            raise ValueError("patch-mission cycles not persisted across WLS processes")
     return {
         "schema": SCHEMA,
         "status": "TWO_OBSERVED_WINDOWS_ACTION_CLASSES",
@@ -127,6 +139,7 @@ def execute(workspace: Path, head: str) -> dict[str, Any]:
         "actions": [evidence_a, evidence_b],
         "canonical_ledger_verified": True,
         "new_process_verified_persistence": True,
+        "persisted_mission_cycles": 2,
         "read_only": True,
         "real_owner_task_count": 0,
         "autonomous_goal_count": 0,
