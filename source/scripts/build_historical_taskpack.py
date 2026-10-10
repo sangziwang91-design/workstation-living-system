@@ -90,7 +90,7 @@ def public_issue_hint(message: str) -> str | None:
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ,.:;()/+_-]*", candidate):
         return None
     blocked = ("ignore previous", "system prompt", "api key", "secret",
-               "password", "execute this", "run this", "follow these")
+               "password", "execute this", "run this", "follow these", "rm -rf")
     if any(phrase in candidate.casefold() for phrase in blocked):
         return None
     return candidate
