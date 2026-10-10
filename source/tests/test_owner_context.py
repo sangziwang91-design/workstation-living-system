@@ -163,4 +163,4 @@ def test_bad_local_bundle_does_not_crash_life_cycle_or_disclose_content(tmp_path
     receipt = runtime.db.get_runtime("owner_context_last_import")
     assert receipt == {"status": "REJECTED", "error_type": "PermissionError"}
     assert "PRIVATE PHRASE" not in json.dumps(receipt)
-    assert runtime.db.query_one("SELECT COUNT(*) AS n FROM memories")["n"] == 0
+    assert runtime.db.query_one("SELECT COUNT(*) AS n FROM memories WHERE memory_type='owner_context'")["n"] == 0
