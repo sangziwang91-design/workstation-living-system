@@ -60,8 +60,7 @@ def _sample(tmp_path: Path, *, new_test: bool = False) -> tuple[Path, str]:
     _git(root, "add", ".")
     _git(root, "commit", "-qm", "fix behavior")
     _git(root, "checkout", "-q", "main")
-    _git(root, "merge", "--no-ff", "-qm",
-         "Merge pull request #42 from fix\n\nRepair genuine legacy regression", "fix")
+    _git(root, "merge", "--no-ff", "-qm", "Merge pull request #42 from fix\n\nRepair genuine legacy regression", "fix")
     assert _git(root, "rev-parse", "HEAD") != base
     return root, _git(root, "rev-parse", "HEAD")
 
@@ -172,6 +171,32 @@ def test_missing_grader_catalog_fails_closed(engine, tmp_path):
     (repo / "source/scripts/verify_rsi_evaluator_change_boundary.py").unlink()
     with pytest.raises(ValueError, match="catalog unavailable"):
         engine.mine(repo, head=head)
+
+
+@pytest.mark.parametrize("mode", ["delete", "rename"])
+def test_deleted_or_renamed_grader_is_not_a_worker_task(engine, tmp_path, mode):
+    repo, _ = _sample(tmp_path)
+    _git(repo, "checkout", "-qb", "scorer-removal")
+    protected = "source/src/wls/db.py"
+    if mode == "delete":
+        _git(repo, "rm", protected)
+    else:
+        _git(repo, "mv", protected, "source/src/wls/db_renamed.py")
+    (repo / "source/src/wls/legacy.py").write_text(
+        "def value(): return 55\n", encoding="utf-8",
+    )
+    (repo / "source/tests/test_legacy.py").write_text(
+        "def test_value(): assert 55 == 55\n", encoding="utf-8",
+    )
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "change grading dependency with worker")
+    _git(repo, "checkout", "-q", "main")
+    _git(repo, "merge", "--no-ff", "-qm",
+         "Merge pull request #43 from scorer-removal", "scorer-removal")
+    result = engine.mine(repo, head=_git(repo, "rev-parse", "HEAD"))
+    assert result["skips"]["scorer_authority_changed"] >= 1
+    assert all(x["pr_number"] != 43 for x in result["trusted_oracles"])
+    assert len(result["tasks"]) == 1  # Only the earlier clean PR #42
 
 
 def test_public_issue_context_is_sourced_and_audit_only(engine, tmp_path):
