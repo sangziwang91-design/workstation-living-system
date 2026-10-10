@@ -124,7 +124,7 @@ jobs:
       - name: Admit only precisely graded real model candidate
         shell: bash
         run: |
-          python - <<'PY'
+          python -I -S - <<'PY'
           import hashlib
           import json
           import os
