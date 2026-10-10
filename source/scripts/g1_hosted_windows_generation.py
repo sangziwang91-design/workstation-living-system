@@ -49,8 +49,13 @@ def gh_json(*args: str) -> object:
         raise ValueError("invalid GitHub workflow metadata") from exc
 
 
-def previous_verified_run(repo: str, run_id: int) -> tuple[int, str] | None:
-    """Locate the prior trusted generation, preserving its actual source SHA."""
+def previous_verified_run(repo: str, run_id: int) -> dict | None:
+    """Find the latest successful *persisted* generation, not a failed attempt.
+
+    At most three consecutive failed runs can be bypassed, and every bypass
+    is explicitly recorded in the next receipt. No state is sourced from a
+    failed run (the workflow uploads checkpoint only on success).
+    """
     raw = gh_json(
         "run", "list", "--repo", repo, "--workflow", WORKFLOW,
         "--branch", "main", "--limit", "50",
@@ -65,32 +70,43 @@ def previous_verified_run(repo: str, run_id: int) -> tuple[int, str] | None:
         if row.get("event") not in {"push", "schedule", "workflow_dispatch"}:
             continue
         ident = row.get("databaseId")
-        # A retry of an older GitHub run must never restore a newer run's
-        # state and claim reversed provenance. IDs increase with creation.
+        # Replaying an older run must not adopt any future state.
         if type(ident) is not int or ident <= 0 or ident >= run_id:
             continue
         candidates.append(row)
     if not candidates:
         return None
-    # gh returns newest-first, and IDs are monotonically assigned.
-    prior = max(candidates, key=lambda x: x["databaseId"])
-    if prior.get("conclusion") != "success":
-        raise ValueError("previous complete generation failed: no silent reset")
-    prior_sha = prior.get("headSha")
-    if not isinstance(prior_sha, str) or not SHA.fullmatch(prior_sha):
-        raise ValueError("previous generation has invalid source provenance")
-    return int(prior["databaseId"]), prior_sha
+    skipped: list[int] = []
+    for row in sorted(candidates, key=lambda x: x["databaseId"], reverse=True):
+        ident = row["databaseId"]
+        conclusion = row.get("conclusion")
+        if conclusion == "success":
+            prior_sha = row.get("headSha")
+            if not isinstance(prior_sha, str) or not SHA.fullmatch(prior_sha):
+                raise ValueError("previous generation has invalid source provenance")
+            return {
+                "run_id": ident,
+                "head_sha": prior_sha,
+                "skipped_failed_run_ids": skipped,
+            }
+        if conclusion not in {"failure", "cancelled"}:
+            raise ValueError("previous complete generation has unrecognized status")
+        skipped.append(ident)
+        if len(skipped) > 3:
+            raise ValueError("too many failed generation attempts: owner review required")
+    raise ValueError("previous complete generation failed: no silent reset")
 
 
 def prior_successful_run(repo: str, run_id: int, head: str) -> int | None:
-    """Strict frozen-source contract retained for tests/manual admissions."""
+    """Strict compatibility check; never hides a failed prior generation."""
     prior = previous_verified_run(repo, run_id)
     if prior is None:
         return None
-    prior_id, prior_sha = prior
-    if prior_sha != head:
+    if prior["skipped_failed_run_ids"]:
+        raise ValueError("previous complete generation failed: no silent reset")
+    if prior["head_sha"] != head:
         raise ValueError("source SHA changed: frozen lineage needs fresh admission")
-    return prior_id
+    return int(prior["run_id"])
 
 
 def download_checkpoint(repo: str, prior_run: int, directory: Path) -> Path:
@@ -223,8 +239,9 @@ def run(repo: str, run_id: int, head: str, workspace: Path) -> dict:
     # then verifying the restored state with the current canonical WLS.
     # The strict prior_successful_run() contract remains fail-closed.
     previous = previous_verified_run(repo, run_id)
-    prior_id = previous[0] if previous is not None else None
-    prior_head = previous[1] if previous is not None else None
+    prior_id = previous["run_id"] if previous is not None else None
+    prior_head = previous["head_sha"] if previous is not None else None
+    skipped_attempts = previous["skipped_failed_run_ids"] if previous is not None else []
     parent = None
     parent_raw = None
     if prior_id is None:
@@ -275,6 +292,7 @@ def run(repo: str, run_id: int, head: str, workspace: Path) -> dict:
         "run_id": run_id, "head_sha": head, "generation": manifest["generation"],
         "parent_run_id": prior_id, "cycle_count": final_count,
         "restored_from_distinct_run": prior_id is not None,
+        "failed_attempts_not_in_lineage": skipped_attempts,
         "source_transition": manifest["source_transition"],
         "parent_head_sha": manifest["parent_head_sha"],
         "transition_scope": "verified_public_synthetic_checkpoint_only",
