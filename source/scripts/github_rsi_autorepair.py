@@ -20,6 +20,7 @@ MAX_FILES_PER_GENERATION = 2
 MAX_PATCH_BYTES_PER_GENERATION = 128_000
 BLOCKED_FILES = frozenset({
     "source/scripts/github_rsi_autorepair.py",
+    "source/scripts/verify_rsi_evaluator_change_boundary.py",
     "source/scripts/github_rsi_local_model.py",
     "source/scripts/github_rsi_replay_model.py",
     "source/src/wls/evidence.py",
