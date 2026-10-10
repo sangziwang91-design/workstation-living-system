@@ -1,0 +1,119 @@
+name: WLS C2 Real Historical Red-Green Replay
+
+on:
+  pull_request:
+    paths: [".github/workflows/wls-c2-known-regression-replay.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  historical-r15:
+    name: Known WLS behavioral bug before vs after x2
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.13"
+      - name: Install trusted historic test dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Check out known historical parent and fixed revisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          BEFORE=2d68d8dc6c6a8dce2f4d8238333517a68567973a
+          AFTER=07bcfcaad22904de57d9cf2963ad1776c28bf34a
+          git cat-file -e "$BEFORE^{commit}"
+          git cat-file -e "$AFTER^{commit}"
+          git merge-base --is-ancestor "$BEFORE" "$AFTER"
+          git worktree add --detach "$RUNNER_TEMP/c2-before" "$BEFORE"
+          git worktree add --detach "$RUNNER_TEMP/c2-after" "$AFTER"
+          cp "$RUNNER_TEMP/c2-after/source/tests/test_life_campaign_30.py" \
+             "$RUNNER_TEMP/c2-before/source/tests/test_life_campaign_30.py"
+          echo "C2_HISTORY_PAIR=$BEFORE:$AFTER" >> "$GITHUB_ENV"
+      - name: Replay fixed test against both known WLS versions twice
+        shell: bash
+        run: |
+          # Actions starts bash with -e; expected baseline red is not a job
+          # failure. Capture both exit statuses and verify exact JUnit cause.
+          set +e
+          set -uo pipefail
+          TEST=source/tests/test_life_campaign_30.py::test_runner_executes_short_r15_minimum_life
+          for round in 1 2; do
+            (
+              cd "$RUNNER_TEMP/c2-before"
+              PYTHONPATH="$RUNNER_TEMP/c2-before/source/src:$RUNNER_TEMP/c2-before/source/scripts" \
+                python -m pytest -q "$TEST" \
+                  --junitxml="$GITHUB_WORKSPACE/c2-before-$round.xml"
+            )
+            echo "PRE_${round}_EXIT=$?" >> "$GITHUB_ENV"
+            (
+              cd "$RUNNER_TEMP/c2-after"
+              PYTHONPATH="$RUNNER_TEMP/c2-after/source/src:$RUNNER_TEMP/c2-after/source/scripts" \
+                python -m pytest -q "$TEST" \
+                  --junitxml="$GITHUB_WORKSPACE/c2-after-$round.xml"
+            )
+            echo "POST_${round}_EXIT=$?" >> "$GITHUB_ENV"
+          done
+          exit 0
+      - name: Verify precise causal failure and success, not mere exit code
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          results = []
+          for repetition in (1, 2):
+              def read(arm):
+                  tree = ET.parse(f"c2-{arm}-{repetition}.xml").getroot()
+                  cases = list(tree.iter("testcase"))
+                  assert len(cases) == 1, f"{arm}: missing or multiple tests"
+                  case = cases[0]
+                  assert case.get("name") == "test_runner_executes_short_r15_minimum_life"
+                  assert case.find("skipped") is None
+                  return case
+              before = read("before")
+              after = read("after")
+              failure = before.find("failure")
+              assert failure is not None, "pre-fix behavior did not fail"
+              assert "R15 must preserve subsecond start precision" in (
+                  failure.get("message", "") + "".join(failure.itertext())
+              ), "wrong failure cause"
+              assert after.find("failure") is None and after.find("error") is None
+              assert os.environ[f"PRE_{repetition}_EXIT"] != "0"
+              assert os.environ[f"POST_{repetition}_EXIT"] == "0"
+              results.append({"repeat": repetition, "before": "EXPECTED_FAIL",
+                              "after": "PASS", "same_test": True})
+          receipt = {
+              "schema": "wls.c2_known_regression.v1",
+              "source_type": "github_hosted_known_merged_revisions",
+              "pair": os.environ["C2_HISTORY_PAIR"],
+              "status": "PUBLIC_KNOWN_FIX_REPRODUCED",
+              "results": results,
+              "independent_holdout": False,
+              "claim_ceiling": "historical_regression_only_no_RSI",
+          }
+          Path("c2-real-replay.json").write_text(
+              json.dumps(receipt, sort_keys=True, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps({"status": receipt["status"], "repeats": len(results)}))
+          PY
+      - name: Preserve real JUnit evidence regardless of verdict
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wls-c2-regression-replay-${{ github.run_id }}
+          path: |
+            c2-before-*.xml
+            c2-after-*.xml
+            c2-real-replay.json
+          if-no-files-found: warn
