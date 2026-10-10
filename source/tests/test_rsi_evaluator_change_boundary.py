@@ -48,6 +48,8 @@ def test_evaluator_only_code_only_and_documents_are_legal(guard, paths):
 
 
 @pytest.mark.parametrize("scorer", [
+    "source/src/wls/db.py",
+    "source/src/wls/evidence.py",
     "source/src/wls/schemas.py",
     "source/src/wls/rsi_artifact_gate.py",
     "source/src/wls/rsi_evolution.py",
@@ -128,6 +130,8 @@ def test_scorer_and_prose_only_can_still_be_reviewed(guard):
 
 
 @pytest.mark.parametrize("grading_dependency", [
+    "source/src/wls/db.py",
+    "source/src/wls/evidence.py",
     "source/src/wls/schemas.py",
     "source/src/wls/rsi_artifact_gate.py",
     "source/src/wls/rsi_evolution.py",
@@ -151,10 +155,35 @@ def test_indirect_grading_authority_cannot_change_with_candidate(
 
 def test_grading_only_files_can_still_be_reviewed_without_candidate_code(guard):
     grading_only = [
-        "source/src/wls/schemas.py",
+        "source/src/wls/db.py",
+    "source/src/wls/evidence.py",
+    "source/src/wls/schemas.py",
         "source/src/wls/task_admission.py",
         "source/src/wls/benchmark.py",
     ]
     result = guard.check_files(grading_only)
     assert result["eligible"] is True
     assert result["other_code_files"] == []
+
+
+def test_autorepair_cannot_touch_any_scoring_authority(guard):
+    """A2: trusted PR separation and mechanical self-repair use same ceiling."""
+    import runpy
+
+    code = runpy.run_path(
+        str(SCRIPT.parent / "github_rsi_autorepair.py"), run_name="wls_guard_probe"
+    )
+    blocked = code["BLOCKED_FILES"]
+    assert guard.EVALUATORS <= blocked
+    assert "source/scripts/verify_rsi_evaluator_change_boundary.py" in blocked
+
+
+@pytest.mark.parametrize("scorer", [
+    "source/src/wls/db.py",
+    "source/src/wls/evidence.py",
+])
+def test_nuomi_reported_grader_dependency_mixing_is_blocked(guard, scorer):
+    result = guard.check_files([scorer, "source/src/wls/runtime.py"])
+    assert result["status"] == "REJECT_MIXED_EVALUATOR_AND_CODE"
+    assert scorer in result["evaluator_files"]
+    assert guard.check_files([scorer])["status"] == "PASS"
