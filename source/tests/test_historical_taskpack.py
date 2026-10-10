@@ -61,7 +61,7 @@ def _sample(tmp_path: Path, *, new_test: bool = False) -> tuple[Path, str]:
     _git(root, "commit", "-qm", "fix behavior")
     _git(root, "checkout", "-q", "main")
     _git(root, "merge", "--no-ff", "-qm",
-         "Merge pull request #42 from fix\\n\\nRepair genuine legacy regression", "fix")
+         "Merge pull request #42 from fix\n\nRepair genuine legacy regression", "fix")
     assert _git(root, "rev-parse", "HEAD") != base
     return root, _git(root, "rev-parse", "HEAD")
 
