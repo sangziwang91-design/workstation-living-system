@@ -98,7 +98,7 @@ def test_only_owner_linked_decisions_are_counted_and_mixed_is_not_isolated(
     isolated_in_memory_set = runtime.owner_context.effect_report()
     assert isolated_in_memory_set["owner_only_memory_decisions"] == 1
     assert isolated_in_memory_set["all_memory_counterfactual_changed"] == 1
-    assert isolated_in_memory_set["observed_task_success"] == 1
+    assert isolated_in_memory_set["recorded_action_success_labels"] == 1
     assert isolated_in_memory_set["transfer_advantage_proven"] is False
     assert "PRIVATE FACT" not in json.dumps(isolated_in_memory_set)
 
@@ -113,7 +113,7 @@ def test_only_owner_linked_decisions_are_counted_and_mixed_is_not_isolated(
     assert after["owner_only_memory_decisions"] == 1
     assert after["mixed_memory_decisions"] == 1
     assert after["observed_task_success"] == 1
-    assert after["observed_task_failure"] == 1
+    assert after["recorded_action_failure_labels"] == 1
     assert after["transfer_advantage_proven"] is False
 
     restarted = runtime_at(runtime.config.home_path)
