@@ -8,7 +8,7 @@ The WLS owner context bridge now exposes a bounded `owner_context_effect` summar
 - `owner_linked_decisions`: decisions whose stored memory ID set includes a real owner-context memory
 - `owner_only_memory_decisions` versus `mixed_memory_decisions`: confounding from non-owner memories
 - `all_memory_counterfactual_changed`: stored difference compared with the **all-memories-disabled** counterfactual
-- `observed_task_success`, `observed_task_failure` and `unmeasured_outcomes`: available outcome labels, not proof of causation
+- `recorded_action_success_labels`, `recorded_action_failure_labels` and `unmeasured_outcomes`: WLS tool/action acceptance labels, NOT verified external task success (NOOP may count as accepted)
 
 All are local, observational signals; at most the latest 500 decision records are scanned in normal status output. If no private bundle or attributable use is present, the report explicitly says so.
 
