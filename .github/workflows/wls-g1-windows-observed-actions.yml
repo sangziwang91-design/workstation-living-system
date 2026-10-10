@@ -10,11 +10,15 @@ on:
       - ".github/workflows/wls-g1-windows-observed-actions.yml"
       - "source/scripts/verify_g1_windows_task_actions.py"
       - "source/tests/test_g1_windows_task_actions.py"
+      - "source/scripts/verify_g1_windows_endogenous_growth.py"
+      - "source/tests/test_g1_windows_endogenous_growth.py"
   pull_request:
     paths:
       - ".github/workflows/wls-g1-windows-observed-actions.yml"
       - "source/scripts/verify_g1_windows_task_actions.py"
       - "source/tests/test_g1_windows_task_actions.py"
+      - "source/scripts/verify_g1_windows_endogenous_growth.py"
+      - "source/tests/test_g1_windows_endogenous_growth.py"
 
 permissions:
   contents: read
@@ -53,11 +57,20 @@ jobs:
         run: |
           python source/scripts/verify_g1_windows_task_actions.py --head "${{ github.sha }}" --output "wls-g1-windows-observed-actions-receipt.json"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Prove real Windows read failure automatically creates bounded WLS investigation
+        shell: pwsh
+        run: |
+          python -m pytest -q source/tests/test_g1_windows_endogenous_growth.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python source/scripts/verify_g1_windows_endogenous_growth.py --output "wls-g1-windows-endogenous-growth-receipt.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Preserve provenance-only evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: wls-g1-windows-observed-actions
-          path: wls-g1-windows-observed-actions-receipt.json
+          path: |
+            wls-g1-windows-observed-actions-receipt.json
+            wls-g1-windows-endogenous-growth-receipt.json
           retention-days: 30
           if-no-files-found: warn
