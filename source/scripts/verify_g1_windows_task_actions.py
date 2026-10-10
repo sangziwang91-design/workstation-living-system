@@ -10,6 +10,7 @@ import hashlib
 import json
 from pathlib import Path
 import sqlite3
+import sys
 import tempfile
 from typing import Any
 
@@ -146,9 +147,14 @@ def main() -> int:
     try:
         result = execute(args.output.parent, args.head)
     except (OSError, ValueError, TypeError, KeyError, sqlite3.Error) as exc:
+        # This probe creates *only* public synthetic fixtures. Retain a short
+        # diagnostic rather than inventing success or uploading tool payloads.
+        error_summary = str(exc)[:240]
+        print(f"G1_WLS_TASK_BLOCKED {type(exc).__name__}: {error_summary}", file=sys.stderr)
         result = {
             "schema": SCHEMA, "status": "BLOCKED",
             "error_type": type(exc).__name__,
+            "failure_summary": error_summary,
             "claim_ceiling": "no_real_task_claim_without_observed_tool_success",
         }
     args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n",
