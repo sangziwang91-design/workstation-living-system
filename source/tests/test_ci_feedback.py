@@ -273,3 +273,15 @@ def test_feedback_junit_normal_failure_retained(feedback, tmp_path):
     result = feedback.test_evidence(root)
     assert result["status"] == "FAILED"
     assert result["failed_tests"][0]["test"] == "t::test_fault"
+
+
+def test_feedback_utf16_dtd_cannot_bypass_byte_inspection(feedback, tmp_path):
+    raw = (
+        '<?xml version="1.0" encoding="utf-16"?>'
+        '<!DOCTYPE testsuite [<!ENTITY hidden "expanded">]>'
+        '<testsuite><testcase name="&hidden;"/></testsuite>'
+    ).encode("utf-16")
+    path = tmp_path / "utf16.xml"
+    path.write_bytes(raw)
+    with pytest.raises(UnicodeError):
+        feedback.bounded_junit_root(path)
