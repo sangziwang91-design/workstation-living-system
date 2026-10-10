@@ -338,7 +338,7 @@ class CausalMemoryIndex:
         fallback_limit = candidate_limit - len(rows)
         if fallback_limit > 0:
             fallback_rows = self.db.query_all(
-                """
+                f"""
                 SELECT m.*,i.* FROM memories m
                 JOIN causal_memory_index i ON i.memory_id=m.memory_id
                 WHERE m.active=1 {exclusion_clause}
