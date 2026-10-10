@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import importlib.util
+import io
+import zipfile
 import json
 from pathlib import Path
 import sys
@@ -191,3 +193,49 @@ def test_cancelled_required_job_never_looks_like_pass(
     ]
     _, reason = feedback.next_action({"tests": result})
     assert reason == "UNMEASURED_TEST_EVIDENCE"
+
+
+def _feedback_zip(entries: list[tuple[str, bytes]]) -> bytes:
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name, raw in entries:
+            archive.writestr(name, raw)
+    return output.getvalue()
+
+
+def test_previous_feedback_bound_reads_only_valid_single_record(feedback):
+    valid = json.dumps({"schema": feedback.SCHEMA, "hello": "world"}).encode()
+    data = _feedback_zip([("FEEDBACK.json", valid)])
+    assert feedback.read_bounded_previous_feedback(data)["hello"] == "world"
+    wrong = _feedback_zip([("FEEDBACK.json", b'{"schema":"unknown"}')])
+    assert feedback.read_bounded_previous_feedback(wrong) is None
+    missing = _feedback_zip([("unrelated.json", b'{}')])
+    assert feedback.read_bounded_previous_feedback(missing) is None
+
+
+def test_previous_feedback_rejects_compressed_zip_bomb(feedback):
+    raw = b'{"schema":"' + feedback.SCHEMA.encode() + b'","pad":"' + b"A" * 550_000 + b'"}'
+    payload = _feedback_zip([("FEEDBACK.json", raw)])
+    assert len(payload) < 2_500_000
+    with pytest.raises(ValueError, match="decompressed JSON too large"):
+        feedback.read_bounded_previous_feedback(payload)
+
+
+def test_previous_feedback_rejects_ambiguous_and_many_entries(feedback):
+    valid = json.dumps({"schema": feedback.SCHEMA}).encode()
+    duplicate = _feedback_zip([("FEEDBACK.json", valid), ("nested/FEEDBACK.json", valid)])
+    with pytest.raises(ValueError, match="ambiguous"):
+        feedback.read_bounded_previous_feedback(duplicate)
+    many = _feedback_zip([(f"row-{n}.json", b"{}") for n in range(33)])
+    with pytest.raises(ValueError, match="too many files"):
+        feedback.read_bounded_previous_feedback(many)
+
+
+def test_previous_feedback_refuses_nonobject_json(feedback):
+    data = _feedback_zip([("FEEDBACK.json", b"[]")])
+    with pytest.raises(ValueError, match="JSON object"):
+        feedback.read_bounded_previous_feedback(data)
+    with pytest.raises(json.JSONDecodeError):
+        feedback.read_bounded_previous_feedback(
+            _feedback_zip([("FEEDBACK.json", b"not json")])
+        )
