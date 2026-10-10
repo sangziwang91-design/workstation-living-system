@@ -131,14 +131,28 @@ def main() -> int:
     parser.add_argument("--head", required=True)
     parser.add_argument("--max-commits", type=int, default=120)
     parser.add_argument("--max-tasks", type=int, default=20)
-    parser.add_argument("--output", type=Path, default=Path("wls-c2-taskpack.json"))
+    parser.add_argument("--output", type=Path, default=Path("wls-c2-worker-tasks.json"))
+    parser.add_argument("--trusted-output", type=Path,
+                        default=Path("wls-c2-trusted-oracles.json"))
     args = parser.parse_args()
     report = mine(
         args.repo.resolve(), head=args.head,
         max_commits=args.max_commits, max_tasks=args.max_tasks,
     )
+    # Public-history oracles are discoverable, not *sealed*. Nonetheless
+    # separate worker input from trusted comparison metadata to prevent
+    # accidental answer injection through the normal execution channel.
+    worker = {key: val for key, val in report.items() if key != "trusted_oracles"}
+    trusted = {
+        "schema": report["schema"], "head_sha": report["head_sha"],
+        "trusted_oracles": report["trusted_oracles"],
+        "access": "public_history_not_a_secret_holdout",
+    }
     args.output.write_text(
-        json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        json.dumps(worker, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    args.trusted_output.write_text(
+        json.dumps(trusted, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     print(json.dumps({
         "status": report["status"], "candidate_tasks": len(report["tasks"]),
