@@ -218,7 +218,9 @@ def test_verified_prior_metadata_can_name_old_source_without_silent_reset(
                  "conclusion": "success", "headSha": HEAD,
                  "event": "schedule"}]
     monkeypatch.setattr(gen, "gh_json", lambda *args: previous)
-    assert gen.previous_verified_run("owner/repo", 124) == (123, HEAD)
+    assert gen.previous_verified_run("owner/repo", 124) == {
+        "run_id": 123, "head_sha": HEAD, "skipped_failed_run_ids": [],
+    }
     with pytest.raises(ValueError, match="source SHA changed"):
         gen.prior_successful_run("owner/repo", 124, "b" * 40)
     previous[0]["headSha"] = "mutable-main"
@@ -243,7 +245,8 @@ def test_cross_source_synthetic_continuity_is_verified_and_explicit(
     )
     archive = tmp_path / "prior-artifact" / "checkpoint.zip"
     monkeypatch.setattr(gen, "previous_verified_run",
-                        lambda *args: (123, HEAD))
+                        lambda *args: {"run_id": 123, "head_sha": HEAD,
+                                       "skipped_failed_run_ids": [122]})
     monkeypatch.setattr(gen, "download_checkpoint",
                         lambda *args: archive)
     newer_head = "b" * 40
@@ -274,6 +277,7 @@ def test_cross_source_synthetic_continuity_is_verified_and_explicit(
     assert report["status"] == "HOSTED_WINDOWS_GENERATION_PASS"
     assert report["parent_run_id"] == 123
     assert report["source_transition"] is True
+    assert report["failed_attempts_not_in_lineage"] == [122]
     assert report["parent_head_sha"] == HEAD
     assert report["generation"] == old["generation"] + 1
     assert report["cycle_count"] == 4
@@ -301,7 +305,8 @@ def test_incompatible_synthetic_source_transition_never_executes_cycle(
         parent=None, prior_manifest_raw=None, count=2,
     )
     monkeypatch.setattr(gen, "previous_verified_run",
-                        lambda *args: (123, HEAD))
+                        lambda *args: {"run_id": 123, "head_sha": HEAD,
+                                       "skipped_failed_run_ids": [122]})
     monkeypatch.setattr(
         gen, "download_checkpoint",
         lambda *args: tmp_path / "old-artifact" / "checkpoint.zip",
@@ -317,3 +322,30 @@ def test_incompatible_synthetic_source_transition_never_executes_cycle(
         gen.run("owner/repo", 124, "b" * 40, workspace)
     assert events == ["verify"]
     assert not (workspace / "g1-generation-checkpoint").exists()
+
+
+def test_failed_attempts_are_bounded_and_never_silent(
+    gen, monkeypatch,
+) -> None:
+    success = {"databaseId": 100, "status": "completed",
+               "conclusion": "success", "headSha": HEAD, "event": "schedule"}
+    failures = [
+        {"databaseId": 104 - i, "status": "completed",
+         "conclusion": "failure", "headSha": "b" * 40, "event": "push"}
+        for i in range(4)
+    ]
+    monkeypatch.setattr(gen, "gh_json", lambda *args: failures[:2] + [success])
+    record = gen.previous_verified_run("owner/repo", 105)
+    assert record == {
+        "run_id": 100, "head_sha": HEAD,
+        "skipped_failed_run_ids": [104, 103],
+    }
+    # Strict frozen admission still refuses to hide an incomplete iteration.
+    with pytest.raises(ValueError, match="previous complete generation failed"):
+        gen.prior_successful_run("owner/repo", 105, HEAD)
+    monkeypatch.setattr(gen, "gh_json", lambda *args: failures + [success])
+    with pytest.raises(ValueError, match="too many failed generation attempts"):
+        gen.previous_verified_run("owner/repo", 105)
+    monkeypatch.setattr(gen, "gh_json", lambda *args: failures[:1])
+    with pytest.raises(ValueError, match="no silent reset"):
+        gen.previous_verified_run("owner/repo", 105)
