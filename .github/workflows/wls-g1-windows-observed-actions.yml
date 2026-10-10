@@ -1,0 +1,63 @@
+name: WLS G1 Windows Observed Actions
+
+on:
+  schedule:
+    - cron: "52 7 * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/wls-g1-windows-observed-actions.yml"
+      - "source/scripts/verify_g1_windows_task_actions.py"
+      - "source/tests/test_g1_windows_task_actions.py"
+  pull_request:
+    paths:
+      - ".github/workflows/wls-g1-windows-observed-actions.yml"
+      - "source/scripts/verify_g1_windows_task_actions.py"
+      - "source/tests/test_g1_windows_task_actions.py"
+
+permissions:
+  contents: read
+
+jobs:
+  observed-windows-actions:
+    name: Real WLS tool observations versus independent Windows files
+    runs-on: windows-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ''
+      GITHUB_TOKEN: ''
+      OPENAI_API_KEY: ''
+      ANTHROPIC_API_KEY: ''
+      WLS_RSI_API_KEY: ''
+    steps:
+      - name: Checkout source without stored GitHub credentials
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - name: Install Windows Python 3.13
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.13"
+      - name: Install canonical WLS and run forged-outcome negative tests
+        shell: pwsh
+        run: |
+          python -m pip install -e '.[dev]'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pytest -q source/tests/test_g1_windows_task_actions.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run real WLS patch-mission observations and independently check file results
+        shell: pwsh
+        run: |
+          python source/scripts/verify_g1_windows_task_actions.py --head "${{ github.sha }}" --output "wls-g1-windows-observed-actions-receipt.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Preserve provenance-only evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wls-g1-windows-observed-actions
+          path: wls-g1-windows-observed-actions-receipt.json
+          retention-days: 30
+          if-no-files-found: warn
