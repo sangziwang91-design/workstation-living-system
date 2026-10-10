@@ -64,7 +64,9 @@ def prior_successful_run(repo: str, run_id: int, head: str) -> int | None:
         if row.get("event") not in {"push", "schedule", "workflow_dispatch"}:
             continue
         ident = row.get("databaseId")
-        if type(ident) is not int or ident <= 0 or ident == run_id:
+        # A retry of an older GitHub run must never restore a newer run's
+        # state and claim reversed provenance. IDs increase with creation.
+        if type(ident) is not int or ident <= 0 or ident >= run_id:
             continue
         candidates.append(row)
     if not candidates:
