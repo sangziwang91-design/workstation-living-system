@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
 import argparse
 import json
 import struct
@@ -9,7 +7,8 @@ import subprocess  # nosec B404
 import sys
 import tempfile
 import time
-
+from pathlib import Path
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SOURCE_ROOT = REPO_ROOT / "source" / "src"
@@ -17,9 +16,8 @@ SOURCE_ROOT = REPO_ROOT / "source" / "src"
 if str(SOURCE_ROOT) not in sys.path:
     sys.path.insert(0, str(SOURCE_ROOT))
 
-from wls.runtime import LivingSystem  # noqa: E402
-from wls.ui_server import WLSUIServer  # noqa: E402
-
+from wls.runtime import LivingSystem
+from wls.ui_server import WLSUIServer
 
 DEFAULT_BROWSERS = [
     Path(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
