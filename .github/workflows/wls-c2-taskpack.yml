@@ -1,0 +1,57 @@
+name: WLS C2 Historical Repair Curriculum
+
+on:
+  pull_request:
+    paths:
+      - "source/scripts/build_historical_taskpack.py"
+      - "source/tests/test_historical_taskpack.py"
+      - ".github/workflows/wls-c2-taskpack.yml"
+  workflow_dispatch:
+  schedule:
+    - cron: "27 4 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wls-c2-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mine-real-wls-tasks:
+    name: Mine real WLS merge history, preserve independent replay boundary
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - name: Checkout complete history without persisted credentials
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.13"
+      - name: Install canonical WLS testing dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Test synthetic real-git fixture and negative controls
+        run: python -m pytest -q source/tests/test_historical_taskpack.py
+      - name: Mine authentic merged-PR history into separate curriculum and oracle inventories
+        run: |
+          python source/scripts/build_historical_taskpack.py \
+            --repo . --head "$(git rev-parse HEAD)" \
+            --max-commits 180 --max-tasks 25 \
+            --output wls-c2-worker-tasks.json \
+            --trusted-output wls-c2-trusted-oracles.json
+      - name: Validate worker tasks contain no oracle metadata
+        run: |
+          python -c "import json; w=json.load(open('wls-c2-worker-tasks.json')); o=json.load(open('wls-c2-trusted-oracles.json')); assert w['tasks'] and 'trusted_oracles' not in w; assert all('fix_sha' not in t and 'oracle_test_paths' not in t for t in w['tasks']); assert len(w['tasks'])==len(o['trusted_oracles']); print('C2_TASK_BOUNDARY_PASS',len(w['tasks']))"
+      - name: Preserve frozen public-development task inventory
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wls-c2-real-history-${{ github.run_id }}
+          path: |
+            wls-c2-worker-tasks.json
+            wls-c2-trusted-oracles.json
+          if-no-files-found: warn
