@@ -349,3 +349,86 @@ def test_failed_attempts_are_bounded_and_never_silent(
     monkeypatch.setattr(gen, "gh_json", lambda *args: failures[:1])
     with pytest.raises(ValueError, match="no silent reset"):
         gen.previous_verified_run("owner/repo", 105)
+
+
+def test_sqlite_wal_snapshot_preserves_committed_uncheckpointed_pages(
+    gen, tmp_path: Path,
+) -> None:
+    source = tmp_path / "src-wal"
+    target = tmp_path / "target"
+    synthetic_home(source)
+    (source / "config.json").write_text(
+        json.dumps({"home": str(target)}), encoding="utf-8"
+    )
+    # Keep the writer open: the new row exists in -wal, not necessarily
+    # in the main database file. Raw copying wls.db would lose it.
+    writer = sqlite3.connect(source / "state/wls.db")
+    try:
+        assert writer.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+        writer.execute("INSERT INTO validated VALUES (99)")
+        writer.commit()
+        artifact = gen.checkpoint(
+            source, tmp_path / "snapshot", head=HEAD,
+            run_id=405, parent=None, prior_manifest_raw=None, count=2,
+        )
+        assert artifact["files_sha256"]["state/wls.db"]
+    finally:
+        writer.close()
+    with zipfile.ZipFile(tmp_path / "snapshot/checkpoint.zip") as zf:
+        portable = zf.read("state/wls.db")
+    assert portable.startswith(b"SQLite format 3\x00")
+    assert portable[18:20] == b"\x01\x01", "backup must use portable rollback journal"
+    gen.restore_checkpoint(
+        tmp_path / "snapshot/checkpoint.zip", target,
+        expected_head=HEAD, expected_run=405,
+    )
+    with sqlite3.connect(target / "state/wls.db") as conn:
+        assert conn.execute("SELECT value FROM validated ORDER BY value").fetchall() == [
+            (1,), (99,),
+        ]
+
+
+def test_historical_wal_header_checkpoint_is_normalized_after_provenance(
+    gen, tmp_path: Path,
+) -> None:
+    source = tmp_path / "old-wal"
+    target = tmp_path / "old-wal-restored"
+    synthetic_home(source)
+    (source / "config.json").write_text(
+        json.dumps({"home": str(target)}), encoding="utf-8"
+    )
+    with sqlite3.connect(source / "state/wls.db") as writer:
+        assert writer.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+        writer.execute("INSERT INTO validated VALUES (42)")
+    legacy_raw = (source / "state/wls.db").read_bytes()
+    assert legacy_raw[18:20] == b"\x02\x02"
+    gen.checkpoint(
+        source, tmp_path / "new-snapshot", head=HEAD,
+        run_id=444, parent=None, prior_manifest_raw=None, count=2,
+    )
+    with zipfile.ZipFile(tmp_path / "new-snapshot/checkpoint.zip") as zf:
+        entries = {name: zf.read(name) for name in zf.namelist()}
+    manifest = json.loads(entries["manifest.json"])
+    # Recreate the historical direct-file copy, with its own *valid* digest.
+    entries["state/wls.db"] = legacy_raw
+    manifest["files_sha256"]["state/wls.db"] = gen.sha(legacy_raw)
+    entries["manifest.json"] = json.dumps(manifest, sort_keys=True).encode()
+    archive = tmp_path / "legacy-source-sha-checkpoint.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        for name, data in entries.items():
+            zf.writestr(name, data)
+    old_manifest, original_manifest_raw = gen.restore_checkpoint(
+        archive, target, expected_head=HEAD, expected_run=444,
+    )
+    assert old_manifest["synthetic_only"] is True
+    assert original_manifest_raw == entries["manifest.json"]
+    normalized = (target / "state/wls.db").read_bytes()
+    assert normalized[18:20] == b"\x01\x01"
+    with sqlite3.connect(target / "state/wls.db") as conn:
+        assert conn.execute("PRAGMA integrity_check").fetchone() == ("ok",)
+        assert conn.execute("SELECT value FROM validated ORDER BY value").fetchall() == [
+            (1,), (42,),
+        ]
+    # Invalid bytes may never enter the WLS home.
+    with pytest.raises(ValueError, match="bounded SQLite"):
+        gen.validated_portable_sqlite(b"this is not SQLite")
