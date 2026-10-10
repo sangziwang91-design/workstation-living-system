@@ -44,6 +44,7 @@ from .lease import ProcessLease
 from .longitudinal import LongitudinalEvaluator, LongitudinalProtocol, MeasurementPoint
 from .offspring import OffspringRegistry
 from .outcome_learning import OwnerOutcomeLearner
+from .owner_context import OwnerContextBridge
 from .performance import PerformanceMeasurement, evaluate_performance_budget
 from .perception import PerceptionClassifier
 from .planner import Planner
@@ -101,6 +102,7 @@ class LivingSystem:
         self.events = EventStore(self.db, self.ledger)
         self.goals = GoalStore(self.db, self.ledger)
         self.memories = MemoryStore(self.db, self.ledger)
+        self.owner_context = OwnerContextBridge(config, self.db, self.memories, self.goals)
         self.world = WorldModel(self.db, self.ledger)
         self.temporal_world = TemporalCausalWorld(self.db, self.ledger)
         self.drives = DriveSystem(self.db, self.ledger)
@@ -14084,6 +14086,17 @@ class LivingSystem:
         plan_persisted = False
         action_candidate: dict[str, Any] | None = None
         try:
+            # Private, owner-reviewed context stays in the canonical stores.
+            # Failed imports are evidence, never a reason to bypass policy or
+            # silently turn unverified chat text into trusted instructions.
+            try:
+                owner_context_receipt = self.owner_context.import_pending()
+            except (OSError, ValueError, TypeError) as exc:
+                owner_context_receipt = {
+                    "status": "REJECTED", "error_type": type(exc).__name__
+                }
+                self.db.set_runtime("owner_context_last_import", owner_context_receipt)
+            finish_phase("private_owner_context_import")
             recovery_outcomes = self._resume_durable_actions()
             finish_phase("durable_action_recovery")
             sensor_summary, prediction_errors = self._poll_due_sensors()
