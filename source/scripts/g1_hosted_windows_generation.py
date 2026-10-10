@@ -209,7 +209,7 @@ def run(repo: str, run_id: int, head: str, workspace: Path) -> dict:
         if initialized.get("cycle_count") != 0 or initialized.get("read_only") is not True:
             raise ValueError("invalid initial canonical state")
     else:
-        archive = download_checkpoint(repo, prior_id, workspace / ".g1-prior")
+        archive = download_checkpoint(repo, prior_id, workspace / "g1-generation-prior")
         parent, parent_raw = restore_checkpoint(
             archive, home, expected_head=head, expected_run=prior_id
         )
@@ -234,7 +234,7 @@ def run(repo: str, run_id: int, head: str, workspace: Path) -> dict:
     if cli(home, "status").get("cycle_count") != final_count:
         raise ValueError("sleep changed generation state")
     manifest = checkpoint(
-        home, workspace / ".g1-checkpoint", head=head, run_id=run_id,
+        home, workspace / "g1-generation-checkpoint", head=head, run_id=run_id,
         parent=parent, prior_manifest_raw=parent_raw, count=final_count,
     )
     age_hours = (
