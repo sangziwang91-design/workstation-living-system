@@ -130,3 +130,15 @@ def test_normal_bounded_junit_still_reports_real_failure(scan, tmp_path):
     assert scan.junit_outcomes(path) == {
         "wls::passed": "PASS", "wls::broken": "FAIL",
     }
+
+
+def test_junit_utf16_entity_declaration_cannot_bypass_bytes_guard(scan, tmp_path):
+    xml = (
+        '<?xml version="1.0" encoding="utf-16"?>'
+        '<!DOCTYPE testsuite [<!ENTITY exploit "expanded">]>'
+        '<testsuite><testcase classname="x" name="&exploit;"/></testsuite>'
+    ).encode("utf-16")
+    path = tmp_path / "utf16.xml"
+    path.write_bytes(xml)
+    with pytest.raises(UnicodeError):
+        scan.junit_outcomes(path)
