@@ -54,7 +54,10 @@ def bounded_junit_root(path: Path) -> ET.Element:
         raw = stream.read(MAX_CI_JUNIT_XML_BYTES + 1)
     if len(raw) > MAX_CI_JUNIT_XML_BYTES:
         raise ValueError("CI JUnit XML exceeds bounded evidence budget")
-    if b"<!DOCTYPE" in raw.upper() or b"<!ENTITY" in raw.upper():
+    # JUnit evidence is UTF-8. Reject UTF-16/other encodings that can hide
+    # a DTD from raw ASCII byte scanning while ElementTree expands it.
+    inspected = raw.decode("utf-8-sig")
+    if "<!DOCTYPE" in inspected.upper() or "<!ENTITY" in inspected.upper():
         raise ValueError("CI JUnit XML entity/DTD declarations are forbidden")
     return ET.fromstring(raw)  # nosec B314: bounded size and DTD rejection
 
