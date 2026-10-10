@@ -92,6 +92,9 @@ class RuntimeConfig:
             names.add(sensor.name)
             if sensor.interval_seconds <= 0:
                 raise ValueError(f"sensor interval must be positive: {sensor.name}")
+        owner_memory_mode = self.provider.get("owner_context_mode", "enabled")
+        if owner_memory_mode not in {"enabled", "disabled"}:
+            raise ValueError("owner_context_mode must be enabled or disabled")
         provider_type = str(self.provider.get("type", "cognitive"))
         if provider_type not in {"cognitive", "deterministic", "openai_compatible"}:
             raise ValueError(f"unknown provider type: {provider_type}")

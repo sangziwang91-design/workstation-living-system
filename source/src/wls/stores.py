@@ -473,6 +473,7 @@ class MemoryStore:
         context: dict[str, Any] | None = None,
         enabled: bool = True,
         frozen: bool = False,
+        excluded_memory_types: frozenset[str] = frozenset(),
     ) -> dict[str, Any]:
         return self.causal.retrieve(
             query,
@@ -480,6 +481,7 @@ class MemoryStore:
             context=context,
             enabled=enabled,
             frozen=frozen,
+            excluded_memory_types=excluded_memory_types,
         )
 
     def build_query_context(

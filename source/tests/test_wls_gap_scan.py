@@ -96,3 +96,49 @@ def test_full_gap_receipt_has_exact_hash_and_no_private_holdout(scan, tmp_path):
     assert len(report["junit_sha256"]["first"]) == 64
     with pytest.raises(ValueError, match="exact git commit"):
         scan.generate(repo=tmp_path, first=one, second=two, head="main")
+
+
+def test_junit_entity_expansion_and_dtd_are_not_accepted(scan, tmp_path):
+    path = tmp_path / "hostile.xml"
+    path.write_bytes(
+        b'<!DOCTYPE testsuite [ <!ENTITY secret "expanded"> ]>'
+        b'<testsuite><testcase classname="x" name="&secret;"/></testsuite>'
+    )
+    with pytest.raises(ValueError, match="DTD"):
+        scan.junit_outcomes(path)
+
+
+def test_junit_oversize_and_symlink_fail_closed(scan, tmp_path):
+    path = tmp_path / "large.xml"
+    with path.open("wb") as stream:
+        stream.write(b"<testsuite>")
+        stream.write(b"A" * (scan.MAX_JUNIT_XML_BYTES + 1))
+    with pytest.raises(ValueError, match="bounded"):
+        scan.junit_outcomes(path)
+    alias = tmp_path / "alias.xml"
+    try:
+        alias.symlink_to(path)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks unavailable on this CI runner")
+    with pytest.raises(ValueError, match="symlink"):
+        scan.junit_outcomes(alias)
+
+
+def test_normal_bounded_junit_still_reports_real_failure(scan, tmp_path):
+    path = tmp_path / "valid.xml"
+    write_junit(path, {"passed": "PASS", "broken": "FAIL"})
+    assert scan.junit_outcomes(path) == {
+        "wls::passed": "PASS", "wls::broken": "FAIL",
+    }
+
+
+def test_junit_utf16_entity_declaration_cannot_bypass_bytes_guard(scan, tmp_path):
+    xml = (
+        '<?xml version="1.0" encoding="utf-16"?>'
+        '<!DOCTYPE testsuite [<!ENTITY exploit "expanded">]>'
+        '<testsuite><testcase classname="x" name="&exploit;"/></testsuite>'
+    ).encode("utf-16")
+    path = tmp_path / "utf16.xml"
+    path.write_bytes(xml)
+    with pytest.raises(UnicodeError):
+        scan.junit_outcomes(path)
