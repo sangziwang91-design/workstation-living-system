@@ -25,6 +25,65 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  hosted-windows-canonical-life:
+    name: Windows hosted WLS lifecycle (${{ matrix.python-version }})
+    runs-on: windows-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.13']
+    env:
+      GH_TOKEN: ''
+      GITHUB_TOKEN: ''
+      OPENAI_API_KEY: ''
+      ANTHROPIC_API_KEY: ''
+    steps:
+      - name: Checkout exact unprivileged WLS source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - name: Set up Python on hosted Windows
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install canonical WLS package in disposable Windows runner
+        shell: pwsh
+        run: python -m pip install -e '.[dev]'
+      - name: Prove Windows lifecycle negative controls
+        shell: pwsh
+        run: python -m pytest -q source/tests/test_hosted_living_loop.py
+      - name: Run canonical process restarts on fresh Windows SQLite home
+        shell: pwsh
+        run: |
+          python source/scripts/verify_hosted_living_loop.py --head "${{ github.sha }}" --output "wls-windows-hosted-life-receipt.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Assert honest Windows-hosted claim ceiling
+        shell: pwsh
+        run: |
+          @'
+          import json
+          from pathlib import Path
+          obj = json.loads(Path("wls-windows-hosted-life-receipt.json").read_text(encoding="utf-8"))
+          assert obj["status"] == "HOSTED_EPHEMERAL_LIFE_CYCLES_PASS"
+          assert obj["cycle_count"] == obj["distinct_cycle_ids"] == 3
+          assert obj["sqlite_reused_across_processes"] is True
+          assert obj["ledger_integrity_verified"] is True
+          assert obj["read_only"] is True
+          assert obj["home_persisted_across_runs"] is False
+          assert obj["model_calls"] == 0
+          assert obj["autonomous_skill_gain_proven"] is False
+          print("Windows process-level continuity passed; not inter-run persistence")
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Save synthetic Windows process-level lifecycle receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wls-hosted-windows-life-${{ matrix.python-version }}
+          path: wls-windows-hosted-life-receipt.json
+          if-no-files-found: warn
+
   actual-canonical-life:
     name: Real WLS read-only cycles and restart continuity
     runs-on: ubuntu-latest
