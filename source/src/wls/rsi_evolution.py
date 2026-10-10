@@ -70,6 +70,7 @@ class RsiEvolutionPilot:
         baseline: MetricResult,
         branches: int = 2,
         max_no_gain_rounds: int = 3,
+        exploration_branches: int = 0,
     ) -> dict[str, Any]:
         if not _valid_artifact_id(baseline_id):
             raise ValueError("baseline_id must be a safe artifact identifier")
@@ -77,6 +78,8 @@ class RsiEvolutionPilot:
             raise ValueError("branches must be in 1..8")
         if max_no_gain_rounds < 1:
             raise ValueError("max_no_gain_rounds must be positive")
+        if not 0 <= exploration_branches <= branches:
+            raise ValueError("exploration_branches must be in 0..branches")
         # Validate baseline metrics against itself, without declaring improvement.
         valid = decide_experiment(
             policy, baseline=baseline, candidate=baseline,
@@ -92,6 +95,12 @@ class RsiEvolutionPilot:
             "status": "READY", "generation": 0,
             "champion_id": baseline_id, "champion_metric": asdict(baseline),
             "branches": branches, "max_no_gain_rounds": max_no_gain_rounds,
+            "exploration_branches": exploration_branches,
+            "archive": [{
+                "candidate_id": baseline_id, "parent_id": None,
+                "generation": 0, "primary": baseline.primary, "children": 0,
+                "decision": "BASELINE",
+            }],
             "no_gain_rounds": 0, "failures": 0, "history": [],
             "candidate_ids": [baseline_id],
             "authority": "candidate_only", "live_promotion": False,
@@ -143,14 +152,44 @@ class RsiEvolutionPilot:
         baseline = MetricResult(**state["champion_metric"])
         results: list[dict[str, Any]] = []
         seen: set[str] = set(state["candidate_ids"])
+        proposal_parents: dict[str, str] = {}
+        # Only ancestors from *completed* generations may be parents. A
+        # branch measured in the current generation cannot leak forward.
+        parent_pool = [dict(item) for item in state.get("archive", [])]
+        issued: dict[str, int] = {}
         try:
             for branch in range(int(state["branches"])):
-                candidate_id = propose(old_id, gen, branch)
+                # Non-champion archive parents are an opt-in exploratory arm.
+                # The globally frozen champion remains the sole scoring
+                # baseline; exploration cannot weaken acceptance criteria.
+                parent_id = old_id
+                exploratory = branch >= int(state["branches"]) - int(
+                    state.get("exploration_branches", 0)
+                )
+                if exploratory:
+                    pool = [
+                        item for item in parent_pool
+                        if item["candidate_id"] != old_id
+                    ]
+                    if pool:
+                        parent_id = min(pool, key=lambda item: (
+                            int(item["children"]) + issued.get(item["candidate_id"], 0),
+                            -float(item["primary"]) if policy.direction == "maximize"
+                            else float(item["primary"]),
+                            int(item["generation"]), item["candidate_id"],
+                        ))["candidate_id"]
+                issued[parent_id] = issued.get(parent_id, 0) + 1
+                candidate_id = propose(parent_id, gen, branch)
                 if not _valid_artifact_id(candidate_id):
                     raise ValueError("candidate_id must be a safe artifact identifier")
                 if candidate_id in seen:
                     raise ValueError("candidate_id reused in generation")
                 seen.add(candidate_id)
+                proposal_parents[candidate_id] = parent_id
+                for item in state.get("archive", []):
+                    if item["candidate_id"] == parent_id:
+                        item["children"] += 1
+                        break
                 metrics = evaluate(candidate_id)
                 if not isinstance(metrics, MetricResult):
                     raise TypeError("independent evaluator must return MetricResult")
@@ -159,10 +198,22 @@ class RsiEvolutionPilot:
                     completed_rounds=gen - 1, failures=int(state["failures"]),
                 )
                 results.append({
-                    "candidate_id": candidate_id,
+                    "candidate_id": candidate_id, "parent_id": parent_id,
                     "metric": _safe_metric_payload(metrics),
                     "decision": decision.to_dict(),
                 })
+                # Keep safe but suboptimal stepping stones without promoting.
+                # They may become future parents; the immutable scorer still
+                # judges all descendants against the global champion.
+                if (len(state.get("archive", [])) < 64
+                        and (decision.verdict == ExperimentVerdict.KEEP
+                             or (decision.verdict == ExperimentVerdict.REVERT
+                                 and decision.gain is not None))):
+                    state["archive"].append({
+                        "candidate_id": candidate_id, "parent_id": parent_id,
+                        "generation": gen, "primary": metrics.primary,
+                        "children": 0, "decision": decision.verdict.value,
+                    })
                 # Each candidate is persisted before the next callback, so a crash
                 # does not erase the evidence or invite an automatic replay.
                 state["pending_candidates"] = results
@@ -205,6 +256,7 @@ class RsiEvolutionPilot:
         state["generation"] = gen
         state["history"].append({
             "generation": gen, "parent": old_id,
+            "proposal_parents": proposal_parents,
             "champion": state["champion_id"],
             "candidates": [r["candidate_id"] for r in results],
         })
