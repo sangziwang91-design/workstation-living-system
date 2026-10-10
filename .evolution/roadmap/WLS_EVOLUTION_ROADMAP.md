@@ -2,6 +2,64 @@
 
 This roadmap is an ordered candidate route, not authorization to implement every stage. Each stage becomes active only after the previous stage has evidence, an explicit task packet and owner approval.
 
+## First-generation milestone: G1-GITHUB on Windows Actions (owner deployment deferred)
+
+**Binding owner decision, 2026-10-10:** do **not** deploy/install on the
+owner's computer while GitHub-hosted WLS has not completed successive
+autonomous generations. GitHub `windows-latest` is the first-generation
+**execution and validation target**. Personal hardware deployment is a
+**separate later milestone**, only after successful GitHub generations and a
+new owner authorization. No user time should be consumed by repeated basic
+local verification.
+
+Tracking: [G1 GitHub release #92](https://github.com/sangziwang91-design/workstation-living-system/issues/92);
+[real Windows task #93](https://github.com/sangziwang91-design/workstation-living-system/issues/93),
+[cross-run 72h continuity #94](https://github.com/sangziwang91-design/workstation-living-system/issues/94),
+[frozen-budget learning #95](https://github.com/sangziwang91-design/workstation-living-system/issues/95),
+[Windows installation and rollback #96](https://github.com/sangziwang91-design/workstation-living-system/issues/96).
+
+### G1-GITHUB critical path and acceptance
+
+| Order | Gate and minimum observed proof | Rejected proxy |
+|---|---|---|
+| P0 | R1 — immutable main/branch SHA, signed workflow provenance, exact-head full Ubuntu + Windows Python 3.11/3.13 CI, write-token boundary fixed, independent evaluator | previously passing unrelated commit |
+| P0 | R3 — ≥10 real non-noop permitted tool tasks across two distinct task classes in disposable **Windows GitHub-hosted** environments; at least one real-evidence endogenous choice and one justified no-action | fixture-only, noop or PR count |
+| P0 | R2 — ≥72 true elapsed hours and ≥4 **different GitHub workflow IDs** on fresh Windows VMs, reliable validated WLS state restore via immutable Actions artifacts, SQLite/ledger integrity, deliberate crash and restart | a single 6h job or 100 fast simulated cycles |
+| P1 | R4 — source-controlled **synthetic non-sensitive owner-context** fixture import, memory retrieval and owner-only on/off negative control after Windows runner restart; private personal bundle is **never** uploaded | claim that real ChatGPT history moved to GitHub |
+| P0 | R5 — frozen model/budget/tool access, independent hidden task evaluation across genuine restored generations, real success after previous failure, later successful reuse, no serious regression, rollback control | static benchmark score, scoring modified by candidate |
+| P1 | R6 — Windows runner wheel clean install, CLI smoke, backup/upgrade/rollback on disposable Windows, pause/stop and evidence receipt; G1-GITHUB candidate build with immutable hashes | owner desktop deployment or seller-ready consumer release |
+
+**GitHub Actions constraint:** standard GitHub-hosted job execution is capped
+at 6 hours. Each fresh VM is ephemeral. Multi-day continuity must be tested
+as genuine **inter-run** restoration, not a false persistent-VM claim.
+Use `actions: read`-scoped previously successful artifact receipt/state
+with source/workflow/provenance and digest verification; never restore
+untrusted PR artifacts as execution context; fail closed on loss/mismatch.
+Actions artifacts/workflow logs expire by repository retention policy.
+Persist only synthetic WLS homes, never owner personal chat content,
+credentials, hidden holdouts or provider secrets.
+
+The installed Windows version is a **hosted runner test instance**, not
+the owner's workstation. A completed G1-GITHUB gate is
+`HOSTED_WINDOWS_VERIFIED`; after distinct successful runs it may be
+`CROSS_RUN_VERIFIED`. It must **not** be renamed `OWNER_HOST_VERIFIED`.
+When no model call is actually observed, model-driven RSI remains unproven.
+
+**Accounting:** only source-linked, independent, same-protocol evidence at
+an exact SHA can raise one of the six binary release gates in #92.
+At this owner-policy revision, no G1-GITHUB release gate is yet marked PASS;
+existing ET001–003, merged personal-context import, owner-only retrieval
+ablation, and Linux/Windows CI are **valuable prerequisites** rather than
+a fabricated release percentage. Report CODED/CI_VERIFIED separately from
+HOSTED_WINDOWS_VERIFIED/CROSS_RUN_VERIFIED/LEARNING_VERIFIED.
+
+**Stop condition:** do not start personal machine installation in any of the
+G1-GITHUB issues; after 6/6 hosted gates are proven, report a first-generation
+GitHub research candidate and continue subsequent GitHub generations.
+Owner-host deployment remains DEFERRED_BY_OWNER until a future explicit
+decision, even if all GitHub checks are green. G1 does not establish
+consciousness, AGI, model-weight self-retraining, or unbounded RSI.
+
 ## Current canonical position
 
 - ET001 — bounded failure-to-skill growth lifecycle: merged and controlled local/CI verified; owner-host longitudinal proof pending.
