@@ -2,6 +2,82 @@
 
 This roadmap is an ordered candidate route, not authorization to implement every stage. Each stage becomes active only after the previous stage has evidence, an explicit task packet and owner approval.
 
+## First-generation delivery milestone (G1) — evidence contract, 2026-10-10
+
+This section is the **delivery decision** and supersedes the old candidate
+sequencing below wherever the two differ. It is not a second WLS runtime,
+dashboard, state authority, or long-term product redefinition. The user goal
+remains a persistent multifunctional agent capable of measurable adaptation.
+**G1 is the first genuinely useful, deliverable stage**, not unrestricted RSI.
+
+Canonical tracking issue:
+[#92](https://github.com/sangziwang91-design/workstation-living-system/issues/92).
+Its four executable work packets are
+[#93 real two-domain action](https://github.com/sangziwang91-design/workstation-living-system/issues/93),
+[#94 owner-host 72h + private memory](https://github.com/sangziwang91-design/workstation-living-system/issues/94),
+[#95 independent retained advantage](https://github.com/sangziwang91-design/workstation-living-system/issues/95),
+and [#96 signed single-owner delivery](https://github.com/sangziwang91-design/workstation-living-system/issues/96).
+
+### The only G1 critical path
+
+| Order | Evidence/implementation task | Measurable done condition | What is *not* a pass |
+|---|---|---|---|
+| P0-A | Freeze exact source baseline and reviewer/evaluator authority; resolve write-token workflow security PR #91; merge verified owner-effect audit #90 | Linux/Windows 3.11/3.13 full tests and security checks on the **same candidate commit**; no critical open release security finding | previous branch green CI, user chat, PR created |
+| P0-B | **One actual life-loop vertical slice** #93, then broaden to two non-isomorphic task domains | 10 authorized real tasks with goal→observation→safe action→independent verified outcome and at least one self-generated goal; negative no-action control | 10 fixtures, repeated noop, 10 PRs |
+| P0-C | Real owner host, restart/recovery, private inheritance #94 | Windows installed exact wheel, 72 **wall-clock** hours, real restart/crash recovery, persistent owner context with no public egress, backup restore | 100 quick CI cycles, July installation claim, owner text uploaded to GitHub |
+| P0-D | Frozen-model, same-budget, independent held-out task gain #95 | At least one previously failed task class now passed and reused after restart on fresh tasks, independent frozen arm, no critical regression or hidden evaluator leak | improved prompt aesthetic, memory retrieval count, scoring fixture tuned to solution |
+| P1-E | One clean owner handoff #96 | Exact wheel/source digest, owner-visible status/stop, startup/upgrade/rollback, explicit limitations, stage release signoff | README says production or wheel builds only |
+
+The order is a *dependency graph* not a number-of-iterations target.
+Do not start a new general-purpose module simply to fill a cycle. Work
+on exactly the highest-impact blocking edge; where two edges are truly
+independent, keep their evidence separated. Stop adding more capabilities
+once they do not change observed real-task success or long-run continuity.
+
+### Completion accounting that cannot inflate on paper
+
+**G1 release score:** 6 binary release gates in #92. A gate changes to PASS
+only with current source SHA, execution environment, timestamps, independent
+evidence URL or private owner-host receipt, and failure controls. G1 is
+**RELEASED only at 6/6**. Current initial evidence: **0/6 G1 release-verified**,
+because prior CI, fixture tests and old host receipts do not verify the full
+October candidate on one real owner host. This does **not** mean the WLS code
+base is 0% implemented; existing ET001-003, owner-only memory ablation, and
+PRs #83-#85 are real partial prerequisites.
+
+Track four **different** status columns rather than asserting a subjective
+single total-completion percentage:
+1. **CODED / CI_VERIFIED** — source and exact-head controlled tests exist.
+2. **HOST_VERIFIED** — the exact wheel executed tasks on the intended host.
+3. **LONGITUDINAL_VERIFIED** — independently audited elapsed-time survival,
+   restart and changing external tasks, not simulated loop count.
+4. **LEARNING_VERIFIED** — frozen-model equal-budget independent task advantage,
+   post-restart skill transfer and rollback.
+
+No proof is `UNKNOWN`, a complete negative experiment is `NO_GAIN`,
+a failing security gate is `BLOCKED`. Neither UNKNOWN nor NO_GAIN is
+silently converted to PASS. Evidence files may be private; public GitHub
+receives only non-sensitive digest/count/status proofs.
+
+### G1 completion, G2 research, five-year ultimate target
+
+- **G1:** a single-owner self-running bounded organism on one workstation
+  with limited reproducible beneficial learning.
+- **G2:** multiple real task families, weeks of stable autonomously selected
+  work, stronger independent model/procedure adaptation, private evidence
+  retained across model upgrades.
+- **G3/RSI-C/D research:** repeated portable transfer and a causally supported
+  evolving improver beating a **frozen improver** under equal inference
+  budgets and independent new tasks. Not claimed by G1.
+- No claim of subjective consciousness, open-ended safe self-editing, or AGI
+  follows from passing any engineering release gate.
+
+**Stop condition for G1 engineering:** ship the candidate when all six
+release gates pass; stop scope expansion if an iteration produces no measured
+new task capability or essential reliability improvement. The broader WLS
+research may continue separately; G1 must not be held hostage to solving
+consciousness or general intelligence.
+
 ## Current canonical position
 
 - ET001 — bounded failure-to-skill growth lifecycle: merged and controlled local/CI verified; owner-host longitudinal proof pending.
