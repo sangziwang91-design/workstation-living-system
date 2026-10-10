@@ -166,26 +166,65 @@ class LearningSystem:
         return created
 
     def create_prediction_error_candidates(
-        self, threshold: float = 0.5, minimum_repeats: int = 2
+        self,
+        threshold: float = 0.5,
+        minimum_repeats: int = 2,
+        *,
+        lookback_days: int = 30,
+        max_new_candidates: int | None = None,
     ) -> list[str]:
+        """Propose review from distinct, *resolved* prediction failures.
+
+        Keep the earliest independent source pair frozen, so subsequent failures
+        do not manufacture an endless stream of apparently new improvements.
+        A proposal is not a validated rule or a permission to rewrite the world.
+        """
+        from math import isfinite
+
+        if not isfinite(threshold) or not 0.0 <= threshold <= 1.0:
+            raise ValueError("invalid prediction error threshold")
+        if not 2 <= minimum_repeats <= 64 or lookback_days < 1:
+            raise ValueError("prediction review requires 2-64 real failures")
+        if max_new_candidates is not None and max_new_candidates < 1:
+            raise ValueError("max_new_candidates must be positive")
+        cutoff = (datetime.now(UTC) - timedelta(days=lookback_days)).isoformat()
         rows = self.db.query_all(
-            "SELECT * FROM predictions WHERE status='REFUTED' AND error_score>=? ORDER BY resolved_at DESC",
-            (threshold,),
+            """
+            SELECT prediction_id,subject,predicate,error_score,resolved_at
+            FROM predictions
+            WHERE status='REFUTED'
+              AND resolved_at IS NOT NULL AND resolved_at>=?
+              AND error_score>=? AND error_score<=1.0
+            ORDER BY resolved_at ASC,prediction_id ASC LIMIT 500
+            """,
+            (cutoff, threshold),
         )
         groups: dict[str, list[Any]] = defaultdict(list)
         for row in rows:
             groups[f"{row['subject']}::{row['predicate']}"].append(row)
         created: list[str] = []
-        for key, group in groups.items():
+        for key, group in sorted(groups.items()):
             if len(group) < minimum_repeats:
                 continue
+            title = f"Revise inaccurate world-model rule: {key[:180]}"
+            # A prior rejected or already handled hypothesis is still history:
+            # identical failure mechanisms must not silently resurrect it.
+            if self.db.query_one(
+                "SELECT candidate_id FROM evolution_candidates "
+                "WHERE candidate_type='world_model_revision' AND title=? LIMIT 1",
+                (title,),
+            ):
+                continue
+            sources = group[:minimum_repeats]
             candidate_id = self._upsert_candidate(
                 candidate_type="world_model_revision",
-                title=f"Revise inaccurate world-model rule: {key}",
+                title=title,
                 proposal={
-                    "prediction_key": key,
-                    "mean_error": sum(float(row["error_score"]) for row in group)
-                    / len(group),
+                    "prediction_key": key[:180],
+                    "mean_error": round(
+                        sum(float(row["error_score"]) for row in sources)
+                        / len(sources), 6
+                    ),
                     "required_flow": [
                         "collect_counterexamples",
                         "identify_stale_assumption",
@@ -193,10 +232,12 @@ class LearningSystem:
                         "human_review",
                     ],
                 },
-                source_ids=[str(row["prediction_id"]) for row in group],
+                source_ids=[str(row["prediction_id"]) for row in sources],
             )
             if candidate_id:
                 created.append(candidate_id)
+                if max_new_candidates is not None and len(created) >= max_new_candidates:
+                    break
         return created
 
     def _upsert_candidate(

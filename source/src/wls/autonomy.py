@@ -46,9 +46,10 @@ class AutonomySystem:
         except (ValueError, TypeError):
             cursor = 0
         query = """
-            SELECT rowid AS ordinal, candidate_id, source_ids_json
+            SELECT rowid AS ordinal, candidate_id, candidate_type, source_ids_json
             FROM evolution_candidates
-            WHERE candidate_type='failure_repair' AND status='PROPOSED'
+            WHERE candidate_type IN ('failure_repair', 'world_model_revision')
+              AND status='PROPOSED'
               AND rowid>?
             ORDER BY rowid ASC LIMIT 32
         """
@@ -60,7 +61,11 @@ class AutonomySystem:
             return None
         for candidate in candidates:
             candidate_id = str(candidate["candidate_id"])
-            title = f"Inspect recurring failures: {candidate_id}"
+            revision = str(candidate["candidate_type"]) == "world_model_revision"
+            title = (
+                f"Inspect prediction errors: {candidate_id}"
+                if revision else f"Inspect recurring failures: {candidate_id}"
+            )
             # Check every status, including completed/failed goals, so a
             # restart or an unchanged failed hypothesis cannot loop forever.
             if self.db.query_one("SELECT goal_id FROM goals WHERE title=?", (title,)):
@@ -71,43 +76,66 @@ class AutonomySystem:
                 continue
             if (
                 not isinstance(source_ids, list)
-                or not 3 <= len(source_ids) <= 64
+                or not (2 if revision else 3) <= len(source_ids) <= 64
                 or any(not isinstance(item, str) or not item for item in source_ids)
                 or len(set(source_ids)) != len(source_ids)
             ):
                 continue
             placeholders = ",".join("?" for _ in source_ids)
-            outcomes = self.db.query_all(
-                f"""SELECT action_id, result_json, tool, risk FROM actions
-                WHERE action_id IN ({placeholders})
-                  AND status='FAILED' AND started_at IS NOT NULL
-                  AND finished_at IS NOT NULL AND result_json IS NOT NULL""",
-                tuple(source_ids),
-            )
-            if len(outcomes) != len(source_ids):
-                continue
-            # Do not occupy the finite autonomous-goal budget with a
-            # proposal that the only executable growth organ will decline.
-            # Other-tool failures remain recorded for later owner review.
-            if any(
-                row["risk"] != RiskLevel.READ.value
-                or row["tool"] not in {"noop", "read_file", "list_directory"}
-                for row in outcomes
-            ):
-                continue
-            try:
+            if revision:
+                from math import isfinite
+
+                observations = self.db.query_all(
+                    f"""SELECT prediction_id,subject,predicate,error_score
+                    FROM predictions WHERE prediction_id IN ({placeholders})
+                      AND status='REFUTED' AND resolved_at IS NOT NULL
+                      AND error_score>=0.5 AND error_score<=1.0""",
+                    tuple(source_ids),
+                )
+                if len(observations) != len(source_ids):
+                    continue
+                if len({(row["subject"], row["predicate"]) for row in observations}) != 1:
+                    continue
                 if any(
-                    json.loads(row["result_json"]).get("evaluation", {}).get("accepted")
-                    is not False
+                    row["error_score"] is None
+                    or not isfinite(float(row["error_score"]))
+                    for row in observations
+                ):
+                    continue
+            else:
+                outcomes = self.db.query_all(
+                    f"""SELECT action_id, result_json, tool, risk FROM actions
+                    WHERE action_id IN ({placeholders})
+                      AND status='FAILED' AND started_at IS NOT NULL
+                      AND finished_at IS NOT NULL AND result_json IS NOT NULL""",
+                    tuple(source_ids),
+                )
+                if len(outcomes) != len(source_ids):
+                    continue
+                # Only completed, independently evaluated fixed-tool failures
+                # may become automatic recovery experiments.
+                if any(
+                    row["risk"] != RiskLevel.READ.value
+                    or row["tool"] not in {"noop", "read_file", "list_directory"}
                     for row in outcomes
                 ):
                     continue
-            except (TypeError, ValueError, AttributeError):
-                continue
+                try:
+                    if any(
+                        json.loads(row["result_json"]).get("evaluation", {}).get("accepted")
+                        is not False
+                        for row in outcomes
+                    ):
+                        continue
+                except (TypeError, ValueError, AttributeError):
+                    continue
             self.db.set_runtime("autonomy_growth_cursor", int(candidate["ordinal"]))
             return Goal(
                 title=title,
                 description=(
+                    "Inspect independent refuted predictions, seek counterexamples "
+                    "and propose one falsifiable revision without rewriting facts."
+                    if revision else
                     "Inspect the actual failed WLS action evidence and formulate "
                     "one bounded, independently testable recovery experiment. "
                     "Do not execute untrusted code, grant permissions, or promote "
@@ -118,13 +146,13 @@ class AutonomySystem:
                     "one source-linked hypothesis and a bounded read-only investigation",
                     "subsequent skill promotion remains owner-authorized",
                 ],
-                source="autonomy.learning",
+                source="autonomy.inquiry" if revision else "autonomy.learning",
                 autonomous=True,
                 risk=RiskLevel.READ,
                 task_spec={
                     "operation": "INSPECT",
                     "candidate_id": candidate_id,
-                    "source_action_ids": source_ids,
+                    "source_prediction_ids" if revision else "source_action_ids": source_ids,
                     "proposal_only": True,
                 },
             )
