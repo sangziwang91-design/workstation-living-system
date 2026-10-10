@@ -22,7 +22,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: wls-g1-cross-run-trusted-main
+  # Keep all trusted push/schedule/dispatch generations serialized, but do not
+  # let unprivileged PR negative-control runs occupy the mainline writer queue.
+  group: wls-g1-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'trusted-main' }}
   cancel-in-progress: false
 
 jobs:
