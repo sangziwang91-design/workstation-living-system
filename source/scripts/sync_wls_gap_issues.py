@@ -59,7 +59,8 @@ def plan_issues(report: dict, existing_bodies: list[str], *, head: str) -> list[
             raise ValueError("unobserved reproducible failure")
         if (kind == "FLAKY_CANDIDATE"
                 and {task.get("run_one"), task.get("run_two")} != {"FAIL", "PASS"}):
-            raise ValueError("unobserved flaky failure")
+            # FAIL/SKIP is insufficient to file an actionable regression.
+            continue
         marker = MARKER + gap_id + " -->"
         if any(marker in body for body in known):
             continue
@@ -83,12 +84,12 @@ def github_json(url: str, token: str, payload: dict | None = None):
         "X-GitHub-Api-Version": "2022-11-28",
         "User-Agent": "wls-scheduled-gap-triage",
     }
-    kwargs: dict = {"headers": headers, "timeout": 15}
+    kwargs: dict = {"headers": headers}
     if payload is not None:
         kwargs["data"] = json.dumps(payload).encode("utf-8")
         headers["Content-Type"] = "application/json"
         kwargs["method"] = "POST"
-    with urlopen(Request(url, **kwargs)) as response:  # nosec B310 fixed GitHub API URL
+    with urlopen(Request(url, **kwargs), timeout=15) as response:  # nosec B310 fixed GitHub API URL
         return json.load(response)
 
 
@@ -124,7 +125,7 @@ def run(report: dict, *, repo: str, head: str, run_id: str, token: str) -> dict:
         body = (
             item["marker"] + "\n"
             + "Machine-observed " + item["kind"] + " in WLS double-run hosted test subset.\n"
-            + "Test: \\x60" + item["test"] + "\\x60\n"
+            + "Test: `" + item["test"] + "\\x60\n"
             + "Exact SHA: \\x60" + head + "\\x60\n"
             + "Evidence: https://github.com/" + repo + "/actions/runs/" + run_id + "\n"
             + "Acceptance: same test passes twice at one pinned source SHA.\n"
