@@ -68,6 +68,7 @@ def test_inventory_follows_all_tracked_workflows() -> None:
 def test_scorer_pr_is_readonly_and_checks_trusted_main() -> None:
     doc, raw = workflow("rsi-scoring-change-boundary.yml")
     events = doc.get("on", doc.get(True))
+    assert isinstance(events, dict)
     assert "pull_request" in events and "pull_request_target" not in events
     assert doc["permissions"] == {"contents": "read", "pull-requests": "read"}
     assert "github.event.repository.default_branch" in raw
@@ -78,6 +79,7 @@ def test_scorer_pr_is_readonly_and_checks_trusted_main() -> None:
 def test_life_schedule_not_displaced_by_pr_queues() -> None:
     doc, raw = workflow("wls-hosted-life-loop.yml")
     events = doc.get("on", doc.get(True))
+    assert isinstance(events, dict)
     assert {"schedule", "workflow_dispatch", "pull_request", "push"} <= set(events)
     assert "github.event_name" in doc["concurrency"]["group"]
     assert "github.ref" in doc["concurrency"]["group"]
