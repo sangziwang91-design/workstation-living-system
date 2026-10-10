@@ -238,10 +238,13 @@ def run(repo: str, run_id: int, head: str, workspace: Path) -> dict:
     # verifying the old checkpoint against its *own* run/source identity,
     # then verifying the restored state with the current canonical WLS.
     # The strict prior_successful_run() contract remains fail-closed.
-    previous = previous_verified_run(repo, run_id)
-    prior_id = previous["run_id"] if previous is not None else None
-    prior_head = previous["head_sha"] if previous is not None else None
-    skipped_attempts = previous["skipped_failed_run_ids"] if previous is not None else []
+    previous_record = previous_verified_run(repo, run_id)
+    prior_id = previous_record["run_id"] if previous_record is not None else None
+    prior_head = previous_record["head_sha"] if previous_record is not None else None
+    skipped_attempts = (
+        previous_record["skipped_failed_run_ids"]
+        if previous_record is not None else []
+    )
     parent = None
     parent_raw = None
     if prior_id is None:
