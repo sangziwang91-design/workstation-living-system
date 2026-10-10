@@ -14196,12 +14196,21 @@ class LivingSystem:
             memory_query_context = self.memories.build_query_context(
                 reserved, active_goals
             )
+            # Paired owner-memory ablation changes only the eligible owner
+            # memories; all other memories, goals, tools and model stay intact.
+            # This is a measurement control, not a learning-gain claim.
+            excluded_owner_types = (
+                frozenset({"owner_context"})
+                if self.config.provider.get("owner_context_mode", "enabled") == "disabled"
+                else frozenset()
+            )
             memory_retrieval = self.memories.retrieve_causal(
                 query_text,
                 self.config.memory_retrieval_limit,
                 context=memory_query_context,
                 enabled=memory_mode != "disabled",
                 frozen=memory_mode == "frozen",
+                excluded_memory_types=excluded_owner_types,
             )
             retrieved_memories = memory_retrieval["selected"]
             finish_phase("memory_retrieval")
