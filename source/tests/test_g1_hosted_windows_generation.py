@@ -180,3 +180,32 @@ def test_does_not_claim_real_learning_or_private_owner_deployment(gen) -> None:
     assert "synthetic_only" in SCRIPT.read_text(encoding="utf-8")
     assert "longitudinal_72h_proven" in SCRIPT.read_text(encoding="utf-8")
     assert "owner_context.json" not in SCRIPT.read_text(encoding="utf-8")
+
+
+def test_previous_run_cannot_inherit_future_generation_on_replay(gen, monkeypatch):
+    # Running the same old GitHub workflow again must never attach a newer
+    # artifact as a parent, even when the future run has the same source SHA.
+    observed = [
+        {"databaseId": 405, "status": "completed",
+         "conclusion": "success", "headSha": HEAD, "event": "schedule"},
+        {"databaseId": 403, "status": "completed",
+         "conclusion": "success", "headSha": HEAD, "event": "push"},
+    ]
+    monkeypatch.setattr(gen, "gh_json", lambda *args: observed)
+    assert gen.prior_successful_run("o/r", 404, HEAD) == 403
+    assert gen.prior_successful_run("o/r", 403, HEAD) is None
+    observed[1]["conclusion"] = "failure"
+    with pytest.raises(ValueError, match="previous complete generation failed"):
+        gen.prior_successful_run("o/r", 404, HEAD)
+
+
+def test_g1_serializes_trusted_generations_but_not_pull_requests():
+    doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    group = doc["concurrency"]["group"]
+    assert "github.event_name == 'pull_request'" in group
+    assert "github.event.pull_request.number" in group
+    assert "trusted-main" in group
+    assert doc["concurrency"]["queue"] == "max"
+    assert doc["concurrency"]["cancel-in-progress"] is False
+    assert doc["jobs"]["generation"]["needs"] == "regression"
+    assert "refs/heads/main" in doc["jobs"]["generation"]["if"]
