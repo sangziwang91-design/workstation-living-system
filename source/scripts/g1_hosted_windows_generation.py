@@ -36,6 +36,56 @@ def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def utc_timestamp(raw: object) -> datetime:
+    """Only timezone-aware UTC runner timestamps count toward the 72h gate."""
+    if not isinstance(raw, str):
+        raise ValueError("generation timestamp is not ISO text")
+    try:
+        stamp = datetime.fromisoformat(raw)
+    except ValueError as exc:
+        raise ValueError("generation timestamp malformed") from exc
+    if stamp.tzinfo is None or stamp.utcoffset() != UTC.utcoffset(None):
+        raise ValueError("generation timestamp must use UTC")
+    return stamp
+
+
+def checked_attestation(manifest: dict) -> tuple[list[int], str] | None:
+    """Validate lineage attached to a source- and run-checked checkpoint.
+
+    Old v1 public synthetic checkpoints may still be restored, but their
+    unrecorded ancestors never count toward the 72-hour evidence window.
+    """
+    has_ids = "attested_run_ids" in manifest
+    has_start = "attestation_started_at" in manifest
+    if has_ids != has_start:
+        raise ValueError("partial generation attestation")
+    if not has_ids:
+        return None
+    ids = manifest["attested_run_ids"]
+    if (
+        not isinstance(ids, list) or not ids or len(ids) > 1001
+        or any(type(value) is not int or value <= 0 for value in ids)
+        or any(a >= b for a, b in zip(ids, ids[1:]))
+        or ids[-1] != manifest["run_id"]
+        or len(ids) > manifest["generation"] + 1
+    ):
+        raise ValueError("invalid attested GitHub run ancestry")
+    started = manifest["attestation_started_at"]
+    from_time = utc_timestamp(started)
+    created = utc_timestamp(manifest["created_at"])
+    if from_time > created:
+        raise ValueError("attested generation time is backwards")
+    expected = (
+        len(ids) >= 4
+        and (created - from_time).total_seconds() >= 72 * 3600
+    )
+    if manifest.get("longitudinal_72h_proven") is not expected:
+        raise ValueError("longitudinal claim contradicts attested run history")
+    if manifest["generation"] == 0 and (len(ids) != 1 or from_time != created):
+        raise ValueError("genesis cannot inherit previous GitHub run hours")
+    return ids, started
+
+
 def gh_json(*args: str) -> object:
     result = subprocess.run(
         ["gh", *args], stdin=subprocess.DEVNULL, capture_output=True,
@@ -168,6 +218,16 @@ def restore_checkpoint(
         raise ValueError("checkpoint provenance/digest mismatch")
     if len(payload["secrets/evidence.key"]) != 32:
         raise ValueError("invalid synthetic ledger key")
+    if (type(manifest["run_id"]) is not int or manifest["run_id"] <= 0
+            or (manifest["generation"] == 0
+                and manifest.get("parent_run_id") is not None)
+            or (manifest["generation"] > 0
+                and (type(manifest.get("parent_run_id")) is not int
+                     or manifest["parent_run_id"] >= manifest["run_id"]))):
+        raise ValueError("checkpoint run parent provenance invalid")
+    if utc_timestamp(manifest.get("first_at")) > utc_timestamp(manifest.get("created_at")):
+        raise ValueError("checkpoint generation elapsed time invalid")
+    checked_attestation(manifest)
     try:
         config = json.loads(payload["config.json"])
     except (UnicodeError, json.JSONDecodeError) as exc:
