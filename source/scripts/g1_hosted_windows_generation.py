@@ -19,6 +19,7 @@ import re
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import zipfile
 
 from verify_hosted_living_loop import cli, validate_cycle
@@ -234,13 +235,22 @@ def restore_checkpoint(
         raise ValueError("invalid serialized WLS configuration") from exc
     if not isinstance(config, dict) or config.get("home") != str(home):
         raise ValueError("checkpoint Windows home does not match current runner")
-    db = sqlite3.connect(":memory:")
-    try:
-        db.deserialize(payload["state/wls.db"])
-        if db.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
-            raise ValueError("checkpoint database integrity failed")
-    finally:
-        db.close()
+    # Canonical WLS uses PRAGMA journal_mode=WAL (SQLite file-header
+    # read/write version 2). sqlite3.Connection.deserialize() into :memory:
+    # cannot open that file format: it raises OperationalError even for a
+    # perfectly healthy, closed and checkpointed WLS database. Verify the
+    # allowlisted raw bytes in an independent disposable *file-backed* DB,
+    # then copy only the unchanged verified bytes into the WLS home.
+    # Never rewrite/journal-convert a source checkpoint in place.
+    with tempfile.TemporaryDirectory(prefix="wls-g1-verify-sqlite-") as temp:
+        probe = Path(temp) / "verified-checkpoint.sqlite"
+        probe.write_bytes(payload["state/wls.db"])
+        db = sqlite3.connect(probe, timeout=15.0)
+        try:
+            if db.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                raise ValueError("checkpoint database integrity failed")
+        finally:
+            db.close()
     # Mutate only after every file and manifest passed validation.
     for name in FILES:
         dest = home / name
