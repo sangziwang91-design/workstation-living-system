@@ -115,6 +115,7 @@ def validate_pack(root: Path, pack: Any, minimum: int = MIN_PUBLIC_TASKS) -> dic
     if not isinstance(cases, list) or not minimum <= len(cases) <= MAX_TASKS:
         raise ValueError("R1 public task count below acceptance threshold")
     seen: set[str] = set()
+    seen_mutants: set[tuple[str, str]] = set()
     used_tests: set[str] = set()
     source_hashes: dict[str, str] = {}
     for case in cases:
@@ -147,6 +148,10 @@ def validate_pack(root: Path, pack: Any, minimum: int = MIN_PUBLIC_TASKS) -> dic
             or case["mutant_sha256"] == raw_hash
         ):
             raise ValueError("invalid or unmodified mutation digest")
+        mutant_key = (source_path, case["mutant_sha256"])
+        if mutant_key in seen_mutants:
+            raise ValueError("duplicate public mutation content disguised as new task")
+        seen_mutants.add(mutant_key)
         if case["mutation_line"] > len(raw_source.splitlines()):
             raise ValueError("mutation line does not exist")
         tests = case["test_paths"]
