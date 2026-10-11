@@ -36,6 +36,56 @@ def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def utc_timestamp(raw: object) -> datetime:
+    """Only timezone-aware UTC runner timestamps count toward the 72h gate."""
+    if not isinstance(raw, str):
+        raise ValueError("generation timestamp is not ISO text")
+    try:
+        stamp = datetime.fromisoformat(raw)
+    except ValueError as exc:
+        raise ValueError("generation timestamp malformed") from exc
+    if stamp.tzinfo is None or stamp.utcoffset() != UTC.utcoffset(None):
+        raise ValueError("generation timestamp must use UTC")
+    return stamp
+
+
+def checked_attestation(manifest: dict) -> tuple[list[int], str] | None:
+    """Validate lineage attached to a source- and run-checked checkpoint.
+
+    Old v1 public synthetic checkpoints may still be restored, but their
+    unrecorded ancestors never count toward the 72-hour evidence window.
+    """
+    has_ids = "attested_run_ids" in manifest
+    has_start = "attestation_started_at" in manifest
+    if has_ids != has_start:
+        raise ValueError("partial generation attestation")
+    if not has_ids:
+        return None
+    ids = manifest["attested_run_ids"]
+    if (
+        not isinstance(ids, list) or not ids or len(ids) > 1001
+        or any(type(value) is not int or value <= 0 for value in ids)
+        or any(a >= b for a, b in zip(ids, ids[1:]))
+        or ids[-1] != manifest["run_id"]
+        or len(ids) > manifest["generation"] + 1
+    ):
+        raise ValueError("invalid attested GitHub run ancestry")
+    started = manifest["attestation_started_at"]
+    from_time = utc_timestamp(started)
+    created = utc_timestamp(manifest["created_at"])
+    if from_time > created:
+        raise ValueError("attested generation time is backwards")
+    expected = (
+        len(ids) >= 4
+        and (created - from_time).total_seconds() >= 72 * 3600
+    )
+    if manifest.get("longitudinal_72h_proven") is not expected:
+        raise ValueError("longitudinal claim contradicts attested run history")
+    if manifest["generation"] == 0 and (len(ids) != 1 or from_time != created):
+        raise ValueError("genesis cannot inherit previous GitHub run hours")
+    return ids, started
+
+
 def gh_json(*args: str) -> object:
     result = subprocess.run(
         ["gh", *args], stdin=subprocess.DEVNULL, capture_output=True,
@@ -168,6 +218,16 @@ def restore_checkpoint(
         raise ValueError("checkpoint provenance/digest mismatch")
     if len(payload["secrets/evidence.key"]) != 32:
         raise ValueError("invalid synthetic ledger key")
+    if (type(manifest["run_id"]) is not int or manifest["run_id"] <= 0
+            or (manifest["generation"] == 0
+                and manifest.get("parent_run_id") is not None)
+            or (manifest["generation"] > 0
+                and (type(manifest.get("parent_run_id")) is not int
+                     or manifest["parent_run_id"] >= manifest["run_id"]))):
+        raise ValueError("checkpoint run parent provenance invalid")
+    if utc_timestamp(manifest.get("first_at")) > utc_timestamp(manifest.get("created_at")):
+        raise ValueError("checkpoint generation elapsed time invalid")
+    checked_attestation(manifest)
     try:
         config = json.loads(payload["config.json"])
     except (UnicodeError, json.JSONDecodeError) as exc:
@@ -205,6 +265,33 @@ def checkpoint(
     now = datetime.now(UTC).isoformat()
     generation = parent["generation"] + 1 if parent is not None else 0
     first_at = parent["first_at"] if parent is not None else now
+    if parent is None:
+        if count < 1:
+            raise ValueError("genesis requires real WLS cycles")
+        attested_ids, attestation_started_at = [run_id], now
+    else:
+        if (type(parent.get("run_id")) is not int
+                or parent["run_id"] >= run_id
+                or type(parent.get("cycle_count")) is not int
+                or count <= parent["cycle_count"]):
+            raise ValueError("new run must increase both GitHub ID and WLS cycles")
+        parent_created = utc_timestamp(parent.get("created_at"))
+        if parent_created > utc_timestamp(now):
+            raise ValueError("new generation predates its parent")
+        previous = checked_attestation(parent)
+        if previous is None:
+            # V1 imports retain WLS DB history, but attestation begins at
+            # this verified parent. Earlier unrecorded generations cannot
+            # back-date the 72-hour gate.
+            attested_ids = [parent["run_id"]]
+            attestation_started_at = parent["created_at"]
+        else:
+            attested_ids, attestation_started_at = previous
+        attested_ids = [*attested_ids, run_id]
+    observed_hours = (
+        utc_timestamp(now) - utc_timestamp(attestation_started_at)
+    ).total_seconds() / 3600
+    attested_72h = len(attested_ids) >= 4 and observed_hours >= 72.0
     manifest = {
         "schema": SCHEMA, "head_sha": head, "run_id": run_id,
         "parent_run_id": parent["run_id"] if parent is not None else None,
@@ -217,6 +304,9 @@ def checkpoint(
         "synthetic_only": True,
         "files_sha256": {name: sha(data) for name, data in files.items()},
         "model_calls": 0, "autonomous_skill_gain_proven": False,
+        "attested_run_ids": attested_ids,
+        "attestation_started_at": attestation_started_at,
+        "longitudinal_72h_proven": attested_72h,
     }
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "checkpoint.zip"
@@ -302,7 +392,10 @@ def run(repo: str, run_id: int, head: str, workspace: Path) -> dict:
         "elapsed_generation_hours": round(age_hours, 4),
         "synthetic_only": True, "local_owner_deployed": False,
         "model_calls": 0, "autonomous_skill_gain_proven": False,
-        "longitudinal_72h_proven": False,
+        "longitudinal_72h_proven": manifest["longitudinal_72h_proven"],
+        "attested_distinct_run_count": len(manifest["attested_run_ids"]),
+        "attestation_started_at": manifest["attestation_started_at"],
+        "attested_run_ids": manifest["attested_run_ids"],
         "claim_ceiling": (
             "canonical_Windows_cross_run_cycles_only; "
             "no_owner_deployment_or_autonomous_skill_improvement"

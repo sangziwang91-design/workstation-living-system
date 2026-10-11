@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+from datetime import UTC, datetime, timedelta
 import io
 import json
 from pathlib import Path
@@ -349,3 +350,146 @@ def test_failed_attempts_are_bounded_and_never_silent(
     monkeypatch.setattr(gen, "gh_json", lambda *args: failures[:1])
     with pytest.raises(ValueError, match="no silent reset"):
         gen.previous_verified_run("owner/repo", 105)
+
+
+def test_four_distinct_github_runs_and_true_72_elapsed_hours_are_required(
+    gen, tmp_path: Path,
+) -> None:
+    home = tmp_path / "real-synthetic-home"
+    synthetic_home(home)
+    now = datetime.now(UTC)
+    start = (now - timedelta(hours=74)).isoformat()
+    last_parent = (now - timedelta(hours=5)).isoformat()
+    parent = {
+        "run_id": 402, "head_sha": HEAD, "generation": 2,
+        "cycle_count": 6, "first_at": start, "created_at": last_parent,
+        "attested_run_ids": [400, 401, 402],
+        "attestation_started_at": start,
+        "longitudinal_72h_proven": False,
+    }
+    assert gen.checked_attestation(parent) == ([400, 401, 402], start)
+    manifested = gen.checkpoint(
+        home, tmp_path / "attestation", head=HEAD, run_id=403,
+        parent=parent, prior_manifest_raw=b"verified-parent-manifest",
+        count=8,
+    )
+    assert manifested["attested_run_ids"] == [400, 401, 402, 403]
+    assert manifested["longitudinal_72h_proven"] is True
+    assert manifested["generation"] == 3
+    assert manifested["parent_run_id"] == 402
+    assert gen.checked_attestation(manifested) is not None
+
+    # Old history cannot be inherited just by calling many local cycles.
+    short_parent = {**parent, "attested_run_ids": [402],
+                    "attestation_started_at": last_parent,
+                    "longitudinal_72h_proven": False}
+    short = gen.checkpoint(
+        home, tmp_path / "short", head=HEAD, run_id=403,
+        parent=short_parent, prior_manifest_raw=b"one-attested-run",
+        count=8,
+    )
+    assert short["attested_run_ids"] == [402, 403]
+    assert short["longitudinal_72h_proven"] is False
+
+
+def test_real_time_cannot_be_claimed_with_fast_fake_generations(gen) -> None:
+    now = datetime.now(UTC).isoformat()
+    fake = {
+        "run_id": 403, "generation": 3, "created_at": now,
+        "attested_run_ids": [400, 401, 402, 403],
+        "attestation_started_at": now,
+        "longitudinal_72h_proven": True,
+    }
+    with pytest.raises(ValueError, match="contradicts"):
+        gen.checked_attestation(fake)
+    fake["longitudinal_72h_proven"] = False
+    assert gen.checked_attestation(fake) is not None
+    fake["attested_run_ids"] = [400, 402, 402, 403]
+    with pytest.raises(ValueError, match="ancestry"):
+        gen.checked_attestation(fake)
+    fake["attested_run_ids"] = [400, 401, 402, 403]
+    fake["attestation_started_at"] = "2026-10-10T12:00:00"
+    with pytest.raises(ValueError, match="UTC"):
+        gen.checked_attestation(fake)
+    del fake["attestation_started_at"]
+    with pytest.raises(ValueError, match="partial"):
+        gen.checked_attestation(fake)
+
+
+def test_previous_v1_checkpoint_cannot_import_unverified_72h_history(
+    gen, tmp_path: Path,
+) -> None:
+    home = tmp_path / "synthetic"
+    synthetic_home(home)
+    start = (datetime.now(UTC) - timedelta(days=25)).isoformat()
+    legacy = {
+        "run_id": 770, "head_sha": HEAD, "generation": 12,
+        "cycle_count": 26, "first_at": start,
+        "created_at": datetime.now(UTC).isoformat(),
+    }
+    manifest = gen.checkpoint(
+        home, tmp_path / "legacy", head=HEAD, run_id=771,
+        parent=legacy, prior_manifest_raw=b"verified-old-v1-checkpoint",
+        count=28,
+    )
+    assert manifest["generation"] == 13
+    assert manifest["attested_run_ids"] == [770, 771]
+    assert manifest["longitudinal_72h_proven"] is False
+    assert manifest["attestation_started_at"] == legacy["created_at"]
+    # Even after twenty-five days of non-attested history, the proof clock
+    # does not look backwards into unverifiable old generations.
+
+
+def test_restore_rejects_forged_pass_flag_and_attestation_parent(
+    gen, tmp_path: Path,
+) -> None:
+    home = tmp_path / "source"
+    target = tmp_path / "target"
+    synthetic_home(home)
+    (home / "config.json").write_text(json.dumps({"home": str(target)}))
+    gen.checkpoint(
+        home, tmp_path / "good", head=HEAD, run_id=10,
+        parent=None, prior_manifest_raw=None, count=2,
+    )
+    with zipfile.ZipFile(tmp_path / "good/checkpoint.zip") as zf:
+        entries = {i.filename: zf.read(i.filename) for i in zf.infolist()}
+    for mutation in ("fake_72h", "bad_parent", "future_run"):
+        manifest = json.loads(entries["manifest.json"])
+        if mutation == "fake_72h":
+            manifest["longitudinal_72h_proven"] = True
+        elif mutation == "bad_parent":
+            manifest["parent_run_id"] = 4
+        else:
+            manifest["attested_run_ids"] = [10, 11]
+        entries["manifest.json"] = json.dumps(manifest).encode()
+        archive = tmp_path / f"{mutation}.zip"
+        with zipfile.ZipFile(archive, "w") as zf:
+            for name, data in entries.items():
+                zf.writestr(name, data)
+        with pytest.raises(ValueError):
+            gen.restore_checkpoint(
+                archive, target, expected_head=HEAD, expected_run=10,
+            )
+        assert not target.exists()
+        with zipfile.ZipFile(tmp_path / "good/checkpoint.zip") as zf:
+            entries["manifest.json"] = zf.read("manifest.json")
+
+
+def test_attested_checkpoint_rejects_replaying_old_github_id(
+    gen, tmp_path: Path,
+) -> None:
+    home = tmp_path / "home"
+    synthetic_home(home)
+    parent = {
+        "run_id": 900, "head_sha": HEAD, "generation": 1,
+        "cycle_count": 4, "first_at": datetime.now(UTC).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
+        "attested_run_ids": [899, 900],
+        "attestation_started_at": datetime.now(UTC).isoformat(),
+        "longitudinal_72h_proven": False,
+    }
+    with pytest.raises(ValueError, match="increase"):
+        gen.checkpoint(
+            home, tmp_path / "old-run", head=HEAD, run_id=899,
+            parent=parent, prior_manifest_raw=b"source", count=6,
+        )
