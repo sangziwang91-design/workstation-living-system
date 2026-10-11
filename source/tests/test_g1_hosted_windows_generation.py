@@ -493,3 +493,82 @@ def test_attested_checkpoint_rejects_replaying_old_github_id(
             home, tmp_path / "old-run", head=HEAD, run_id=899,
             parent=parent, prior_manifest_raw=b"source", count=6,
         )
+
+
+def test_real_canonical_sqlite_wal_checkpoint_can_restore_across_runs(
+    gen, tmp_path: Path,
+) -> None:
+    """A genuine WLS DB is WAL-mode, unlike the old fake DELETE-mode fixture.
+
+    This specifically reproduces the OperationalError seen in three actual
+    separate hosted Windows generation jobs (Oct 10-11, 2026). A connection
+    deserialized into :memory: cannot read the WAL-header file format.
+    """
+    original = tmp_path / "wal-source"
+    restored = tmp_path / "wal-restored"
+    synthetic_home(original)
+    (original / "config.json").write_text(
+        json.dumps({"home": str(restored)}), encoding="utf-8"
+    )
+    connection = sqlite3.connect(original / "state/wls.db")
+    try:
+        assert connection.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+        connection.execute("INSERT INTO validated VALUES (2718)")
+        connection.commit()
+    finally:
+        connection.close()
+    original_bytes = (original / "state/wls.db").read_bytes()
+    assert original_bytes[18:20] == bytes((2, 2)), "WAL file-header regression control"
+    gen.checkpoint(
+        original, tmp_path / "wal-artifact", head=HEAD, run_id=420,
+        parent=None, prior_manifest_raw=None, count=2,
+    )
+    archive = tmp_path / "wal-artifact/checkpoint.zip"
+    manifest, _ = gen.restore_checkpoint(
+        archive, restored, expected_head=HEAD, expected_run=420,
+    )
+    assert manifest["generation"] == 0
+    assert (restored / "state/wls.db").read_bytes() == original_bytes
+    check = sqlite3.connect(restored / "state/wls.db")
+    try:
+        assert check.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert check.execute("SELECT value FROM validated ORDER BY value").fetchall() == [
+            (1,), (2718,)
+        ]
+    finally:
+        check.close()
+
+
+def test_wal_source_never_imported_before_integrity_pass(gen, tmp_path: Path) -> None:
+    original = tmp_path / "wal-original"
+    restored = tmp_path / "wal-destination"
+    synthetic_home(original)
+    (original / "config.json").write_text(
+        json.dumps({"home": str(restored)}), encoding="utf-8"
+    )
+    connection = sqlite3.connect(original / "state/wls.db")
+    try:
+        assert connection.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+    finally:
+        connection.close()
+    gen.checkpoint(
+        original, tmp_path / "checkpoint", head=HEAD, run_id=430,
+        parent=None, prior_manifest_raw=None, count=2,
+    )
+    with zipfile.ZipFile(tmp_path / "checkpoint/checkpoint.zip") as zf:
+        entries = {key: zf.read(key) for key in zf.namelist()}
+    # A fully recomputed manifest SHA-256 is not an independent DB validity
+    # check. Reject a corrupt WLS database even if hashes match the payload.
+    entries["state/wls.db"] = bytes((2, 2)) + b"definitely not SQLite"
+    manifest = json.loads(entries["manifest.json"])
+    manifest["files_sha256"]["state/wls.db"] = gen.sha(entries["state/wls.db"])
+    entries["manifest.json"] = json.dumps(manifest).encode()
+    tampered = tmp_path / "corrupt-wal.zip"
+    with zipfile.ZipFile(tampered, "w") as zf:
+        for name, payload in entries.items():
+            zf.writestr(name, payload)
+    with pytest.raises(sqlite3.Error):
+        gen.restore_checkpoint(
+            tampered, restored, expected_head=HEAD, expected_run=430,
+        )
+    assert not restored.exists(), "corrupt DB must never create canonical WLS home"
