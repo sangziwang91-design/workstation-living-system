@@ -164,7 +164,7 @@ def previous_verified_run(repo: str, run_id: int) -> dict | None:
         if trusted_sha is None:
             unaudited_failures += 1
         if unaudited_failures > MAX_UNAUDITED_FAILED_GENERATIONS:
-            raise ValueError("too many unreviewed failed generations: owner review required")
+            raise ValueError("too many failed generation attempts (unaudited): owner review required")
     raise ValueError("previous complete generation failed: no silent reset")
 
 
