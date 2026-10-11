@@ -572,3 +572,69 @@ def test_wal_source_never_imported_before_integrity_pass(gen, tmp_path: Path) ->
             tampered, restored, expected_head=HEAD, expected_run=430,
         )
     assert not restored.exists(), "corrupt DB must never create canonical WLS home"
+
+
+def test_four_exact_audited_wal_failures_may_recover_verified_genesis(
+    gen, monkeypatch,
+) -> None:
+    """Only exact known failed main SHA/run pairs are admitted across the old
+    3-failure stop gate; the successful predecessor remains authoritative.
+    """
+    witnessed = [
+        {
+            "databaseId": run_id, "status": "completed",
+            "conclusion": "failure", "headSha": head, "event": "push",
+        }
+        for run_id, head in gen.AUDITED_WAL_RESTORE_FAILURES.items()
+    ]
+    witnessed.sort(key=lambda x: x["databaseId"], reverse=True)
+    genesis = {
+        "databaseId": 38037890374, "status": "completed",
+        "conclusion": "success", "headSha": HEAD, "event": "push",
+    }
+    monkeypatch.setattr(gen, "gh_json", lambda *args: [*witnessed, genesis])
+    result = gen.previous_verified_run("owner/repo", 38110000000)
+    assert result == {
+        "run_id": 38037890374, "head_sha": HEAD,
+        "skipped_failed_run_ids": sorted(
+            gen.AUDITED_WAL_RESTORE_FAILURES, reverse=True
+        ),
+    }
+    # Audited failures are still visible; generic frozen admission still
+    # does NOT silently pretend the intervening attempts succeeded.
+    with pytest.raises(ValueError, match="previous complete generation failed"):
+        gen.prior_successful_run("owner/repo", 38110000000, HEAD)
+
+    witnessed[0]["headSha"] = "f" * 40
+    with pytest.raises(ValueError, match="admission SHA mismatch"):
+        gen.previous_verified_run("owner/repo", 38110000000)
+
+
+def test_audited_failure_exceptions_never_waive_unknown_failure_limit(
+    gen, monkeypatch,
+) -> None:
+    witnessed = [
+        {
+            "databaseId": run_id, "status": "completed",
+            "conclusion": "failure", "headSha": head, "event": "schedule",
+        }
+        for run_id, head in gen.AUDITED_WAL_RESTORE_FAILURES.items()
+    ]
+    # Four UNRECOGNIZED failures still stop even with four independently
+    # audited historical WAL failures in the previous ancestry.
+    unknown = [
+        {
+            "databaseId": 38200000000 + offset, "status": "completed",
+            "conclusion": "failure", "headSha": HEAD, "event": "schedule",
+        }
+        for offset in range(4)
+    ]
+    parent = {
+        "databaseId": 38037890374, "status": "completed",
+        "conclusion": "success", "headSha": HEAD, "event": "push",
+    }
+    monkeypatch.setattr(
+        gen, "gh_json", lambda *args: [*unknown, *witnessed, parent]
+    )
+    with pytest.raises(ValueError, match="too many failed generation attempts"):
+        gen.previous_verified_run("owner/repo", 38300000000)
