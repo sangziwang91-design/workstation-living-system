@@ -493,3 +493,148 @@ def test_attested_checkpoint_rejects_replaying_old_github_id(
             home, tmp_path / "old-run", head=HEAD, run_id=899,
             parent=parent, prior_manifest_raw=b"source", count=6,
         )
+
+
+def test_real_canonical_sqlite_wal_checkpoint_can_restore_across_runs(
+    gen, tmp_path: Path,
+) -> None:
+    """A genuine WLS DB is WAL-mode, unlike the old fake DELETE-mode fixture.
+
+    This specifically reproduces the OperationalError seen in three actual
+    separate hosted Windows generation jobs (Oct 10-11, 2026). A connection
+    deserialized into :memory: cannot read the WAL-header file format.
+    """
+    original = tmp_path / "wal-source"
+    restored = tmp_path / "wal-restored"
+    synthetic_home(original)
+    (original / "config.json").write_text(
+        json.dumps({"home": str(restored)}), encoding="utf-8"
+    )
+    connection = sqlite3.connect(original / "state/wls.db")
+    try:
+        assert connection.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+        connection.execute("INSERT INTO validated VALUES (2718)")
+        connection.commit()
+    finally:
+        connection.close()
+    original_bytes = (original / "state/wls.db").read_bytes()
+    assert original_bytes[18:20] == bytes((2, 2)), "WAL file-header regression control"
+    gen.checkpoint(
+        original, tmp_path / "wal-artifact", head=HEAD, run_id=420,
+        parent=None, prior_manifest_raw=None, count=2,
+    )
+    archive = tmp_path / "wal-artifact/checkpoint.zip"
+    manifest, _ = gen.restore_checkpoint(
+        archive, restored, expected_head=HEAD, expected_run=420,
+    )
+    assert manifest["generation"] == 0
+    assert (restored / "state/wls.db").read_bytes() == original_bytes
+    check = sqlite3.connect(restored / "state/wls.db")
+    try:
+        assert check.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert check.execute("SELECT value FROM validated ORDER BY value").fetchall() == [
+            (1,), (2718,)
+        ]
+    finally:
+        check.close()
+
+
+def test_wal_source_never_imported_before_integrity_pass(gen, tmp_path: Path) -> None:
+    original = tmp_path / "wal-original"
+    restored = tmp_path / "wal-destination"
+    synthetic_home(original)
+    (original / "config.json").write_text(
+        json.dumps({"home": str(restored)}), encoding="utf-8"
+    )
+    connection = sqlite3.connect(original / "state/wls.db")
+    try:
+        assert connection.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+    finally:
+        connection.close()
+    gen.checkpoint(
+        original, tmp_path / "checkpoint", head=HEAD, run_id=430,
+        parent=None, prior_manifest_raw=None, count=2,
+    )
+    with zipfile.ZipFile(tmp_path / "checkpoint/checkpoint.zip") as zf:
+        entries = {key: zf.read(key) for key in zf.namelist()}
+    # A fully recomputed manifest SHA-256 is not an independent DB validity
+    # check. Reject a corrupt WLS database even if hashes match the payload.
+    entries["state/wls.db"] = bytes((2, 2)) + b"definitely not SQLite"
+    manifest = json.loads(entries["manifest.json"])
+    manifest["files_sha256"]["state/wls.db"] = gen.sha(entries["state/wls.db"])
+    entries["manifest.json"] = json.dumps(manifest).encode()
+    tampered = tmp_path / "corrupt-wal.zip"
+    with zipfile.ZipFile(tampered, "w") as zf:
+        for name, payload in entries.items():
+            zf.writestr(name, payload)
+    with pytest.raises(sqlite3.Error):
+        gen.restore_checkpoint(
+            tampered, restored, expected_head=HEAD, expected_run=430,
+        )
+    assert not restored.exists(), "corrupt DB must never create canonical WLS home"
+
+
+def test_four_exact_audited_wal_failures_may_recover_verified_genesis(
+    gen, monkeypatch,
+) -> None:
+    """Only exact known failed main SHA/run pairs are admitted across the old
+    3-failure stop gate; the successful predecessor remains authoritative.
+    """
+    witnessed = [
+        {
+            "databaseId": run_id, "status": "completed",
+            "conclusion": "failure", "headSha": head, "event": "push",
+        }
+        for run_id, head in gen.AUDITED_WAL_RESTORE_FAILURES.items()
+    ]
+    witnessed.sort(key=lambda x: x["databaseId"], reverse=True)
+    genesis = {
+        "databaseId": 38037890374, "status": "completed",
+        "conclusion": "success", "headSha": HEAD, "event": "push",
+    }
+    monkeypatch.setattr(gen, "gh_json", lambda *args: [*witnessed, genesis])
+    result = gen.previous_verified_run("owner/repo", 38110000000)
+    assert result == {
+        "run_id": 38037890374, "head_sha": HEAD,
+        "skipped_failed_run_ids": sorted(
+            gen.AUDITED_WAL_RESTORE_FAILURES, reverse=True
+        ),
+    }
+    # Audited failures are still visible; generic frozen admission still
+    # does NOT silently pretend the intervening attempts succeeded.
+    with pytest.raises(ValueError, match="previous complete generation failed"):
+        gen.prior_successful_run("owner/repo", 38110000000, HEAD)
+
+    witnessed[0]["headSha"] = "f" * 40
+    with pytest.raises(ValueError, match="admission SHA mismatch"):
+        gen.previous_verified_run("owner/repo", 38110000000)
+
+
+def test_audited_failure_exceptions_never_waive_unknown_failure_limit(
+    gen, monkeypatch,
+) -> None:
+    witnessed = [
+        {
+            "databaseId": run_id, "status": "completed",
+            "conclusion": "failure", "headSha": head, "event": "schedule",
+        }
+        for run_id, head in gen.AUDITED_WAL_RESTORE_FAILURES.items()
+    ]
+    # Four UNRECOGNIZED failures still stop even with four independently
+    # audited historical WAL failures in the previous ancestry.
+    unknown = [
+        {
+            "databaseId": 38200000000 + offset, "status": "completed",
+            "conclusion": "failure", "headSha": HEAD, "event": "schedule",
+        }
+        for offset in range(4)
+    ]
+    parent = {
+        "databaseId": 38037890374, "status": "completed",
+        "conclusion": "success", "headSha": HEAD, "event": "push",
+    }
+    monkeypatch.setattr(
+        gen, "gh_json", lambda *args: [*unknown, *witnessed, parent]
+    )
+    with pytest.raises(ValueError, match="too many failed generation attempts"):
+        gen.previous_verified_run("owner/repo", 38300000000)
