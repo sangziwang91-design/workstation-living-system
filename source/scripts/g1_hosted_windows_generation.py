@@ -265,6 +265,33 @@ def checkpoint(
     now = datetime.now(UTC).isoformat()
     generation = parent["generation"] + 1 if parent is not None else 0
     first_at = parent["first_at"] if parent is not None else now
+    if parent is None:
+        if count < 1:
+            raise ValueError("genesis requires real WLS cycles")
+        attested_ids, attestation_started_at = [run_id], now
+    else:
+        if (type(parent.get("run_id")) is not int
+                or parent["run_id"] >= run_id
+                or type(parent.get("cycle_count")) is not int
+                or count <= parent["cycle_count"]):
+            raise ValueError("new run must increase both GitHub ID and WLS cycles")
+        parent_created = utc_timestamp(parent.get("created_at"))
+        if parent_created > utc_timestamp(now):
+            raise ValueError("new generation predates its parent")
+        previous = checked_attestation(parent)
+        if previous is None:
+            # V1 imports retain WLS DB history, but attestation begins at
+            # this verified parent. Earlier unrecorded generations cannot
+            # back-date the 72-hour gate.
+            attested_ids = [parent["run_id"]]
+            attestation_started_at = parent["created_at"]
+        else:
+            attested_ids, attestation_started_at = previous
+        attested_ids = [*attested_ids, run_id]
+    observed_hours = (
+        utc_timestamp(now) - utc_timestamp(attestation_started_at)
+    ).total_seconds() / 3600
+    attested_72h = len(attested_ids) >= 4 and observed_hours >= 72.0
     manifest = {
         "schema": SCHEMA, "head_sha": head, "run_id": run_id,
         "parent_run_id": parent["run_id"] if parent is not None else None,
@@ -277,6 +304,9 @@ def checkpoint(
         "synthetic_only": True,
         "files_sha256": {name: sha(data) for name, data in files.items()},
         "model_calls": 0, "autonomous_skill_gain_proven": False,
+        "attested_run_ids": attested_ids,
+        "attestation_started_at": attestation_started_at,
+        "longitudinal_72h_proven": attested_72h,
     }
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "checkpoint.zip"
@@ -362,7 +392,10 @@ def run(repo: str, run_id: int, head: str, workspace: Path) -> dict:
         "elapsed_generation_hours": round(age_hours, 4),
         "synthetic_only": True, "local_owner_deployed": False,
         "model_calls": 0, "autonomous_skill_gain_proven": False,
-        "longitudinal_72h_proven": False,
+        "longitudinal_72h_proven": manifest["longitudinal_72h_proven"],
+        "attested_distinct_run_count": len(manifest["attested_run_ids"]),
+        "attestation_started_at": manifest["attestation_started_at"],
+        "attested_run_ids": manifest["attested_run_ids"],
         "claim_ceiling": (
             "canonical_Windows_cross_run_cycles_only; "
             "no_owner_deployment_or_autonomous_skill_improvement"
