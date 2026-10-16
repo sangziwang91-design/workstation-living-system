@@ -106,3 +106,38 @@ def test_runner_rejects_secret_bearing_environment(engine, tmp_path, monkeypatch
     assert "GH_TOKEN" not in safe
     assert safe["OPENAI_API_KEY"] == ""
     assert "test-only-secret" not in repr(safe)
+
+
+@pytest.mark.parametrize("kind", ["setup_error", "skipped_only"])
+def test_pytest_errors_and_all_skipped_never_count_as_killed_mutants(
+    engine, tmp_path: Path, kind: str,
+) -> None:
+    root = tmp_path / "worktree"
+    temp = tmp_path / "isolated"
+    pkg = temp / "src/wls"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    path = root / "source/tests/test_bad.py"
+    path.parent.mkdir(parents=True)
+    if kind == "setup_error":
+        text = (
+            "import pytest\n"
+            "@pytest.fixture\n"
+            "def broken():\n"
+            "    raise RuntimeError('fixture configuration broke')\n"
+            "def test_should_never_execute(broken):\n"
+            "    assert True\n"
+        )
+    else:
+        text = (
+            "import pytest\n"
+            "@pytest.mark.skip(reason='all cases skipped')\n"
+            "def test_not_exercised():\n"
+            "    assert True\n"
+        )
+    path.write_text(text, encoding="utf-8")
+    code, status = engine.pytest_once(
+        root, temp, pkg.parent, "source/tests/test_bad.py", 30
+    )
+    assert code != 1
+    assert status == "PYTEST_COLLECTION_SETUP_OR_EMPTY"
