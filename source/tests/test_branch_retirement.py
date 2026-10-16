@@ -5,7 +5,6 @@ import importlib.util
 import json
 from pathlib import Path
 import sys
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -101,8 +100,10 @@ def test_old_sha_mismatch_never_reaches_archive_or_delete(
         cleanup, "open_pr_branches",
         lambda: set(d["expected_open_pr_branches"]),
     )
-    state = {row["branch"]: {"commit": {"sha": row["sha"]}, "protected": False}
-             for row in d["branches"]}
+    state: dict[str, dict[str, Any]] = {
+        row["branch"]: {"commit": {"sha": row["sha"]}, "protected": False}
+        for row in d["branches"]
+    }
     state["main"] = {"commit": {"sha": "f" * 40}, "protected": False}
     state[cleanup.CLEANUP_BRANCH] = {
         "commit": {"sha": "f" * 40}, "protected": False,
