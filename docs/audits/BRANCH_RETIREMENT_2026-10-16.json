@@ -1,0 +1,923 @@
+{
+  "schema": "wls.branch_retirement.v1",
+  "repository": "sangziwang91-design/workstation-living-system",
+  "baseline_main_sha": "23fed195b3379f6f5fbb25b3285c99bf8fa25b8c",
+  "archive_tag": "wls-legacy-branches-20261016",
+  "workflow_branch": "maintenance/prune-legacy-refs-20261016",
+  "expected_open_pr_branches": [
+    "feat/r1-frozen-contract-preflight-20261011",
+    "feat/r1-real-windows-mutation-discovery-20261016",
+    "refactor/s1a-proven-unreferenced-modules-20261011"
+  ],
+  "branches": [
+    {
+      "branch": "architecture/post-task19-durable-spine-v1",
+      "sha": "d2bc6c494d8db5a914ffd2c6a43f56d1b4d1994a",
+      "disposition": "NO_PR",
+      "prs": []
+    },
+    {
+      "branch": "archive/et004-pre-rebase-20260624",
+      "sha": "05d8b4b93b08f4b214c00693d924edd5701132ee",
+      "disposition": "NO_PR",
+      "prs": []
+    },
+    {
+      "branch": "audit/full-python-security-baseline-20261010",
+      "sha": "fae5d1af84d8f17591a6973e1b9f6402c946fa54",
+      "disposition": "PR_MERGED",
+      "prs": [
+        77
+      ]
+    },
+    {
+      "branch": "audit/verification-boundary-20260920",
+      "sha": "dc94d291c645d7f2d8bddc12335f76393fe39589",
+      "disposition": "PR_CLOSED_UNMERGED",
+      "prs": [
+        30
+      ]
+    },
+    {
+      "branch": "ci-governor-001-deduplicate",
+      "sha": "b878168fb0ed6845327be599c8b741667acccb4b",
+      "disposition": "NO_PR",
+      "prs": []
+    },
+    {
+      "branch": "cleanup/patch-mission-status-cli-20260720",
+      "sha": "cef418488e9eb35e0ab2c5ecb01c1d3d22bda60f",
+      "disposition": "PR_MERGED",
+      "prs": [
+        29
+      ]
+    },
+    {
+      "branch": "convergence/wls-side-lines-20260624-10058715174870423722",
+      "sha": "0a38c77b61ba91bb5a0fa7f88df028d030e569ba",
+      "disposition": "PR_CLOSED_UNMERGED",
+      "prs": [
+        22
+      ]
+    },
+    {
+      "branch": "et004-delivery-stage-20260624",
+      "sha": "643b65409b324b54f6fbc65845158d8cee605c52",
+      "disposition": "NO_PR",
+      "prs": []
+    },
+    {
+      "branch": "evolution-infra-001-completion",
+      "sha": "0a38c77b61ba91bb5a0fa7f88df028d030e569ba",
+      "disposition": "PR_MERGED",
+      "prs": [
+        10,
+        11
+      ]
+    },
+    {
+      "branch": "evolution-infra-001-repo-native-chain",
+      "sha": "0a38c77b61ba91bb5a0fa7f88df028d030e569ba",
+      "disposition": "PR_MERGED",
+      "prs": [
+        9
+      ]
+    },
+    {
+      "branch": "evolution-target-001-canonical",
+      "sha": "0a38c77b61ba91bb5a0fa7f88df028d030e569ba",
+      "disposition": "PR_MERGED",
+      "prs": [
+        3
+      ]
+    },
+    {
+      "branch": "evolution-target-002-build",
+      "sha": "f62396e81eaba1cc66f2e9080a008012c59fb228",
+      "disposition": "NO_PR",
+      "prs": []
+    },
+    {
+      "branch": "evolution-target-002-build-trigger",
+      "sha": "f62396e81eaba1cc66f2e9080a008012c59fb228",
+      "disposition": "NO_PR",
+      "prs": []
+    },
+    {
+      "branch": "evolution-target-002-local-cognition",
+      "sha": "0a38c77b61ba91bb5a0fa7f88df028d030e569ba",
+      "disposition": "PR_MERGED",
+      "prs": [
+        6
+      ]
+    },
+    {
+      "branch": "evolution-target-002-local-cognition-temp",
+      "sha": "f62396e81eaba1cc66f2e9080a008012c59fb228",
+      "disposition": "NO_PR",
+      "prs": []
+    },
+    {
+      "branch": "evolution-target-003-causal-memory",
+      "sha": "0a38c77b61ba91bb5a0fa7f88df028d030e569ba",
+      "disposition": "PR_MERGED",
+      "prs": [
+        7
+      ]
+    },
+    {
+      "branch": "evolution-target-004-persistent-goals",
+      "sha": "0a38c77b61ba91bb5a0fa7f88df028d030e569ba",
+      "disposition": "PR_CLOSED_UNMERGED",
+      "prs": [
+        8
+      ]
+    },
+    {
+      "branch": "experiment/c2-known-regression-replay-20261009",
+      "sha": "15e326c6165f9fa48b4349a14fa19c9edf42b7ea",
+      "disposition": "PR_MERGED",
+      "prs": [
+        71
+      ]
+    },
+    {
+      "branch": "experiment/rsi-diverse-archive-parenting-20261009",
+      "sha": "65cc0560dda53e4443458171bc4224eb3de44911",
+      "disposition": "PR_MERGED",
+      "prs": [
+        69
+      ]
+    },
+    {
+      "branch": "feat/a3-baseline-manifest-20261009",
+      "sha": "b966061dd42cda0bf3452507b9125ad2f573a855",
+      "disposition": "PR_MERGED",
+      "prs": [
+        58
+      ]
+    },
+    {
+      "branch": "feat/a5-daily-gap-observation-20261009",
+      "sha": "0d510c48abc5a7e9e5e6cdf40a7f47d855a9b2d9",
+      "disposition": "PR_MERGED",
+      "prs": [
+        62
+      ]
+    },
+    {
+      "branch": "feat/a5-evidence-to-issue-triage-20261009",
+      "sha": "9d3a20d5fcea7aacd3d85c29a431ba5f28bc1b2d",
+      "disposition": "PR_MERGED",
+      "prs": [
+        63
+      ]
+    },
+    {
+      "branch": "feat/c1-hosted-isolation-20261009",
+      "sha": "ce8b47b51fd5d16815a827ad0d37d14e31cdf034",
+      "disposition": "PR_MERGED",
+      "prs": [
+        61
+      ]
+    },
+    {
+      "branch": "feat/c2-evidence-grounded-issue-context-20261009",
+      "sha": "e6c984110196e173c84b7002ea4649bdf4b3d33b",
+      "disposition": "PR_MERGED",
+      "prs": [
+        74
+      ]
+    },
+    {
+      "branch": "feat/c2-historical-taskpack-20261009",
+      "sha": "97f2778a77709d773e6cebea09097edc750c85e8",
+      "disposition": "PR_CLOSED_UNMERGED",
+      "prs": [
+        72
+      ]
+    },
+    {
+      "branch": "feat/c2-replayable-history-curriculum-20261009",
+      "sha": "5f813d0fa45efc403704c0bf7958543c037f9129",
+      "disposition": "PR_MERGED",
+      "prs": [
+        68
+      ]
+    },
+    {
+      "branch": "feat/ci-feedback-derived-state-20261008",
+      "sha": "9a23560970d9819d75e04419a956b5494b656bca",
+      "disposition": "PR_MERGED",
+      "prs": [
+        47
+      ]
+    },
+    {
+      "branch": "feat/g1-hosted-windows-life-smoke-20261010",
+      "sha": "09465fc4e7f10e8b20a19b31ad19d42b410b8214",
+      "disposition": "PR_MERGED",
+      "prs": [
+        98
+      ]
+    },
+    {
+      "branch": "feat/g1-windows-cross-run-checkpoint-20261010",
+      "sha": "42de55148c42a5cc4897a9174f5b9cce60620338",
+      "disposition": "PR_MERGED",
+      "prs": [
+        99
+      ]
+    },
+    {
+      "branch": "feat/g1-windows-observed-actions-20261010",
+      "sha": "bace44cef12c9fd02b790f05594045f4c5053f2d",
+      "disposition": "PR_MERGED",
+      "prs": [
+        102
+      ]
+    },
+    {
+      "branch": "feat/g1-windows-real-failure-endogenous-growth-20261010",
+      "sha": "2d1e200a902b9b0bf50aebe94ba2d44070afef90",
+      "disposition": "PR_MERGED",
+      "prs": [
+        104
+      ]
+    },
+    {
+      "branch": "feat/hosted-living-loop-20261009",
+      "sha": "ffc835fd4ec8cf6c427df82b9f884d1ebb513f60",
+      "disposition": "PR_MERGED",
+      "prs": [
+        75
+      ]
+    },
+    {
+      "branch": "feat/nuomi-external-holdout-adapter-20261008",
+      "sha": "42cc9e442fd418a192c51bf273535550b2334890",
+      "disposition": "PR_MERGED",
+      "prs": [
+        52
+      ]
+    },
+    {
+      "branch": "feat/owner-context-effect-audit-mainline-20261010",
+      "sha": "4b0b99207550dcc845fb713240a5891320fb4ae2",
+      "disposition": "PR_MERGED",
+      "prs": [
+        90
+      ]
+    },
+    {
+      "branch": "feat/owner-context-evidence-audit-20261010",
+      "sha": "35ace8fac8f9b3879ba61550bfac032150856714",
+      "disposition": "PR_CLOSED_UNMERGED",
+      "prs": [
+        86
+      ]
+    },
+    {
+      "branch": "feat/owner-context-private-ingestion-20261010",
+      "sha": "629f08702e821edd78469eee403b6712cae41098",
+      "disposition": "PR_MERGED",
+      "prs": [
+        83
+      ]
+    },
+    {
+      "branch": "feat/owner-only-frozen-ablation-toggle-20261010",
+      "sha": "4aa7d71281b719f99e435d54de12f107a8965a98",
+      "disposition": "PR_MERGED",
+      "prs": [
+        88
+      ]
+    },
+    {
+      "branch": "feat/protect-external-grader-and-session-20261008",
+      "sha": "d30d7aa20f254639071b7aae3e01132582511300",
+      "disposition": "PR_MERGED",
+      "prs": [
+        53
+      ]
+    },
+    {
+      "branch": "feat/r1-real-windows-mutation-qualification-20261011",
+      "sha": "12989e0128a336c2564b6abbc129a78a0087392a",
+      "disposition": "NO_PR",
+      "prs": []
+    },
+    {
+      "branch": "feat/rsi-autonomous-improvement",
+      "sha": "80f5fd4dda28e4d322e8b655f6af8751f3c9f4dc",
+      "disposition": "PR_CLOSED_UNMERGED",
+      "prs": [
+        41,
+        103
+      ]
+    },
+    {
+      "branch": "feat/rsi-evaluator-change-isolation-20261008",
+      "sha": "197b75f66486a79725ed247a83f089085a0a8aad",
+      "disposition": "PR_MERGED",
+      "prs": [
+        46
+      ]
+    },
+    {
+      "branch": "feat/rsi-frozen-benchmark-admission-20261008",
+      "sha": "0c4e78b480836abbae7ef6dde4b8711fb2f53d75",
+      "disposition": "PR_MERGED",
+      "prs": [
+        43
+      ]
+    },
+    {
+      "branch": "feat/rsi-github-hosted-legacy-gates-20261008",
+      "sha": "6b8e51d07db46907cb9847e306fe67a81d2bf5cc",
+      "disposition": "PR_MERGED",
+      "prs": [
+        39
+      ]
+    },
+    {
+      "branch": "feat/rsi-lineage-clean-20261008",
+      "sha": "5ee3ebadfa0fda965488f9611420df105ea81038",
+      "disposition": "PR_CLOSED_UNMERGED",
+      "prs": [
+        38
+      ]
+    },
+    {
+      "branch": "feat/rsi-lineage-integrity-20261008",
+      "sha": "7031d28efbbb913b15df46e0e62debd1873a5442",
+      "disposition": "PR_CLOSED_UNMERGED",
+      "prs": [
+        37
+      ]
+    },
+    {
+      "branch": "feat/rsi-pilot-five-gates-20261007",
+      "sha": "932b1e49d05e4634ab77d504623aaa279bfc91c7",
+      "disposition": "PR_MERGED",
+      "prs": [
+        36
+      ]
+    },
+    {
+      "branch": "feat/wls-endogenous-prediction-goals-20261010",
+      "sha": "5ead35411c1b9188e8c15bb7c6d27997e621d7bc",
+      "disposition": "PR_MERGED",
+      "prs": [
+        84
+      ]
+    },
+    {
+      "branch": "feature/spacetime-causal-shadow-v06",
+      "sha": "0a38c77b61ba91bb5a0fa7f88df028d030e569ba",
+      "disposition": "PR_CLOSED_UNMERGED",
+      "prs": [
+        21
+      ]
+    },
+    {
+      "branch": "fix/20-pass-action-workflow-audit-20261010",
+      "sha": "c2bed1afb4038f82d549eae32ca52bfee335270b",
+      "disposition": "PR_MERGED",
+      "prs": [
+        76
+      ]
+    },
+    {
+      "branch": "fix/a3-enforce-frozen-baseline-20261009",
+      "sha": "9e6ccdfeef7a1c680578f2606b0c54499a4bda48",
+      "disposition": "PR_MERGED",
+      "prs": [
+        60
+      ]
+    },
+    {
+      "branch": "fix/a3-holdout-scorer-source-binding-20261009",
+      "sha": "450c76f30d1dab65f987ff9e57b778cd525e85c1",
+      "disposition": "PR_MERGED",
+      "prs": [
+        56
+      ]
+    },
+    {
+      "branch": "fix/a5-bounded-untrusted-junit-xml-20261010",
+      "sha": "372051001264bfbc9a41083e3631db2827d03a76",
+      "disposition": "PR_MERGED",
+      "prs": [
+        80
+      ]
+    },
+    {
+      "branch": "fix/c2-exclude-grader-practice-20261009",
+      "sha": "24ec046ec70ce1ae0ac9e8747c9e0ce7c53c5f9f",
+      "disposition": "PR_MERGED",
+      "prs": [
+        73
+      ]
+    },
+    {
+      "branch": "fix/ci-feedback-fail-closed-missing-platform-20261008",
+      "sha": "e2f35e4f82cebb11996b8ff5d157bb249f9983f6",
+      "disposition": "PR_MERGED",
+      "prs": [
+        49
+      ]
+    },
+    {
+      "branch": "fix/g1-72h-real-lineage-attestation-20261010",
+      "sha": "49dc103d626cc66c97c2eeebdd652a19fc5446c0",
+      "disposition": "PR_MERGED",
+      "prs": [
+        105
+      ]
+    },
+    {
+      "branch": "fix/g1-generation-lineage-and-scheduling-20261010",
+      "sha": "7b927e17d621e7be08272c8d9d8faca7bb896fd7",
+      "disposition": "PR_MERGED",
+      "prs": [
+        100
+      ]
+    },
+    {
+      "branch": "fix/g1-verified-synthetic-cross-source-continuity-20261010",
+      "sha": "75454c36fb7ed142e27f118e489e9025cdc2cf7e",
+      "disposition": "PR_MERGED",
+      "prs": [
+        101
+      ]
+    },
+    {
+      "branch": "fix/g1-wal-checkpoint-recovery-20261011",
+      "sha": "dc74d1c44dbc75d16e25d59d5265de8cebf26ddb",
+      "disposition": "PR_MERGED",
+      "prs": [
+        106
+      ]
+    },
+    {
+      "branch": "fix/g1-wal-checkpoint-snapshot-20261010",
+      "sha": "e0e71cebe9389a1e4183f3aa09451d00e4da33c4",
+      "disposition": "NO_PR",
+      "prs": []
+    },
+    {
+      "branch": "fix/g1-windows-wal-checkpoint-20261010",
+      "sha": "ff54ef12e64ca8b301c38dd929ec374023d773f7",
+      "disposition": "NO_PR",
+      "prs": []
+    },
+    {
+      "branch": "fix/life-campaign-r15-clock-flake-20261009",
+      "sha": "f64f3f63c67610ad806faa4fdde1c02467429d64",
+      "disposition": "PR_MERGED",
+      "prs": [
+        67
+      ]
+    },
+    {
+      "branch": "fix/packaging-align-source-src",
+      "sha": "0a38c77b61ba91bb5a0fa7f88df028d030e569ba",
+      "disposition": "PR_MERGED",
+      "prs": [
+        13
+      ]
+    },
+    {
+      "branch": "fix/public-wls-secret-and-test-boundaries-20261008",
+      "sha": "db2f3c926236b6c6a03833bfe1164ae4a3e7d12a",
+      "disposition": "PR_MERGED",
+      "prs": [
+        44
+      ]
+    },
+    {
+      "branch": "fix/rsi-autorepair-grade-immutability-20261009",
+      "sha": "491122fa5ce466ad2dd29842058ddec56e8a96a4",
+      "disposition": "PR_MERGED",
+      "prs": [
+        55
+      ]
+    },
+    {
+      "branch": "fix/rsi-grading-authority-boundary-20261009",
+      "sha": "7bafe769c00f25233f690387f52445605a91b8bb",
+      "disposition": "PR_MERGED",
+      "prs": [
+        54
+      ]
+    },
+    {
+      "branch": "fix/rsi-scorer-guard-any-code-location-20261008",
+      "sha": "6fbd85749c8b4baffcc76fcc6529e0175f91e544",
+      "disposition": "PR_MERGED",
+      "prs": [
+        50
+      ]
+    },
+    {
+      "branch": "fix/stop-offline-runner-on-hosted-ci-20261008",
+      "sha": "a7eaa633369c7cb4b7b9629a4de05197ad51a6f2",
+      "disposition": "PR_CLOSED_UNMERGED",
+      "prs": [
+        42
+      ]
+    },
+    {
+      "branch": "fix/wls-owner-context-remote-egress-20261010",
+      "sha": "b05acf9df911e32269a2a2dddcd5f9007d30abf1",
+      "disposition": "PR_MERGED",
+      "prs": [
+        85
+      ]
+    },
+    {
+      "branch": "fix/wls-private-read-boundary-20261008",
+      "sha": "d8465a20c11007b79a02a65397da63cbc148ed38",
+      "disposition": "PR_CLOSED_UNMERGED",
+      "prs": [
+        45
+      ]
+    },
+    {
+      "branch": "fix/wls-sqlite-baseline-hang-001",
+      "sha": "0a38c77b61ba91bb5a0fa7f88df028d030e569ba",
+      "disposition": "PR_CLOSED_UNMERGED",
+      "prs": [
+        26
+      ]
+    },
+    {
+      "branch": "fix/wls-state-memory-path-boundary-20261008",
+      "sha": "8b732aa1b66aa76165788bdc46c86f8672029891",
+      "disposition": "PR_MERGED",
+      "prs": [
+        48
+      ]
+    },
+    {
+      "branch": "fix/write-token-python-isolation-20261010",
+      "sha": "93503b07d63c17c298c0f5081f36472e297260b3",
+      "disposition": "PR_MERGED",
+      "prs": [
+        91
+      ]
+    },
+    {
+      "branch": "hotfix-goal-runtime-lint",
+      "sha": "588fdb038dfd0a3a3e81a67e2c9c850c6ab05bfe",
+      "disposition": "NO_PR",
+      "prs": []
+    },
+    {
+      "branch": "infra/local-runner-001",
+      "sha": "0a38c77b61ba91bb5a0fa7f88df028d030e569ba",
+      "disposition": "PR_MERGED",
+      "prs": [
+        15
+      ]
+    },
+    {
+      "branch": "infra/local-runner-002",
+      "sha": "0a38c77b61ba91bb5a0fa7f88df028d030e569ba",
+      "disposition": "PR_MERGED",
+      "prs": [
+        16
+      ]
+    },
+    {
+      "branch": "integration/wls-hosted-windows-types-20261007",
+      "sha": "b616c7a45dccb97a05c609645db6f8829e564403",
+      "disposition": "PR_CLOSED_UNMERGED",
+      "prs": [
+        35
+      ]
+    },
+    {
+      "branch": "maintenance/hosted-windows-ci-20260928",
+      "sha": "197d54e742602a35ed6eebed501a77a564c2c14e",
+      "disposition": "PR_CLOSED_UNMERGED",
+      "prs": [
+        32
+      ]
+    },
+    {
+      "branch": "maintenance/mypy-baseline-20261007",
+      "sha": "755b1f3d9338adc5ce30bcbf4a734fddd629097d",
+      "disposition": "PR_CLOSED_UNMERGED",
+      "prs": [
+        34
+      ]
+    },
+    {
+      "branch": "maintenance/patch-mission-resume-regression-20260927",
+      "sha": "783f3b8f80b89e8c83b8b4c7607267a0eb230c7c",
+      "disposition": "PR_MERGED",
+      "prs": [
+        31
+      ]
+    },
+    {
+      "branch": "manus-phase1-continuation-001",
+      "sha": "0a38c77b61ba91bb5a0fa7f88df028d030e569ba",
+      "disposition": "PR_CLOSED_UNMERGED",
+      "prs": [
+        27
+      ]
+    },
+    {
+      "branch": "phase/wave-01-core-growth",
+      "sha": "3ff17e51637cb3a360a26f4541e463411ffc3698",
+      "disposition": "NO_PR",
+      "prs": []
+    },
+    {
+      "branch": "phase/wave-02-evolution-closure",
+      "sha": "0a38c77b61ba91bb5a0fa7f88df028d030e569ba",
+      "disposition": "PR_CLOSED_UNMERGED",
+      "prs": [
+        4
+      ]
+    },
+    {
+      "branch": "pilot/compiled-memory-p0",
+      "sha": "0a38c77b61ba91bb5a0fa7f88df028d030e569ba",
+      "disposition": "PR_CLOSED_UNMERGED",
+      "prs": [
+        17
+      ]
+    },
+    {
+      "branch": "plan/g1-first-delivery-evidence-contract-20261010",
+      "sha": "25451226f98b382180d69ab99a2d961a52e92adb",
+      "disposition": "PR_MERGED",
+      "prs": [
+        97
+      ]
+    },
+    {
+      "branch": "probe/negative-rsi-scorer-mix-20261008",
+      "sha": "973aa1f90df6e0eb06703c78ecf624b0c57bf6a9",
+      "disposition": "PR_CLOSED_UNMERGED",
+      "prs": [
+        51
+      ]
+    },
+    {
+      "branch": "provider-hub-001-local-switchboard",
+      "sha": "0a38c77b61ba91bb5a0fa7f88df028d030e569ba",
+      "disposition": "PR_CLOSED_UNMERGED",
+      "prs": [
+        12
+      ]
+    },
+    {
+      "branch": "provider-hub-002-single-root",
+      "sha": "0a38c77b61ba91bb5a0fa7f88df028d030e569ba",
+      "disposition": "PR_CLOSED_UNMERGED",
+      "prs": [
+        14
+      ]
+    },
+    {
+      "branch": "release/rsi-verified-20261008",
+      "sha": "acb55e0501d6d9517e424148c040a0c42cefac56",
+      "disposition": "PR_MERGED",
+      "prs": [
+        40
+      ]
+    },
+    {
+      "branch": "repair/task19-gpt-mainline-10round-20260628",
+      "sha": "0a38c77b61ba91bb5a0fa7f88df028d030e569ba",
+      "disposition": "PR_CLOSED_UNMERGED",
+      "prs": [
+        24
+      ]
+    },
+    {
+      "branch": "repair/task19-main-convergence-20260628",
+      "sha": "0a38c77b61ba91bb5a0fa7f88df028d030e569ba",
+      "disposition": "PR_CLOSED_UNMERGED",
+      "prs": [
+        23
+      ]
+    },
+    {
+      "branch": "round/001-cleanup-probe",
+      "sha": "1085badaf81167bb2f46e056e1a1881acb56f9b3",
+      "disposition": "NO_PR",
+      "prs": []
+    },
+    {
+      "branch": "round/001-invariants-blob",
+      "sha": "e802d3c6e55ff8bb2b75cb887deefd707b20b5ff",
+      "disposition": "NO_PR",
+      "prs": []
+    },
+    {
+      "branch": "round/001-invariants-blob2",
+      "sha": "e802d3c6e55ff8bb2b75cb887deefd707b20b5ff",
+      "disposition": "NO_PR",
+      "prs": []
+    },
+    {
+      "branch": "round/001-invariants-blob3",
+      "sha": "e802d3c6e55ff8bb2b75cb887deefd707b20b5ff",
+      "disposition": "NO_PR",
+      "prs": []
+    },
+    {
+      "branch": "round/001-invariants-blob4",
+      "sha": "e802d3c6e55ff8bb2b75cb887deefd707b20b5ff",
+      "disposition": "NO_PR",
+      "prs": []
+    },
+    {
+      "branch": "round/001-invariants-blob5",
+      "sha": "e802d3c6e55ff8bb2b75cb887deefd707b20b5ff",
+      "disposition": "NO_PR",
+      "prs": []
+    },
+    {
+      "branch": "round/001-invariants-blob6",
+      "sha": "e802d3c6e55ff8bb2b75cb887deefd707b20b5ff",
+      "disposition": "NO_PR",
+      "prs": []
+    },
+    {
+      "branch": "round/001-reconcile-trigger",
+      "sha": "e3235cc8b3856a4e00b21b5f1f2abbe5c1c357b6",
+      "disposition": "NO_PR",
+      "prs": []
+    },
+    {
+      "branch": "round/001-reconcile-trigger2",
+      "sha": "e3235cc8b3856a4e00b21b5f1f2abbe5c1c357b6",
+      "disposition": "NO_PR",
+      "prs": []
+    },
+    {
+      "branch": "round/001-reconcile-trigger3",
+      "sha": "e3235cc8b3856a4e00b21b5f1f2abbe5c1c357b6",
+      "disposition": "NO_PR",
+      "prs": []
+    },
+    {
+      "branch": "round/001-reproducible-baseline",
+      "sha": "0a38c77b61ba91bb5a0fa7f88df028d030e569ba",
+      "disposition": "PR_CLOSED_UNMERGED",
+      "prs": [
+        2
+      ]
+    },
+    {
+      "branch": "round/001-reproducible-baseline-probe",
+      "sha": "18bd2dd187625d859809a68bd2286385ec4ec234",
+      "disposition": "NO_PR",
+      "prs": []
+    },
+    {
+      "branch": "round/001-reproducible-baseline-probe2",
+      "sha": "589dbb8f552923fbfeacc9148368028f47b1c752",
+      "disposition": "NO_PR",
+      "prs": []
+    },
+    {
+      "branch": "round/001-reproducible-baseline-probe3",
+      "sha": "589dbb8f552923fbfeacc9148368028f47b1c752",
+      "disposition": "NO_PR",
+      "prs": []
+    },
+    {
+      "branch": "round/001-reproducible-baseline-probe4",
+      "sha": "589dbb8f552923fbfeacc9148368028f47b1c752",
+      "disposition": "NO_PR",
+      "prs": []
+    },
+    {
+      "branch": "round/001-stop-probe",
+      "sha": "b2d1ccab92998c0b39dbe0834d8dd42cdc15416c",
+      "disposition": "NO_PR",
+      "prs": []
+    },
+    {
+      "branch": "standard/a2-score-dependency-closure-20261009",
+      "sha": "7ebb30d3adca4b16989601df9e7e6eab65cdec82",
+      "disposition": "PR_MERGED",
+      "prs": [
+        64
+      ]
+    },
+    {
+      "branch": "standard/a2-scoring-guard-self-seal-20261009",
+      "sha": "6db14d339ed2bf0001e19da744483db0256fd0e0",
+      "disposition": "PR_MERGED",
+      "prs": [
+        66
+      ]
+    },
+    {
+      "branch": "standard/ci-feedback-junit-xml-boundary-20261010",
+      "sha": "317dd3d0be48cf4eeb801bd771c9646ce0f9a046",
+      "disposition": "PR_MERGED",
+      "prs": [
+        81
+      ]
+    },
+    {
+      "branch": "standard/feedback-artifact-decompression-cap-20261010",
+      "sha": "68e45dba72deb67bad676902f242da62187af4fa",
+      "disposition": "PR_MERGED",
+      "prs": [
+        78
+      ]
+    },
+    {
+      "branch": "standard/junit-utf8-dtd-closure-20261010",
+      "sha": "8f66401a7ce38f20fb317ab71cb334873d75e885",
+      "disposition": "PR_CLOSED_UNMERGED",
+      "prs": [
+        87
+      ]
+    },
+    {
+      "branch": "survival-target-001-canonical",
+      "sha": "0a38c77b61ba91bb5a0fa7f88df028d030e569ba",
+      "disposition": "PR_CLOSED_UNMERGED",
+      "prs": [
+        5
+      ]
+    },
+    {
+      "branch": "task19-clean-squash",
+      "sha": "0a38c77b61ba91bb5a0fa7f88df028d030e569ba",
+      "disposition": "PR_CLOSED_UNMERGED",
+      "prs": [
+        25
+      ]
+    },
+    {
+      "branch": "test/a2-grader-closure-negative-probes-20261009",
+      "sha": "669bffb30e9f3a36a5c1f4f5c3e641fbaf515c30",
+      "disposition": "PR_MERGED",
+      "prs": [
+        65
+      ]
+    },
+    {
+      "branch": "test/a3-baseline-manifest-20261009",
+      "sha": "a4d1d13a7c59e972dd3410b5e3fed8e7cc0d8118",
+      "disposition": "PR_MERGED",
+      "prs": [
+        59
+      ]
+    },
+    {
+      "branch": "test/a3-holdout-fail-closed-boundaries-20261009",
+      "sha": "fd0334bfff7130c26e0defd1457f441f50451e7d",
+      "disposition": "PR_MERGED",
+      "prs": [
+        57
+      ]
+    },
+    {
+      "branch": "test/ci-feedback-junit-xml-boundary-20261010",
+      "sha": "1bbe3f8b02fcf1cb0431a1883b3d72a317be4366",
+      "disposition": "PR_CLOSED_UNMERGED",
+      "prs": [
+        82
+      ]
+    },
+    {
+      "branch": "test/ci-junit-xml-evidence-negative-20261010",
+      "sha": "7923cf48d77a3ce8b9f0006e980c19f8df3ad196",
+      "disposition": "PR_MERGED",
+      "prs": [
+        89
+      ]
+    },
+    {
+      "branch": "test/feedback-zip-bomb-boundary-20261010",
+      "sha": "273ac0898052347fcc5584df67ba623a827e7125",
+      "disposition": "PR_MERGED",
+      "prs": [
+        79
+      ]
+    },
+    {
+      "branch": "test/rsi-diverse-lineage-ablation-20261009",
+      "sha": "e965a18a472855fb65c57adceaf0067eb96f9376",
+      "disposition": "PR_MERGED",
+      "prs": [
+        70
+      ]
+    }
+  ],
+  "reason": "retire stale merged/closed/no-PR historical refs after preserving branch-tip ancestry behind one permanent archive tag; independent active PRs stay open"
+}
