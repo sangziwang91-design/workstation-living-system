@@ -21,6 +21,7 @@ import subprocess  # nosec B404: fixed Python/pytest argv
 import sys
 import tempfile
 from typing import Any
+import xml.etree.ElementTree as ET
 
 SCHEMA = "wls.r1.observed_public_mutations.v1"
 MAX_CAPTURE = 32_768
@@ -185,9 +186,14 @@ def safe_env(home: Path, package_root: Path) -> dict[str, str]:
 
 def pytest_once(root: Path, temp: Path, package_root: Path,
                 selected: str, seconds: int) -> tuple[int, str]:
+    # An exit code of 1 alone is insufficient: pytest also returns 1 on
+    # setup errors. Only a real JUnit <failure> with no <error> qualifies.
+    junit = temp / "r1-pytest.xml"
+    if junit.exists():
+        junit.unlink()  # never admit stale XML after a crashed attempt
     argv = [
         sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider",
-        "--disable-warnings", selected,
+        "--disable-warnings", f"--junitxml={junit}", selected,
     ]
     try:
         result = subprocess.run(  # nosec B603: Python and file selected by fixed whitelist
@@ -199,9 +205,22 @@ def pytest_once(root: Path, temp: Path, package_root: Path,
         return 124, "PROCESS_BLOCKED"
     if len(result.stdout) + len(result.stderr) > MAX_CAPTURE:
         return 125, "OUTPUT_TOO_LARGE"
-    if result.returncode == 0:
+    if not junit.is_file() or junit.stat().st_size > 2_000_000:
+        return 126, "JUNIT_MISSING_OR_OVERSIZED"
+    try:
+        xml = ET.parse(junit).getroot()
+        suites = list(xml.iter("testsuite"))
+        tests = sum(int(node.get("tests", "0")) for node in suites)
+        skipped = sum(int(node.get("skipped", "0")) for node in suites)
+        errors = sum(int(node.get("errors", "0")) for node in suites)
+        failures = sum(int(node.get("failures", "0")) for node in suites)
+    except (ET.ParseError, OSError, TypeError, ValueError):
+        return 126, "JUNIT_INVALID"
+    if not suites or tests <= skipped or errors > 0:
+        return 127, "PYTEST_COLLECTION_SETUP_OR_EMPTY"
+    if result.returncode == 0 and failures == 0:
         return 0, "PASS"
-    if result.returncode == 1:
+    if result.returncode == 1 and failures > 0:
         return 1, "PYTEST_ASSERTION_FAILED"
     return result.returncode, "INFRASTRUCTURE_OR_COLLECTION_ERROR"
 
