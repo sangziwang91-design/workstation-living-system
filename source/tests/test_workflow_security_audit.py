@@ -26,6 +26,7 @@ WORKFLOWS = (
     "wls-a5-gap-scan.yml", "wls-c2-known-regression-replay.yml",
     "wls-c2-taskpack.yml", "wls-g1-windows-generation.yml",
     "wls-g1-windows-observed-actions.yml", "wls-hosted-life-loop.yml",
+    "wls-branch-retirement.yml",
 )
 PINNED = {
     "actions/checkout": {"34e114876b0b11c390a56381ad16ebd13914f8d5",
@@ -162,3 +163,25 @@ def test_python_isolation_defeats_checkout_and_pythonpath_module_poisoning(
         timeout=15, text=True,
     )
     assert result.returncode == 0, result.stderr
+
+
+
+def test_one_time_legacy_prune_can_never_run_on_pr_or_untrusted_checkout() -> None:
+    doc, raw = workflow("wls-branch-retirement.yml")
+    events = doc.get("on", doc.get(True))
+    assert isinstance(events, dict) and set(events) == {"push"}
+    assert events["push"]["branches"] == ["main"]
+    assert "pull_request" not in events
+    assert doc["permissions"] == {"contents": "read"}
+    assert doc["concurrency"]["cancel-in-progress"] is False
+    jobs = doc["jobs"]
+    assert set(jobs) == {"retire-stale-refs"}
+    job = jobs["retire-stale-refs"]
+    assert job["permissions"]["contents"] == "write"
+    assert "github.ref == 'refs/heads/main'" in job["if"]
+    assert "github.event_name == 'push'" in job["if"]
+    assert "github.repository == 'sangziwang91-design/workstation-living-system'" in job["if"]
+    assert "persist-credentials: false" in raw
+    assert "gh auth setup-git" in raw
+    assert "prune_legacy_branches.py validate" in raw
+    assert "prune_legacy_branches.py execute" in raw
