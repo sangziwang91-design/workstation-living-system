@@ -116,7 +116,10 @@ def candidates(path: str, raw: bytes) -> list[dict[str, Any]]:
             continue
         # CPython AST column offsets are UTF-8 *byte* offsets.
         line_bytes = lines[line_idx].encode("utf-8")
-        start, end = left.end_col_offset, right.col_offset
+        start = getattr(left, "end_col_offset", None)
+        end = getattr(right, "col_offset", None)
+        if not isinstance(start, int) or not isinstance(end, int):
+            continue
         if start < 0 or start >= end or end > len(line_bytes):
             continue
         space = line_bytes[start:end].decode("utf-8")
@@ -242,7 +245,7 @@ def run(root: Path, probes: int, minimum: int,
         pending.sort(key=lambda item: (
             item["source_path"], item["mutation_line"], item["mutant_sha256"],
         ))
-        observed = []
+        observed: list[dict[str, Any]] = []
         probed = 0
         failures: dict[str, int] = {}
         for item in pending:
@@ -272,7 +275,7 @@ def run(root: Path, probes: int, minimum: int,
                 } | {"three_actual_pytest_failures": True,
                      "test_invocations": len(results), "test_results": results})
             else:
-                status = results[-1]["status"]
+                status = str(results[-1]["status"])
                 failures[status] = failures.get(status, 0) + 1
         return {
             "schema": SCHEMA, "status": (
