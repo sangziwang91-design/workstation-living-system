@@ -171,6 +171,7 @@ def safe_env(home: Path, package_root: Path) -> dict[str, str]:
         "PATH": os.environ.get("PATH", os.defpath),
         "PYTHONPATH": str(package_root),
         "PYTHONNOUSERSITE": "1",
+        "PYTHONDONTWRITEBYTECODE": "1",
         "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
         "WLS_HOME": str(home),
         "HOME": str(home),
@@ -238,7 +239,10 @@ def run(root: Path, probes: int, minimum: int,
         tmp_root = Path(tmp)
         isolate = tmp_root / "package" / "wls"
         isolate.parent.mkdir(parents=True)
-        shutil.copytree(source, isolate, symlinks=False)
+        shutil.copytree(
+            source, isolate, symlinks=False,
+            ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
+        )
         package_root = isolate.parent
         tested_modules: list[str] = []
         pending: list[dict[str, Any]] = []
