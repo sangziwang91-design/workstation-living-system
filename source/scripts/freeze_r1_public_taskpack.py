@@ -127,7 +127,7 @@ def checked_source_head(root: Path, expected: str) -> None:
             raise StandardMoved("Git checkout provenance invalid")
         return result.stdout.strip()
 
-    if git("rev-parse", "--show-toplevel") != str(root.resolve()):
+    if Path(git("rev-parse", "--show-toplevel")).resolve() != root.resolve():
         raise StandardMoved("source root is not exact Git checkout")
     if git("rev-parse", "HEAD") != expected:
         raise StandardMoved("task source_head differs from Git HEAD")
