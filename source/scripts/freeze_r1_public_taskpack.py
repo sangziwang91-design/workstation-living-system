@@ -13,6 +13,7 @@ import json
 from pathlib import Path, PurePosixPath
 import platform
 import re
+import subprocess  # nosec B404: local git provenance checks, no shell
 import sys
 from typing import Any
 
@@ -25,6 +26,16 @@ SHA = re.compile(r"[0-9a-f]{64}\Z")
 HEAD = re.compile(r"[0-9a-f]{40}\Z")
 ID = re.compile(r"[A-Za-z0-9_.-]{1,96}\Z")
 PINNED_SCORER_PATHS = (
+    "source/src/wls/db.py",
+    "source/src/wls/evidence.py",
+    "source/src/wls/schemas.py",
+    "source/src/wls/rsi_artifact_gate.py",
+    "source/src/wls/rsi_evolution.py",
+    "source/scripts/generate_ci_feedback.py",
+    "source/src/wls/task_admission.py",
+    "source/src/wls/experiment_decision.py",
+    "source/scripts/github_rsi_replay_model.py",
+    "source/scripts/run_external_risk_holdout.py",
     "source/src/wls/benchmark.py",
     "source/src/wls/evaluator.py",
     "source/scripts/verify_rsi_evaluator_change_boundary.py",
@@ -100,13 +111,36 @@ def environment() -> dict[str, str]:
     }
 
 
+def checked_source_head(root: Path, expected: str) -> None:
+    """Bind task records to a real clean checkout, not a user-typed SHA."""
+    if not isinstance(expected, str) or not HEAD.fullmatch(expected):
+        raise ValueError("invalid immutable WLS source SHA")
+    def git(*args: str) -> str:
+        try:
+            result = subprocess.run(  # nosec B603: fixed Git executable, no shell
+                ["git", "-C", str(root), *args], capture_output=True,
+                text=True, encoding="utf-8", check=False, timeout=20,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise StandardMoved("Git source provenance not verifiable") from exc
+        if result.returncode:
+            raise StandardMoved("Git checkout provenance invalid")
+        return result.stdout.strip()
+
+    if git("rev-parse", "--show-toplevel") != str(root.resolve()):
+        raise StandardMoved("source root is not exact Git checkout")
+    if git("rev-parse", "HEAD") != expected:
+        raise StandardMoved("task source_head differs from Git HEAD")
+    if git("status", "--porcelain", "--untracked-files=no"):
+        raise StandardMoved("Git tracked checkout changed after source HEAD")
+
+
 def validate_pack(root: Path, pack: Any, minimum: int = MIN_PUBLIC_TASKS) -> dict[str, Any]:
     if not isinstance(pack, dict) or set(pack) != {
         "schema", "source_head", "max_test_invocations", "baseline_seed", "tasks",
     } or pack["schema"] != SCHEMA:
         raise ValueError("unexpected public R1 schema or keys")
-    if not isinstance(pack["source_head"], str) or not HEAD.fullmatch(pack["source_head"]):
-        raise ValueError("invalid immutable WLS source SHA")
+    checked_source_head(root, pack["source_head"])
     if type(pack["max_test_invocations"]) is not int or pack["max_test_invocations"] != 3:
         raise ValueError("R1 must fix exactly three permitted test invocations")
     if type(pack["baseline_seed"]) is not int or not 0 <= pack["baseline_seed"] <= 2**32 - 1:
