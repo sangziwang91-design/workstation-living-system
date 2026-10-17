@@ -16,6 +16,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 FOLDER = ROOT / ".github" / "workflows"
 WORKFLOWS = (
+    "wls-final-pr-ref-cleanup.yml",
     "apply-evolution-target-001.yml", "audit-public-history.yml",
     "build-evolution-target-002.yml", "ci.yml", "evolution-chain.yml",
     "hosted-rsi-autorepair.yml", "hosted-rsi-local-model.yml",
@@ -163,3 +164,19 @@ def test_python_isolation_defeats_checkout_and_pythonpath_module_poisoning(
         timeout=15, text=True,
     )
     assert result.returncode == 0, result.stderr
+
+
+
+def test_one_shot_final_pr_ref_cleanup_has_no_untrusted_pr_trigger() -> None:
+    doc, raw = workflow("wls-final-pr-ref-cleanup.yml")
+    events = doc.get("on", doc.get(True))
+    assert isinstance(events, dict)
+    assert set(events) == {"push"}
+    assert events["push"]["branches"] == ["main"]
+    assert doc["permissions"] == {"contents": "read"}
+    assert set(doc["jobs"]) == {"prune-merged-pr-branches"}
+    job = doc["jobs"]["prune-merged-pr-branches"]
+    assert "github.ref == 'refs/heads/main'" in job["if"]
+    assert job["permissions"]["contents"] == "write"
+    assert "persist-credentials: false" in raw
+    assert "finalize_merged_pr_refs.py" in raw
