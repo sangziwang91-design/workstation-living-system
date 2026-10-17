@@ -6,6 +6,7 @@ from hashlib import sha256
 import json
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 
 import pytest
@@ -36,6 +37,19 @@ def fixture_pack(gate, tmp_path: Path, count: int = 100):
             target.write_text("def value():\n    return 4\n", encoding="utf-8")
         else:
             target.write_text("# public synthetic fixture\n", encoding="utf-8")
+    def git(*args: str) -> str:
+        completed = subprocess.run(
+            ["git", "-C", str(root), *args],
+            capture_output=True, text=True, check=True,
+        )
+        return completed.stdout.strip()
+
+    git("init", "-q")
+    git("add", ".")
+    git("-c", "user.email=test@example.invalid",
+        "-c", "user.name=R1 synthetic test",
+        "-c", "commit.gpgsign=false", "commit", "-qm", "fixture baseline")
+    head = git("rev-parse", "HEAD")
     source_hash = gate.digest((root / "source/src/wls/method.py").read_bytes())
     cases = []
     for i in range(count):
@@ -52,7 +66,7 @@ def fixture_pack(gate, tmp_path: Path, count: int = 100):
             ],
         })
     data = {
-        "schema": gate.SCHEMA, "source_head": "a" * 40,
+        "schema": gate.SCHEMA, "source_head": head,
         "max_test_invocations": 3, "baseline_seed": 20261010,
         "tasks": cases,
     }
@@ -149,3 +163,19 @@ def test_budget_cannot_hide_as_boolean(gate, tmp_path):
     tasks.write_bytes(gate.encode(pack))
     with pytest.raises(ValueError, match="three"):
         gate.seal(root, tasks, manifest)
+
+
+def test_task_pack_cannot_claim_another_git_revision(gate, tmp_path):
+    root, pack, tasks, manifest = fixture_pack(gate, tmp_path)
+    pack["source_head"] = "b" * 40
+    tasks.write_bytes(gate.encode(pack))
+    with pytest.raises(gate.StandardMoved, match="Git HEAD"):
+        gate.seal(root, tasks, manifest)
+
+
+def test_changed_unlisted_git_tracked_helper_blocks_existing_seal(gate, tmp_path):
+    root, pack, tasks, manifest = fixture_pack(gate, tmp_path)
+    gate.seal(root, tasks, manifest)
+    (root / "source/tests/test_method.py").write_text("assert 1 == 1\n")
+    with pytest.raises(gate.StandardMoved, match="tracked checkout"):
+        gate.verify(root, tasks, manifest)
