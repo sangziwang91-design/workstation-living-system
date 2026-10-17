@@ -169,6 +169,7 @@ def test_python_isolation_defeats_checkout_and_pythonpath_module_poisoning(
 def test_one_shot_final_pr_ref_cleanup_has_no_untrusted_pr_trigger() -> None:
     doc, raw = workflow("wls-final-pr-ref-cleanup.yml")
     events = doc.get("on", doc.get(True))
+    assert isinstance(events, dict)
     assert set(events) == {"push"}
     assert events["push"]["branches"] == ["main"]
     assert doc["permissions"] == {"contents": "read"}
