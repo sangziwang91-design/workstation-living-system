@@ -226,9 +226,36 @@ def pytest_once(root: Path, temp: Path, package_root: Path,
     return result.returncode, "INFRASTRUCTURE_OR_COLLECTION_ERROR"
 
 
+def observed_runner_provenance() -> dict[str, str]:
+    """Host claims are observable metadata, not independent attestation."""
+    hosted = (
+        os.environ.get("GITHUB_ACTIONS") == "true"
+        and os.environ.get("GITHUB_REPOSITORY")
+        == "sangziwang91-design/workstation-living-system"
+        and os.environ.get("RUNNER_OS") == "Windows"
+        and os.environ.get("RUNNER_ENVIRONMENT") == "github-hosted"
+        and os.environ.get("GITHUB_RUN_ID", "").isdigit()
+        and os.environ.get("GITHUB_SHA", "").isalnum()
+        and os.name == "nt"
+    )
+    if not hosted:
+        return {
+            "source_scope": "local_or_unattested_runner",
+            "github_run_id": "UNVERIFIED",
+            "github_sha": "UNVERIFIED",
+            "provenance_level": "NOT_ATTESTED",
+        }
+    return {
+        "source_scope": "claimed_github_hosted_windows",
+        "github_run_id": os.environ["GITHUB_RUN_ID"],
+        "github_sha": os.environ["GITHUB_SHA"],
+        "provenance_level": "RUNNER_METADATA_REQUIRES_INDEPENDENT_ACTIONS_VERIFICATION",
+    }
+
+
 def run(root: Path, probes: int, minimum: int,
         seconds: int) -> dict[str, Any]:
-    if not 1 <= probes <= MAX_PROBES or not 0 <= minimum <= MAX_CASES:
+    if not 1 <= probes <= MAX_PROBES or not 1 <= minimum <= MAX_CASES:
         raise ValueError("invalid R1 candidate or minimum task budget")
     if not 1 <= seconds <= MAX_PER_TEST_SECONDS:
         raise ValueError("invalid per-test timeout")
@@ -305,7 +332,9 @@ def run(root: Path, probes: int, minimum: int,
                 "QUALIFIED_REAL_MUTATIONS" if len(observed) >= minimum
                 else "BELOW_MINIMUM_REAL_MUTATIONS"
             ),
-            "source_scope": "isolated_wls_package_on_GitHub_hosted_runner",
+            "source_scope": observed_runner_provenance()["source_scope"],
+            "runner_provenance": observed_runner_provenance(),
+            "isolation": "disposable_copied_wls_package_only",
             "baseline_modules": baseline, "baseline_pass_modules": tested_modules,
             "probed_candidates": probed, "observed_task_count": len(observed),
             "minimum_required": minimum, "fixed_pytest_calls_per_admitted_task": 3,
