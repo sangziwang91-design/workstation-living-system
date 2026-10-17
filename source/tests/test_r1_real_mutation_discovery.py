@@ -91,6 +91,8 @@ def test_bad_limits_and_missing_canonical_package_fail_closed(engine, tmp_path):
         engine.run(tmp_path, 0, 5, 10)
     with pytest.raises(ValueError, match="minimum"):
         engine.run(tmp_path, 10, -1, 10)
+    with pytest.raises(ValueError, match="minimum"):
+        engine.run(tmp_path, 10, 0, 10)
     with pytest.raises(ValueError, match="timeout"):
         engine.run(tmp_path, 10, 5, 0)
     with pytest.raises(ValueError, match="canonical package"):
@@ -141,3 +143,27 @@ def test_pytest_errors_and_all_skipped_never_count_as_killed_mutants(
     )
     assert code != 1
     assert status == "PYTEST_COLLECTION_SETUP_OR_EMPTY"
+
+
+def test_mutation_receipt_does_not_invent_github_hosted_runner(engine, monkeypatch):
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    monkeypatch.delenv("GITHUB_RUN_ID", raising=False)
+    p = engine.observed_runner_provenance()
+    assert p["source_scope"] == "local_or_unattested_runner"
+    assert p["provenance_level"] == "NOT_ATTESTED"
+    assert p["github_sha"] == "UNVERIFIED"
+
+
+def test_provenance_on_untrusted_or_non_windows_runner_is_not_attested(
+    engine, monkeypatch,
+):
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv(
+        "GITHUB_REPOSITORY", "sangziwang91-design/workstation-living-system"
+    )
+    monkeypatch.setenv("RUNNER_OS", "Linux")
+    monkeypatch.setenv("RUNNER_ENVIRONMENT", "github-hosted")
+    monkeypatch.setenv("GITHUB_RUN_ID", "45678")
+    monkeypatch.setenv("GITHUB_SHA", "a" * 40)
+    p = engine.observed_runner_provenance()
+    assert p["source_scope"] != "claimed_github_hosted_windows"
