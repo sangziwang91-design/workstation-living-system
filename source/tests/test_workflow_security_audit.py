@@ -26,6 +26,7 @@ WORKFLOWS = (
     "wls-a5-gap-scan.yml", "wls-c2-known-regression-replay.yml",
     "wls-c2-taskpack.yml", "wls-g1-windows-generation.yml",
     "wls-g1-windows-observed-actions.yml", "wls-hosted-life-loop.yml",
+    "wls-r1-real-windows-mutations.yml",
 )
 PINNED = {
     "actions/checkout": {"34e114876b0b11c390a56381ad16ebd13914f8d5",

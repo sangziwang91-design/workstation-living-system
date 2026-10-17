@@ -1,0 +1,60 @@
+name: WLS R1 Real Windows Mutation Evidence
+
+on:
+  pull_request:
+    paths:
+      - "source/scripts/make_mutation_tasks.py"
+      - "source/tests/test_r1_real_mutation_discovery.py"
+      - ".github/workflows/wls-r1-real-windows-mutations.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wls-r1-observed-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-mutants:
+    name: Windows real isolated pytest mutation trials
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      OPENAI_API_KEY: ''
+      ANTHROPIC_API_KEY: ''
+      WLS_RSI_API_KEY: ''
+      GH_TOKEN: ''
+      GITHUB_TOKEN: ''
+    steps:
+      - name: Checkout candidate without persisted credentials
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - name: Setup Python 3.13 on hosted Windows
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.13'
+      - name: Install canonical WLS and pytest
+        shell: pwsh
+        run: |
+          python -m pip install -e '.[dev]'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify actual single-line mutation and real isolated pytest controls
+        shell: pwsh
+        run: |
+          python -m pytest -q source/tests/test_r1_real_mutation_discovery.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Probe real public WLS mutants three times on Windows
+        shell: pwsh
+        run: |
+          python source/scripts/make_mutation_tasks.py --repo . --probes 60 --minimum 5 --timeout 35 --output "r1-real-mutation-receipt.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Retain bounded public task-level evidence even when blocked
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wls-r1-real-windows-mutations
+          path: r1-real-mutation-receipt.json
+          retention-days: 30
+          if-no-files-found: warn
