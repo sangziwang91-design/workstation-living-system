@@ -35,6 +35,9 @@ def observed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         "    assert result(3) == 1\n",
         encoding="utf-8",
     )
+    # These are synthetic local fixtures even when pytest itself runs on
+    # GitHub-hosted Windows; they are NOT GitHub-attested task receipts.
+    monkeypatch.setenv("GITHUB_ACTIONS", "false")
     monkeypatch.setattr(
         engine, "BASELINE_TESTS",
         {"probe.py": "source/tests/test_probe.py"},
