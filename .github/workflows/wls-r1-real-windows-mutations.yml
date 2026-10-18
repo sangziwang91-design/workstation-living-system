@@ -1,10 +1,20 @@
 name: WLS R1 Real Windows Mutation Evidence
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "source/scripts/make_mutation_tasks.py"
+      - "source/scripts/verify_r1_mutation_replay.py"
+      - "source/tests/test_r1_real_mutation_discovery.py"
+      - "source/tests/test_r1_mutation_replay.py"
+      - ".github/workflows/wls-r1-real-windows-mutations.yml"
   pull_request:
     paths:
       - "source/scripts/make_mutation_tasks.py"
+      - "source/scripts/verify_r1_mutation_replay.py"
       - "source/tests/test_r1_real_mutation_discovery.py"
+      - "source/tests/test_r1_mutation_replay.py"
       - ".github/workflows/wls-r1-real-windows-mutations.yml"
   workflow_dispatch:
 
@@ -50,11 +60,18 @@ jobs:
         run: |
           python source/scripts/make_mutation_tasks.py --repo . --probes 60 --minimum 5 --timeout 35 --output "r1-real-mutation-receipt.json"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Independently replay each observed mutation with three NEW pytest processes
+        shell: pwsh
+        run: |
+          python source/scripts/verify_r1_mutation_replay.py --repo . --receipt "r1-real-mutation-receipt.json" --output "r1-real-mutation-replay.json" --minimum-stable 5 --timeout 35
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Retain bounded public task-level evidence even when blocked
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: wls-r1-real-windows-mutations
-          path: r1-real-mutation-receipt.json
+          path: |
+            r1-real-mutation-receipt.json
+            r1-real-mutation-replay.json
           retention-days: 30
           if-no-files-found: warn
