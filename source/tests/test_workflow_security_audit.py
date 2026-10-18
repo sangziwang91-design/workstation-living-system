@@ -27,7 +27,6 @@ WORKFLOWS = (
     "wls-c2-taskpack.yml", "wls-g1-windows-generation.yml",
     "wls-g1-windows-observed-actions.yml", "wls-hosted-life-loop.yml",
     "wls-r1-real-windows-mutations.yml",
-    "wls-prune-final-orphan.yml",
 )
 PINNED = {
     "actions/checkout": {"34e114876b0b11c390a56381ad16ebd13914f8d5",
