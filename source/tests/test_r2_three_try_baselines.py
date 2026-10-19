@@ -5,6 +5,7 @@ import copy
 import json
 from pathlib import Path
 import sys
+from typing import Any
 
 import pytest
 
@@ -114,7 +115,7 @@ def test_untrusted_replay_missing_cases_or_forged_pass_is_rejected(
         "runner_provenance": {"github_run_id": "111", "github_sha": "b" * 40},
     }
     monkeypatch.setattr(baseline.replay, "read_receipt", lambda raw: receipt)
-    valid = {
+    valid: dict[str, Any] = {
         "schema": baseline.replay.SCHEMA, "status": "STABLE_REPLAY_PASS",
         "source_run_id": "111", "source_sha": "b" * 40,
         "observed_task_count": 1, "stable_task_count": 1,
@@ -125,13 +126,14 @@ def test_untrusted_replay_missing_cases_or_forged_pass_is_rejected(
                    "second_pass_test_invocations": 3}],
     }
     assert baseline.read_replay(baseline.encoded(valid), receipt) == ["r1"]
-    for changed in (
+    cases_with_moved_standards: list[dict[str, Any]] = [
         {"source_run_id": "999"},
         {"stable_task_count": 2},
         {"cases": [{**valid["cases"][0], "second_pass_test_invocations": 2}]},
         {"cases": [{**valid["cases"][0], "mutant_sha256": "c" * 64}]},
         {"cases": []},
-    ):
+    ]
+    for changed in cases_with_moved_standards:
         with pytest.raises(baseline.BaselineBlocked):
             baseline.read_replay(baseline.encoded({**valid, **changed}), receipt)
     with pytest.raises(baseline.BaselineBlocked, match="duplicate JSON"):
