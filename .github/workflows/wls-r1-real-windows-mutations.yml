@@ -8,6 +8,8 @@ on:
       - "source/scripts/verify_r1_mutation_replay.py"
       - "source/tests/test_r1_real_mutation_discovery.py"
       - "source/tests/test_r1_mutation_replay.py"
+      - "source/scripts/score_r2_three_try_baselines.py"
+      - "source/tests/test_r2_three_try_baselines.py"
       - ".github/workflows/wls-r1-real-windows-mutations.yml"
   pull_request:
     paths:
@@ -15,6 +17,8 @@ on:
       - "source/scripts/verify_r1_mutation_replay.py"
       - "source/tests/test_r1_real_mutation_discovery.py"
       - "source/tests/test_r1_mutation_replay.py"
+      - "source/scripts/score_r2_three_try_baselines.py"
+      - "source/tests/test_r2_three_try_baselines.py"
       - ".github/workflows/wls-r1-real-windows-mutations.yml"
   workflow_dispatch:
 
@@ -29,7 +33,7 @@ jobs:
   real-mutants:
     name: Windows real isolated pytest mutation trials
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       OPENAI_API_KEY: ''
       ANTHROPIC_API_KEY: ''
@@ -65,6 +69,13 @@ jobs:
         run: |
           python source/scripts/verify_r1_mutation_replay.py --repo . --receipt "r1-real-mutation-receipt.json" --output "r1-real-mutation-replay.json" --minimum-stable 5 --timeout 35
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Score a fixed seeded sample of genuine 3-test repair attempts
+        shell: pwsh
+        run: |
+          python -m pytest -q source/tests/test_r2_three_try_baselines.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python source/scripts/score_r2_three_try_baselines.py --repo . --receipt "r1-real-mutation-receipt.json" --replay "r1-real-mutation-replay.json" --sample 8 --timeout 35 --output "r2-public-three-try-baselines.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Retain bounded public task-level evidence even when blocked
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -73,5 +84,6 @@ jobs:
           path: |
             r1-real-mutation-receipt.json
             r1-real-mutation-replay.json
+            r2-public-three-try-baselines.json
           retention-days: 30
           if-no-files-found: warn
