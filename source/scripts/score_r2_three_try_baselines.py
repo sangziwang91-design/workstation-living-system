@@ -196,7 +196,16 @@ def score(
         )
         for task_id in selected:
             row = by_id[task_id]
-            module = Path(row["source_path"]).name
+            source_path = row.get("source_path")
+            if not isinstance(source_path, str):
+                raise BaselineBlocked("task source must be a canonical allowed Python module")
+            module = Path(source_path).name
+            if (
+                source_path != f"source/src/wls/{module}"
+                or module not in engine.BASELINE_TESTS
+                or row.get("selected_test") != engine.BASELINE_TESTS[module]
+            ):
+                raise BaselineBlocked("untrusted mutation module or selected pytest path")
             original = (original_dir / module).read_bytes()
             if engine.sha(original) != row["source_sha256"]:
                 raise BaselineBlocked("original source changed")
