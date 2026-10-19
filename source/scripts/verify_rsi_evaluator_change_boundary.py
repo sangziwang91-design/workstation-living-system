@@ -26,6 +26,11 @@ EVALUATORS = frozenset({
     "source/src/wls/experiment_decision.py",
     "source/scripts/github_rsi_replay_model.py",
     "source/scripts/run_external_risk_holdout.py",
+    "source/scripts/make_mutation_tasks.py",
+    "source/scripts/verify_r1_mutation_replay.py",
+    "source/scripts/score_r2_three_try_baselines.py",
+    "source/scripts/freeze_r1_public_taskpack.py",
+    ".github/workflows/wls-r1-real-windows-mutations.yml",
 })
 CODE_SUFFIXES = frozenset({
     ".py", ".pyi", ".js", ".ts", ".tsx", ".jsx", ".rs", ".go",
