@@ -21,7 +21,7 @@ def test_both_strategies_hard_stop_after_three_real_calls(
 ) -> None:
     isolated = tmp_path / "package/wls"
     isolated.mkdir(parents=True)
-    broken = b"def value(x):\n    return 1 if x > 4 else 0\n"
+    broken = b"def value(x):\n    return 1 if x > 4 and x != 9 else 0\n"
     (isolated / "probe.py").write_bytes(broken)
     calls: list[bytes] = []
     def real_call(root: Path, temp: Path, package: Path,
