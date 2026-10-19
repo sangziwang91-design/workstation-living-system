@@ -136,6 +136,11 @@ jobs:
               'source/scripts/generate_ci_feedback.py',
               'source/src/wls/task_admission.py',
               'source/scripts/run_external_risk_holdout.py',
+              'source/scripts/make_mutation_tasks.py',
+              'source/scripts/verify_r1_mutation_replay.py',
+              'source/scripts/score_r2_three_try_baselines.py',
+              'source/scripts/freeze_r1_public_taskpack.py',
+              '.github/workflows/wls-r1-real-windows-mutations.yml',
           }
           for name in scope:
               assert isinstance(name, str) and name.endswith('.py')
