@@ -76,7 +76,10 @@ def test_one_real_pytest_fix_outcome_from_mutant_not_manifest_answer(
     )
     assert result["tests_used"] <= 3
     assert result["selected_test_pass"] is True
-    assert result["exact_original_restored"] is True
+    # Critical observed counterexample: <= also passes the one-case test
+    # (grade(3)==1) but DOES NOT restore the original >= condition.
+    # A green selected pytest is insufficient to claim a correct repair.
+    assert result["exact_original_restored"] is False
     assert (isolated / "probe.py").read_bytes() == broken
     assert (src / "probe.py").read_bytes() == original
 
