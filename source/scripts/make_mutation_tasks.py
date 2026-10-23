@@ -165,6 +165,26 @@ def candidates(path: str, raw: bytes) -> list[dict[str, Any]]:
     ))
 
 
+def ordered_public_probes(pending: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Deterministic round-robin across modules, not source-name clustering.
+
+    Each module gets its first probe before a second probe from any module.
+    Within a module, line/hash order stays deterministic. This selects a
+    public development cohort; it does not create a hidden holdout.
+    """
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for item in sorted(pending, key=lambda row: (
+        row["source_path"], row["mutation_line"], row["mutant_sha256"],
+    )):
+        grouped.setdefault(item["source_path"], []).append(item)
+    ordered: list[dict[str, Any]] = []
+    for index in range(max((len(group) for group in grouped.values()), default=0)):
+        for source in sorted(grouped):
+            if index < len(grouped[source]):
+                ordered.append(grouped[source][index])
+    return ordered
+
+
 def safe_env(home: Path, package_root: Path) -> dict[str, str]:
     """No GitHub token, user keys, model credentials or ambient Python path."""
     env = {
@@ -292,9 +312,7 @@ def run(root: Path, probes: int, minimum: int,
                 for item in trial:
                     item["selected_test"] = selected
                     pending.append(item)
-        pending.sort(key=lambda item: (
-            item["source_path"], item["mutation_line"], item["mutant_sha256"],
-        ))
+        pending = ordered_public_probes(pending)
         observed: list[dict[str, Any]] = []
         probed = 0
         failures: dict[str, int] = {}
@@ -336,6 +354,10 @@ def run(root: Path, probes: int, minimum: int,
             "runner_provenance": observed_runner_provenance(),
             "isolation": "disposable_copied_wls_package_only",
             "baseline_modules": baseline, "baseline_pass_modules": tested_modules,
+            "probe_selection": "module_round_robin_v1",
+            "probed_module_count": len({
+                item["source_path"] for item in pending[:probed]
+            }),
             "probed_candidates": probed, "observed_task_count": len(observed),
             "minimum_required": minimum, "fixed_pytest_calls_per_admitted_task": 3,
             "not_admitted": failures,

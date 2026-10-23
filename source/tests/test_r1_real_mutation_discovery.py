@@ -41,6 +41,26 @@ def test_mutation_is_exactly_one_ast_operator_on_one_source_line(engine) -> None
         assert mutant["source_sha256"] == engine.sha(original)
 
 
+def test_public_probe_order_is_deterministic_and_stratified(engine) -> None:
+    cases = [
+        {"source_path": "a.py", "mutation_line": 3, "mutant_sha256": "a3"},
+        {"source_path": "b.py", "mutation_line": 2, "mutant_sha256": "b2"},
+        {"source_path": "a.py", "mutation_line": 1, "mutant_sha256": "a1"},
+        {"source_path": "c.py", "mutation_line": 1, "mutant_sha256": "c1"},
+        {"source_path": "a.py", "mutation_line": 2, "mutant_sha256": "a2"},
+        {"source_path": "b.py", "mutation_line": 1, "mutant_sha256": "b1"},
+    ]
+    expected = ["a1", "b1", "c1", "a2", "b2", "a3"]
+    original = [dict(item) for item in cases]
+    assert [item["mutant_sha256"] for item in
+            engine.ordered_public_probes(cases)] == expected
+    assert engine.ordered_public_probes(list(reversed(cases))) == (
+        engine.ordered_public_probes(cases)
+    )
+    assert cases == original
+    assert engine.ordered_public_probes([]) == []
+
+
 def test_string_comparisons_and_comments_do_not_create_fictitious_mutants(engine) -> None:
     source = b'def value():\n    example = "== and != <= >= "\n    # >= and <= != ==\n    return example\n'
     assert engine.candidates("no-expressions.py", source) == []
