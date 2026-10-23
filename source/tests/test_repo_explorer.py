@@ -60,6 +60,17 @@ class TestRepoExplorer:
         assert "CLAUDE.md" in repo_map.instruction_files
         assert "README.md" in repo_map.instruction_files
 
+    def test_repo_map_order_is_independent_of_file_creation_order(self, tmp_path):
+        # Directory enumeration order differs on Linux and hosted Windows.
+        for name in ("README.md", "b.py", "CONTRIBUTING.md", "a.py"):
+            (tmp_path / name).write_text("def z(): pass\ndef a(): pass\n")
+        result = RepoExplorer().explore(str(tmp_path))
+        assert [row.path for row in result.files] == [
+            "CONTRIBUTING.md", "README.md", "a.py", "b.py",
+        ]
+        assert result.instruction_files == ["CONTRIBUTING.md", "README.md"]
+        assert result.find_file("a.py").symbols == ["a", "z"]
+
     def test_find_symbol(self, tmp_path):
         (tmp_path / "a.py").write_text("def find_me():\n    pass\n")
         (tmp_path / "b.py").write_text("x = 1\n")

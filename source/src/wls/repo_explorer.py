@@ -83,7 +83,10 @@ class RepoExplorer:
         instruction_names = {"AGENTS.md", "CLAUDE.md", "CODEX.md", "README.md", "CONTRIBUTING.md"}
         repo_map = RepoMap(map_id=new_id("repomap"), root=str(root_path))
 
-        for file_path in root_path.rglob("*"):
+        for file_path in sorted(
+            root_path.rglob("*"),
+            key=lambda path: path.relative_to(root_path).as_posix(),
+        ):
             if file_path.is_file() and file_path.suffix in ext_set:
                 if self._should_skip(file_path):
                     continue
@@ -170,4 +173,4 @@ class RepoExplorer:
         elif path.suffix in (".json",):
             deps = []
 
-        return list(set(symbols)), list(set(deps))
+        return sorted(set(symbols)), sorted(set(deps))

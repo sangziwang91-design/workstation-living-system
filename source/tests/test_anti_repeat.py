@@ -32,14 +32,22 @@ class TestAntiRepeatGuard:
         assert not guard.should_suppress("sig-1")
 
     def test_cooldown_expiry(self):
+        from datetime import UTC, datetime, timedelta
+
         guard = AntiRepeatGuard(
             max_repeat_count=2,
-            base_cooldown_seconds=0.001,
-            max_cooldown_seconds=0.01,
+            base_cooldown_seconds=60.0,
+            max_cooldown_seconds=60.0,
         )
         guard.record("sig-1")
-        guard.record("sig-1")
+        record = guard.record("sig-1")
         assert guard.should_suppress("sig-1")
+        # Advance the record past expiry rather than sleeping for 1ms:
+        # hosted Windows runners can exceed that delay before the assertion.
+        record.cooldown_until = (datetime.now(UTC) - timedelta(seconds=1)).isoformat()
+        assert not guard.should_suppress("sig-1")
+        assert record.cooldown_until is None
+        assert record.suppressed is False
 
     def test_active_suppressions(self):
         guard = AntiRepeatGuard(max_repeat_count=2)
