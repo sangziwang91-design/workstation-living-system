@@ -21,7 +21,7 @@ import verify_r1_mutation_replay as replay
 
 SCHEMA = "wls.r2.copilot_public_probe.v1"
 MAX_TASKS = 3
-MAX_CHOICES = 40
+MAX_CHOICES = 16
 MAX_RESPONSE = 16_384
 
 
@@ -108,8 +108,8 @@ def build_prompt(root: Path, receipt: dict[str, Any],
             snippets.append({
                 "id": option["mutant_sha256"],
                 "line": ln,
-                "before": broken_lines[ln - 1][:160],
-                "after": candidate_lines[ln - 1][:160],
+                "before": broken_lines[ln - 1][:120],
+                "after": candidate_lines[ln - 1][:120],
             })
         tests = (root / selected).read_text(encoding="utf-8")[:2000]
         tasks.append({
@@ -152,10 +152,16 @@ def parse_choices(raw: bytes, spec: dict[str, Any]) -> dict[str, list[str]]:
     if data.startswith("```"):
         lines = data.splitlines()
         if len(lines) >= 3 and lines[-1].strip() == "```":
-            data = "\\n".join(lines[1:-1])
-    payload = json.loads(data, object_pairs_hook=baseline.read_replay.__globals__.get(
-        "unique", lambda pairs: dict(pairs)
-    ))
+            data = "\n".join(lines[1:-1])
+    def unique_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ProbeBlocked("duplicate JSON key in model reply")
+            result[key] = value
+        return result
+
+    payload = json.loads(data, object_pairs_hook=unique_keys)
     if not isinstance(payload, dict) or set(payload) != {"tasks"} or not isinstance(payload["tasks"], list):
         raise ProbeBlocked("model did not return task-only JSON")
     chosen: dict[str, list[str]] = {}
