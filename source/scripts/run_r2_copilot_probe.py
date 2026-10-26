@@ -29,6 +29,10 @@ class ProbeBlocked(ValueError):
     pass
 
 
+class ModelUnavailable(ProbeBlocked):
+    """The model transport did not return any response to grade."""
+
+
 def canonical(value: Any) -> bytes:
     return baseline.encoded(value)
 
@@ -145,8 +149,10 @@ def build_prompt(root: Path, receipt: dict[str, Any],
 
 
 def parse_choices(raw: bytes, spec: dict[str, Any]) -> dict[str, list[str]]:
-    if not raw or len(raw) > MAX_RESPONSE:
-        raise ProbeBlocked("missing or oversized actual model response")
+    if not raw:
+        raise ModelUnavailable("Copilot CLI produced no model response")
+    if len(raw) > MAX_RESPONSE:
+        raise ProbeBlocked("oversized actual model response")
     data = raw.decode("utf-8").strip()
     # Some CLI versions wrap JSON in a Markdown code fence. Strip only fences.
     if data.startswith("```"):
@@ -229,7 +235,8 @@ def score(root: Path, receipt: dict[str, Any], cases: list[dict[str, Any]],
     random_correct = sum(bool(r["seeded_random_exact_restoration"]) for r in results)
     return {
         "schema": SCHEMA, "status": "PUBLIC_MODEL_RANKING_SCORED",
-        "model_provider": "github_copilot_cli", "model_requested": "gpt-5-mini",
+        "model_provider": "github_copilot_cli", "model_requested": "auto",
+        "model_actual_id": "UNVERIFIED",
         "model_cli_invocations": 1, "model_inference_count": "NOT_INDEPENDENTLY_ATTESTED",
         "source_sha": receipt["runner_provenance"]["github_sha"],
         "source_run_id": receipt["runner_provenance"]["github_run_id"],
@@ -278,7 +285,8 @@ def main() -> int:
         return 0
     except (OSError, ValueError, KeyError, TypeError, UnicodeError) as exc:
         status = "MODEL_NOT_AVAILABLE" if args.mode == "score" and (
-            isinstance(exc, OSError) and not args.response.exists()
+            isinstance(exc, ModelUnavailable)
+            or (isinstance(exc, OSError) and not args.response.exists())
         ) else "BLOCKED"
         args.output.write_bytes(canonical({"schema": SCHEMA, "status": status,
                                            "error_type": type(exc).__name__,

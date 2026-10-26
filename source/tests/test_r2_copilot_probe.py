@@ -106,3 +106,8 @@ def test_real_pytest_pass_does_not_count_as_exact_restoration(
     assert result["cases"][0]["model_selected_test_pass"] is True
     assert result["model_beats_both_public_baselines"] is False
     assert (source / "probe.py").read_bytes() == original
+
+
+def test_empty_copilot_response_is_model_unavailable_not_success():
+    with pytest.raises(probe.ModelUnavailable):
+        probe.parse_choices(b"", choice_spec())

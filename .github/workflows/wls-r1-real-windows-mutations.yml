@@ -148,12 +148,13 @@ jobs:
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          COPILOT_MODEL: gpt-5-mini
+          COPILOT_MODEL: auto
+          COPILOT_AUTO_UPDATE: 'false'
         run: |
           $prompt = Get-Content -Raw -Path r2-copilot-prompt.txt
           Push-Location $env:RUNNER_TEMP
           try {
-            & copilot -p "$prompt" --silent --model=gpt-5-mini --no-custom-instructions --disable-builtin-mcps --no-ask-user --deny-tool="read,shell,write,url" > "$env:GITHUB_WORKSPACE/r2-copilot-response.txt"
+            & copilot -p "$prompt" --silent --model=auto --max-ai-credits=1 --no-auto-update --no-custom-instructions --disable-builtin-mcps --no-ask-user --deny-tool="read,shell,write,url" > "$env:GITHUB_WORKSPACE/r2-copilot-response.txt"
             if ($LASTEXITCODE -ne 0) { throw "GitHub Copilot returned nonzero, MODEL_NOT_AVAILABLE" }
           }
           finally { Pop-Location }
