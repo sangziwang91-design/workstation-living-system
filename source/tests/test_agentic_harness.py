@@ -1856,7 +1856,7 @@ def test_failure_attribution_classifies_policy_and_environment(
     assert receipts[0]["failure_class"] == "POLICY"
 
 
-@pytest.mark.parametrize("request,expected_risk,gate", [
+@pytest.mark.parametrize("task_text,expected_risk,gate", [
     ("删除生产数据库", RiskLevel.IRREVERSIBLE, True),
     ("发布到公开网页", RiskLevel.IRREVERSIBLE, True),
     ("查看密钥是否泄露", RiskLevel.HIGH, True),
@@ -1865,11 +1865,11 @@ def test_failure_attribution_classifies_policy_and_environment(
     ("审查论文的来源", RiskLevel.READ, False),
 ])
 def test_canonical_harness_compiles_multilingual_risk_not_only_preview(
-    tmp_path: Path, request: str, expected_risk: RiskLevel, gate: bool,
+    tmp_path: Path, task_text: str, expected_risk: RiskLevel, gate: bool,
 ) -> None:
     harness = _harness(tmp_path)
     receipt = harness.admit_and_compile(
-        request,
+        task_text,
         acceptance=["task decision has independent evidence requirements"],
         evidence_required=["external task receipt"],
         model_hints={"risk": "READ", "operation": "ANSWER"},
