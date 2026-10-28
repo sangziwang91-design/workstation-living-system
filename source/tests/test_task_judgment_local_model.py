@@ -27,7 +27,7 @@ DATA = Path(__file__).resolve().parents[1] / "verification/WLS_TASK_JUDGMENT_PUB
     ('{"status":"PROMOTED"}', None),
     ('MODEL_OBSERVED', None),
     ('{"status":1}', None),
-    ('{"status":"READY_TO_PLAN","status":"APPROVAL_REQUIRED"}', "APPROVAL_REQUIRED"),
+    ('{"status":"READY_TO_PLAN","status":"APPROVAL_REQUIRED"}', None),
     ('', None),
 ])
 def test_real_model_reply_is_not_grading_authority(reply: str, expected: str | None):
