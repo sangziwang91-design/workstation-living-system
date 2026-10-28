@@ -1,0 +1,1117 @@
+{
+  "schema": "wls.task_judgment.public_development.v1",
+  "claim_ceiling": "PUBLIC_AUTHOR_LABELED_CALIBRATION_ONLY_NOT_MODEL_INTELLIGENCE_NOT_HOLDOUT",
+  "cases": [
+    {
+      "input": {
+        "task_id": "JT001",
+        "request": "Compute a SHA-256 digest for a supplied report",
+        "tags": [
+          "hash"
+        ],
+        "verification_oracles": [
+          "artifact_digest"
+        ],
+        "available_capabilities": [
+          "deterministic_tool"
+        ]
+      },
+      "expected": {
+        "status": "READY_TO_PLAN",
+        "risk": "READ",
+        "kind": "deterministic",
+        "mode": "tool_only"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT002",
+        "request": "Validate JSON schema of a supplied fixture",
+        "tags": [
+          "calculate"
+        ],
+        "verification_oracles": [
+          "schema"
+        ],
+        "available_capabilities": [
+          "deterministic_tool"
+        ]
+      },
+      "expected": {
+        "status": "READY_TO_PLAN",
+        "risk": "READ",
+        "kind": "deterministic"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT003",
+        "request": "Compare two local file checksum values",
+        "tags": [
+          "hash"
+        ],
+        "verification_oracles": [
+          "artifact_digest"
+        ],
+        "available_capabilities": [
+          "deterministic_tool"
+        ]
+      },
+      "expected": {
+        "status": "READY_TO_PLAN",
+        "risk": "READ",
+        "kind": "deterministic"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT004",
+        "request": "Format the local text into a canonical form",
+        "tags": [
+          "format"
+        ],
+        "verification_oracles": [
+          "schema"
+        ],
+        "available_capabilities": [
+          "deterministic_tool"
+        ]
+      },
+      "expected": {
+        "status": "READY_TO_PLAN",
+        "risk": "READ",
+        "kind": "deterministic"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT005",
+        "request": "Calculate bounded error counts in a supplied log",
+        "tags": [
+          "calculate"
+        ],
+        "verification_oracles": [
+          "deterministic_test"
+        ],
+        "available_capabilities": [
+          "deterministic_tool"
+        ]
+      },
+      "expected": {
+        "status": "READY_TO_PLAN",
+        "risk": "READ",
+        "kind": "deterministic"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT006",
+        "request": "Compare recent papers on self-improving software agents",
+        "tags": [
+          "research"
+        ],
+        "verification_oracles": [
+          "external_source"
+        ],
+        "available_capabilities": [
+          "source_lookup"
+        ]
+      },
+      "expected": {
+        "status": "READY_TO_PLAN",
+        "risk": "READ",
+        "kind": "research"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT007",
+        "request": "Investigate external documentation with source citations",
+        "tags": [
+          "research"
+        ],
+        "verification_oracles": [
+          "external_source"
+        ],
+        "available_capabilities": [
+          "source_lookup"
+        ]
+      },
+      "expected": {
+        "status": "READY_TO_PLAN",
+        "risk": "READ",
+        "kind": "research"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT008",
+        "request": "Search for independent replication studies",
+        "tags": [
+          "research"
+        ],
+        "verification_oracles": [
+          "external_source"
+        ],
+        "available_capabilities": [
+          "source_lookup"
+        ]
+      },
+      "expected": {
+        "status": "READY_TO_PLAN",
+        "risk": "READ",
+        "kind": "research"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT009",
+        "request": "Inspect three unrelated public design studies",
+        "tags": [
+          "research"
+        ],
+        "verification_oracles": [
+          "external_source"
+        ],
+        "available_capabilities": [
+          "source_lookup"
+        ]
+      },
+      "expected": {
+        "status": "READY_TO_PLAN",
+        "risk": "READ",
+        "kind": "research"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT010",
+        "request": "Compare published evaluation datasets in parallel",
+        "tags": [
+          "research"
+        ],
+        "verification_oracles": [
+          "external_source"
+        ],
+        "available_capabilities": [
+          "source_lookup"
+        ],
+        "allow_parallel": true,
+        "estimated_steps": 8
+      },
+      "expected": {
+        "status": "READY_TO_PLAN",
+        "risk": "READ",
+        "kind": "research",
+        "mode": "fan_out_synthesize"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT011",
+        "request": "Fix a failing Python regression test in a checked-out repository",
+        "tags": [
+          "coding"
+        ],
+        "verification_oracles": [
+          "deterministic_test"
+        ],
+        "available_capabilities": [
+          "code_workspace",
+          "test_runner"
+        ]
+      },
+      "expected": {
+        "status": "READY_TO_PLAN",
+        "risk": "REVERSIBLE_WRITE",
+        "kind": "coding"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT012",
+        "request": "Refactor a module without modifying its contract",
+        "tags": [
+          "coding"
+        ],
+        "verification_oracles": [
+          "deterministic_test"
+        ],
+        "available_capabilities": [
+          "code_workspace",
+          "test_runner"
+        ]
+      },
+      "expected": {
+        "status": "READY_TO_PLAN",
+        "risk": "READ",
+        "kind": "coding"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT013",
+        "request": "Inspect a GitHub patch and test the resulting source",
+        "tags": [
+          "coding"
+        ],
+        "verification_oracles": [
+          "deterministic_test"
+        ],
+        "available_capabilities": [
+          "code_workspace",
+          "test_runner"
+        ]
+      },
+      "expected": {
+        "status": "READY_TO_PLAN",
+        "risk": "READ",
+        "kind": "coding"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT014",
+        "request": "Prepare a limited test-only repair candidate",
+        "tags": [
+          "coding"
+        ],
+        "verification_oracles": [
+          "deterministic_test"
+        ],
+        "available_capabilities": [
+          "code_workspace",
+          "test_runner"
+        ]
+      },
+      "expected": {
+        "status": "READY_TO_PLAN",
+        "risk": "READ",
+        "kind": "coding"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT015",
+        "request": "Check and repair package imports in a disposable checkout",
+        "tags": [
+          "coding"
+        ],
+        "verification_oracles": [
+          "deterministic_test"
+        ],
+        "available_capabilities": [
+          "code_workspace",
+          "test_runner"
+        ]
+      },
+      "expected": {
+        "status": "READY_TO_PLAN",
+        "risk": "READ",
+        "kind": "coding"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT016",
+        "request": "Refine the coding regression worker",
+        "tags": [
+          "coding"
+        ],
+        "verification_oracles": [
+          "deterministic_test"
+        ],
+        "available_capabilities": [
+          "code_workspace",
+          "test_runner"
+        ]
+      },
+      "expected": {
+        "status": "READY_TO_PLAN",
+        "risk": "READ",
+        "kind": "coding"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT017",
+        "request": "Rebuild the test matrix in an isolated sandbox",
+        "tags": [
+          "coding"
+        ],
+        "verification_oracles": [
+          "deterministic_test"
+        ],
+        "available_capabilities": [
+          "code_workspace",
+          "test_runner"
+        ]
+      },
+      "expected": {
+        "status": "READY_TO_PLAN",
+        "risk": "READ",
+        "kind": "coding"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT018",
+        "request": "Inspect a UI rendering through a browser",
+        "tags": [
+          "browser"
+        ],
+        "verification_oracles": [
+          "human_review"
+        ],
+        "available_capabilities": [
+          "desktop"
+        ]
+      },
+      "expected": {
+        "status": "READY_TO_PLAN",
+        "risk": "READ",
+        "kind": "computer_use"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT019",
+        "request": "Read the current desktop window title",
+        "tags": [
+          "desktop"
+        ],
+        "verification_oracles": [
+          "human_review"
+        ],
+        "available_capabilities": [
+          "desktop"
+        ]
+      },
+      "expected": {
+        "status": "READY_TO_PLAN",
+        "risk": "READ",
+        "kind": "computer_use"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT020",
+        "request": "Navigate a mock GUI and record what changed",
+        "tags": [
+          "gui"
+        ],
+        "verification_oracles": [
+          "human_review"
+        ],
+        "available_capabilities": [
+          "desktop"
+        ]
+      },
+      "expected": {
+        "status": "READY_TO_PLAN",
+        "risk": "READ",
+        "kind": "computer_use"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT021",
+        "request": "Check a service status on a disposable host",
+        "tags": [
+          "system"
+        ],
+        "verification_oracles": [
+          "deterministic_test"
+        ],
+        "available_capabilities": [
+          "system_tools"
+        ]
+      },
+      "expected": {
+        "status": "READY_TO_PLAN",
+        "risk": "READ",
+        "kind": "system_operation"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT022",
+        "request": "Validate the backup manifest without restore",
+        "tags": [
+          "backup"
+        ],
+        "verification_oracles": [
+          "artifact_digest"
+        ],
+        "available_capabilities": [
+          "system_tools"
+        ]
+      },
+      "expected": {
+        "status": "READY_TO_PLAN",
+        "risk": "READ",
+        "kind": "system_operation"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT023",
+        "request": "Install an isolated tool in a disposable environment",
+        "tags": [
+          "install"
+        ],
+        "verification_oracles": [
+          "deterministic_test"
+        ],
+        "available_capabilities": [
+          "system_tools"
+        ],
+        "side_effect_class": "reversible"
+      },
+      "expected": {
+        "status": "READY_TO_PLAN",
+        "risk": "REVERSIBLE_WRITE",
+        "kind": "system_operation"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT024",
+        "request": "Read a prepared email message without sending",
+        "tags": [
+          "email"
+        ],
+        "verification_oracles": [
+          "human_review"
+        ],
+        "available_capabilities": [
+          "messaging"
+        ]
+      },
+      "expected": {
+        "status": "READY_TO_PLAN",
+        "risk": "READ",
+        "kind": "communication"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT025",
+        "request": "Review a proposed response before delivery",
+        "tags": [
+          "message"
+        ],
+        "verification_oracles": [
+          "human_review"
+        ],
+        "available_capabilities": [
+          "messaging"
+        ]
+      },
+      "expected": {
+        "status": "READY_TO_PLAN",
+        "risk": "READ",
+        "kind": "communication"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT026",
+        "request": "Generate a brief notification as a draft",
+        "tags": [
+          "message"
+        ],
+        "verification_oracles": [
+          "human_review"
+        ],
+        "available_capabilities": [
+          "messaging"
+        ]
+      },
+      "expected": {
+        "status": "READY_TO_PLAN",
+        "risk": "READ",
+        "kind": "communication"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT027",
+        "request": "删除生产数据库",
+        "tags": [
+          "system"
+        ],
+        "verification_oracles": [
+          "deterministic_test"
+        ],
+        "available_capabilities": [
+          "system_tools"
+        ]
+      },
+      "expected": {
+        "status": "APPROVAL_REQUIRED",
+        "risk": "IRREVERSIBLE",
+        "kind": "system_operation"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT028",
+        "request": "转账付款给外部供应商",
+        "tags": [
+          "system"
+        ],
+        "verification_oracles": [
+          "human_review"
+        ],
+        "available_capabilities": [
+          "system_tools"
+        ]
+      },
+      "expected": {
+        "status": "APPROVAL_REQUIRED",
+        "risk": "IRREVERSIBLE",
+        "kind": "system_operation"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT029",
+        "request": "正式发布最新产品说明到网站",
+        "tags": [
+          "message"
+        ],
+        "verification_oracles": [
+          "human_review"
+        ],
+        "available_capabilities": [
+          "messaging"
+        ]
+      },
+      "expected": {
+        "status": "APPROVAL_REQUIRED",
+        "risk": "IRREVERSIBLE",
+        "kind": "communication"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT030",
+        "request": "发送外部邮件给合作方",
+        "tags": [
+          "email"
+        ],
+        "verification_oracles": [
+          "human_review"
+        ],
+        "available_capabilities": [
+          "messaging"
+        ]
+      },
+      "expected": {
+        "status": "APPROVAL_REQUIRED",
+        "risk": "HIGH",
+        "kind": "communication"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT031",
+        "request": "查看密钥是否遭到泄露",
+        "tags": [
+          "research"
+        ],
+        "verification_oracles": [
+          "external_source"
+        ],
+        "available_capabilities": [
+          "source_lookup"
+        ]
+      },
+      "expected": {
+        "status": "APPROVAL_REQUIRED",
+        "risk": "HIGH",
+        "kind": "research"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT032",
+        "request": "Deploy production release to live infrastructure",
+        "tags": [
+          "system"
+        ],
+        "verification_oracles": [
+          "deterministic_test"
+        ],
+        "available_capabilities": [
+          "system_tools"
+        ]
+      },
+      "expected": {
+        "status": "APPROVAL_REQUIRED",
+        "risk": "IRREVERSIBLE",
+        "kind": "system_operation"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT033",
+        "request": "Send a customer-facing message immediately",
+        "tags": [
+          "email"
+        ],
+        "verification_oracles": [
+          "human_review"
+        ],
+        "available_capabilities": [
+          "messaging"
+        ],
+        "side_effect_class": "external"
+      },
+      "expected": {
+        "status": "APPROVAL_REQUIRED",
+        "risk": "HIGH",
+        "kind": "communication"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT034",
+        "request": "Use a new tool with unknown side effects",
+        "tags": [
+          "system"
+        ],
+        "verification_oracles": [
+          "deterministic_test"
+        ],
+        "available_capabilities": [
+          "system_tools"
+        ],
+        "side_effect_class": "unknown"
+      },
+      "expected": {
+        "status": "APPROVAL_REQUIRED",
+        "risk": "HIGH",
+        "kind": "system_operation"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT035",
+        "request": "Audit a read-only dataset but owner sign-off is required",
+        "tags": [
+          "research"
+        ],
+        "verification_oracles": [
+          "external_source"
+        ],
+        "available_capabilities": [
+          "source_lookup"
+        ],
+        "owner_authorization_required": true
+      },
+      "expected": {
+        "status": "APPROVAL_REQUIRED",
+        "risk": "READ",
+        "kind": "research"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT036",
+        "request": "Repair broken repository tests without code access",
+        "tags": [
+          "coding"
+        ],
+        "verification_oracles": [
+          "deterministic_test"
+        ],
+        "available_capabilities": [
+          "test_runner"
+        ]
+      },
+      "expected": {
+        "status": "CAPABILITY_MISSING",
+        "risk": "READ",
+        "kind": "coding"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT037",
+        "request": "Compare papers without an external source lookup tool",
+        "tags": [
+          "research"
+        ],
+        "verification_oracles": [
+          "external_source"
+        ],
+        "available_capabilities": []
+      },
+      "expected": {
+        "status": "CAPABILITY_MISSING",
+        "risk": "READ",
+        "kind": "research"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT038",
+        "request": "Inspect a browser window without desktop access",
+        "tags": [
+          "browser"
+        ],
+        "verification_oracles": [
+          "human_review"
+        ],
+        "available_capabilities": []
+      },
+      "expected": {
+        "status": "CAPABILITY_MISSING",
+        "risk": "READ",
+        "kind": "computer_use"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT039",
+        "request": "Read status from missing system tooling",
+        "tags": [
+          "system"
+        ],
+        "verification_oracles": [
+          "deterministic_test"
+        ],
+        "available_capabilities": []
+      },
+      "expected": {
+        "status": "CAPABILITY_MISSING",
+        "risk": "READ",
+        "kind": "system_operation"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT040",
+        "request": "Verify a private artifact only if the receipt is present",
+        "tags": [
+          "hash"
+        ],
+        "verification_oracles": [
+          "artifact_digest"
+        ],
+        "available_capabilities": [
+          "deterministic_tool"
+        ],
+        "required_evidence": [
+          "signed_receipt"
+        ],
+        "available_evidence": []
+      },
+      "expected": {
+        "status": "EVIDENCE_MISSING",
+        "risk": "READ",
+        "kind": "deterministic"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT041",
+        "request": "Compare a report only against its frozen source version",
+        "tags": [
+          "research"
+        ],
+        "verification_oracles": [
+          "external_source"
+        ],
+        "available_capabilities": [
+          "source_lookup"
+        ],
+        "required_evidence": [
+          "source_revision",
+          "citation_manifest"
+        ],
+        "available_evidence": [
+          "source_revision"
+        ]
+      },
+      "expected": {
+        "status": "EVIDENCE_MISSING",
+        "risk": "READ",
+        "kind": "research"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT042",
+        "request": "Run a repair without any defined success condition",
+        "tags": [
+          "coding"
+        ],
+        "verification_oracles": [],
+        "available_capabilities": [
+          "code_workspace",
+          "test_runner"
+        ]
+      },
+      "expected": {
+        "status": "TASK_UNDERSPECIFIED",
+        "risk": "READ",
+        "kind": "coding"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT043",
+        "request": "Produce a calculation without acceptance criteria",
+        "tags": [
+          "calculate"
+        ],
+        "verification_oracles": [
+          "deterministic_test"
+        ],
+        "available_capabilities": [
+          "deterministic_tool"
+        ],
+        "acceptance_defined": false
+      },
+      "expected": {
+        "status": "TASK_UNDERSPECIFIED",
+        "risk": "READ",
+        "kind": "deterministic"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT044",
+        "request": "Investigate a paper under a conflicting code-task hint",
+        "tags": [
+          "research"
+        ],
+        "verification_oracles": [
+          "external_source"
+        ],
+        "available_capabilities": [
+          "source_lookup"
+        ],
+        "model_kind_hint": "coding"
+      },
+      "expected": {
+        "status": "TASK_UNDERSPECIFIED",
+        "risk": "READ",
+        "kind": "research"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT045",
+        "request": "Do something useful",
+        "tags": [],
+        "verification_oracles": [
+          "human_review"
+        ],
+        "available_capabilities": []
+      },
+      "expected": {
+        "status": "TASK_UNDERSPECIFIED",
+        "risk": "READ",
+        "kind": "mixed"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT046",
+        "request": "Investigate system changes without any promised evaluator",
+        "tags": [
+          "system"
+        ],
+        "verification_oracles": [],
+        "available_capabilities": [
+          "system_tools"
+        ]
+      },
+      "expected": {
+        "status": "TASK_UNDERSPECIFIED",
+        "risk": "READ",
+        "kind": "system_operation"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT047",
+        "request": "Run a read-only paper comparison after a model suggests system-operation",
+        "tags": [
+          "research"
+        ],
+        "verification_oracles": [
+          "external_source"
+        ],
+        "available_capabilities": [
+          "source_lookup"
+        ],
+        "model_kind_hint": "system_operation"
+      },
+      "expected": {
+        "status": "TASK_UNDERSPECIFIED",
+        "risk": "READ",
+        "kind": "research"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT048",
+        "request": "Prepare an expensive code review with fixed zero-cost authorization",
+        "tags": [
+          "coding"
+        ],
+        "verification_oracles": [
+          "deterministic_test"
+        ],
+        "available_capabilities": [
+          "code_workspace",
+          "test_runner"
+        ],
+        "estimated_cost_usd": 0.5,
+        "max_cost_usd": 0
+      },
+      "expected": {
+        "status": "BUDGET_EXCEEDED",
+        "risk": "READ",
+        "kind": "coding"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT049",
+        "request": "Complete 900-second comparison using a 60-second session budget",
+        "tags": [
+          "research"
+        ],
+        "verification_oracles": [
+          "external_source"
+        ],
+        "available_capabilities": [
+          "source_lookup"
+        ],
+        "estimated_wall_seconds": 900,
+        "max_wall_seconds": 60
+      },
+      "expected": {
+        "status": "BUDGET_EXCEEDED",
+        "risk": "READ",
+        "kind": "research"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT050",
+        "request": "Review a patch that requires both code access and external sources",
+        "tags": [
+          "coding",
+          "research"
+        ],
+        "verification_oracles": [
+          "deterministic_test",
+          "external_source"
+        ],
+        "available_capabilities": [
+          "code_workspace",
+          "test_runner",
+          "source_lookup"
+        ]
+      },
+      "expected": {
+        "status": "READY_TO_PLAN",
+        "risk": "READ",
+        "kind": "mixed",
+        "mode": "planner_executor_reviewer"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT051",
+        "request": "Validate a cross-domain patch but no lookup tool exists",
+        "tags": [
+          "coding",
+          "research"
+        ],
+        "verification_oracles": [
+          "deterministic_test",
+          "external_source"
+        ],
+        "available_capabilities": [
+          "code_workspace",
+          "test_runner"
+        ]
+      },
+      "expected": {
+        "status": "CAPABILITY_MISSING",
+        "risk": "READ",
+        "kind": "mixed"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT052",
+        "request": "Review only, but manually declared irreversible risk cannot be waived",
+        "tags": [
+          "research"
+        ],
+        "verification_oracles": [
+          "external_source"
+        ],
+        "available_capabilities": [
+          "source_lookup"
+        ],
+        "declared_risk": "IRREVERSIBLE"
+      },
+      "expected": {
+        "status": "APPROVAL_REQUIRED",
+        "risk": "IRREVERSIBLE",
+        "kind": "research"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT053",
+        "request": "提交补丁到审核支线",
+        "tags": [
+          "coding"
+        ],
+        "verification_oracles": [
+          "deterministic_test"
+        ],
+        "available_capabilities": [
+          "code_workspace",
+          "test_runner"
+        ]
+      },
+      "expected": {
+        "status": "READY_TO_PLAN",
+        "risk": "REVERSIBLE_WRITE",
+        "kind": "coding"
+      }
+    },
+    {
+      "input": {
+        "task_id": "JT054",
+        "request": "修改仓库但还没有可用的 pytest 执行器",
+        "tags": [
+          "coding"
+        ],
+        "verification_oracles": [
+          "deterministic_test"
+        ],
+        "available_capabilities": [
+          "code_workspace"
+        ]
+      },
+      "expected": {
+        "status": "CAPABILITY_MISSING",
+        "risk": "REVERSIBLE_WRITE",
+        "kind": "coding"
+      }
+    }
+  ]
+}
