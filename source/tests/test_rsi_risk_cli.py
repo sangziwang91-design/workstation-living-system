@@ -138,7 +138,9 @@ def test_cli_real_control_flow_uses_wls_sqlite_and_recovers_status(
         "--mode", "classify", "--request", "发布到公开网页",
     ]) == 0
     comparison = json.loads(capsys.readouterr().out)
-    assert comparison["baseline_risk"] == "READ"
+    # The canonical admission floor now independently recognizes Chinese publishing.
+    # A model-side candidate may not lower this verified irreversible floor.
+    assert comparison["baseline_risk"] == "IRREVERSIBLE"
     assert comparison["candidate_risk"] == "IRREVERSIBLE"
     assert comparison["owner_gate_required"] is True
     assert comparison["live_policy_updated"] is False
