@@ -120,6 +120,12 @@ def main() -> int:
     args.report.write_text(json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
                            encoding="utf-8")
     print(json.dumps({k: v for k, v in report.items() if k != "cases"}, sort_keys=True))
+    if report.get("status") == "PUBLIC_CALIBRATION_FAIL":
+        print(json.dumps({"failed_cases": [
+            {"id": row["task_id"], "expected": row["expected"],
+             "observed": row["observed"], "blockers": row["blockers"]}
+            for row in report["cases"] if not row["passed"]
+        ]}, sort_keys=True))
     return 0 if report["status"] == "PUBLIC_CALIBRATION_PASS" else 2
 
 
