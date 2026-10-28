@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -125,17 +126,22 @@ class TaskAdmissionClassifier:
         if hinted in TaskOperation.__members__:
             return TaskOperation[hinted]
         lower = text.lower()
-        publish_terms = ("publish", "post", "send", "email", "deploy", "release")
-        change_terms = ("modify", "write", "edit", "fix", "implement", "delete")
+        publish_terms = ("publish", "post", "send", "deploy")
+        change_terms = ("modify", "write", "edit", "fix", "implement", "delete", "refactor")
         execute_terms = ("run", "execute", "start", "install", "launch")
         inspect_terms = ("inspect", "read", "review", "audit", "analyze", "compare")
-        if any(term in lower for term in publish_terms):
+        # Whole words: "fixture" is not a command to fix, "published"
+        # is not a command to publish, and "email" can be a read-only noun.
+        def expressed(words: tuple[str, ...]) -> bool:
+            return any(re.search(r"\b" + re.escape(term) + r"\b", lower)
+                       for term in words)
+        if expressed(publish_terms):
             return TaskOperation.PUBLISH
-        if any(term in lower for term in change_terms):
+        if expressed(change_terms):
             return TaskOperation.CHANGE
-        if any(term in lower for term in execute_terms):
+        if expressed(execute_terms):
             return TaskOperation.EXECUTE
-        if any(term in lower for term in inspect_terms):
+        if expressed(inspect_terms):
             return TaskOperation.INSPECT
         return TaskOperation.ANSWER
 
@@ -170,14 +176,15 @@ class TaskAdmissionClassifier:
             "wire",
             "deploy production",
         )
-        high_terms = ("secret", "credential", "live database", "main branch", "external")
-        write_terms = ("write", "edit", "modify", "fix", "commit", "create file")
+        high_terms = ("secret", "credential", "live database", "main branch", "external write", "external payment")
+        write_terms = ("write", "edit", "modify", "fix", "commit", "create file", "refactor")
         if any(term in lower for term in irreversible_terms):
             return RiskLevel.IRREVERSIBLE
         if operation is TaskOperation.PUBLISH or any(term in lower for term in high_terms):
             return RiskLevel.HIGH
         if operation in {TaskOperation.CHANGE, TaskOperation.EXECUTE} or any(
-            term in lower for term in write_terms
+            re.search(r"\b" + re.escape(term) + r"\b", lower)
+            for term in write_terms
         ):
             return RiskLevel.REVERSIBLE_WRITE
         return RiskLevel.READ
