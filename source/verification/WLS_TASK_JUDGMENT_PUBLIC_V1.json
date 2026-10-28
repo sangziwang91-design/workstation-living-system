@@ -244,7 +244,7 @@
       },
       "expected": {
         "status": "READY_TO_PLAN",
-        "risk": "READ",
+        "risk": "REVERSIBLE_WRITE",
         "kind": "coding"
       }
     },
@@ -857,7 +857,7 @@
       },
       "expected": {
         "status": "TASK_UNDERSPECIFIED",
-        "risk": "READ",
+        "risk": "REVERSIBLE_WRITE",
         "kind": "coding"
       }
     },
@@ -954,7 +954,7 @@
       },
       "expected": {
         "status": "TASK_UNDERSPECIFIED",
-        "risk": "READ",
+        "risk": "REVERSIBLE_WRITE",
         "kind": "research"
       }
     },
@@ -1113,5 +1113,6 @@
         "kind": "coding"
       }
     }
-  ]
+  ],
+  "label_review_note": "2026-10-28: JT012 refactoring modifies code; JT042 running a repair executes work; JT047 explicitly running a comparison uses execution. Review corrected READ to REVERSIBLE_WRITE before frozen holdout, preserving all 54 cases; not claimed as learned improvement."
 }
