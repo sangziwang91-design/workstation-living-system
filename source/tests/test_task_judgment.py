@@ -112,3 +112,17 @@ def test_cli_refuses_unavailable_code_tools(capsys):
     assert exit_code == 0
     assert payload["status"] == "CAPABILITY_MISSING"
     assert "code_workspace" in payload["missing_capabilities"]
+
+
+@pytest.mark.parametrize("request,expected_risk", [
+    ("Compare published evaluation datasets in parallel", "READ"),
+    ("Publish evaluation datasets to the public", "IRREVERSIBLE"),
+    ("Validate JSON schema of a fixture", "READ"),
+    ("Fix a schema validation bug", "REVERSIBLE_WRITE"),
+    ("Investigate external source documentation", "READ"),
+    ("Read a prepared email without sending", "READ"),
+    ("Send a client email now", "HIGH"),
+])
+def test_action_word_boundary_counterfactuals(request, expected_risk):
+    from wls.task_admission import TaskAdmissionClassifier
+    assert TaskAdmissionClassifier().admit(request).risk_floor.value == expected_risk
