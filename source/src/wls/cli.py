@@ -53,6 +53,28 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--home", required=True)
     init.add_argument("--force", action="store_true")
 
+    judgment = sub.add_parser(
+        "task-judge", help="Read-only task capability, evidence and risk readiness preview"
+    )
+    judgment.add_argument("--request", required=True)
+    judgment.add_argument("--task-id", default="cli-preview")
+    judgment.add_argument("--tag", action="append", default=[])
+    judgment.add_argument("--capability", action="append", default=[])
+    judgment.add_argument("--oracle", action="append", default=[])
+    judgment.add_argument("--required-evidence", action="append", default=[])
+    judgment.add_argument("--available-evidence", action="append", default=[])
+    judgment.add_argument("--side-effect", default="none")
+    judgment.add_argument("--declared-risk", default="READ")
+    judgment.add_argument("--model-kind-hint", default="")
+    judgment.add_argument("--estimated-steps", type=int, default=1)
+    judgment.add_argument("--estimated-cost-usd", type=float, default=0.0)
+    judgment.add_argument("--max-cost-usd", type=float, default=0.0)
+    judgment.add_argument("--estimated-wall-seconds", type=int, default=1)
+    judgment.add_argument("--max-wall-seconds", type=int, default=300)
+    judgment.add_argument("--allow-parallel", action="store_true")
+    judgment.add_argument("--owner-gate", action="store_true")
+    judgment.add_argument("--no-acceptance", action="store_true")
+
     sub.add_parser("once", help="Run one observe-learn-act cycle")
     daemon = sub.add_parser("daemon", help="Run persistent cycles")
     daemon.add_argument("--max-cycles", type=int)
@@ -721,6 +743,32 @@ def main(argv: list[str] | None = None) -> int:
                 db.close_all()
             print_json(result)
             return 0 if result["status"] in {"OK", "WARN"} else 2
+        if args.command == "task-judge":
+            from .schemas import RiskLevel
+            from .task_classifier import SideEffectClass, VerificationOracle
+            from .task_judgment import TaskJudgmentEngine, TaskJudgmentInput
+
+            task = TaskJudgmentInput(
+                task_id=args.task_id, request=args.request,
+                tags=frozenset(args.tag),
+                estimated_steps=args.estimated_steps,
+                declared_risk=RiskLevel(args.declared_risk),
+                side_effect_class=SideEffectClass(args.side_effect),
+                verification_oracles=tuple(VerificationOracle(x) for x in args.oracle),
+                available_capabilities=frozenset(args.capability),
+                required_evidence=frozenset(args.required_evidence),
+                available_evidence=frozenset(args.available_evidence),
+                owner_authorization_required=bool(args.owner_gate),
+                acceptance_defined=not bool(args.no_acceptance),
+                allow_parallel=bool(args.allow_parallel),
+                model_kind_hint=args.model_kind_hint,
+                estimated_cost_usd=args.estimated_cost_usd,
+                max_cost_usd=args.max_cost_usd,
+                estimated_wall_seconds=args.estimated_wall_seconds,
+                max_wall_seconds=args.max_wall_seconds,
+            )
+            print_json(TaskJudgmentEngine().judge(task).to_dict())
+            return 0
         if args.command == "capabilities":
             print_json(ordinary_user_capability_map())
             return 0
