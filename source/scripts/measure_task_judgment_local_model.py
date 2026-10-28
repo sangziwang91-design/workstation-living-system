@@ -33,8 +33,16 @@ def parse_reply(reply: str) -> str | None:
         lines = raw.splitlines()
         if len(lines) >= 3 and lines[-1].strip() == "```":
             raw = "\n".join(lines[1:-1])
+    def distinct_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, val in pairs:
+            if key in result:
+                raise ValueError("duplicate model output key")
+            result[key] = val
+        return result
+
     try:
-        data = json.loads(raw)
+        data = json.loads(raw, object_pairs_hook=distinct_keys)
     except (ValueError, TypeError):
         return None
     if not isinstance(data, dict) or set(data) != {"status"}:
