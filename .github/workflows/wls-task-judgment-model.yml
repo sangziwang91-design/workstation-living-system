@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
     paths:
+      - "source/src/wls/task_admission.py"
+      - "source/src/wls/task_judgment.py"
+      - "source/verification/WLS_TASK_JUDGMENT_PUBLIC_V1.json"
       - "source/scripts/measure_task_judgment_local_model.py"
       - "source/tests/test_task_judgment_local_model.py"
       - ".github/workflows/wls-task-judgment-model.yml"
