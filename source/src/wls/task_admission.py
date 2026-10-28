@@ -178,7 +178,8 @@ class TaskAdmissionClassifier:
         )
         high_terms = ("secret", "credential", "live database", "main branch", "external write", "external payment")
         write_terms = ("write", "edit", "modify", "fix", "commit", "create file", "refactor")
-        if any(term in lower for term in irreversible_terms):
+        if any(re.search(r"\b" + re.escape(term) + r"\b", lower)
+               for term in irreversible_terms):
             return RiskLevel.IRREVERSIBLE
         if operation is TaskOperation.PUBLISH or any(term in lower for term in high_terms):
             return RiskLevel.HIGH
