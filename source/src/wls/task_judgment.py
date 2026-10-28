@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+from math import isfinite
 from typing import Any
 
 from .schemas import RiskLevel, digest_json
@@ -44,6 +45,7 @@ class JudgmentStatus(StrEnum):
     CAPABILITY_MISSING = "CAPABILITY_MISSING"
     EVIDENCE_MISSING = "EVIDENCE_MISSING"
     TASK_UNDERSPECIFIED = "TASK_UNDERSPECIFIED"
+    BUDGET_EXCEEDED = "BUDGET_EXCEEDED"
 
 
 @dataclass(slots=True)
@@ -64,7 +66,9 @@ class TaskJudgmentInput:
     acceptance_defined: bool = True
     model_kind_hint: str = ""
     max_cost_usd: float = 0.0
+    estimated_cost_usd: float = 0.0
     max_wall_seconds: int = 300
+    estimated_wall_seconds: int = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +106,10 @@ class TaskJudgmentEngine:
     def judge(self, task: TaskJudgmentInput) -> TaskJudgment:
         if not task.task_id.strip() or not task.request.strip():
             raise ValueError("task identity and request are required")
+        if (not isfinite(task.estimated_cost_usd) or not isfinite(task.max_cost_usd)
+                or task.estimated_cost_usd < 0 or task.max_cost_usd < 0
+                or task.estimated_wall_seconds < 1):
+            raise ValueError("invalid cost or runtime estimate")
         intent = TaskAdmissionClassifier().admit(task.request)
         floor = max((task.declared_risk, intent.risk_floor),
                     key=lambda risk: RANK[risk])
@@ -119,8 +127,8 @@ class TaskJudgmentEngine:
                 TaskKind.DETERMINISTIC: {"calculate", "hash", "format"},
             }.items() if words & set(task.tags)
         }
-        hint_conflict = bool(task.model_kind_hint and tag_kinds and (
-            task.model_kind_hint not in {kind.value for kind in tag_kinds}
+        hint_conflict = bool(task.model_kind_hint and (
+            not tag_kinds or task.model_kind_hint not in {kind.value for kind in tag_kinds}
         ))
         descriptor = TaskRouteDescriptor(
             task_id=task.task_id, title=task.request[:120], goal=task.request,
@@ -133,18 +141,26 @@ class TaskJudgmentEngine:
             metadata={"kind_hint": "" if hint_conflict else task.model_kind_hint},
         )
         route = TaskClassifier().classify(descriptor)
-        required = task.required_capabilities or DEFAULT_CAPABILITIES[route.task_kind]
+        inferred = frozenset().union(
+            *(DEFAULT_CAPABILITIES[k] for k in tag_kinds)
+        ) if tag_kinds else DEFAULT_CAPABILITIES[route.task_kind]
+        required = task.required_capabilities | inferred
         missing_caps = tuple(sorted(required - task.available_capabilities))
         missing_evidence = tuple(sorted(task.required_evidence - task.available_evidence))
         blockers: list[str] = []
         if hint_conflict:
             blockers.append("model_hint_conflicts_with_task_tags")
+        if route.task_kind is TaskKind.MIXED and not tag_kinds:
+            blockers.append("no_independently_classified_task_kind")
         if not task.acceptance_defined:
             blockers.append("acceptance_criteria_not_defined")
         if not task.verification_oracles or task.verification_oracles == (VerificationOracle.NONE,):
             blockers.append("no_verification_oracle")
         if missing_caps:
             blockers.append("required_capabilities_unavailable")
+        if (task.estimated_cost_usd > task.max_cost_usd
+                or task.estimated_wall_seconds > task.max_wall_seconds):
+            blockers.append("task_budget_exceeded")
         if missing_evidence:
             blockers.append("required_evidence_missing")
         if route.requires_owner_gate:
@@ -152,8 +168,12 @@ class TaskJudgmentEngine:
 
         if route.requires_owner_gate:
             status = JudgmentStatus.APPROVAL_REQUIRED
-        elif hint_conflict or not task.acceptance_defined or "no_verification_oracle" in blockers:
+        elif (hint_conflict or not task.acceptance_defined
+              or "no_verification_oracle" in blockers
+              or "no_independently_classified_task_kind" in blockers):
             status = JudgmentStatus.TASK_UNDERSPECIFIED
+        elif "task_budget_exceeded" in blockers:
+            status = JudgmentStatus.BUDGET_EXCEEDED
         elif missing_caps:
             status = JudgmentStatus.CAPABILITY_MISSING
         elif missing_evidence:
