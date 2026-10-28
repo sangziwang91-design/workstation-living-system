@@ -1,0 +1,60 @@
+name: WLS Offline Model Task Judgment Evidence
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "source/scripts/measure_task_judgment_local_model.py"
+      - "source/tests/test_task_judgment_local_model.py"
+      - ".github/workflows/wls-task-judgment-model.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wls-offline-task-judgment-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  actual-offline-model:
+    name: Real pinned CPU model and independent task judgment
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      OPENAI_API_KEY: ''
+      ANTHROPIC_API_KEY: ''
+      WLS_RSI_API_KEY: ''
+      GH_TOKEN: ''
+      GITHUB_TOKEN: ''
+      PYTHONNOUSERSITE: '1'
+    steps:
+      - name: Checkout pinned trusted WLS source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - name: Install Python 3.11
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Install WLS grader and pinned CPU inference dependency
+        run: |
+          python -m pip install -e ".[dev]"
+          python -m pip install --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu "llama-cpp-python==0.3.16"
+      - name: Test model output schema and label isolation before inference
+        run: python -m pytest -q source/tests/test_task_judgment_local_model.py source/tests/test_task_judgment.py
+      - name: Independently measure actual pinned CPU model decisions on public tasks
+        timeout-minutes: 23
+        run: |
+          python source/scripts/measure_task_judgment_local_model.py \
+            --dataset source/verification/WLS_TASK_JUDGMENT_PUBLIC_V1.json \
+            --model-file "$RUNNER_TEMP/wls-offline-model.gguf" \
+            --report wls-task-model-observed.json
+      - name: Preserve actual measured outcomes and transport failure evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wls-task-judgment-actual-model-${{ github.run_id }}
+          path: wls-task-model-observed.json
+          retention-days: 30
+          if-no-files-found: warn
