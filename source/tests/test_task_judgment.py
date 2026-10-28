@@ -81,3 +81,34 @@ def test_cli_writes_recomputable_report(tmp_path):
     reopened = json.loads(path.read_text(encoding="utf-8"))
     assert reopened["total"] == len(PUBLIC["cases"])
     assert reopened["status"] == "PUBLIC_CALIBRATION_PASS"
+
+
+def test_canonical_cli_exposes_judgment_without_creating_wls_home(
+    tmp_path, capsys, monkeypatch,
+):
+    from wls.cli import main
+    home = tmp_path / "uninitialized"
+    monkeypatch.setenv("WLS_HOME", str(home))
+    result = main([
+        "task-judge", "--request", "Fix a Python regression",
+        "--tag", "coding", "--oracle", "deterministic_test",
+        "--capability", "code_workspace", "--capability", "test_runner",
+    ])
+    captured = json.loads(capsys.readouterr().out)
+    assert result == 0
+    assert captured["status"] == "READY_TO_PLAN"
+    assert captured["authority"] == "judgment_candidate_only"
+    assert not home.exists()
+
+
+def test_cli_refuses_unavailable_code_tools(capsys):
+    from wls.cli import main
+    exit_code = main([
+        "task-judge", "--request", "Inspect a code patch",
+        "--tag", "coding", "--oracle", "deterministic_test",
+        "--capability", "test_runner",
+    ])
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["status"] == "CAPABILITY_MISSING"
+    assert "code_workspace" in payload["missing_capabilities"]
