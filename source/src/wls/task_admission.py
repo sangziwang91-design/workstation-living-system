@@ -126,6 +126,22 @@ class TaskAdmissionClassifier:
         if hinted in TaskOperation.__members__:
             return TaskOperation[hinted]
         lower = text.lower()
+        # Explicit multilingual task actions; these are conservative
+        # admission hints, not permissions to execute any tool.
+        if any(term in text for term in (
+            "发布到公开网页", "正式发布", "公开发布", "部署生产环境",
+            "发送外部邮件", "批量发送邮件", "转账付款",
+        )):
+            return TaskOperation.PUBLISH
+        if any(term in text for term in (
+            "删除生产数据库", "永久删除", "修改仓库", "提交补丁",
+            "修复代码", "创建文件", "更新配置",
+        )):
+            return TaskOperation.CHANGE
+        if any(term in text for term in ("运行测试", "执行脚本", "安装软件")):
+            return TaskOperation.EXECUTE
+        if any(term in text for term in ("查看", "读取", "审查", "分析")):
+            return TaskOperation.INSPECT
         publish_terms = ("publish", "post", "send", "deploy")
         change_terms = ("modify", "write", "edit", "fix", "implement", "delete", "refactor")
         execute_terms = ("run", "execute", "start", "install", "launch")
@@ -175,16 +191,26 @@ class TaskAdmissionClassifier:
             "payment",
             "wire",
             "deploy production",
+            "删除生产数据库", "永久删除", "发布到公开网页",
+            "正式发布", "公开发布", "部署生产环境", "转账付款",
         )
-        high_terms = ("secret", "credential", "live database", "main branch", "external write", "external payment")
-        write_terms = ("write", "edit", "modify", "fix", "commit", "create file", "refactor")
-        if any(re.search(r"\b" + re.escape(term) + r"\b", lower)
-               for term in irreversible_terms):
+        high_terms = (
+            "secret", "credential", "live database", "main branch",
+            "external write", "external payment", "查看密钥", "读取密钥",
+            "发送外部邮件", "批量发送邮件", "上传客户数据",
+        )
+        write_terms = ("write", "edit", "modify", "fix", "commit", "create file", "refactor",
+                       "修改仓库", "提交补丁", "修复代码", "创建文件", "更新配置")
+        def present(term: str) -> bool:
+            return (term in lower if not term.isascii()
+                    else re.search(r"\b" + re.escape(term) + r"\b", lower) is not None)
+
+        if any(present(term) for term in irreversible_terms):
             return RiskLevel.IRREVERSIBLE
-        if operation is TaskOperation.PUBLISH or any(term in lower for term in high_terms):
+        if operation is TaskOperation.PUBLISH or any(present(term) for term in high_terms):
             return RiskLevel.HIGH
         if operation in {TaskOperation.CHANGE, TaskOperation.EXECUTE} or any(
-            re.search(r"\b" + re.escape(term) + r"\b", lower)
+            present(term)
             for term in write_terms
         ):
             return RiskLevel.REVERSIBLE_WRITE
