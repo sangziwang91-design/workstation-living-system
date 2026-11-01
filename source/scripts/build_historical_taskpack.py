@@ -8,11 +8,14 @@ from __future__ import annotations
 
 import argparse
 import ast
+import os
 from hashlib import sha256
 import json
 from pathlib import Path
 import re
 import subprocess  # nosec B404 -- fixed Git argv, no shell
+import sys
+from tempfile import TemporaryDirectory
 
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 PR = re.compile(r"Merge pull request #(\d+)\b")
@@ -198,12 +201,108 @@ def mine(repo: Path, *, head: str, max_commits: int = 120,
     }
 
 
+def replay_two_sided(repo: Path, taskpack: dict, *, limit: int = 3,
+                     test_timeout: int = 45) -> dict:
+    """Provisional public *same-test* fail-before/pass-after qualification.
+
+    Detached Git worktrees and tests run without API credentials; the stored
+    reference commit remains public and is NOT an unseen model holdout.
+    """
+    if not 1 <= limit <= 5 or not 5 <= test_timeout <= 90:
+        raise ValueError("unbounded historical replay budget")
+    if taskpack.get("schema") != "wls.c2_historical_taskpack.v1":
+        raise ValueError("unsupported frozen taskpack")
+    if git(repo, "rev-parse", "HEAD") != taskpack.get("head_sha"):
+        raise ValueError("HEAD moved since C2 taskpack was frozen")
+    output = []
+    for task in taskpack["trusted_oracles"][:limit]:
+        oracle = task["oracle_test_paths"][0]
+        if not oracle.startswith("source/tests/test_") or not _real_path(oracle):
+            raise ValueError("invalid public historical oracle")
+        if not all(SHA.fullmatch(task[key]) for key in ("base_sha", "fix_sha")):
+            raise ValueError("invalid frozen public historical SHA")
+        row = {"task_id": task["task_id"], "qualification": "BLOCKED",
+               "same_oracle_bytes": False, "public_development_only": True}
+        with TemporaryDirectory(prefix="wls-public-c2-") as temp:
+            root = Path(temp)
+            pre, reference = root / "pre", root / "reference"
+            attached = []
+            try:
+                for revision, target in (
+                    (task["base_sha"], pre), (task["fix_sha"], reference)
+                ):
+                    x = subprocess.run(  # nosec B603 -- fixed argv
+                        ["git", "-C", str(repo), "worktree", "add", "--detach",
+                         str(target), revision],
+                        check=False, capture_output=True, text=True, timeout=30,
+                    )
+                    if x.returncode:
+                        raise ValueError("historic worktree checkout failed")
+                    attached.append(target)
+                oracle_bytes = (reference / oracle).read_bytes()
+                if len(oracle_bytes) > 150_000 or not (pre / oracle).is_file():
+                    raise ValueError("missing/oversized preexisting oracle")
+                (pre / oracle).write_bytes(oracle_bytes)
+                row["same_oracle_bytes"] = (pre / oracle).read_bytes() == oracle_bytes
+                row["oracle_sha256"] = sha256(oracle_bytes).hexdigest()
+                codes = []
+                for target in (pre, reference):
+                    env = dict(os.environ)
+                    env["PYTHONPATH"] = str(target / "source/src")
+                    env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
+                    for key in list(env):
+                        if key.endswith("_TOKEN") or key.endswith("_API_KEY"):
+                            env.pop(key, None)
+                    try:
+                        run = subprocess.run(  # nosec B603 -- repository-owned pytest
+                            [sys.executable, "-m", "pytest", "-q", "--maxfail=1",
+                             oracle],
+                            cwd=target, env=env, check=False,
+                            capture_output=True, text=True, timeout=test_timeout,
+                        )
+                        codes.append(run.returncode)
+                    except subprocess.TimeoutExpired:
+                        codes.append(124)
+                row["baseline_exit"], row["reference_exit"] = codes
+                if row["same_oracle_bytes"] and codes[0] != 0 and codes[1] == 0:
+                    row["qualification"] = "PROVISIONAL_FAIL_TO_PASS"
+                elif codes[0] == 0:
+                    row["qualification"] = "BASELINE_ALREADY_PASSES"
+                else:
+                    row["qualification"] = "REFERENCE_UNQUALIFIED"
+            except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+                row["qualification"] = "REPLAY_BLOCKED"
+                row["error_type"] = type(exc).__name__
+            finally:
+                for target in reversed(attached):
+                    subprocess.run(  # nosec B603 -- ephemeral worktree cleanup
+                        ["git", "-C", str(repo), "worktree", "remove", "--force",
+                         str(target)],
+                        check=False, capture_output=True, text=True, timeout=30,
+                    )
+        output.append(row)
+    qualified = sum(r["qualification"] == "PROVISIONAL_FAIL_TO_PASS"
+                    for r in output)
+    return {"schema": "wls.c2_public_two_sided.v1",
+            "status": "PROVISIONAL_QUALIFIED" if qualified else "NO_QUALIFIED_TASKS",
+            "qualified": qualified, "total": len(output),
+            "same_test_process_invocations": len(output) * 2,
+            "independent_holdout": False, "model_calls": 0,
+            "claim_ceiling": "PUBLIC_HISTORY_ONLY_NO_MODEL_OR_RSI_GAIN",
+            "tasks": output}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", type=Path, default=Path("."))
     parser.add_argument("--head", required=True)
     parser.add_argument("--max-commits", type=int, default=120)
     parser.add_argument("--max-tasks", type=int, default=20)
+    parser.add_argument("--two-sided", action="store_true")
+    parser.add_argument("--two-sided-limit", type=int, default=3)
+    parser.add_argument("--two-sided-timeout", type=int, default=45)
+    parser.add_argument("--two-sided-output", type=Path,
+                        default=Path("wls-c2-two-sided.json"))
     parser.add_argument("--output", type=Path, default=Path("wls-c2-worker-tasks.json"))
     parser.add_argument("--trusted-output", type=Path,
                         default=Path("wls-c2-trusted-oracles.json"))
@@ -227,6 +326,17 @@ def main() -> int:
     args.trusted_output.write_text(
         json.dumps(trusted, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
+    if args.two_sided:
+        qualification = replay_two_sided(
+            args.repo.resolve(), report, limit=args.two_sided_limit,
+            test_timeout=args.two_sided_timeout,
+        )
+        args.two_sided_output.write_text(
+            json.dumps(qualification, sort_keys=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        print(json.dumps({"two_sided_qualified": qualification["qualified"],
+                          "two_sided_total": qualification["total"]}, sort_keys=True))
     print(json.dumps({
         "status": report["status"], "candidate_tasks": len(report["tasks"]),
         "source_type": report["source_type"],

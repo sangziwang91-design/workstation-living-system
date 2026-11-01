@@ -30,7 +30,8 @@ def _git(root: Path, *args: str) -> str:
     return x.stdout.strip()
 
 
-def _sample(tmp_path: Path, *, new_test: bool = False) -> tuple[Path, str]:
+def _sample(tmp_path: Path, *, new_test: bool = False,
+            functional_oracle: bool = False) -> tuple[Path, str]:
     root = tmp_path / "repo"
     root.mkdir()
     _git(root, "init", "-q", "-b", "main")
@@ -55,7 +56,8 @@ def _sample(tmp_path: Path, *, new_test: bool = False) -> tuple[Path, str]:
     _git(root, "checkout", "-qb", "fix")
     (root / "source/src/wls/legacy.py").write_text("def value(): return 1\n")
     (root / "source/tests/test_legacy.py").write_text(
-        "def test_value(): assert 1 == 1\n"
+        ("from wls.legacy import value\ndef test_value(): assert value() == 1\n"
+         if functional_oracle else "def test_value(): assert 1 == 1\n")
     )
     _git(root, "add", ".")
     _git(root, "commit", "-qm", "fix behavior")
@@ -225,3 +227,34 @@ def test_public_issue_hint_filters_prompt_injection_and_shell_directives(engine)
     assert engine.public_issue_hint(
         "Merge pull request #99 from example\n\nStabilize R15 time precision"
     ) == "Stabilize R15 time precision"
+
+
+def test_same_test_two_sided_rejects_noop_oracle(engine, tmp_path):
+    repo, head = _sample(tmp_path)
+    result = engine.replay_two_sided(repo, engine.mine(repo, head=head),
+                                     limit=1, test_timeout=20)
+    assert result["total"] == 1
+    assert result["qualified"] == 0
+    assert result["tasks"][0]["qualification"] == "BASELINE_ALREADY_PASSES"
+    assert not result["independent_holdout"]
+
+
+def test_same_test_two_sided_detects_real_fail_to_pass(engine, tmp_path):
+    repo, head = _sample(tmp_path, functional_oracle=True)
+    result = engine.replay_two_sided(repo, engine.mine(repo, head=head),
+                                     limit=1, test_timeout=20)
+    assert result["qualified"] == 1, result
+    assert result["tasks"][0]["qualification"] == "PROVISIONAL_FAIL_TO_PASS"
+    assert result["tasks"][0]["same_oracle_bytes"] is True
+    assert result["tasks"][0]["baseline_exit"] != 0
+    assert result["tasks"][0]["reference_exit"] == 0
+
+
+def test_two_sided_rejects_moved_head_and_oversized_budget(engine, tmp_path):
+    repo, head = _sample(tmp_path)
+    pack = engine.mine(repo, head=head)
+    with pytest.raises(ValueError, match="unbounded"):
+        engine.replay_two_sided(repo, pack, limit=99)
+    pack["head_sha"] = "f" * 40
+    with pytest.raises(ValueError, match="HEAD moved"):
+        engine.replay_two_sided(repo, pack)
