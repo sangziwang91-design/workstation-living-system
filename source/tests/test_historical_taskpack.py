@@ -209,7 +209,9 @@ def test_public_issue_context_is_sourced_and_audit_only(engine, tmp_path):
     pack = engine.mine(repo, head=head)
     task = pack["tasks"][0]
     assert task["untrusted_public_issue_summary"] == "Repair genuine legacy regression"
-    assert task["instruction"].startswith("Diagnose and repair")
+    assert task["instruction"].startswith("Reproduce the documented public")
+    assert task["preexisting_regression_proven"] is False
+    assert task["task_kind"] == "PUBLIC_HISTORICAL_CHANGE_NOT_HOLDOUT"
     assert "fix_sha" not in task
     assert "oracle_test_paths" not in task
     assert pack["trusted_oracles"][0]["issue_hint"] == "Repair genuine legacy regression"
