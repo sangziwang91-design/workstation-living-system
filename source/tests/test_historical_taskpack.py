@@ -266,9 +266,9 @@ def test_two_sided_rejects_moved_head_and_oversized_budget(engine, tmp_path):
 def test_new_reference_test_does_not_create_old_regression(engine, tmp_path):
     repo, head = _sample(tmp_path)
     _git(repo, "checkout", "-qb", "new-expectation")
-    (repo / "source/src/wls/legacy.py").write_text("def value(): return 1\n")
+    (repo / "source/src/wls/legacy.py").write_text("def value(): return 2\n")
     (repo / "source/tests/test_legacy.py").write_text(
-        "from wls.legacy import value\ndef test_value(): assert value() == 1\n"
+        "from wls.legacy import value\ndef test_value(): assert value() == 2\n"
     )
     _git(repo, "add", ".")
     _git(repo, "commit", "-qm", "add expectation")
