@@ -29,6 +29,14 @@ RESERVED_PUBLIC_IDS = (
 )
 STRATEGIES = ("legacy", "guided")
 MAX_MODEL_BYTES = 500_000_000
+LARGER_MODEL_ID = "Qwen2.5-Coder-1.5B-Instruct-Q4_K_M"
+LARGER_MODEL_URL = (
+    "https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/"
+    "resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+)
+LARGER_MODEL_SHA256 = "cc324af070c2ecbfd324a30884d2f951a7ff756aba85cb811a6ec436933bb046"
+LARGER_MODEL_MIN_BYTES = 1_050_000_000
+LARGER_MODEL_MAX_BYTES = 1_200_000_000
 
 
 def parse_reply(reply: str) -> str | None:
@@ -156,18 +164,20 @@ def paired_strategy_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def verify_model(path: Path) -> str:
+def verify_model(path: Path, *, expected_sha: str = EXPECTED_MODEL_SHA256,
+                 min_bytes: int = 300_000_000,
+                 max_bytes: int = MAX_MODEL_BYTES) -> str:
     if not path.is_file() or path.is_symlink():
         raise ValueError("model not downloaded or file is a link")
     size = path.stat().st_size
-    if not 300_000_000 <= size <= MAX_MODEL_BYTES:
+    if not min_bytes <= size <= max_bytes:
         raise ValueError("unexpected model size")
     digest = sha256()
     with path.open("rb") as fp:
         for part in iter(lambda: fp.read(1_048_576), b""):
             digest.update(part)
     actual = digest.hexdigest()
-    if actual != EXPECTED_MODEL_SHA256:
+    if actual != expected_sha:
         raise ValueError("downloaded model sha256 differs from frozen identity")
     return actual
 
@@ -194,13 +204,21 @@ def compare_observed_choices(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def run(dataset: Path, model_file: Path) -> dict[str, Any]:
+def run(dataset: Path, model_file: Path, *, variant: str = "small") -> dict[str, Any]:
     contents = read_taskpack(dataset)
     cases = {x["input"]["task_id"]: x for x in contents["cases"]}
     all_ids = MODEL_SAMPLE_IDS + RESERVED_PUBLIC_IDS
     if len(all_ids) != len(set(all_ids)) or not set(all_ids) <= set(cases):
         raise ValueError("missing or duplicate pre-registered paired test case")
-    model_sha = verify_model(model_file)
+    if variant not in {"small", "large"}:
+        raise ValueError("unknown pinned model variant")
+    large = variant == "large"
+    model_sha = verify_model(
+        model_file,
+        expected_sha=LARGER_MODEL_SHA256 if large else EXPECTED_MODEL_SHA256,
+        min_bytes=LARGER_MODEL_MIN_BYTES if large else 300_000_000,
+        max_bytes=LARGER_MODEL_MAX_BYTES if large else MAX_MODEL_BYTES,
+    )
     from llama_cpp import Llama
     model = Llama(model_path=str(model_file), n_ctx=2048, n_threads=2, verbose=False)
     rows = []
@@ -208,7 +226,7 @@ def run(dataset: Path, model_file: Path) -> dict[str, Any]:
         case = cases[task_id]
         expected = case["expected"]["status"]
         rule = TaskJudgmentEngine().judge(to_input(case["input"])).status.value
-        for strategy in STRATEGIES:
+        for strategy in (("guided",) if large else STRATEGIES):
             prompt = (model_prompt(case) if strategy == "legacy"
                       else guided_model_prompt(case))
             response = model.create_chat_completion(
@@ -228,16 +246,20 @@ def run(dataset: Path, model_file: Path) -> dict[str, Any]:
                 "response_digest": sha256(content.encode("utf-8")).hexdigest(),
                 "prompt_digest": sha256(prompt.encode("utf-8")).hexdigest(),
             })
-    competition = paired_strategy_summary(rows)
+    competition = (compare_observed_choices(rows) if large
+                   else paired_strategy_summary(rows))
+    primary = competition if large else competition["strategy_scores"]["legacy"]
     return {
         "schema": "wls.task_judgment.local_gguf_public.v1",
         "status": "MODEL_OBSERVED",
-        "model_vs_rule": competition["strategy_scores"]["legacy"],
-        "paired_prompt_study": competition,
-        "model_id": MODEL_ID, "model_sha256": model_sha,
+        "model_vs_rule": primary,
+        "paired_prompt_study": None if large else competition,
+        "evaluation_variant": variant,
+        "model_id": LARGER_MODEL_ID if large else MODEL_ID,
+        "model_sha256": model_sha,
         "model_calls_observed": len(rows),
-        "model_successes": competition["strategy_scores"]["legacy"]["model_successes"],
-        "rule_successes": competition["strategy_scores"]["legacy"]["rule_successes"],
+        "model_successes": primary["model_successes"],
+        "rule_successes": primary["rule_successes"],
         "invalid_model_outputs": sum(int(r["model_status"] == "INVALID_RESPONSE") for r in rows),
         "per_case": rows,
         "model_gain": "NOT_ESTABLISHED_BY_PUBLIC_TASKS",
@@ -250,14 +272,16 @@ def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--dataset", type=Path, required=True)
     p.add_argument("--model-file", type=Path, required=True)
+    p.add_argument("--model-variant", choices=("small", "large"), default="small")
     p.add_argument("--report", type=Path, required=True)
     args = p.parse_args()
     try:
         if not args.model_file.is_file():
             if not os.environ.get("GITHUB_ACTIONS"):
                 raise ValueError("model auto-download only permitted in GitHub Actions")
-            urlretrieve(MODEL_URL, args.model_file)
-        output = run(args.dataset, args.model_file)
+            urlretrieve(LARGER_MODEL_URL if args.model_variant == "large"
+                        else MODEL_URL, args.model_file)
+        output = run(args.dataset, args.model_file, variant=args.model_variant)
     except (OSError, ValueError, KeyError, RuntimeError, TypeError) as exc:
         output = {
             "schema": "wls.task_judgment.local_gguf_public.v1",

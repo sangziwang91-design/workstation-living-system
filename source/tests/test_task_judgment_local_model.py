@@ -132,3 +132,23 @@ def test_real_paired_gate_fails_closed_on_missing_duplicate_or_moved_oracle():
     moved[1]["expected_status"] = "APPROVAL_REQUIRED"
     with pytest.raises(ValueError):
         probe.paired_strategy_summary(moved)
+
+
+def test_larger_model_identity_is_pinned_and_not_a_remote_api():
+    assert len(probe.LARGER_MODEL_SHA256) == 64
+    assert probe.LARGER_MODEL_URL.startswith(
+        "https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/"
+    )
+    assert probe.LARGER_MODEL_ID != probe.MODEL_ID
+    assert probe.LARGER_MODEL_MIN_BYTES > probe.MAX_MODEL_BYTES
+
+
+def test_larger_model_still_cannot_promote_itself():
+    rows = [
+        {"model_status": "READY_TO_PLAN", "model_correct": True,
+         "rule_correct": False},
+        {"model_status": "APPROVAL_REQUIRED", "model_correct": True,
+         "rule_correct": False},
+    ]
+    result = probe.compare_observed_choices(rows)
+    assert result["promotion_eligible"] is False
