@@ -23,6 +23,11 @@ MODEL_SAMPLE_IDS = (
     "JT001", "JT006", "JT011", "JT018", "JT021", "JT027",
     "JT031", "JT036", "JT040", "JT042", "JT048", "JT050",
 )
+RESERVED_PUBLIC_IDS = (
+    "JT002", "JT007", "JT012", "JT019", "JT023", "JT030",
+    "JT037", "JT041", "JT043", "JT049", "JT051", "JT054",
+)
+STRATEGIES = ("legacy", "guided")
 MAX_MODEL_BYTES = 500_000_000
 
 
@@ -76,6 +81,81 @@ def model_prompt(case: dict[str, Any]) -> str:
     )
 
 
+def guided_model_prompt(case: dict[str, Any]) -> str:
+    """Short competing harness prompt; examples unrelated to the taskpack.
+
+    These are public prompt-development controls, not learned model weights.
+    """
+    data = case["input"]
+    view = {name: data.get(name) for name in (
+        "request", "tags", "verification_oracles",
+        "available_capabilities", "required_capabilities",
+        "required_evidence", "available_evidence",
+        "owner_authorization_required", "side_effect_class",
+        "acceptance_defined", "estimated_cost_usd", "max_cost_usd",
+        "estimated_wall_seconds", "max_wall_seconds",
+    ) if name in data}
+    return (
+        "Decide whether this task is READY TO PLAN, not whether you can "
+        "physically execute it now. Choose exactly ONE JSON label. "
+        "These are generic examples, NOT the answer to the task: "
+        "Sending a live external email -> APPROVAL_REQUIRED. "
+        "No required file-edit tool -> CAPABILITY_MISSING. "
+        "Missing mandatory signed evidence -> EVIDENCE_MISSING. "
+        "No verifiable acceptance criterion -> TASK_UNDERSPECIFIED. "
+        "Requested work exceeds approved time/cost -> BUDGET_EXCEEDED. "
+        "Safe task with tools, evidence and a test -> READY_TO_PLAN. "
+        "Check approval first, then specified acceptance, budget, tools, "
+        "and evidence. When none block, return READY_TO_PLAN. "
+        "Return only a valid JSON object of the exact form "
+        '{"status":"READY_TO_PLAN"}'
+        " replacing the status with one of "
+        + ", ".join(x.value for x in JudgmentStatus)
+        + ". Task input: " + json.dumps(view, sort_keys=True, ensure_ascii=False)
+    )
+
+
+def paired_strategy_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Pre-registered fixed-budget paired comparison, public development only."""
+    observed: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in rows:
+        key = (row["id"], row["strategy"])
+        if key in observed or row["strategy"] not in STRATEGIES:
+            raise ValueError("duplicate/unknown strategy observation")
+        observed[key] = row
+    ids = {row["id"] for row in rows}
+    if not ids or len(rows) != 2 * len(ids):
+        raise ValueError("incomplete paired comparisons")
+    by_strategy = {}
+    for strategy in STRATEGIES:
+        sample = [observed[(ident, strategy)] for ident in sorted(ids)]
+        by_strategy[strategy] = compare_observed_choices(sample)
+    better_guided = better_legacy = ties = 0
+    for ident in sorted(ids):
+        a = observed[(ident, "legacy")]
+        b = observed[(ident, "guided")]
+        if a["expected_status"] != b["expected_status"]:
+            raise ValueError("task oracle changed across paired runs")
+        if b["model_correct"] and not a["model_correct"]:
+            better_guided += 1
+        elif a["model_correct"] and not b["model_correct"]:
+            better_legacy += 1
+        else:
+            ties += 1
+    return {
+        "task_count": len(ids),
+        "actual_model_calls": len(rows),
+        "same_pinned_model": True,
+        "per_task_calls_per_strategy": 1,
+        "strategy_scores": by_strategy,
+        "guided_only_wins": better_guided,
+        "legacy_only_wins": better_legacy,
+        "ties": ties,
+        "promotion_eligible": False,
+        "evidence_level": "PUBLIC_TASKPACK_ONLY_NO_SEALED_HOLDOUT",
+    }
+
+
 def verify_model(path: Path) -> str:
     if not path.is_file() or path.is_symlink():
         raise ValueError("model not downloaded or file is a link")
@@ -117,44 +197,47 @@ def compare_observed_choices(rows: list[dict[str, Any]]) -> dict[str, Any]:
 def run(dataset: Path, model_file: Path) -> dict[str, Any]:
     contents = read_taskpack(dataset)
     cases = {x["input"]["task_id"]: x for x in contents["cases"]}
-    if not set(MODEL_SAMPLE_IDS) <= set(cases):
-        raise ValueError("public sample missing a pinned case")
+    all_ids = MODEL_SAMPLE_IDS + RESERVED_PUBLIC_IDS
+    if len(all_ids) != len(set(all_ids)) or not set(all_ids) <= set(cases):
+        raise ValueError("missing or duplicate pre-registered paired test case")
     model_sha = verify_model(model_file)
     from llama_cpp import Llama
     model = Llama(model_path=str(model_file), n_ctx=2048, n_threads=2, verbose=False)
     rows = []
-    for task_id in MODEL_SAMPLE_IDS:
+    for task_id in all_ids:
         case = cases[task_id]
-        prompt = model_prompt(case)
-        response = model.create_chat_completion(
-            messages=[
-                {"role": "system", "content": "Return only a compact JSON object. No tools."},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0, max_tokens=90,
-        )
-        content = str(response["choices"][0]["message"]["content"] or "")
-        model_status = parse_reply(content)
         expected = case["expected"]["status"]
-        deterministic = TaskJudgmentEngine().judge(to_input(case["input"]))
-        rows.append({
-            "id": task_id, "expected_status": expected,
-            "model_status": model_status or "INVALID_RESPONSE",
-            "model_correct": model_status == expected,
-            "rule_status": deterministic.status.value,
-            "rule_correct": deterministic.status.value == expected,
-            "response_digest": sha256(content.encode("utf-8")).hexdigest(),
-            "prompt_digest": sha256(prompt.encode("utf-8")).hexdigest(),
-        })
-    competition = compare_observed_choices(rows)
+        rule = TaskJudgmentEngine().judge(to_input(case["input"])).status.value
+        for strategy in STRATEGIES:
+            prompt = (model_prompt(case) if strategy == "legacy"
+                      else guided_model_prompt(case))
+            response = model.create_chat_completion(
+                messages=[
+                    {"role": "system", "content": "Return only a compact JSON object. No tools."},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0, max_tokens=90,
+            )
+            content = str(response["choices"][0]["message"]["content"] or "")
+            model_status = parse_reply(content)
+            rows.append({
+                "id": task_id, "strategy": strategy, "expected_status": expected,
+                "model_status": model_status or "INVALID_RESPONSE",
+                "model_correct": model_status == expected,
+                "rule_status": rule, "rule_correct": rule == expected,
+                "response_digest": sha256(content.encode("utf-8")).hexdigest(),
+                "prompt_digest": sha256(prompt.encode("utf-8")).hexdigest(),
+            })
+    competition = paired_strategy_summary(rows)
     return {
         "schema": "wls.task_judgment.local_gguf_public.v1",
         "status": "MODEL_OBSERVED",
-        "model_vs_rule": competition,
+        "model_vs_rule": competition["strategy_scores"]["legacy"],
+        "paired_prompt_study": competition,
         "model_id": MODEL_ID, "model_sha256": model_sha,
         "model_calls_observed": len(rows),
-        "model_successes": sum(int(r["model_correct"]) for r in rows),
-        "rule_successes": sum(int(r["rule_correct"]) for r in rows),
+        "model_successes": competition["strategy_scores"]["legacy"]["model_successes"],
+        "rule_successes": competition["strategy_scores"]["legacy"]["rule_successes"],
         "invalid_model_outputs": sum(int(r["model_status"] == "INVALID_RESPONSE") for r in rows),
         "per_case": rows,
         "model_gain": "NOT_ESTABLISHED_BY_PUBLIC_TASKS",

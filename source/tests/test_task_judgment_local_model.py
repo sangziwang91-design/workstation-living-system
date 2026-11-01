@@ -88,3 +88,47 @@ def test_public_model_win_still_cannot_authorize_promotion():
     result = probe.compare_observed_choices(observed)
     assert result["public_development_result"] == "MODEL_PUBLIC_ADVANTAGE_NOT_TRANSFER_PROOF"
     assert result["promotion_eligible"] is False
+
+
+def test_two_prompt_cohorts_are_disjoint_and_cover_all_six_states():
+    data = probe.read_taskpack(DATA)
+    label = {case["input"]["task_id"]: case["expected"]["status"] for case in data["cases"]}
+    all_ids = (*probe.MODEL_SAMPLE_IDS, *probe.RESERVED_PUBLIC_IDS)
+    assert len(all_ids) == len(set(all_ids)) == 24
+    assert set(all_ids) <= set(label)
+    assert len({label[k] for k in all_ids}) == 6
+
+
+def test_competing_prompt_cannot_see_public_case_answer():
+    data = probe.read_taskpack(DATA)
+    row = next(r for r in data["cases"] if r["input"]["task_id"] == "JT040")
+    prompt = probe.guided_model_prompt(row)
+    assert row["input"]["request"] in prompt
+    assert '"expected"' not in prompt
+    assert '"expected_status"' not in prompt
+    assert "JT040" not in prompt
+
+
+def test_real_paired_gate_fails_closed_on_missing_duplicate_or_moved_oracle():
+    baseline = [
+        {"id": "case-a", "strategy": "legacy", "expected_status": "READY_TO_PLAN",
+         "model_status": "CAPABILITY_MISSING", "model_correct": False, "rule_correct": True},
+        {"id": "case-a", "strategy": "guided", "expected_status": "READY_TO_PLAN",
+         "model_status": "READY_TO_PLAN", "model_correct": True, "rule_correct": True},
+        {"id": "case-b", "strategy": "legacy", "expected_status": "APPROVAL_REQUIRED",
+         "model_status": "APPROVAL_REQUIRED", "model_correct": True, "rule_correct": True},
+        {"id": "case-b", "strategy": "guided", "expected_status": "APPROVAL_REQUIRED",
+         "model_status": "APPROVAL_REQUIRED", "model_correct": True, "rule_correct": True},
+    ]
+    report = probe.paired_strategy_summary(baseline)
+    assert report["actual_model_calls"] == 4
+    assert report["guided_only_wins"] == 1
+    assert report["promotion_eligible"] is False
+    with pytest.raises(ValueError):
+        probe.paired_strategy_summary(baseline[:-1])
+    with pytest.raises(ValueError):
+        probe.paired_strategy_summary([*baseline, baseline[0]])
+    moved = [dict(x) for x in baseline]
+    moved[1]["expected_status"] = "APPROVAL_REQUIRED"
+    with pytest.raises(ValueError):
+        probe.paired_strategy_summary(moved)

@@ -111,3 +111,18 @@ def test_real_pytest_pass_does_not_count_as_exact_restoration(
 def test_empty_copilot_response_is_model_unavailable_not_success():
     with pytest.raises(probe.ModelUnavailable):
         probe.parse_choices(b"", choice_spec())
+
+
+def test_copilot_cannot_spend_on_push_or_default_manual_dispatch():
+    import yaml
+    root = Path(__file__).resolve().parents[2]
+    workflow = yaml.safe_load(
+        (root / ".github/workflows/wls-r1-real-windows-mutations.yml").read_text()
+    )
+    job = workflow["jobs"]["copilot-public-probe"]
+    assert "github.event_name == 'workflow_dispatch'" in job["if"]
+    assert "inputs.authorize_copilot_credits == true" in job["if"]
+    assert "--max-ai-credits=1" not in str(job)
+    assert "--max-ai-credits=30" in str(job)
+    events = workflow.get("on", workflow.get(True))
+    assert events["workflow_dispatch"]["inputs"]["authorize_copilot_credits"]["default"] is False

@@ -25,6 +25,12 @@ on:
       - "source/tests/test_r2_copilot_probe.py"
       - ".github/workflows/wls-r1-real-windows-mutations.yml"
   workflow_dispatch:
+    inputs:
+      authorize_copilot_credits:
+        description: "Explicitly authorize billable Copilot CLI usage; OFF by default"
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: read
@@ -96,7 +102,7 @@ jobs:
     name: One Copilot model call against R2 public 3-test controls
     needs: real-mutants
     # Never spend Copilot credits for untrusted fork PRs or scheduled loops.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && inputs.authorize_copilot_credits == true
     runs-on: windows-latest
     timeout-minutes: 25
     permissions:
@@ -142,7 +148,7 @@ jobs:
         run: |
           npm install -g @github/copilot
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Bounded GitHub Copilot Free-seat model trial, no tools or repo access
+      - name: Explicitly authorized Copilot model trial, metered credits, no repo tools
         shell: pwsh
         timeout-minutes: 4
         continue-on-error: true
@@ -154,7 +160,7 @@ jobs:
           $prompt = Get-Content -Raw -Path r2-copilot-prompt.txt
           Push-Location $env:RUNNER_TEMP
           try {
-            & copilot -p "$prompt" --silent --model=auto --max-ai-credits=1 --no-auto-update --no-custom-instructions --disable-builtin-mcps --no-ask-user --deny-tool="read,shell,write,url" > "$env:GITHUB_WORKSPACE/r2-copilot-response.txt"
+            & copilot -p "$prompt" --silent --model=auto --max-ai-credits=30 --no-auto-update --no-custom-instructions --disable-builtin-mcps --no-ask-user --deny-tool="read,shell,write,url" > "$env:GITHUB_WORKSPACE/r2-copilot-response.txt"
             if ($LASTEXITCODE -ne 0) { throw "GitHub Copilot returned nonzero, MODEL_NOT_AVAILABLE" }
           }
           finally { Pop-Location }
