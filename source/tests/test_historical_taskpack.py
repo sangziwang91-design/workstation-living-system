@@ -49,7 +49,8 @@ def _sample(tmp_path: Path, *, new_test: bool = False,
     (root / "source/src/wls/legacy.py").write_text("def value(): return 0\n")
     if not new_test:
         (root / "source/tests/test_legacy.py").write_text(
-            "def test_value(): assert True\n"
+            ("from wls.legacy import value\ndef test_value(): assert value() == 1\n"
+             if functional_oracle else "def test_value(): assert True\n")
         )
     _git(root, "add", ".")
     _git(root, "commit", "-qm", "baseline")
@@ -58,6 +59,7 @@ def _sample(tmp_path: Path, *, new_test: bool = False,
     (root / "source/src/wls/legacy.py").write_text("def value(): return 1\n")
     (root / "source/tests/test_legacy.py").write_text(
         ("from wls.legacy import value\ndef test_value(): assert value() == 1\n"
+         "# reference test metadata update\n"
          if functional_oracle else "def test_value(): assert 1 == 1\n")
     )
     _git(root, "add", ".")
@@ -245,7 +247,8 @@ def test_same_test_two_sided_detects_real_fail_to_pass(engine, tmp_path):
     result = engine.replay_two_sided(repo, engine.mine(repo, head=head),
                                      limit=1, test_timeout=20)
     assert result["qualified"] == 1, result
-    assert result["tasks"][0]["qualification"] == "PROVISIONAL_FAIL_TO_PASS"
+    assert result["tasks"][0]["qualification"] == "PREEXISTING_REGRESSION"
+    assert result["tasks"][0]["original_baseline_exit"] == 1
     assert result["tasks"][0]["same_oracle_bytes"] is True
     assert result["tasks"][0]["baseline_exit"] != 0
     assert result["tasks"][0]["reference_exit"] == 0
@@ -259,3 +262,23 @@ def test_two_sided_rejects_moved_head_and_oversized_budget(engine, tmp_path):
     pack["head_sha"] = "f" * 40
     with pytest.raises(ValueError, match="HEAD moved"):
         engine.replay_two_sided(repo, pack)
+
+def test_new_reference_test_does_not_create_old_regression(engine, tmp_path):
+    repo, head = _sample(tmp_path)
+    _git(repo, "checkout", "-qb", "new-expectation")
+    (repo / "source/src/wls/legacy.py").write_text("def value(): return 1\n")
+    (repo / "source/tests/test_legacy.py").write_text(
+        "from wls.legacy import value\ndef test_value(): assert value() == 1\n"
+    )
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "add expectation")
+    _git(repo, "checkout", "-q", "main")
+    _git(repo, "merge", "--no-ff", "-qm",
+         "Merge pull request #49 from new-expectation", "new-expectation")
+    pack = engine.mine(repo, head=_git(repo, "rev-parse", "HEAD"))
+    receipt = engine.replay_two_sided(repo, pack, limit=1, test_timeout=20)
+    assert receipt["qualified"] == 0
+    assert receipt["new_test_expectation_only"] == 1
+    assert receipt["tasks"][0]["qualification"] == "NEW_TEST_EXPECTATION_ONLY"
+    assert receipt["tasks"][0]["original_baseline_exit"] == 0
+    assert receipt["test_process_invocations"] == 3

@@ -203,12 +203,12 @@ def mine(repo: Path, *, head: str, max_commits: int = 120,
 
 def replay_two_sided(repo: Path, taskpack: dict, *, limit: int = 3,
                      test_timeout: int = 45) -> dict:
-    """Provisional public *same-test* fail-before/pass-after qualification.
+    """Three-way public regression qualification, no hidden holdout.
 
     Detached Git worktrees and tests run without API credentials; the stored
     reference commit remains public and is NOT an unseen model holdout.
     """
-    if not 1 <= limit <= 20 or not 5 <= test_timeout <= 90:
+    if not 1 <= limit <= 40 or not 5 <= test_timeout <= 90:
         raise ValueError("unbounded historical replay budget")
     if taskpack.get("schema") != "wls.c2_historical_taskpack.v1":
         raise ValueError("unsupported frozen taskpack")
@@ -242,31 +242,45 @@ def replay_two_sided(repo: Path, taskpack: dict, *, limit: int = 3,
                 oracle_bytes = (reference / oracle).read_bytes()
                 if len(oracle_bytes) > 150_000 or not (pre / oracle).is_file():
                     raise ValueError("missing/oversized preexisting oracle")
-                (pre / oracle).write_bytes(oracle_bytes)
-                row["same_oracle_bytes"] = (pre / oracle).read_bytes() == oracle_bytes
-                row["oracle_sha256"] = sha256(oracle_bytes).hexdigest()
-                codes = []
-                for target in (pre, reference):
+                original_test = (pre / oracle).read_bytes()
+                row["original_test_sha256"] = sha256(original_test).hexdigest()
+                row["reference_test_sha256"] = sha256(oracle_bytes).hexdigest()
+                row["oracle_changed"] = original_test != oracle_bytes
+                def execute(target: Path) -> int:
                     env = dict(os.environ)
                     env["PYTHONPATH"] = str(target / "source/src")
                     env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
+                    env["PYTHONDONTWRITEBYTECODE"] = "1"
                     for key in list(env):
                         if key.endswith("_TOKEN") or key.endswith("_API_KEY"):
                             env.pop(key, None)
                     try:
-                        run = subprocess.run(  # nosec B603 -- repository-owned pytest
+                        run = subprocess.run(  # nosec B603 -- trusted test argv
                             [sys.executable, "-m", "pytest", "-q", "--maxfail=1",
-                             oracle],
-                            cwd=target, env=env, check=False,
+                             oracle], cwd=target, env=env, check=False,
                             capture_output=True, text=True, timeout=test_timeout,
                         )
-                        codes.append(run.returncode)
+                        return run.returncode
                     except subprocess.TimeoutExpired:
-                        codes.append(124)
-                row["baseline_exit"], row["reference_exit"] = codes
-                if row["same_oracle_bytes"] and codes[0] != 0 and codes[1] == 0:
-                    row["qualification"] = "PROVISIONAL_FAIL_TO_PASS"
-                elif codes[0] == 0:
+                        return 124
+
+                # Test the ORIGINAL historical oracle against the ORIGINAL
+                # code first; new post-fix expectations alone do not establish
+                # that a pre-existing regression was repaired.
+                original_exit = execute(pre)
+                (pre / oracle).write_bytes(oracle_bytes)
+                row["same_oracle_bytes"] = (pre / oracle).read_bytes() == oracle_bytes
+                baseline_exit = execute(pre)
+                reference_exit = execute(reference)
+                row["original_baseline_exit"] = original_exit
+                row["baseline_exit"] = baseline_exit
+                row["reference_exit"] = reference_exit
+                if (row["same_oracle_bytes"] and original_exit == 1
+                        and baseline_exit == 1 and reference_exit == 0):
+                    row["qualification"] = "PREEXISTING_REGRESSION"
+                elif original_exit == 0 and baseline_exit == 1 and reference_exit == 0:
+                    row["qualification"] = "NEW_TEST_EXPECTATION_ONLY"
+                elif baseline_exit == 0:
                     row["qualification"] = "BASELINE_ALREADY_PASSES"
                 else:
                     row["qualification"] = "REFERENCE_UNQUALIFIED"
@@ -281,12 +295,13 @@ def replay_two_sided(repo: Path, taskpack: dict, *, limit: int = 3,
                         check=False, capture_output=True, text=True, timeout=30,
                     )
         output.append(row)
-    qualified = sum(r["qualification"] == "PROVISIONAL_FAIL_TO_PASS"
+    qualified = sum(r["qualification"] == "PREEXISTING_REGRESSION"
                     for r in output)
-    return {"schema": "wls.c2_public_two_sided.v1",
-            "status": "PROVISIONAL_QUALIFIED" if qualified else "NO_QUALIFIED_TASKS",
-            "qualified": qualified, "total": len(output),
-            "same_test_process_invocations": len(output) * 2,
+    new_only = sum(r["qualification"] == "NEW_TEST_EXPECTATION_ONLY" for r in output)
+    return {"schema": "wls.c2_public_three_way.v2",
+            "status": "PREEXISTING_REGRESSIONS_FOUND" if qualified else "NO_VERIFIED_PREEXISTING_REGRESSIONS",
+            "qualified": qualified, "new_test_expectation_only": new_only,
+            "total": len(output), "test_process_invocations": len(output) * 3,
             "independent_holdout": False, "model_calls": 0,
             "claim_ceiling": "PUBLIC_HISTORY_ONLY_NO_MODEL_OR_RSI_GAIN",
             "tasks": output}
@@ -335,8 +350,9 @@ def main() -> int:
             json.dumps(qualification, sort_keys=True, indent=2) + "\n",
             encoding="utf-8",
         )
-        print(json.dumps({"two_sided_qualified": qualification["qualified"],
-                          "two_sided_total": qualification["total"]}, sort_keys=True))
+        print(json.dumps({"preexisting_regressions": qualification["qualified"],
+                          "new_test_expectation_only": qualification["new_test_expectation_only"],
+                          "three_way_total": qualification["total"]}, sort_keys=True))
     print(json.dumps({
         "status": report["status"], "candidate_tasks": len(report["tasks"]),
         "source_type": report["source_type"],
