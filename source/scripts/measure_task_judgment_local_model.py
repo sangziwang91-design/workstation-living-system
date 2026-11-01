@@ -92,6 +92,28 @@ def verify_model(path: Path) -> str:
     return actual
 
 
+def compare_observed_choices(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Model labels are candidate evidence, never task-execution authority."""
+    if not rows:
+        raise ValueError("no model responses to compare")
+    unique = {str(row["model_status"]) for row in rows
+              if row["model_status"] != "INVALID_RESPONSE"}
+    model_correct = sum(int(row["model_correct"]) for row in rows)
+    rule_correct = sum(int(row["rule_correct"]) for row in rows)
+    return {
+        "distinct_model_labels": len(unique),
+        "model_successes": model_correct,
+        "rule_successes": rule_correct,
+        "public_development_result": (
+            "MODEL_BELOW_RULE_BASELINE" if model_correct < rule_correct
+            else "MODEL_TIED_RULE_BASELINE" if model_correct == rule_correct
+            else "MODEL_PUBLIC_ADVANTAGE_NOT_TRANSFER_PROOF"
+        ),
+        "promotion_eligible": False,
+        "why_not_promotion": "No independent sealed holdout or recursive-improver test",
+    }
+
+
 def run(dataset: Path, model_file: Path) -> dict[str, Any]:
     contents = read_taskpack(dataset)
     cases = {x["input"]["task_id"]: x for x in contents["cases"]}
@@ -124,9 +146,11 @@ def run(dataset: Path, model_file: Path) -> dict[str, Any]:
             "response_digest": sha256(content.encode("utf-8")).hexdigest(),
             "prompt_digest": sha256(prompt.encode("utf-8")).hexdigest(),
         })
+    competition = compare_observed_choices(rows)
     return {
         "schema": "wls.task_judgment.local_gguf_public.v1",
         "status": "MODEL_OBSERVED",
+        "model_vs_rule": competition,
         "model_id": MODEL_ID, "model_sha256": model_sha,
         "model_calls_observed": len(rows),
         "model_successes": sum(int(r["model_correct"]) for r in rows),

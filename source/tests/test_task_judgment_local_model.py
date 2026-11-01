@@ -59,3 +59,32 @@ def test_model_sample_covers_multiple_judgment_outcomes():
     assert set(probe.MODEL_SAMPLE_IDS) <= set(cases)
     labels = {cases[k]["expected"]["status"] for k in probe.MODEL_SAMPLE_IDS}
     assert len(labels) >= 5
+
+
+def test_model_label_collapse_is_reported_without_promotion():
+    observed = [
+        {"model_status": "CAPABILITY_MISSING", "model_correct": False,
+         "rule_correct": True},
+        {"model_status": "CAPABILITY_MISSING", "model_correct": True,
+         "rule_correct": True},
+        {"model_status": "CAPABILITY_MISSING", "model_correct": False,
+         "rule_correct": True},
+    ]
+    result = probe.compare_observed_choices(observed)
+    assert result["distinct_model_labels"] == 1
+    assert result["model_successes"] == 1
+    assert result["rule_successes"] == 3
+    assert result["public_development_result"] == "MODEL_BELOW_RULE_BASELINE"
+    assert result["promotion_eligible"] is False
+
+
+def test_public_model_win_still_cannot_authorize_promotion():
+    observed = [
+        {"model_status": "READY_TO_PLAN", "model_correct": True,
+         "rule_correct": False},
+        {"model_status": "APPROVAL_REQUIRED", "model_correct": True,
+         "rule_correct": True},
+    ]
+    result = probe.compare_observed_choices(observed)
+    assert result["public_development_result"] == "MODEL_PUBLIC_ADVANTAGE_NOT_TRANSFER_PROOF"
+    assert result["promotion_eligible"] is False

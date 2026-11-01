@@ -166,3 +166,29 @@ def test_grade_files_are_not_selected_even_if_ruff_fixes_them(
         for name in paths
     ])
     assert repair_module.select_scope() == (allowed,)
+
+
+def test_scheduled_autorepair_uses_main_and_never_creates_deleted_branch():
+    import yaml
+
+    root = Path(__file__).resolve().parents[2]
+    raw = (root / ".github/workflows/hosted-rsi-autorepair.yml").read_text(
+        encoding="utf-8"
+    )
+    parsed = yaml.safe_load(raw)
+    jobs = parsed["jobs"]
+    candidate = jobs["candidate"]
+    source = candidate["steps"][0]
+    assert source["env"]["SOURCE_SHA"] == "${{ github.sha }}"
+    assert "gh api" not in source["run"]
+    assert "feat/rsi-autonomous-improvement" not in source["run"]
+    assert candidate.get("permissions", {}) == {}
+    retain = jobs["persist-tested-candidate"]
+    assert retain["permissions"]["contents"] == "write"
+    gate = retain["if"]
+    assert "github.event_name == 'workflow_dispatch'" in gate
+    assert "inputs.retain_candidate == true" in gate
+    events = parsed.get("on", parsed.get(True))
+    assert events["workflow_dispatch"]["inputs"]["retain_candidate"]["default"] is False
+    assert "schedule" in events
+    assert "push" in events
