@@ -126,3 +126,28 @@ def test_copilot_cannot_spend_on_push_or_default_manual_dispatch():
     assert "--max-ai-credits=30" in str(job)
     events = workflow.get("on", workflow.get(True))
     assert events["workflow_dispatch"]["inputs"]["authorize_copilot_credits"]["default"] is False
+
+
+def test_public_r2_local_probe_has_frozen_pinned_identity_and_no_promotion():
+    import inspect
+    source = inspect.getsource(probe.main)
+    assert '"generate-local"' in source
+    assert '"offline_qwen_1.5b"' in source
+    assert '"promote_source": False' in source
+    assert 'model_inference_count' in source
+    assert 'args.model_proof.write_bytes(canonical(proof))' in source
+
+
+def test_local_probe_workflow_never_uses_model_spending_token():
+    import yaml
+    root = Path(__file__).resolve().parents[2]
+    doc = yaml.safe_load(
+        (root / ".github/workflows/wls-r1-real-windows-mutations.yml").read_text()
+    )
+    job = doc["jobs"]["local-model-public-probe"]
+    assert job["permissions"]["contents"] == "read"
+    assert job["env"]["GITHUB_TOKEN"] == ""
+    assert job["env"]["GH_TOKEN"] == ""
+    assert "--mode generate-local" in str(job)
+    assert "--provider local" in str(job)
+    assert "copilot-requests" not in str(job)

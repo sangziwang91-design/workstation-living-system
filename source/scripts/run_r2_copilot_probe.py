@@ -14,6 +14,7 @@ from pathlib import Path
 import shutil
 import tempfile
 from typing import Any
+from urllib.request import urlretrieve
 
 import make_mutation_tasks as engine
 import score_r2_three_try_baselines as baseline
@@ -255,7 +256,10 @@ def score(root: Path, receipt: dict[str, Any], cases: list[dict[str, Any]],
 
 def main() -> int:
     p = argparse.ArgumentParser()
-    p.add_argument("--mode", choices=("prepare", "score"), required=True)
+    p.add_argument("--mode", choices=("prepare", "generate-local", "score"), required=True)
+    p.add_argument("--provider", choices=("copilot", "local"), default="copilot")
+    p.add_argument("--model-file", type=Path, default=Path("wls-qwen-1.5b.gguf"))
+    p.add_argument("--model-proof", type=Path, default=Path("r2-local-model-proof.json"))
     p.add_argument("--repo", type=Path, default=Path("."))
     p.add_argument("--receipt", type=Path, default=Path("r1-real-mutation-receipt.json"))
     p.add_argument("--replay", type=Path, default=Path("r1-real-mutation-replay.json"))
@@ -277,13 +281,90 @@ def main() -> int:
         saved = json.loads(args.spec.read_bytes())
         if saved != spec or sha256(args.prompt.read_bytes()).hexdigest() != spec["prompt_sha256"]:
             raise ProbeBlocked("prepared task/response boundary changed")
-        choices = parse_choices(args.response.read_bytes(), spec)
+        if args.mode == "generate-local":
+            if args.provider != "local":
+                raise ProbeBlocked("local generation must be expressly selected")
+            from measure_task_judgment_local_model import (
+                LARGER_MODEL_ID, LARGER_MODEL_URL, LARGER_MODEL_SHA256,
+                LARGER_MODEL_MIN_BYTES, LARGER_MODEL_MAX_BYTES, verify_model,
+            )
+            if not args.model_file.is_file():
+                urlretrieve(LARGER_MODEL_URL, args.model_file)
+            verified = verify_model(
+                args.model_file, expected_sha=LARGER_MODEL_SHA256,
+                min_bytes=LARGER_MODEL_MIN_BYTES,
+                max_bytes=LARGER_MODEL_MAX_BYTES,
+            )
+            from llama_cpp import Llama
+            model = Llama(model_path=str(args.model_file),
+                          n_ctx=12288, n_threads=2, verbose=False)
+            response = model.create_chat_completion(
+                messages=[
+                    {"role": "system", "content": "Return only the requested task JSON, no tools."},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0, max_tokens=1024,
+            )
+            raw = str(response["choices"][0]["message"]["content"] or "").encode("utf-8")
+            if not raw or len(raw) > MAX_RESPONSE:
+                raise ModelUnavailable("actual local model returned no usable bounded bytes")
+            args.response.write_bytes(raw)
+            proof = {
+                "schema": "wls.r2.local_model_inference_proof.v1",
+                "model_id": LARGER_MODEL_ID,
+                "model_sha256": verified,
+                "model_inference_count": 1,
+                "source_sha": spec["source_sha"],
+                "source_run_id": spec["source_run_id"],
+                "prompt_sha256": spec["prompt_sha256"],
+                "response_sha256": sha256(raw).hexdigest(),
+                "promote_source": False,
+            }
+            args.model_proof.write_bytes(canonical(proof))
+            print(json.dumps({"status": "ACTUAL_LOCAL_MODEL_CALLED",
+                              "model": LARGER_MODEL_ID, "calls": 1,
+                              "response_sha256": proof["response_sha256"]}))
+            return 0
+        raw = args.response.read_bytes()
+        if args.provider == "local":
+            proof = json.loads(args.model_proof.read_bytes())
+            from measure_task_judgment_local_model import (
+                LARGER_MODEL_ID, LARGER_MODEL_SHA256,
+            )
+            if (not isinstance(proof, dict)
+                    or set(proof) != {
+                        "schema", "model_id", "model_sha256",
+                        "model_inference_count", "source_sha", "source_run_id",
+                        "prompt_sha256", "response_sha256", "promote_source",
+                    }
+                    or proof["schema"] != "wls.r2.local_model_inference_proof.v1"
+                    or proof["model_id"] != LARGER_MODEL_ID
+                    or proof["model_sha256"] != LARGER_MODEL_SHA256
+                    or type(proof["model_inference_count"]) is not int
+                    or proof["model_inference_count"] != 1
+                    or proof["source_sha"] != spec["source_sha"]
+                    or proof["source_run_id"] != spec["source_run_id"]
+                    or proof["prompt_sha256"] != spec["prompt_sha256"]
+                    or proof["response_sha256"] != sha256(raw).hexdigest()
+                    or proof["promote_source"] is not False):
+                raise ProbeBlocked("local model identity or inference provenance changed")
+        choices = parse_choices(raw, spec)
         out = score(args.repo.resolve(), receipt, cases, choices)
+        if args.provider == "local":
+            out.update({
+                "model_provider": "offline_qwen_1.5b",
+                "model_requested": LARGER_MODEL_ID,
+                "model_actual_id": LARGER_MODEL_ID,
+                "model_sha256": LARGER_MODEL_SHA256,
+                "model_cli_invocations": 0,
+                "model_inference_count": 1,
+                "model_inference_proof": "SAME_RUN_TRUSTED_PROCESS_DIGEST",
+            })
         out["model_output_sha256"] = sha256(args.response.read_bytes()).hexdigest()
         args.output.write_bytes(canonical(out))
         print(json.dumps({k: v for k, v in out.items() if k not in {"cases"}}))
         return 0
-    except (OSError, ValueError, KeyError, TypeError, UnicodeError) as exc:
+    except (OSError, ValueError, KeyError, TypeError, UnicodeError, RuntimeError) as exc:
         status = "MODEL_NOT_AVAILABLE" if args.mode == "score" and (
             isinstance(exc, ModelUnavailable)
             or (isinstance(exc, OSError) and not args.response.exists())

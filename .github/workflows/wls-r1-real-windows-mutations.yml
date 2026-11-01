@@ -179,3 +179,72 @@ jobs:
             r2-copilot-report.json
           retention-days: 30
           if-no-files-found: warn
+
+  local-model-public-probe:
+    name: Qwen 1.5B real model candidate rankings versus frozen 3-pytest controls
+    needs: real-mutants
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    timeout-minutes: 55
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ''
+      GITHUB_TOKEN: ''
+      OPENAI_API_KEY: ''
+      ANTHROPIC_API_KEY: ''
+    steps:
+      - name: Checkout frozen source without stored tokens
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - name: Python on disposable Windows runner
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.13'
+      - name: Install independent grader and local CPU model engine
+        shell: pwsh
+        run: |
+          python -m pip install -e '.[dev]'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip install --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu 'llama-cpp-python==0.3.16'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify no fake model provenance or fourth pytest call
+        shell: pwsh
+        run: |
+          python -m pytest -q source/tests/test_r2_copilot_probe.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Load independently verified exact-run public mutants and controls
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: wls-r1-real-windows-mutations
+          path: .
+      - name: Prepare sealed-in-process public rank choices, no golden answers
+        shell: pwsh
+        run: |
+          python source/scripts/run_r2_copilot_probe.py --mode prepare --repo .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run actual SHA-verified local 1.5B inference without GitHub token
+        shell: pwsh
+        timeout-minutes: 29
+        run: |
+          python source/scripts/run_r2_copilot_probe.py --mode generate-local --provider local --repo . --model-file "$env:RUNNER_TEMP/wls-r2-qwen-1.5b.gguf"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Independently score selected candidates against Windows real pytest
+        shell: pwsh
+        timeout-minutes: 16
+        run: |
+          python source/scripts/run_r2_copilot_probe.py --mode score --provider local --repo .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Retain exact public task/score evidence even on blocked model
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wls-r2-local-real-model-${{ github.run_id }}
+          path: |
+            r2-copilot-taskpack.json
+            r2-copilot-report.json
+            r2-local-model-proof.json
+          retention-days: 30
+          if-no-files-found: warn
