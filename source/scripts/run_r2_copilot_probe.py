@@ -188,6 +188,22 @@ def parse_choices(raw: bytes, spec: dict[str, Any]) -> dict[str, list[str]]:
     return chosen
 
 
+def measured_choices(raw: bytes, spec: dict[str, Any]
+                     ) -> tuple[dict[str, list[str]], bool, str | None]:
+    """Grade a malformed model answer as zero repairs, not a tool failure.
+
+    The strict parser remains the authorization boundary: no unauthorized
+    candidate is ever executed. A model-format failure is still a real
+    observed failure and cannot be silently excluded from comparisons.
+    """
+    try:
+        return parse_choices(raw, spec), True, None
+    except (ProbeBlocked, ValueError, UnicodeError) as exc:
+        if not raw:
+            raise ModelUnavailable("model returned no bytes") from exc
+        return {task_id: [] for task_id in spec["task_ids"]}, False, type(exc).__name__
+
+
 def score(root: Path, receipt: dict[str, Any], cases: list[dict[str, Any]],
           choices: dict[str, list[str]]) -> dict[str, Any]:
     results = []
@@ -348,8 +364,14 @@ def main() -> int:
                     or proof["response_sha256"] != sha256(raw).hexdigest()
                     or proof["promote_source"] is not False):
                 raise ProbeBlocked("local model identity or inference provenance changed")
-        choices = parse_choices(raw, spec)
+        choices, valid_output, invalid_type = measured_choices(raw, spec)
         out = score(args.repo.resolve(), receipt, cases, choices)
+        out["model_output_valid"] = valid_output
+        out["invalid_output_type"] = invalid_type
+        if not valid_output:
+            out["status"] = "PUBLIC_MODEL_INVALID_OUTPUT_SCORED"
+            out["model_beats_both_public_baselines"] = False
+            out["model_invalid_reply_scored_as_zero_repairs"] = True
         if args.provider == "local":
             out.update({
                 "model_provider": "offline_qwen_1.5b",

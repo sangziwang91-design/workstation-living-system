@@ -151,3 +151,30 @@ def test_local_probe_workflow_never_uses_model_spending_token():
     assert "--mode generate-local" in str(job)
     assert "--provider local" in str(job)
     assert "copilot-requests" not in str(job)
+
+
+def test_actual_model_invalid_json_is_scored_as_zero_not_a_blocker():
+    spec = choice_spec()
+    for reply in (
+        b'{"tasks":[{"id":"a","choices":["oracle"]},{"id":"b","choices":[]}]}',
+        b'not json',
+        b'{"tasks":[]}',
+    ):
+        choices, valid, failure = probe.measured_choices(reply, spec)
+        assert choices == {"a": [], "b": []}
+        assert valid is False
+        assert failure in {"ProbeBlocked", "JSONDecodeError"}
+
+
+def test_actual_model_valid_json_remains_authorized_candidate_selection():
+    choices, valid, failure = probe.measured_choices(
+        b'{"tasks":[{"id":"a","choices":["sha2"]},{"id":"b","choices":[]}]}',
+        choice_spec(),
+    )
+    assert valid is True and failure is None
+    assert choices["a"] == ["sha2"]
+
+
+def test_no_model_response_cannot_be_misreported_as_scored():
+    with pytest.raises(probe.ModelUnavailable):
+        probe.measured_choices(b"", choice_spec())
