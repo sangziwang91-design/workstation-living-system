@@ -45,6 +45,7 @@ def _sample(tmp_path: Path, *, new_test: bool = False,
         encoding="utf-8",
     )
     (root / "source/src/wls/db.py").write_text("SCORER = 1\n", encoding="utf-8")
+    (root / "source/src/wls/__init__.py").write_text("", encoding="utf-8")
     (root / "source/src/wls/legacy.py").write_text("def value(): return 0\n")
     if not new_test:
         (root / "source/tests/test_legacy.py").write_text(
