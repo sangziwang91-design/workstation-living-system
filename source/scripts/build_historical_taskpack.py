@@ -208,7 +208,7 @@ def replay_two_sided(repo: Path, taskpack: dict, *, limit: int = 3,
     Detached Git worktrees and tests run without API credentials; the stored
     reference commit remains public and is NOT an unseen model holdout.
     """
-    if not 1 <= limit <= 5 or not 5 <= test_timeout <= 90:
+    if not 1 <= limit <= 20 or not 5 <= test_timeout <= 90:
         raise ValueError("unbounded historical replay budget")
     if taskpack.get("schema") != "wls.c2_historical_taskpack.v1":
         raise ValueError("unsupported frozen taskpack")

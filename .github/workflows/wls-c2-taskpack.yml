@@ -55,7 +55,7 @@ jobs:
           python source/scripts/build_historical_taskpack.py \
             --repo . --head "$(git rev-parse HEAD)" \
             --max-commits 180 --max-tasks 25 \
-            --two-sided --two-sided-limit 3 --two-sided-timeout 45 \
+            --two-sided --two-sided-limit 13 --two-sided-timeout 45 \
             --output wls-c2-worker-tasks.json \
             --trusted-output wls-c2-trusted-oracles.json \
             --two-sided-output wls-c2-two-sided.json
