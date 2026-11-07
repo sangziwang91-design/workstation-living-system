@@ -14,6 +14,8 @@ from pathlib import Path
 import re
 from typing import Any
 from urllib.request import urlretrieve
+from urllib.error import ContentTooShortError, URLError
+import tempfile
 
 from github_rsi_local_model import MODEL_ID, MODEL_URL, EXPECTED_MODEL_SHA256
 from score_task_judgment import read_taskpack, to_input
@@ -182,6 +184,47 @@ def verify_model(path: Path, *, expected_sha: str = EXPECTED_MODEL_SHA256,
     return actual
 
 
+class PinnedModelDownloadError(OSError):
+    """A transport failure, not a model-quality or evaluator failure."""
+
+
+def download_pinned_model(
+    path: Path, *, url: str, expected_sha: str, min_bytes: int, max_bytes: int,
+) -> str:
+    """Atomic pinned GGUF acquisition, one bounded retry for truncated HTTP.
+
+    Never admit an incomplete download as an existing model. SHA-256 is
+    checked before the temporary file is moved into its final location.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    for attempt in range(2):
+        with tempfile.NamedTemporaryFile(
+            prefix=".wls-model-", suffix=".gguf", dir=path.parent,
+            delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+        try:
+            urlretrieve(url, temporary)
+            verified = verify_model(
+                temporary, expected_sha=expected_sha,
+                min_bytes=min_bytes, max_bytes=max_bytes,
+            )
+            temporary.replace(path)
+            return verified
+        except ContentTooShortError as exc:
+            if attempt == 1:
+                raise PinnedModelDownloadError(
+                    "pinned model HTTP body truncated twice"
+                ) from exc
+        except (URLError, OSError) as exc:
+            raise PinnedModelDownloadError(
+                "pinned model download unavailable"
+            ) from exc
+        finally:
+            temporary.unlink(missing_ok=True)
+    raise PinnedModelDownloadError("pinned model transport unavailable")
+
+
 def compare_observed_choices(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """Model labels are candidate evidence, never task-execution authority."""
     if not rows:
@@ -279,8 +322,14 @@ def main() -> int:
         if not args.model_file.is_file():
             if not os.environ.get("GITHUB_ACTIONS"):
                 raise ValueError("model auto-download only permitted in GitHub Actions")
-            urlretrieve(LARGER_MODEL_URL if args.model_variant == "large"
-                        else MODEL_URL, args.model_file)
+            large = args.model_variant == "large"
+            download_pinned_model(
+                args.model_file,
+                url=LARGER_MODEL_URL if large else MODEL_URL,
+                expected_sha=LARGER_MODEL_SHA256 if large else EXPECTED_MODEL_SHA256,
+                min_bytes=LARGER_MODEL_MIN_BYTES if large else 300_000_000,
+                max_bytes=LARGER_MODEL_MAX_BYTES if large else MAX_MODEL_BYTES,
+            )
         output = run(args.dataset, args.model_file, variant=args.model_variant)
     except (OSError, ValueError, KeyError, RuntimeError, TypeError) as exc:
         output = {

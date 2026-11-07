@@ -152,3 +152,41 @@ def test_larger_model_still_cannot_promote_itself():
     ]
     result = probe.compare_observed_choices(rows)
     assert result["promotion_eligible"] is False
+
+
+def test_pinned_download_retries_only_truncated_transport_and_is_atomic(tmp_path, monkeypatch):
+    import hashlib
+    from urllib.error import ContentTooShortError
+    payload = b"verified model bytes"
+    expected = hashlib.sha256(payload).hexdigest()
+    destination = tmp_path / "model.gguf"
+    calls = []
+
+    def fake_urlretrieve(url, path):
+        calls.append(path)
+        if len(calls) == 1:
+            Path(path).write_bytes(b"truncated")
+            raise ContentTooShortError("incomplete", None)
+        Path(path).write_bytes(payload)
+    monkeypatch.setattr(probe, "urlretrieve", fake_urlretrieve)
+    digest = probe.download_pinned_model(
+        destination, url="https://example.invalid/model",
+        expected_sha=expected, min_bytes=len(payload),
+        max_bytes=len(payload),
+    )
+    assert digest == expected and destination.read_bytes() == payload
+    assert len(calls) == 2
+    assert not list(tmp_path.glob(".wls-model-*"))
+
+
+def test_pinned_download_rejects_wrong_digest_without_committing_file(tmp_path, monkeypatch):
+    destination = tmp_path / "model.gguf"
+    monkeypatch.setattr(probe, "urlretrieve",
+                        lambda url, path: Path(path).write_bytes(b"tampered"))
+    with pytest.raises(ValueError, match="sha256"):
+        probe.download_pinned_model(
+            destination, url="https://example.invalid/model",
+            expected_sha="0" * 64, min_bytes=1, max_bytes=100,
+        )
+    assert not destination.exists()
+    assert not list(tmp_path.glob(".wls-model-*"))

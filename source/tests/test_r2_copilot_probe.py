@@ -178,3 +178,32 @@ def test_actual_model_valid_json_remains_authorized_candidate_selection():
 def test_no_model_response_cannot_be_misreported_as_scored():
     with pytest.raises(probe.ModelUnavailable):
         probe.measured_choices(b"", choice_spec())
+
+
+def test_r2_parser_rejects_unhashable_candidate_without_type_error():
+    raw = b'{"tasks":[{"id":"a","choices":[[]]},{"id":"b","choices":[]}]}'
+    choices, valid, failure = probe.measured_choices(raw, choice_spec())
+    assert choices == {"a": [], "b": []}
+    assert not valid and failure == "ProbeBlocked"
+
+
+def test_r2_direct_scorer_rejects_fourth_or_forged_choice_before_pytest(tmp_path):
+    for choices in ({"a": ["1", "2", "3", "4"]}, {"a": [123]},
+                    {"a": ["same", "same"]}, {}):
+        with pytest.raises(probe.ProbeBlocked):
+            probe.score(tmp_path, {}, [{"task_id": "a"}], choices)
+
+
+def test_r2_duplicate_json_keys_in_baseline_fail_closed(tmp_path, monkeypatch):
+    # Check that duplicate keys cannot silently overwrite a trusted receipt.
+    monkeypatch.setattr(probe.replay, "read_receipt", lambda _: {
+        "task_digest": "a", "runner_provenance": {"github_sha": "s", "github_run_id": "1"},
+    })
+    monkeypatch.setattr(probe.baseline, "read_replay", lambda *args: [])
+    monkeypatch.setattr(probe.replay, "checked_source", lambda *args: None)
+    duplicate = tmp_path / "baseline.json"
+    duplicate.write_text('{"schema":"x","schema":"y"}')
+    p = tmp_path / "receipt.json"
+    p.write_text("{}")
+    with pytest.raises(probe.ProbeBlocked, match="duplicate key"):
+        probe.selected_cases(tmp_path, p, p, duplicate)

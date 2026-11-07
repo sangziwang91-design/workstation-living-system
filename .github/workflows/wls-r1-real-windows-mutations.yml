@@ -176,6 +176,8 @@ jobs:
           name: wls-r2-copilot-public-development
           path: |
             r2-copilot-taskpack.json
+            r2-copilot-prompt.txt
+            r2-copilot-response.txt
             r2-copilot-report.json
           retention-days: 30
           if-no-files-found: warn

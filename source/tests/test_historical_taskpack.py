@@ -284,3 +284,14 @@ def test_new_reference_test_does_not_create_old_regression(engine, tmp_path):
     assert receipt["tasks"][0]["qualification"] == "NEW_TEST_EXPECTATION_ONLY"
     assert receipt["tasks"][0]["original_baseline_exit"] == 0
     assert receipt["test_process_invocations"] == 3
+
+
+def test_c2_blocked_replay_does_not_invent_three_pytest_calls(engine, tmp_path):
+    repo, head = _sample(tmp_path, functional_oracle=True)
+    pack = engine.mine(repo, head=head)
+    pack["trusted_oracles"][0]["oracle_test_paths"] = [
+        "source/tests/test_nonexistent.py"
+    ]
+    receipt = engine.replay_two_sided(repo, pack, limit=1, test_timeout=20)
+    assert receipt["tasks"][0]["qualification"] == "REPLAY_BLOCKED"
+    assert receipt["test_process_invocations"] == 0

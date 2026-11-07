@@ -14,7 +14,6 @@ from pathlib import Path
 import shutil
 import tempfile
 from typing import Any
-from urllib.request import urlretrieve
 
 import make_mutation_tasks as engine
 import score_r2_three_try_baselines as baseline
@@ -44,8 +43,16 @@ def selected_cases(root: Path, receipt_file: Path, replay_file: Path,
     stable = set(baseline.read_replay(replay_file.read_bytes(), receipt))
     replay.checked_source(root, receipt)
     prior = baseline.replay.read_receipt(canonical(receipt))
-    assert prior["task_digest"] == receipt["task_digest"]
-    scored = json.loads(baseline_file.read_bytes())
+    if prior["task_digest"] != receipt["task_digest"]:
+        raise ProbeBlocked("receipt digest changed across independent read")
+    def no_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        obj: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in obj:
+                raise ProbeBlocked("duplicate key in trusted baseline receipt")
+            obj[key] = value
+        return obj
+    scored = json.loads(baseline_file.read_bytes(), object_pairs_hook=no_duplicate_keys)
     if (not isinstance(scored, dict)
             or scored.get("schema") != baseline.SCHEMA
             or scored.get("status") != "PUBLIC_BASELINE_SCORED"
@@ -65,8 +72,10 @@ def selected_cases(root: Path, receipt_file: Path, replay_file: Path,
         strategies = case.get("strategies")
         if (not isinstance(strategies, dict)
                 or set(strategies) != {"line_order", "seeded_random"}
-                or any(type(v.get("tests_used")) is not int
+                or any(not isinstance(v, dict)
+                       or type(v.get("tests_used")) is not int
                        or not 0 <= v["tests_used"] <= 3
+                       or type(v.get("exact_original_restored")) is not bool
                        for v in strategies.values())):
             raise ProbeBlocked("changed benchmark attempts")
     return receipt, cases[:MAX_TASKS]
@@ -133,7 +142,7 @@ def build_prompt(root: Path, receipt: dict[str, Any],
         "The trusted executor later validates IDs and runs tests under a hard budget.\\n"
         + json.dumps(tasks, sort_keys=True, ensure_ascii=False)
     )
-    if len(message) > 30_000:
+    if len(message.encode("utf-8")) > 30_000:
         raise ProbeBlocked("model prompt too large")
     spec = {
         "schema": SCHEMA, "source_sha": receipt["runner_provenance"]["github_sha"],
@@ -178,8 +187,9 @@ def parse_choices(raw: bytes, spec: dict[str, Any]) -> dict[str, list[str]]:
         key, choices = task["id"], task["choices"]
         if (not isinstance(key, str) or key not in spec["task_ids"] or key in chosen
                 or not isinstance(choices, list) or len(choices) > 3
+                or not all(isinstance(v, str) for v in choices)
                 or len(choices) != len(set(choices))
-                or not all(isinstance(v, str) and v in spec["visible_choice_ids"][key]
+                or not all(v in spec["visible_choice_ids"][key]
                            for v in choices)):
             raise ProbeBlocked("model attempted unauthorized candidate or fourth choice")
         chosen[key] = choices
@@ -206,6 +216,12 @@ def measured_choices(raw: bytes, spec: dict[str, Any]
 
 def score(root: Path, receipt: dict[str, Any], cases: list[dict[str, Any]],
           choices: dict[str, list[str]]) -> dict[str, Any]:
+    expected_ids = {case["task_id"] for case in cases}
+    if (set(choices) != expected_ids or len(expected_ids) != len(cases)
+            or any(not isinstance(v, list) or len(v) > 3
+                   or any(not isinstance(x, str) for x in v)
+                   or len(v) != len(set(v)) for v in choices.values())):
+        raise ProbeBlocked("untrusted direct scorer choice set or budget")
     results = []
     with tempfile.TemporaryDirectory(prefix="wls-r2-copilot-trusted-") as folder:
         temp = Path(folder)
@@ -219,6 +235,8 @@ def score(root: Path, receipt: dict[str, Any], cases: list[dict[str, Any]],
             if live.read_bytes() != original:
                 raise ProbeBlocked("scoring isolation polluted across tasks")
             mapping = {o["mutant_sha256"]: o["mutated_content"] for o in options}
+            if any(key not in mapping for key in choices[case["task_id"]]):
+                raise ProbeBlocked("candidate not present in trusted AST reconstruction")
             trials = []
             win = None
             live.write_bytes(broken)
@@ -303,14 +321,21 @@ def main() -> int:
             from measure_task_judgment_local_model import (
                 LARGER_MODEL_ID, LARGER_MODEL_URL, LARGER_MODEL_SHA256,
                 LARGER_MODEL_MIN_BYTES, LARGER_MODEL_MAX_BYTES, verify_model,
+                download_pinned_model, PinnedModelDownloadError,
             )
-            if not args.model_file.is_file():
-                urlretrieve(LARGER_MODEL_URL, args.model_file)
-            verified = verify_model(
-                args.model_file, expected_sha=LARGER_MODEL_SHA256,
-                min_bytes=LARGER_MODEL_MIN_BYTES,
-                max_bytes=LARGER_MODEL_MAX_BYTES,
-            )
+            try:
+                verified = (verify_model(
+                    args.model_file, expected_sha=LARGER_MODEL_SHA256,
+                    min_bytes=LARGER_MODEL_MIN_BYTES,
+                    max_bytes=LARGER_MODEL_MAX_BYTES,
+                ) if args.model_file.is_file() else download_pinned_model(
+                    args.model_file, url=LARGER_MODEL_URL,
+                    expected_sha=LARGER_MODEL_SHA256,
+                    min_bytes=LARGER_MODEL_MIN_BYTES,
+                    max_bytes=LARGER_MODEL_MAX_BYTES,
+                ))
+            except PinnedModelDownloadError as exc:
+                raise ModelUnavailable("pinned offline model transport failed") from exc
             from llama_cpp import Llama
             model = Llama(model_path=str(args.model_file),
                           n_ctx=12288, n_threads=2, verbose=False)
@@ -387,9 +412,10 @@ def main() -> int:
         print(json.dumps({k: v for k, v in out.items() if k not in {"cases"}}))
         return 0
     except (OSError, ValueError, KeyError, TypeError, UnicodeError, RuntimeError) as exc:
-        status = "MODEL_NOT_AVAILABLE" if args.mode == "score" and (
+        status = "MODEL_NOT_AVAILABLE" if (
             isinstance(exc, ModelUnavailable)
-            or (isinstance(exc, OSError) and not args.response.exists())
+            or (args.mode == "score" and isinstance(exc, OSError)
+                and not args.response.exists())
         ) else "BLOCKED"
         args.output.write_bytes(canonical({"schema": SCHEMA, "status": status,
                                            "error_type": type(exc).__name__,

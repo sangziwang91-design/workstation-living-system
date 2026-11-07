@@ -241,15 +241,22 @@ def replay_two_sided(repo: Path, taskpack: dict, *, limit: int = 3,
                     if x.returncode:
                         raise ValueError("historic worktree checkout failed")
                     attached.append(target)
+                if not (pre / oracle).is_file() or not (reference / oracle).is_file():
+                    raise ValueError("missing preexisting oracle")
+                if ((pre / oracle).stat().st_size > 150_000
+                        or (reference / oracle).stat().st_size > 150_000):
+                    raise ValueError("oversized historical oracle")
                 oracle_bytes = (reference / oracle).read_bytes()
-                if len(oracle_bytes) > 150_000 or not (pre / oracle).is_file():
-                    raise ValueError("missing/oversized preexisting oracle")
                 original_test = (pre / oracle).read_bytes()
                 row["original_test_sha256"] = sha256(original_test).hexdigest()
                 row["reference_test_sha256"] = sha256(oracle_bytes).hexdigest()
                 row["oracle_changed"] = original_test != oracle_bytes
+                row["test_process_invocations"] = 0
                 def execute(target: Path) -> int:
-                    env = dict(os.environ)
+                    row["test_process_invocations"] += 1
+                    env = {key: value for key, value in os.environ.items()
+                           if key in {"PATH", "HOME", "USERPROFILE", "SYSTEMROOT",
+                                      "WINDIR", "TEMP", "TMP", "LANG", "LC_ALL"}}
                     env["PYTHONPATH"] = str(target / "source/src")
                     env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
                     env["PYTHONDONTWRITEBYTECODE"] = "1"
@@ -303,7 +310,8 @@ def replay_two_sided(repo: Path, taskpack: dict, *, limit: int = 3,
     return {"schema": "wls.c2_public_three_way.v2",
             "status": "PREEXISTING_REGRESSIONS_FOUND" if qualified else "NO_VERIFIED_PREEXISTING_REGRESSIONS",
             "qualified": qualified, "new_test_expectation_only": new_only,
-            "total": len(output), "test_process_invocations": len(output) * 3,
+            "total": len(output), "test_process_invocations": sum(
+                row.get("test_process_invocations", 0) for row in output),
             "independent_holdout": False, "model_calls": 0,
             "claim_ceiling": "PUBLIC_HISTORY_ONLY_NO_MODEL_OR_RSI_GAIN",
             "tasks": output}
