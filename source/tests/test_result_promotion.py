@@ -61,7 +61,7 @@ class TestResultPromotionGate:
             content_digest="abc",
             evidence_ids=[],
         )
-        decision = gate.review(candidate, allowed_scopes=["p1"])
+        decision = gate.review(candidate, allowed_scopes=["p1"], target_scope="p1")
         assert not decision.admitted
 
     def test_contamination_rejected(self):
@@ -74,7 +74,7 @@ class TestResultPromotionGate:
             content_digest="abc",
             evidence_ids=["ev1"],
         )
-        decision = gate.review(candidate, allowed_scopes=["p1"])
+        decision = gate.review(candidate, allowed_scopes=["p1"], target_scope="p1")
         assert not decision.admitted
         assert decision.contamination_check["memory_id_field_present"]
 
@@ -88,7 +88,7 @@ class TestResultPromotionGate:
             content_digest="abc",
             evidence_ids=["ev1"],
         )
-        decision = gate.review(candidate, allowed_scopes=["p1"])
+        decision = gate.review(candidate, allowed_scopes=["p1"], target_scope="p1")
         assert not decision.admitted
         assert "delivery acknowledgement" in decision.reason
 
@@ -102,7 +102,7 @@ class TestResultPromotionGate:
             content_digest="",
             evidence_ids=["ev1"],
         )
-        decision = gate.review(candidate, allowed_scopes=["p1"])
+        decision = gate.review(candidate, allowed_scopes=["p1"], target_scope="p1")
         assert not decision.admitted
 
     def test_decision_to_dict(self):
