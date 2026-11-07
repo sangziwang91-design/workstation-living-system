@@ -246,6 +246,8 @@ jobs:
           name: wls-r2-local-real-model-${{ github.run_id }}
           path: |
             r2-copilot-taskpack.json
+            r2-copilot-prompt.txt
+            r2-copilot-response.txt
             r2-copilot-report.json
             r2-local-model-proof.json
           retention-days: 30
