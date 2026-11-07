@@ -185,7 +185,10 @@ def test_does_not_claim_real_learning_or_private_owner_deployment(gen) -> None:
     assert "owner_context.json" not in SCRIPT.read_text(encoding="utf-8")
 
 
-def test_repair_is_verified_in_worktree_and_inherited_through_checkpoint(gen, tmp_path, monkeypatch):
+@pytest.mark.parametrize("first_outcome", ["VERIFIED_CANDIDATE", "BASELINE_FAILED", "REJECTED_CANDIDATE"])
+def test_repair_is_verified_in_worktree_and_inherited_through_checkpoint(
+    gen, tmp_path, monkeypatch, first_outcome,
+):
     from wls.config import RuntimeConfig, save_config
 
     repo = tmp_path / "repo"
@@ -205,14 +208,27 @@ def test_repair_is_verified_in_worktree_and_inherited_through_checkpoint(gen, tm
     target.write_text("import os\n\nVALUE = 42\n", encoding="utf-8")
     check = repo / "source/tests/test_behavior.py"
     check.parent.mkdir(parents=True)
-    check.write_text(
+    candidate_test = (
         "import os\nfrom pathlib import Path\n\n"
         "def test_candidate():\n"
         "    assert 'GH_TOKEN' not in os.environ\n"
         "    source = Path('source/src/wls/example.py').read_text()\n"
         "    assert 'import os' not in source\n"
-        "    assert 'VALUE = 42' in source\n", encoding="utf-8",
+        "    assert 'VALUE = 42' in source\n"
     )
+    first_test = candidate_test
+    broken_runner = tmp_path / "grader-down"
+    if first_outcome == "BASELINE_FAILED":
+        broken_runner.touch()
+        first_test = (
+            "from pathlib import Path\n\n"
+            "def test_environment():\n"
+            f"    assert not Path({str(broken_runner)!r}).exists()\n\n"
+            + candidate_test
+        )
+    elif first_outcome == "REJECTED_CANDIDATE":
+        first_test = candidate_test.replace("'import os' not in source", "'import os' in source")
+    check.write_text(first_test, encoding="utf-8")
     git("add", ".")
     git("commit", "-qm", "fixture source")
     head = git("rev-parse", "HEAD")
@@ -222,8 +238,13 @@ def test_repair_is_verified_in_worktree_and_inherited_through_checkpoint(gen, tm
     save_config(RuntimeConfig(home=str(home)), home / "config.json")
     first = gen.run_source_repair(repo, home, head, 101)
     artifact = repo / "g1-hosted-source-repair"
-    assert first["status"] == "VERIFIED_CANDIDATE"
-    assert first["gain"] == 1 and first["test_exit_code"] == 0
+    assert first["status"] == first_outcome
+    assert first["gain"] == 1
+    if first_outcome == "VERIFIED_CANDIDATE":
+        assert first["test_exit_code"] == 0 and first["baseline_test_exit_code"] is None
+    else:
+        assert first["test_exit_code"] == 1
+        assert first["baseline_test_exit_code"] == int(first_outcome == "BASELINE_FAILED")
     assert first["inherited"] == []
     patch = (artifact / "rsi-repair-candidate.patch").read_bytes()
     assert first["patch_sha256"] == gen.sha(patch)
@@ -236,11 +257,22 @@ def test_repair_is_verified_in_worktree_and_inherited_through_checkpoint(gen, tm
     shutil.rmtree(artifact)
     gen.restore_checkpoint(tmp_path / "checkpoint/checkpoint.zip", home,
                            expected_head=head, expected_run=101)
-    git("commit", "--allow-empty", "-qm", "unrelated source revision")
+    if first_outcome == "BASELINE_FAILED":
+        # Recover the grader without changing HEAD or the source blob.
+        broken_runner.unlink()
+    else:
+        check.write_text(candidate_test, encoding="utf-8")
+        git("add", str(check.relative_to(repo)))
+        git("commit", "--allow-empty", "-qm", "independent baseline revision")
     second = gen.run_source_repair(repo, home, git("rev-parse", "HEAD"), 102)
-    assert second["status"] == "NO_NEW_TASK"
-    assert second["inherited"] == [{k: v for k, v in first.items() if k != "inherited"}]
-    assert not (artifact / "rsi-repair-candidate.patch").exists()
+    if first_outcome == "VERIFIED_CANDIDATE":
+        assert second["status"] == "NO_NEW_TASK"
+        assert second["inherited"] == [{k: v for k, v in first.items() if k != "inherited"}]
+        assert not (artifact / "rsi-repair-candidate.patch").exists()
+    else:
+        assert second["status"] == "VERIFIED_CANDIDATE"
+        assert second["fingerprint"] == first["fingerprint"]
+        assert second["inherited"] == []
 
 
 def test_previous_run_cannot_inherit_future_generation_on_replay(gen, monkeypatch):

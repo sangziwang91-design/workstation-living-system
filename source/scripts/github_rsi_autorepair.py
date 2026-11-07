@@ -12,6 +12,7 @@ import json
 import os
 import subprocess  # nosec B404 -- fixed trusted command vectors
 import sys
+import time
 from pathlib import Path
 
 # New generations discover the next source-only, safe auto-fix target.
@@ -19,6 +20,8 @@ from pathlib import Path
 ROOTS = ("source/src/wls", "source/scripts")
 MAX_FILES_PER_GENERATION = 2
 MAX_PATCH_BYTES_PER_GENERATION = 128_000
+TEST_BUDGET_SECONDS = 1200
+PAIRED_TEST_BUDGET_SECONDS = 1250
 BLOCKED_FILES = frozenset({
     "source/scripts/github_rsi_autorepair.py",
     "source/scripts/g1_hosted_windows_generation.py",
@@ -127,7 +130,8 @@ def no_gain(base_sha: str, scope: tuple[str, ...], score: int) -> dict[str, obje
     return report
 
 
-def run(source_files: tuple[str, ...] | None = None, *, rule: tuple[str, ...] = ()) -> dict[str, object]:
+def run(source_files: tuple[str, ...] | None = None, *, rule: tuple[str, ...] = (),
+        check_baseline_on_failure: bool = False) -> dict[str, object]:
     if call("git", "status", "--porcelain").stdout.strip():
         raise RuntimeError("repair requires a clean, checked-out GitHub snapshot")
     original_sha = call("git", "rev-parse", "HEAD")
@@ -166,12 +170,10 @@ def run(source_files: tuple[str, ...] | None = None, *, rule: tuple[str, ...] = 
         raise RuntimeError("bounded improvement patch size exceeded")
     Path("rsi-repair-candidate.patch").write_bytes(patch_bytes)
 
-    # Grader is independent of the repair program. Work is rejected if even
-    # one existing test fails. This is a live WLS source edit on hosted CI.
-    tests = call(
-        sys.executable, "-m", "pytest", "-q", "source/tests",
-        "--maxfail=1", timeout=1200,
-    )
+    # Reuse the same test command for the exact unpatched baseline if needed.
+    test_command = (sys.executable, "-m", "pytest", "-q", "source/tests", "--maxfail=1")
+    started = time.monotonic()
+    tests = call(*test_command, timeout=TEST_BUDGET_SECONDS)
     report: dict[str, object] = {
         "schema": "wls.github_rsi_autorepair.v1",
         "base_sha": original_sha.stdout.strip(),
@@ -188,6 +190,25 @@ def run(source_files: tuple[str, ...] | None = None, *, rule: tuple[str, ...] = 
         "eligible": tests.returncode == 0,
         "claims": "bounded source lint improvement; not autonomous model coding",
     }
+    if check_baseline_on_failure and tests.returncode:
+        report["status"] = "UNMEASURED_TEST_FAILURE"
+        if tests.returncode == 1:  # A pytest assertion failed, so compare the baseline.
+            restored = call("git", "restore", "--source=HEAD", "--worktree", "--", *source_files,
+                            timeout=20)
+            if restored.returncode:
+                raise RuntimeError("could not restore exact baseline for comparison")
+            remaining = int(PAIRED_TEST_BUDGET_SECONDS - (time.monotonic() - started))
+            try:
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(test_command, PAIRED_TEST_BUDGET_SECONDS)
+                baseline = call(*test_command, timeout=min(TEST_BUDGET_SECONDS, remaining))
+            except subprocess.TimeoutExpired:
+                report["baseline_timed_out"] = True
+            else:
+                report["baseline_test_exit_code"] = baseline.returncode
+                report["baseline_test_output_tail"] = (baseline.stdout + baseline.stderr)[-2000:]
+                if baseline.returncode in {0, 1}:
+                    report["status"] = "REJECTED_CANDIDATE" if baseline.returncode == 0 else "BASELINE_FAILED"
     Path("rsi-repair-report.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -222,20 +243,27 @@ def run_hosted(home: Path, run_id: int) -> dict[str, object]:
                 if (not isinstance(prior, dict) or prior.get("fingerprint") != fingerprint
                         or type(prior.get("run_id")) is not int or not 0 < prior["run_id"] < run_id):
                     raise ValueError("repair outcome has invalid run provenance")
-                inherited.append(prior)
-                continue
+                verified = prior.get("status") == "VERIFIED_CANDIDATE"
+                rejected_here = (prior.get("status") == "REJECTED_CANDIDATE"
+                                 and prior.get("baseline_test_exit_code") == 0
+                                 and prior.get("head") == head)
+                if verified or rejected_here:
+                    inherited.append(prior)
+                    continue
 
-            report = run((target,), rule=rule)
+            report = run((target,), rule=rule, check_baseline_on_failure=True)
             outcome = {
                 "run_id": run_id, "head": head, "target": target, "fingerprint": fingerprint,
-                "status": "VERIFIED_CANDIDATE" if report["eligible"] else "REJECTED_CANDIDATE",
+                "status": "VERIFIED_CANDIDATE" if report["eligible"] else report["status"],
                 "test_exit_code": report.get("test_exit_code"),
+                "baseline_test_exit_code": report.get("baseline_test_exit_code"),
                 "patch_sha256": report.get("patch_sha256"),
                 "gain": report["gain"],
             }
             with runtime.db.transaction() as conn:
                 outcome["evidence_id"] = runtime.ledger.append("hosted_source_repair", outcome, conn)
-                runtime.db.set_runtime(key, outcome, conn)
+                if outcome["status"] in {"VERIFIED_CANDIDATE", "REJECTED_CANDIDATE"}:
+                    runtime.db.set_runtime(key, outcome, conn)
             return {**outcome, "inherited": inherited}
         return {"status": "NO_NEW_TASK", "inherited": inherited}
     finally:
