@@ -6,6 +6,7 @@ No inference endpoint, privileged runtime state or user's PC is required.
 """
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
@@ -20,6 +21,8 @@ MAX_FILES_PER_GENERATION = 2
 MAX_PATCH_BYTES_PER_GENERATION = 128_000
 BLOCKED_FILES = frozenset({
     "source/scripts/github_rsi_autorepair.py",
+    "source/scripts/g1_hosted_windows_generation.py",
+    "source/scripts/verify_hosted_living_loop.py",
     "source/scripts/verify_rsi_evaluator_change_boundary.py",
     "source/scripts/github_rsi_local_model.py",
     "source/scripts/github_rsi_replay_model.py",
@@ -48,10 +51,10 @@ def call(*args: str, timeout: int = 1200) -> subprocess.CompletedProcess[str]:
     )
 
 
-def diagnostics(*files: str) -> list[dict[str, object]]:
+def diagnostics(*files: str, rule: tuple[str, ...] = ()) -> list[dict[str, object]]:
     result = call(
         sys.executable, "-m", "ruff", "check", "--output-format", "json",
-        *files,
+        *rule, *files,
     )
     if result.returncode not in {0, 1}:
         raise RuntimeError("Ruff could not assess existing source")
@@ -61,12 +64,12 @@ def diagnostics(*files: str) -> list[dict[str, object]]:
     return parsed
 
 
-def select_scope() -> tuple[str, ...]:
+def ranked_targets(findings: list[dict[str, object]]) -> list[str]:
     """Select the highest safe-fixable *tracked source* faults autonomously."""
     tracked = set(call("git", "ls-files", "--", *ROOTS).stdout.splitlines())
     counts: dict[str, int] = {}
     root = Path.cwd().resolve()
-    for item in diagnostics(*ROOTS):
+    for item in findings:
         if not isinstance(item, dict):
             continue
         fix = item.get("fix")
@@ -87,12 +90,15 @@ def select_scope() -> tuple[str, ...]:
         ):
             continue
         counts[relative] = counts.get(relative, 0) + 1
-    ordered = sorted(counts, key=lambda file: (-counts[file], file))
-    return tuple(ordered[:MAX_FILES_PER_GENERATION])
+    return sorted(counts, key=lambda file: (-counts[file], file))
 
 
-def lint_count(*files: str) -> int:
-    return len(diagnostics(*files))
+def select_scope() -> tuple[str, ...]:
+    return tuple(ranked_targets(diagnostics(*ROOTS))[:MAX_FILES_PER_GENERATION])
+
+
+def lint_count(*files: str, rule: tuple[str, ...] = ()) -> int:
+    return len(diagnostics(*files, rule=rule) if rule else diagnostics(*files))
 
 
 def no_gain(base_sha: str, scope: tuple[str, ...], score: int) -> dict[str, object]:
@@ -121,17 +127,18 @@ def no_gain(base_sha: str, scope: tuple[str, ...], score: int) -> dict[str, obje
     return report
 
 
-def run() -> dict[str, object]:
+def run(source_files: tuple[str, ...] | None = None, *, rule: tuple[str, ...] = ()) -> dict[str, object]:
     if call("git", "status", "--porcelain").stdout.strip():
         raise RuntimeError("repair requires a clean, checked-out GitHub snapshot")
     original_sha = call("git", "rev-parse", "HEAD")
     if original_sha.returncode:
         raise RuntimeError("not a git checkout")
-    source_files = select_scope()
+    if source_files is None:
+        source_files = select_scope()
     for name in source_files:
         if not Path(name).is_file() or Path(name).is_symlink():
             raise ValueError("selected repair path missing or unsafe: " + name)
-    before = lint_count(*source_files) if source_files else 0
+    before = lint_count(*source_files, rule=rule) if source_files else 0
     if not source_files:
         # No safe model-independent improvement is left anywhere in the
         # approved source roots; do not spend tokens or create empty commits.
@@ -139,13 +146,13 @@ def run() -> dict[str, object]:
 
     # Repair is limited to independently documented mechanical transformations.
     # "ruff check --fix" may still return 1 because some legacy findings remain.
-    fix = call(sys.executable, "-m", "ruff", "check", "--fix", *source_files)
+    fix = call(sys.executable, "-m", "ruff", "check", "--fix", "--no-unsafe-fixes", *rule, *source_files)
     if fix.returncode not in {0, 1}:
         raise RuntimeError("repair tool failed unexpectedly")
     changed = call("git", "diff", "--name-only").stdout.splitlines()
     if not set(changed).issubset(source_files):
         raise RuntimeError("repair touched files outside frozen scope")
-    after = lint_count(*source_files)
+    after = lint_count(*source_files, rule=rule)
     if not changed and after == before:
         return no_gain(original_sha.stdout.strip(), source_files, before)
     if after >= before:
@@ -193,7 +200,61 @@ def run() -> dict[str, object]:
     return report
 
 
+def run_hosted(home: Path, run_id: int) -> dict[str, object]:
+    from wls.runtime import LivingSystem
+
+    runtime = LivingSystem.from_config_path(home / "config.json")
+    try:
+        # Start with one independently checkable fault class, not formatting.
+        rule = ("--select", "F401")
+        inherited = []
+        head = call("git", "rev-parse", "HEAD").stdout.strip()
+        for target in ranked_targets(diagnostics(*ROOTS, rule=rule)):
+            blob = call("git", "rev-parse", f"HEAD:{target}")
+            if blob.returncode != 0:
+                raise ValueError("repair target is absent from the pinned source")
+            fingerprint = hashlib.sha256(
+                f"F401\n{target}\n{blob.stdout.strip()}".encode("utf-8")
+            ).hexdigest()
+            key = "hosted_source_repair:" + fingerprint
+            prior = runtime.db.get_runtime(key)
+            if prior is not None:
+                if (not isinstance(prior, dict) or prior.get("fingerprint") != fingerprint
+                        or type(prior.get("run_id")) is not int or not 0 < prior["run_id"] < run_id):
+                    raise ValueError("repair outcome has invalid run provenance")
+                inherited.append(prior)
+                continue
+
+            report = run((target,), rule=rule)
+            outcome = {
+                "run_id": run_id, "head": head, "target": target, "fingerprint": fingerprint,
+                "status": "VERIFIED_CANDIDATE" if report["eligible"] else "REJECTED_CANDIDATE",
+                "test_exit_code": report.get("test_exit_code"),
+                "patch_sha256": report.get("patch_sha256"),
+                "gain": report["gain"],
+            }
+            with runtime.db.transaction() as conn:
+                outcome["evidence_id"] = runtime.ledger.append("hosted_source_repair", outcome, conn)
+                runtime.db.set_runtime(key, outcome, conn)
+            return {**outcome, "inherited": inherited}
+        return {"status": "NO_NEW_TASK", "inherited": inherited}
+    finally:
+        runtime.db.close_all()
+
+
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--state-home", type=Path)
+    parser.add_argument("--run-id", type=int)
+    args = parser.parse_args()
+    if args.state_home is not None:
+        if not args.run_id or args.run_id < 1:
+            parser.error("--state-home requires a positive --run-id")
+        outcome = run_hosted(args.state_home, args.run_id)
+        Path("hosted-repair-outcome.json").write_text(
+            json.dumps(outcome, indent=2, sort_keys=True), encoding="utf-8",
+        )
+        raise SystemExit(0)
     try:
         result = run()
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:

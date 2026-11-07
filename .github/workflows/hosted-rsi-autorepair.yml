@@ -124,6 +124,8 @@ jobs:
           assert set(changed) <= set(scope)
           blocked = {
               'source/scripts/github_rsi_autorepair.py',
+              'source/scripts/g1_hosted_windows_generation.py',
+              'source/scripts/verify_hosted_living_loop.py',
               'source/scripts/verify_rsi_evaluator_change_boundary.py',
               'source/scripts/github_rsi_local_model.py',
               'source/scripts/github_rsi_replay_model.py',
