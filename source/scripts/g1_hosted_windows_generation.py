@@ -22,7 +22,7 @@ import sys
 import tempfile
 import zipfile
 
-from verify_hosted_living_loop import cli, validate_cycle
+from verify_hosted_living_loop import cli, safe_cli_env, validate_cycle
 
 SCHEMA = "wls.g1.github_windows_generation.v1"
 ARTIFACT = "wls-g1-windows-generation-state"
@@ -347,7 +347,40 @@ def checkpoint(
     return manifest
 
 
-def run(repo: str, run_id: int, head: str, workspace: Path) -> dict:
+def run_source_repair(workspace: Path, home: Path, head: str, run_id: int) -> dict:
+    """Grade a mechanical patch outside the canonical checkout and its home."""
+    artifact = workspace / "g1-hosted-source-repair"
+    artifact.mkdir(exist_ok=False)
+    with tempfile.TemporaryDirectory(prefix="wls-source-repair-") as temp:
+        scratch = Path(temp)
+        worktree = scratch / "source"
+        env = safe_cli_env(scratch)
+        env["PYTHONPATH"] = str(worktree / "source" / "src")
+        env["PYTHONUTF8"] = "1"
+        subprocess.run(
+            ["git", "worktree", "add", "--detach", str(worktree), head],
+            cwd=workspace, env=env, check=True, timeout=90,
+        )
+        try:
+            subprocess.run(
+                [sys.executable, str(workspace / "source/scripts/github_rsi_autorepair.py"),
+                 "--state-home", str(home), "--run-id", str(run_id)],
+                cwd=worktree, env=env, check=True, timeout=1320,
+            )
+            for name in ("hosted-repair-outcome.json", "rsi-repair-report.json",
+                         "rsi-repair-candidate.patch"):
+                path = worktree / name
+                if path.is_file():
+                    (artifact / name).write_bytes(path.read_bytes())
+        finally:
+            subprocess.run(
+                ["git", "worktree", "remove", "--force", str(worktree)],
+                cwd=workspace, env=env, check=True, timeout=90,
+            )
+    return json.loads((artifact / "hosted-repair-outcome.json").read_text(encoding="utf-8"))
+
+
+def run(repo: str, run_id: int, head: str, workspace: Path, *, repair: bool = False) -> dict:
     if (not SHA.fullmatch(head) or run_id <= 0
             or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo)):
         raise ValueError("invalid GitHub source/run identity")
@@ -396,6 +429,7 @@ def run(repo: str, run_id: int, head: str, workspace: Path) -> dict:
         ids.append(cycle_id)
     if cli(home, "verify").get("ok") is not True:
         raise ValueError("canonical evidence chain verification failed")
+    repair_outcome = run_source_repair(workspace, home, head, run_id) if repair else None
     cli(home, "sleep")
     if cli(home, "verify").get("ok") is not True:
         raise ValueError("post-sleep evidence verification failed")
@@ -426,6 +460,7 @@ def run(repo: str, run_id: int, head: str, workspace: Path) -> dict:
         "attested_distinct_run_count": len(manifest["attested_run_ids"]),
         "attestation_started_at": manifest["attestation_started_at"],
         "attested_run_ids": manifest["attested_run_ids"],
+        "hosted_source_repair": repair_outcome,
         "claim_ceiling": (
             "canonical_Windows_cross_run_cycles_only; "
             "no_owner_deployment_or_autonomous_skill_improvement"
@@ -439,11 +474,12 @@ def main() -> int:
     p.add_argument("--run-id", type=int, required=True)
     p.add_argument("--head", required=True)
     p.add_argument("--workspace", type=Path, required=True)
+    p.add_argument("--repair", action="store_true")
     args = p.parse_args()
     try:
-        result = run(args.repo, args.run_id, args.head, args.workspace.resolve())
+        result = run(args.repo, args.run_id, args.head, args.workspace.resolve(), repair=args.repair)
     except (OSError, ValueError, TypeError, KeyError, sqlite3.Error,
-            zipfile.BadZipFile, subprocess.TimeoutExpired) as exc:
+            zipfile.BadZipFile, subprocess.SubprocessError) as exc:
         result = {
             "schema": SCHEMA, "status": "BLOCKED",
             "error_type": type(exc).__name__,

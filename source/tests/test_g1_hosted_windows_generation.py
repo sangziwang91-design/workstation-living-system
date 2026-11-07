@@ -6,7 +6,9 @@ from datetime import UTC, datetime, timedelta
 import io
 import json
 from pathlib import Path
+import shutil
 import sqlite3
+import subprocess
 import sys
 import zipfile
 
@@ -181,6 +183,64 @@ def test_does_not_claim_real_learning_or_private_owner_deployment(gen) -> None:
     assert "synthetic_only" in SCRIPT.read_text(encoding="utf-8")
     assert "longitudinal_72h_proven" in SCRIPT.read_text(encoding="utf-8")
     assert "owner_context.json" not in SCRIPT.read_text(encoding="utf-8")
+
+
+def test_repair_is_verified_in_worktree_and_inherited_through_checkpoint(gen, tmp_path, monkeypatch):
+    from wls.config import RuntimeConfig, save_config
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    def git(*args):
+        return subprocess.check_output(["git", *args], cwd=repo, text=True).strip()
+
+    git("init", "-q")
+    git("config", "user.email", "wls-test@example.com")
+    git("config", "user.name", "WLS test")
+    repair = repo / "source/scripts/github_rsi_autorepair.py"
+    repair.parent.mkdir(parents=True)
+    shutil.copyfile(SCRIPT.with_name(repair.name), repair)
+    target = repo / "source/src/wls/example.py"
+    target.parent.mkdir(parents=True)
+    target.write_text("import os\n\nVALUE = 42\n", encoding="utf-8")
+    check = repo / "source/tests/test_behavior.py"
+    check.parent.mkdir(parents=True)
+    check.write_text(
+        "import os\nfrom pathlib import Path\n\n"
+        "def test_candidate():\n"
+        "    assert 'GH_TOKEN' not in os.environ\n"
+        "    source = Path('source/src/wls/example.py').read_text()\n"
+        "    assert 'import os' not in source\n"
+        "    assert 'VALUE = 42' in source\n", encoding="utf-8",
+    )
+    git("add", ".")
+    git("commit", "-qm", "fixture source")
+    head = git("rev-parse", "HEAD")
+    monkeypatch.setenv("GH_TOKEN", "test-only-credential")
+
+    home = tmp_path / "home"
+    save_config(RuntimeConfig(home=str(home)), home / "config.json")
+    first = gen.run_source_repair(repo, home, head, 101)
+    artifact = repo / "g1-hosted-source-repair"
+    assert first["status"] == "VERIFIED_CANDIDATE"
+    assert first["gain"] == 1 and first["test_exit_code"] == 0
+    assert first["inherited"] == []
+    patch = (artifact / "rsi-repair-candidate.patch").read_bytes()
+    assert first["patch_sha256"] == gen.sha(patch)
+    assert git("diff", "--name-only") == ""
+    assert "import os" in target.read_text(encoding="utf-8")
+
+    gen.checkpoint(home, tmp_path / "checkpoint", head=head, run_id=101,
+                   parent=None, prior_manifest_raw=None, count=1)
+    shutil.rmtree(home)
+    shutil.rmtree(artifact)
+    gen.restore_checkpoint(tmp_path / "checkpoint/checkpoint.zip", home,
+                           expected_head=head, expected_run=101)
+    git("commit", "--allow-empty", "-qm", "unrelated source revision")
+    second = gen.run_source_repair(repo, home, git("rev-parse", "HEAD"), 102)
+    assert second["status"] == "NO_NEW_TASK"
+    assert second["inherited"] == [{k: v for k, v in first.items() if k != "inherited"}]
+    assert not (artifact / "rsi-repair-candidate.patch").exists()
 
 
 def test_previous_run_cannot_inherit_future_generation_on_replay(gen, monkeypatch):
