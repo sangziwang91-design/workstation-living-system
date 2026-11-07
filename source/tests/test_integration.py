@@ -16,7 +16,7 @@ from wls.graph_recovery import GraphRecoveryEngine, SideEffectRecord
 from wls.merge_node import MergeArtifact, MergeNode
 from wls.result_promotion import ResultCandidate, ResultPromotionGate
 from wls.reviewer import HeterogeneousReviewer, ReviewOpinion
-from wls.schemas import TaskNodeStatus, new_id, utc_now
+from wls.schemas import TaskNodeStatus, new_id, utc_now, digest_json
 from wls.security import (
     SecurityFirewall,
     credential_leak_check,
@@ -192,7 +192,7 @@ class TestSecurityAcceptanceIntegration:
         candidate = ResultCandidate(
             candidate_id="c1", source_worker="w1", source_scope="test-proj",
             content={"_delivery_ack": True, "status": "ok"},
-            content_digest="abc123", evidence_ids=["ev1"],
+            content_digest=digest_json({"_delivery_ack": True, "status": "ok"}), evidence_ids=["ev1"],
         )
         decision = gate.review(
             candidate, allowed_scopes=["test-proj"], target_scope="test-proj",
