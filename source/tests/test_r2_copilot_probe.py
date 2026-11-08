@@ -218,3 +218,71 @@ def test_r2_duplicate_json_keys_in_baseline_fail_closed(tmp_path, monkeypatch):
     p.write_text("{}")
     with pytest.raises(probe.ProbeBlocked, match="duplicate key"):
         probe.selected_cases(tmp_path, p, p, duplicate)
+
+
+def _public_batch(task_prefix: str, source_sha: str, run_id: str) -> dict:
+    rows = [{
+        "task_id": f"{task_prefix}-{i}", "model_tests_used": 1,
+        "model_exact_restoration": i == 0,
+        "line_order_exact_restoration": i == 0,
+        "seeded_random_exact_restoration": False,
+        "trials": [{"status": "PASS"}],
+    } for i in range(3)]
+    return {
+        "schema": probe.SCHEMA, "status": "PUBLIC_MODEL_RANKING_SCORED",
+        "source_sha": source_sha, "source_run_id": run_id,
+        "model_provider": "offline_qwen_1.5b",
+        "model_inference_proof": "SAME_RUN_TRUSTED_PROCESS_DIGEST",
+        "model_sha256": "a" * 64, "model_inference_count": 1,
+        "model_output_valid": True, "public_tasks_scored": 3,
+        "model_exact_restorations": 1, "line_order_exact_restorations": 1,
+        "seeded_random_exact_restorations": 0, "total_model_pytest_calls": 3,
+        "cases": rows,
+    }
+
+
+def test_four_three_task_batches_make_one_comparable_twelve_case_result():
+    source, run = "b" * 40, "123"
+    batches = [_public_batch(f"batch-{i}", source, run) for i in range(4)]
+    result = probe.aggregate_public_reports(batches, source, run)
+    assert result["public_tasks_scored"] == 12
+    assert result["model_inference_count"] == 4
+    assert result["model_exact_restorations"] == 4
+    assert result["line_order_exact_restorations"] == 4
+    assert result["model_beats_both_public_baselines"] is False
+    assert result["rsi"] == "UNPROVEN"
+
+
+@pytest.mark.parametrize("fault", ["repeated", "identity", "fourth", "forged_score"])
+def test_public_batch_aggregation_rejects_unequal_or_moved_evidence(fault):
+    source, run = "b" * 40, "123"
+    batches = [_public_batch(f"batch-{i}", source, run) for i in range(4)]
+    if fault == "repeated":
+        batches[3]["cases"][0]["task_id"] = batches[0]["cases"][0]["task_id"]
+    elif fault == "identity":
+        batches[2]["source_sha"] = "c" * 40
+    elif fault == "fourth":
+        batches[1]["cases"][0]["model_tests_used"] = 4
+    elif fault == "forged_score":
+        batches[0]["model_exact_restorations"] = 3
+    with pytest.raises(probe.ProbeBlocked):
+        probe.aggregate_public_reports(batches, source, run)
+
+
+def test_invalid_model_batch_is_counted_not_dropped():
+    source, run = "b" * 40, "123"
+    batches = [_public_batch(f"batch-{i}", source, run) for i in range(4)]
+    failing = batches[2]
+    failing["status"] = "PUBLIC_MODEL_INVALID_OUTPUT_SCORED"
+    failing["model_output_valid"] = False
+    failing["model_exact_restorations"] = 0
+    failing["total_model_pytest_calls"] = 0
+    for row in failing["cases"]:
+        row["model_tests_used"] = 0
+        row["model_exact_restoration"] = False
+        row["trials"] = []
+    result = probe.aggregate_public_reports(batches, source, run)
+    assert result["public_tasks_scored"] == 12
+    assert result["invalid_model_batches"] == 1
+    assert result["model_exact_restorations"] == 3
+
