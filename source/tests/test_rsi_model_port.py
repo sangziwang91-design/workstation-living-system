@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import io
-from hashlib import sha256
 import json
-from pathlib import Path
 import re
 from dataclasses import dataclass
+from hashlib import sha256
+from pathlib import Path
 
 import pytest
 from wls.config import default_config
