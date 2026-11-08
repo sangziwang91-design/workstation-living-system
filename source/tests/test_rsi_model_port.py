@@ -549,3 +549,79 @@ def test_canonical_living_system_binds_rsi_without_new_database(tmp_path):
         assert runtime.ledger.verify()[0]
     finally:
         runtime.db.close_all()
+
+
+def test_model_experiment_reaches_pareto_archive_parent_without_new_runtime(tmp_path):
+    db = Database(tmp_path / "model-archive.sqlite")
+    ledger = EvidenceLedger(db, tmp_path / "model-archive.key")
+    gate = RsiArtifactGate(
+        tmp_path / "archive", ledger,
+        allowed_files=frozenset({"agent/strategy.json"}),
+    )
+    policy = ExperimentPolicy(
+        "maximize", .01, {"regressions": 2.0}, 2, 0, SHA,
+    )
+    gate.register(
+        artifact_id="baseline", parent_id=None, generation=0, branch=0,
+        files={"agent/strategy.json": b'{"score":0.5,"regressions":2}'},
+        policy_digest=policy.digest(), evaluator_digest=SHA,
+    )
+    proposals = []
+    first_generation = {
+        0: (.80, 1), 1: (.70, 0), 2: (.74, 1), 3: (.69, 1),
+    }
+
+    class ArchiveAwareModel:
+        model_id = "source-aware-local-model"
+        capabilities = RsiModelCapabilities()
+
+        def propose(self, instruction, *, max_output_bytes):
+            match = re.search(r"Generation: (\d+) branch: (\d+)", instruction)
+            assert match is not None
+            generation, branch = map(int, match.groups())
+            parent = re.search(r"Parent: ([^\n]+)", instruction)
+            assert parent is not None
+            proposals.append((generation, branch, parent.group(1)))
+            if generation == 1:
+                score, regressions = first_generation[branch]
+            else:
+                score, regressions = (.65, 1)
+            return RsiProposalResponse(
+                model_id=self.model_id,
+                text=json.dumps({"files": {"agent/strategy.json": json.dumps({
+                    "score": score, "regressions": regressions,
+                })}}),
+            )
+
+    def independent_evaluate(candidate):
+        gate.verify(candidate)
+        payload = json.loads(
+            (gate.root / candidate / "agent" / "strategy.json").read_text()
+        )
+        return MetricResult(payload["score"],
+                            {"regressions": payload["regressions"]}, SHA)
+
+    session = RsiModelExperiment(
+        RsiEvolutionPilot(db, ledger),
+        RsiModelCandidateBuilder(
+            ArchiveAwareModel(), gate,
+            policy_digest=policy.digest(), evaluator_digest=SHA,
+        ),
+        policy, objective="Improve measured strategy",
+        allowed_files=("agent/strategy.json",),
+        independent_evaluator=independent_evaluate,
+    )
+    started = session.start(
+        "real-model-exploration", "baseline",
+        branches=4, exploration_branches=2,
+        exploration_strategy="pareto",
+    )
+    assert started["exploration_strategy"] == "pareto"
+    result = session.run_bounded("real-model-exploration")
+    assert result["champion_metric"]["primary"] == .80
+    assert result["live_promotion"] is False
+    assert proposals[6][2].endswith("-b002")
+    assert proposals[7][2].endswith("-b001")
+    assert proposals[6][2] != result["champion_id"]
+    assert ledger.verify()[0]
+    db.close_all()
