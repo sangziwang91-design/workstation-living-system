@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import shutil
 import subprocess
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from .coding_adapter import (
+    CODE_CONSTITUTION,
     ChangedFileReceipt,
     CodingCandidateReceipt,
     CodingTaskContract,
@@ -29,6 +32,7 @@ class CodingWorkerResult:
     independent_tests_passed: bool = False  # populated only by an external grader
     tests_output: str = ""
     error: str = ""
+    scope_violations: list[str] = field(default_factory=list)
 
     def receipt(self, worktree: str, base_sha: str, rollback: list[str]) -> CodingCandidateReceipt:
         return CodingCandidateReceipt(
@@ -36,14 +40,15 @@ class CodingWorkerResult:
             base_sha=base_sha,
             worktree=worktree,
             changed_files=self.changed_files,
-            tests=self.tests if self.independent_tests_passed else [],
+            tests=self.tests if self.independent_tests_passed and not self.scope_violations else [],
             rollback=rollback,
         )
 
     @property
     def succeeded(self) -> bool:
         # The worker's own stdout is not a trustworthy test receipt.
-        return self.exit_code == 0 and self.independent_tests_passed
+        return (self.exit_code == 0 and self.independent_tests_passed
+                and not self.scope_violations)
 
 
 class BaseCodingWorker:
@@ -82,7 +87,15 @@ class BaseCodingWorker:
                 error=f"{self._cli_name()} not found on PATH",
             )
 
-        prompt = self._build_prompt(contract)
+        try:
+            baseline = self._snapshot_worktree(contract.worktree)
+        except (OSError, ValueError) as exc:
+            return CodingWorkerResult(
+                worker_id=self.worker_id, task_id=contract.task_id,
+                exit_code=-1, stdout="", stderr="", elapsed_seconds=0,
+                error=f"constitution preflight failed: {exc}",
+            )
+        prompt = CODE_CONSTITUTION + "\n" + self._build_prompt(contract)
         start = time.monotonic()
         try:
             result = subprocess.run(
@@ -119,7 +132,30 @@ class BaseCodingWorker:
                 error=f"{self._cli_name()} execution failed: {exc}",
             )
 
-        changed = self._detect_changes(contract)
+        try:
+            after = self._snapshot_worktree(contract.worktree)
+        except (OSError, ValueError) as exc:
+            return CodingWorkerResult(
+                worker_id=self.worker_id, task_id=contract.task_id,
+                exit_code=result.returncode, stdout=result.stdout,
+                stderr=result.stderr, elapsed_seconds=round(elapsed, 2),
+                error=f"constitution postflight failed: {exc}",
+                scope_violations=["worktree_unverifiable"],
+            )
+        delta = {
+            name for name in baseline.keys() | after.keys()
+            if baseline.get(name) != after.get(name)
+        }
+        allowed = {name.replace("\\", "/") for name in contract.changed_files}
+        violations = sorted(delta - allowed)
+        if any(name not in after for name in delta & allowed):
+            violations.append("declared_file_deleted")
+        if not delta & allowed:
+            violations.append("no_confirmed_code_change")
+        changed = [
+            item for item in self._detect_changes(contract)
+            if item["path"] in delta and item["path"] in allowed
+        ]
         test_passed = self._parse_test_results(result.stdout, result.stderr)
 
         return CodingWorkerResult(
@@ -133,7 +169,41 @@ class BaseCodingWorker:
             tests=list(contract.tests),
             tests_passed=test_passed,
             tests_output=result.stdout[-2000:] if result.stdout else "",
+            error="constitution rejected candidate" if violations else "",
+            scope_violations=violations,
         )
+
+    @staticmethod
+    def _snapshot_worktree(root: Path) -> dict[str, str]:
+        """Hash bounded real files, without following links or exposing bytes.
+
+        This blocks candidate acceptance, not the worker's OS-level actions.
+        """
+        excluded = {
+            ".git", ".venv", "venv", "__pycache__", ".pytest_cache",
+            ".mypy_cache", ".ruff_cache",
+        }
+        seen: dict[str, str] = {}
+        count_bytes = 0
+        for folder, directories, filenames in os.walk(root, followlinks=False):
+            directory = Path(folder)
+            if any((directory / name).is_symlink() for name in directories):
+                raise ValueError("symlink directory cannot be audited")
+            directories[:] = sorted(name for name in directories if name not in excluded)
+            for filename in sorted(filenames):
+                path = directory / filename
+                if path.is_symlink() or not path.is_file():
+                    raise ValueError("symlink or nonregular file cannot be audited")
+                if len(seen) >= 5000:
+                    raise ValueError("worktree audit exceeded 5000 files")
+                size = path.stat().st_size
+                if size > 32_000_000 or count_bytes + size > 256_000_000:
+                    raise ValueError("worktree audit byte budget exceeded")
+                count_bytes += size
+                with path.open("rb") as stream:
+                    digest = hashlib.file_digest(stream, "sha256").hexdigest()
+                seen[path.relative_to(root).as_posix()] = digest
+        return seen
 
     def _cli_name(self) -> str:
         raise NotImplementedError
