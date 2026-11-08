@@ -4,7 +4,7 @@ import json
 import re
 from dataclasses import asdict, dataclass
 from enum import StrEnum
-from typing import Any
+from typing import Any, ClassVar
 
 from .db import Database
 from .schemas import digest_json, new_id, utc_now
@@ -45,7 +45,7 @@ class FailureAttributor:
     # Each path denotes an alternative, NOT a verified root cause.
     # Only a structured, bounded stage with a trace digest can generate
     # component hypotheses; error text alone never determines edit targets.
-    _STAGE_HYPOTHESES = {
+    _STAGE_HYPOTHESES: ClassVar[dict[str, tuple[tuple[str, str, str], ...]]] = {
         "model_response": (
             ("source/src/wls/rsi_model_port.py",
              "model output transport or structured-response contract",
@@ -101,7 +101,10 @@ class FailureAttributor:
             and isinstance(digest, str)
             and re.fullmatch(r"[a-f0-9]{64}", digest) is not None
         )
-        candidates = cls._STAGE_HYPOTHESES.get(stage, ()) if authenticated_shape else ()
+        stage_key = stage if isinstance(stage, str) else ""
+        candidates = (
+            cls._STAGE_HYPOTHESES.get(stage_key, ()) if authenticated_shape else ()
+        )
         return {
             "schema": "wls.failure_component_hypotheses.v1",
             "status": "HYPOTHESES_ONLY" if candidates else "UNLOCALIZED",
