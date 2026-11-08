@@ -14,8 +14,8 @@ import os
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import PurePosixPath
-from typing import Protocol
+from pathlib import Path, PurePosixPath
+from typing import Any, Protocol
 from urllib import error, parse, request
 
 from .experiment_decision import ExperimentPolicy, MetricResult
@@ -208,6 +208,111 @@ class RsiModelCandidateBuilder:
             evaluator_digest=self.evaluator_digest,
         )
         return candidate_id
+
+
+
+class PinnedLocalLlamaProposalPort:
+    """CPU-only pinned GGUF transport for the existing candidate-only RSI port.
+
+    The model file must already be available locally. This adapter performs no
+    download, network access, generated-code execution or candidate promotion.
+    """
+
+    def __init__(
+        self, *, model_id: str, model_file: Path, expected_sha256: str,
+        min_model_bytes: int, max_model_bytes: int,
+        context_tokens: int = 12288, max_output_tokens: int = 1024,
+        n_threads: int = 2, llama_factory: Callable[..., Any] | None = None,
+    ) -> None:
+        if not model_id.strip() or len(model_id) > 160:
+            raise ValueError("invalid local model identity")
+        if not re.fullmatch(r"[a-f0-9]{64}", expected_sha256):
+            raise ValueError("expected model SHA-256 must be pinned")
+        if not 1 <= min_model_bytes <= max_model_bytes <= 10_000_000_000:
+            raise ValueError("local model byte budget is invalid")
+        if not 256 <= context_tokens <= 32768 or not 1 <= max_output_tokens <= 2048:
+            raise ValueError("local context or generation budget is invalid")
+        if not 1 <= n_threads <= 4:
+            raise ValueError("CPU thread budget is invalid")
+        self._id = model_id
+        self._path = Path(model_file)
+        self._sha256 = expected_sha256
+        self._min_bytes = min_model_bytes
+        self._max_bytes = max_model_bytes
+        self._ctx = context_tokens
+        self._max_tokens = max_output_tokens
+        self._n_threads = n_threads
+        self._factory = llama_factory
+        self._model: Any = None
+
+    @property
+    def model_id(self) -> str:
+        return self._id
+
+    @property
+    def capabilities(self) -> RsiModelCapabilities:
+        return RsiModelCapabilities(context_tokens=self._ctx)
+
+    def _verify_file(self) -> None:
+        if not self._path.is_file() or self._path.is_symlink():
+            raise RuntimeError("pinned local model file unavailable")
+        size = self._path.stat().st_size
+        if not self._min_bytes <= size <= self._max_bytes:
+            raise RuntimeError("local model outside pinned byte budget")
+        digest = hashlib.sha256()
+        with self._path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(4 * 1024 * 1024), b""):
+                digest.update(chunk)
+        if digest.hexdigest() != self._sha256:
+            raise RuntimeError("pinned local model digest mismatch")
+
+    def propose(self, instruction: str, *, max_output_bytes: int) -> RsiProposalResponse:
+        if not isinstance(instruction, str) or not instruction.strip():
+            raise ValueError("local model instruction is empty")
+        if len(instruction.encode("utf-8")) > 30_000:
+            raise ModelProtocolError("local model prompt exceeds frozen byte cap")
+        if not 1 <= max_output_bytes <= 1_000_000:
+            raise ValueError("local response byte budget is invalid")
+        self._verify_file()
+        if self._model is None:
+            factory = self._factory
+            if factory is None:
+                try:
+                    from llama_cpp import Llama
+                except ImportError:
+                    raise RuntimeError("local llama.cpp runtime unavailable") from None
+                factory = Llama
+            self._model = factory(
+                model_path=str(self._path), n_ctx=self._ctx,
+                n_threads=self._n_threads, n_gpu_layers=0, verbose=False,
+            )
+        try:
+            response = self._model.create_chat_completion(
+                messages=[
+                    {"role": "system", "content": "Return only the requested task JSON, no tools."},
+                    {"role": "user", "content": instruction},
+                ],
+                temperature=0, max_tokens=self._max_tokens,
+            )
+            raw = response["choices"][0]["message"]["content"]
+        except (KeyError, TypeError, IndexError, AttributeError):
+            raise ModelProtocolError("local model returned malformed response") from None
+        if not isinstance(raw, str) or not raw:
+            raise ModelProtocolError("local model returned no response text")
+        if len(raw.encode("utf-8")) > max_output_bytes:
+            raise ModelProtocolError("local model response exceeds byte cap")
+        self._verify_file()
+        usage = response.get("usage") or {}
+        if not isinstance(usage, dict):
+            usage = {}
+        def count(name: str) -> int | None:
+            value = usage.get(name)
+            return value if type(value) is int and value >= 0 else None
+        return RsiProposalResponse(
+            model_id=self._id, text=raw,
+            input_tokens=count("prompt_tokens"),
+            output_tokens=count("completion_tokens"),
+        )
 
 
 class _NoRedirect(request.HTTPRedirectHandler):

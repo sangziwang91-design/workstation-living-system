@@ -4,6 +4,8 @@ import io
 import json
 import re
 from dataclasses import dataclass
+from hashlib import sha256
+from pathlib import Path
 
 import pytest
 from wls.config import default_config
@@ -15,6 +17,7 @@ from wls.rsi_evolution import RsiEvolutionPilot
 from wls.rsi_model_port import (
     ModelProtocolError,
     OpenAICompatibleProposalPort,
+    PinnedLocalLlamaProposalPort,
     RsiModelCandidateBuilder,
     RsiModelCapabilities,
     RsiModelExperiment,
@@ -549,3 +552,67 @@ def test_canonical_living_system_binds_rsi_without_new_database(tmp_path):
         assert runtime.ledger.verify()[0]
     finally:
         runtime.db.close_all()
+
+
+def test_pinned_local_cpu_model_uses_existing_candidate_archive(gateway, tmp_path: Path):
+    gate, ledger = gateway
+    model_file = tmp_path / "test.gguf"
+    model_file.write_bytes(b"unit-test-local-model")
+    expected_digest = sha256(model_file.read_bytes()).hexdigest()
+    invocations = []
+
+    class FakeLocal:
+        def create_chat_completion(self, *, messages, temperature, max_tokens):
+            assert messages[0]["role"] == "system"
+            assert "Allowed files:" in messages[1]["content"]
+            assert temperature == 0
+            assert max_tokens == 256
+            return {
+                "choices": [{"message": {"content": json.dumps({
+                    "files": {"agent/strategy.json": '{"from":"local-qwen"}'},
+                })}}],
+                "usage": {"prompt_tokens": 21, "completion_tokens": 11},
+            }
+
+    def factory(**kwargs):
+        invocations.append(kwargs)
+        return FakeLocal()
+
+    port = PinnedLocalLlamaProposalPort(
+        model_id="local-qwen-fixture", model_file=model_file,
+        expected_sha256=expected_digest, min_model_bytes=1,
+        max_model_bytes=128, context_tokens=4096,
+        max_output_tokens=256, n_threads=2, llama_factory=factory,
+    )
+    candidate = RsiModelCandidateBuilder(
+        port, gate, policy_digest=SHA, evaluator_digest=SHA,
+    ).propose(request(model_id=port.model_id))
+    assert gate.verify(candidate)["authority"] == "candidate_only"
+    assert ledger.verify()[0]
+    assert invocations == [{
+        "model_path": str(model_file), "n_ctx": 4096,
+        "n_threads": 2, "n_gpu_layers": 0, "verbose": False,
+    }]
+    assert port.capabilities.context_tokens == 4096
+
+    model_file.write_bytes(b"tampered-local-model")
+    with pytest.raises(RuntimeError, match="digest mismatch"):
+        port.propose("x", max_output_bytes=100)
+    assert len(invocations) == 1
+
+
+def test_pinned_local_cpu_model_rejects_oversized_response(tmp_path: Path):
+    model_file = tmp_path / "test.gguf"
+    model_file.write_bytes(b"unit-test-local-model")
+    class FakeLocal:
+        def create_chat_completion(self, **_):
+            return {"choices": [{"message": {"content": "z" * 400}}]}
+    port = PinnedLocalLlamaProposalPort(
+        model_id="local-qwen-fixture", model_file=model_file,
+        expected_sha256=sha256(model_file.read_bytes()).hexdigest(),
+        min_model_bytes=1, max_model_bytes=128, llama_factory=lambda **_: FakeLocal(),
+    )
+    with pytest.raises(ModelProtocolError, match="byte cap"):
+        port.propose("bounded", max_output_bytes=20)
+    with pytest.raises(ValueError, match="byte budget"):
+        port.propose("bounded", max_output_bytes=0)
