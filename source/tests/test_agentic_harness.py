@@ -1980,9 +1980,12 @@ def test_acceptance_failure_records_stage_without_fabricating_causal_target(
     )[0]
     failure = harness.complete_node_with_acceptance(
         graph_id, lease.node_id, lease_id=lease.lease_id,
-        result={"summary": "missing evidence"},
-        acceptance_checks=[{"id": "missing", "type": "artifact_exists",
-                            "path": "missing-output.txt", "critical": True}],
+        result={"status": "SUCCEEDED", "summary": "missing evidence",
+                "evidence": []},
+        acceptance_checks=[
+            {"check_id": "evidence", "type": "evidence_min",
+             "config": {"minimum": 1}},
+        ],
         artifact_root=tmp_path,
     )
     attr = failure["failure_attribution"]
