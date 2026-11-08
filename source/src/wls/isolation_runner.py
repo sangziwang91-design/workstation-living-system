@@ -87,12 +87,12 @@ def run_isolated_python(source: str, *, image: str, timeout: float = 5) -> Isola
         try:
             while True:
                 code = process.poll()
-                if code is not None:
-                    status = "EXIT_0" if code == 0 else "EXIT_NONZERO"
-                    break
                 if (os.fstat(stdout.fileno()).st_size > MAX_CAPTURE_BYTES
                         or os.fstat(stderr.fileno()).st_size > MAX_CAPTURE_BYTES):
                     status = "OUTPUT_LIMIT"
+                    break
+                if code is not None:
+                    status = "EXIT_0" if code == 0 else "EXIT_NONZERO"
                     break
                 if time.monotonic() - start >= timeout:
                     status = "TIMEOUT"
