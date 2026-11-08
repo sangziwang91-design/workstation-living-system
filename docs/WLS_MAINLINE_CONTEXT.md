@@ -207,3 +207,35 @@ wls --config CONFIG patch-mission-step --mode remote-live
 
 Do not add more dashboards, labels, readiness gates, or pure reports before this
 action chain is stable and installed into the owner-host WLS.
+
+
+## 2026-11-08 candidate-only model-core research adaptation
+
+This section records a research-inspired *opt-in* experiment, not a claimed
+self-improving release, training recipe, or accepted holdout gain.
+
+- [OpenEvolve (Apache-2.0)](https://github.com/algorithmicsuperintelligence/openevolve):
+  island/MAP-Elites archive and diversity search are reference mechanisms.
+  WLS reuses its **own** signed archive and evaluator; it does not vendor,
+  execute, or import upstream source.
+- [GEPA (MIT)](https://github.com/gepa-ai/gepa): multiple non-dominated
+  candidates and measured outcomes motivate the optional Pareto parent picker.
+  No private evaluator traces or scoring oracle are exposed to the proposer.
+- [Darwin Godel Machine](https://arxiv.org/abs/2505.22954): candidate ancestry
+  as a source of alternative improvement paths; authority remains candidate-only.
+- [Continual harness evolution, 2026-11-02](https://arxiv.org/abs/2611.03219):
+  later evolution can erase prior task gains. This is why existing hard regression
+  gates remain mandatory, and model/harness gains must survive replay on previous
+  task families before promotion.
+- [Agent Lightning v1.0 (MIT)](https://github.com/microsoft/agent-lightning):
+  later weight-training architecture is deliberately **not** adopted on a
+  standard CPU-only GitHub Runner, which cannot establish a practical RL loop.
+
+The optional setting `exploration_strategy="pareto"` only changes how the
+existing RsiEvolutionPilot samples completed, independently safe archived
+parents during the configured `exploration_branches`. It does not change the
+primary champion, global acceptance baseline, scoring policy, model weights,
+live runtime, or promotion permissions. Default remains
+`least_sampled` with zero exploration branches. Gate metric provenance,
+scorer independence, and sealed held-out gain remain separate acceptance work.
+

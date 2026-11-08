@@ -44,6 +44,41 @@ def _safe_metric_payload(value: MetricResult) -> dict[str, Any]:
     return result
 
 
+
+def _pareto_archive_pool(
+    pool: list[dict[str, Any]], policy: ExperimentPolicy,
+) -> list[dict[str, Any]]:
+    """Preserve distinct score/regression tradeoffs among safe archive parents.
+
+    Comparison uses independently measured, persisted gate values only.
+    Candidate generation, scoring, and promotion authority stay unchanged.
+    This is not a sealed-holdout or RSI result.
+    """
+    keys = tuple(sorted(policy.hard_gates))
+    for item in pool:
+        gates = item.get("gates")
+        if (not isinstance(gates, dict) or set(gates) != set(keys)
+                or not all(isinstance(gates[k], (int, float))
+                           and isfinite(gates[k]) for k in keys)
+                or not isinstance(item.get("primary"), (int, float))
+                or not isfinite(item["primary"])):
+            raise ValueError("pareto archive lacks independently measured metrics")
+
+    def dominates(left: dict[str, Any], right: dict[str, Any]) -> bool:
+        a, b = float(left["primary"]), float(right["primary"])
+        primary_better = a >= b if policy.direction == "maximize" else a <= b
+        strict = a > b if policy.direction == "maximize" else a < b
+        return (primary_better and
+                all(float(left["gates"][k]) <= float(right["gates"][k])
+                    for k in keys) and
+                (strict or any(float(left["gates"][k]) < float(right["gates"][k])
+                               for k in keys)))
+
+    return [item for item in pool if not any(
+        dominates(other, item) for other in pool if other is not item
+    )]
+
+
 class RsiEvolutionPilot:
     """Candidate-only generation runner; WLS Database and EvidenceLedger own state."""
 
@@ -71,6 +106,7 @@ class RsiEvolutionPilot:
         branches: int = 2,
         max_no_gain_rounds: int = 3,
         exploration_branches: int = 0,
+        exploration_strategy: str = "least_sampled",
     ) -> dict[str, Any]:
         if not _valid_artifact_id(baseline_id):
             raise ValueError("baseline_id must be a safe artifact identifier")
@@ -80,6 +116,8 @@ class RsiEvolutionPilot:
             raise ValueError("max_no_gain_rounds must be positive")
         if not 0 <= exploration_branches <= branches:
             raise ValueError("exploration_branches must be in 0..branches")
+        if exploration_strategy not in {"least_sampled", "pareto"}:
+            raise ValueError("unsupported exploration_strategy")
         # Validate baseline metrics against itself, without declaring improvement.
         valid = decide_experiment(
             policy, baseline=baseline, candidate=baseline,
@@ -96,9 +134,11 @@ class RsiEvolutionPilot:
             "champion_id": baseline_id, "champion_metric": asdict(baseline),
             "branches": branches, "max_no_gain_rounds": max_no_gain_rounds,
             "exploration_branches": exploration_branches,
+            "exploration_strategy": exploration_strategy,
             "archive": [{
                 "candidate_id": baseline_id, "parent_id": None,
                 "generation": 0, "primary": baseline.primary, "children": 0,
+                "gates": {k: float(baseline.gates[k]) for k in policy.hard_gates},
                 "decision": "BASELINE",
             }],
             "no_gain_rounds": 0, "failures": 0, "history": [],
@@ -116,6 +156,8 @@ class RsiEvolutionPilot:
             self.ledger.append("rsi_pilot_started", {
                 "run_id": run_id, "policy_digest": policy.digest(),
                 "baseline_id": baseline_id, "branches": branches,
+                "exploration_branches": exploration_branches,
+                "exploration_strategy": exploration_strategy,
             }, conn)
         return state
 
@@ -171,6 +213,8 @@ class RsiEvolutionPilot:
                         item for item in parent_pool
                         if item["candidate_id"] != old_id
                     ]
+                    if pool and state.get("exploration_strategy") == "pareto":
+                        pool = _pareto_archive_pool(pool, policy)
                     if pool:
                         parent_id = min(pool, key=lambda item: (
                             int(item["children"]) + issued.get(item["candidate_id"], 0),
@@ -212,6 +256,7 @@ class RsiEvolutionPilot:
                     state["archive"].append({
                         "candidate_id": candidate_id, "parent_id": parent_id,
                         "generation": gen, "primary": metrics.primary,
+                        "gates": {k: float(metrics.gates[k]) for k in policy.hard_gates},
                         "children": 0, "decision": decision.verdict.value,
                     })
                 # Each candidate is persisted before the next callback, so a crash
