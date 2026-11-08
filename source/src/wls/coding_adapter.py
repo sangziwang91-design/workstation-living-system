@@ -5,7 +5,6 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path, PureWindowsPath
 from typing import Any, TypedDict
 
-
 CODE_CONSTITUTION = (
     "WLS local coding constitution (advisory; runtime gates enforce scope): "
     "Read source and task evidence first. Make minimal reversible code edits "
