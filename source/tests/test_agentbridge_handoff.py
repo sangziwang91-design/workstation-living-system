@@ -131,3 +131,56 @@ def test_wls_imports_failed_bridge_execution_as_failure_not_success(tmp_path):
     assert runtime.agentic.load_graph(task.graph_id).nodes[task.node_id].status is (
         TaskNodeStatus.FAILED
     )
+
+
+def test_mailbox_exact_task_retry_preserves_original_and_rejects_collision(tmp_path):
+    """A transport retry is not a second execution or a message-id conflict."""
+    from wls.agentic_mailbox import TaskEnvelope
+
+    mailbox = AgenticFileMailbox(tmp_path / "mailbox")
+    task = TaskEnvelope.create(
+        message_id="task-retry", graph_id="graph-1", node_id="node-1",
+        lease_id="lease-1", sender="LivingSystem.AgenticHarness",
+        recipient="agentbridge", payload={"instruction": "inspect"},
+    )
+    first = mailbox.write_task(task)
+    original_bytes = first.read_bytes()
+    assert mailbox.write_task(task) == first
+    assert first.read_bytes() == original_bytes
+    assert mailbox.read_task("task-retry") == task
+    assert not first.with_suffix(".json.tmp").exists()
+
+    changed = TaskEnvelope.create(
+        message_id="task-retry", graph_id="graph-1", node_id="node-1",
+        lease_id="lease-1", sender="LivingSystem.AgenticHarness",
+        recipient="agentbridge", payload={"instruction": "delete"},
+    )
+    with pytest.raises(FileExistsError, match="message_id collision"):
+        mailbox.write_task(changed)
+    assert first.read_bytes() == original_bytes
+
+
+def test_mailbox_exact_result_retry_preserves_original_and_rejects_collision(tmp_path):
+    """Exactly once in transit, while WLS still owns completion authority."""
+    mailbox = AgenticFileMailbox(tmp_path / "mailbox")
+    result = ResultEnvelope.create(
+        message_id="result-retry", in_reply_to="task-retry",
+        graph_id="graph-1", node_id="node-1", lease_id="lease-1",
+        sender="SZ-AgentBridge", recipient="LivingSystem.AgenticHarness",
+        status="SUCCEEDED", payload={"verified_checks": [{"status": "PASS"}]},
+    )
+    first = mailbox.write_result(result)
+    original_bytes = first.read_bytes()
+    assert mailbox.write_result(result) == first
+    assert first.read_bytes() == original_bytes
+    assert mailbox.read_result("result-retry") == result
+
+    changed = ResultEnvelope.create(
+        message_id="result-retry", in_reply_to="task-retry",
+        graph_id="graph-1", node_id="node-1", lease_id="lease-1",
+        sender="SZ-AgentBridge", recipient="LivingSystem.AgenticHarness",
+        status="FAILED", payload={"error": "unknown"},
+    )
+    with pytest.raises(FileExistsError, match="message_id collision"):
+        mailbox.write_result(changed)
+    assert first.read_bytes() == original_bytes
