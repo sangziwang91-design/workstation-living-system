@@ -84,6 +84,17 @@ def test_real_pytest_pass_does_not_count_as_exact_restoration(
     choices = probe.baseline.candidate_pool("probe.py", faulty["mutated_content"])
     wrong = next(item for item in choices
                  if item["mutant_sha256"] != probe.engine.sha(original))
+    case = {"task_id": faulty["id"], "mutant_sha256": faulty["mutant_sha256"]}
+    prompt, spec = probe.build_prompt(root, receipt, [case])
+    aliases = spec["choice_aliases"][faulty["id"]]
+    assert aliases["A"] == choices[0]["mutant_sha256"]
+    assert wrong["mutant_sha256"] not in prompt and '"sha256"' not in prompt
+    alias = next(k for k, v in aliases.items() if v == wrong["mutant_sha256"])
+    reply = json.dumps({"tasks": [{"id": faulty["id"], "choices": [alias]}]}).encode()
+    parsed = probe.parse_choices(reply, spec)
+    assert parsed == {faulty["id"]: [wrong["mutant_sha256"]]}
+    invalid = json.dumps({"tasks": [{"id": faulty["id"], "choices": ["sha256"]}]}).encode()
+    assert probe.measured_choices(invalid, spec)[:2] == ({faulty["id"]: []}, False)
     calls: list[int] = []
 
     def fake_pytest(*args):
@@ -98,7 +109,7 @@ def test_real_pytest_pass_does_not_count_as_exact_restoration(
                 "line_order": {"exact_original_restored": False},
                 "seeded_random": {"exact_original_restored": False},
             },
-        }], {faulty["id"]: [wrong["mutant_sha256"]]},
+        }], parsed,
     )
     assert result["public_tasks_scored"] == 1
     assert result["model_exact_restorations"] == 0

@@ -109,6 +109,7 @@ def rebuild(root: Path, receipt: dict[str, Any], case: dict[str, Any]
 def build_prompt(root: Path, receipt: dict[str, Any],
                  cases: list[dict[str, Any]]) -> tuple[str, dict[str, Any]]:
     tasks = []
+    choice_aliases: dict[str, dict[str, str]] = {}
     for case in cases:
         module, _oracle, broken, options, selected = rebuild(root, receipt, case)
         # ALL options are reconstructed by the trusted scorer; the model sees
@@ -116,11 +117,14 @@ def build_prompt(root: Path, receipt: dict[str, Any],
         visible = options[:MAX_CHOICES]
         snippets = []
         broken_lines = broken.decode("utf-8").splitlines()
-        for option in visible:
+        aliases = choice_aliases[case["task_id"]] = {}
+        for index, option in enumerate(visible):
+            alias = chr(ord("A") + index)
+            aliases[alias] = option["mutant_sha256"]
             ln = option["mutation_line"]
             candidate_lines = option["mutated_content"].decode("utf-8").splitlines()
             snippets.append({
-                "id": option["mutant_sha256"],
+                "id": alias,
                 "line": ln,
                 "before": broken_lines[ln - 1][:120],
                 "after": candidate_lines[ln - 1][:120],
@@ -134,12 +138,12 @@ def build_prompt(root: Path, receipt: dict[str, Any],
         })
     message = (
         "You are choosing candidate AST edits for PUBLIC development repair tasks. "
-        "You have no tools and must not request files. Return ONLY valid JSON: "
-        "{\"tasks\":[{\"id\":\"task id\",\"choices\":[\"sha256\",\"sha256\",\"sha256\"]}]}. "
-        "Choose up to THREE distinct candidate IDs per task from its listed options; "
+        "You have no tools and must not request files. Return only a JSON object "
+        "with a tasks array. For each input task, include its exact id and a choices array. "
+        "Copy up to THREE distinct option letters from that task's candidate_options, best first; "
         "empty choices are allowed. No explanation. Original correct source, "
         "oracle digests and hidden holdout are NOT provided. "
-        "The trusted executor later validates IDs and runs tests under a hard budget.\\n"
+        "The trusted executor validates choices and runs tests under a hard budget.\n"
         + json.dumps(tasks, sort_keys=True, ensure_ascii=False)
     )
     if len(message.encode("utf-8")) > 30_000:
@@ -148,9 +152,8 @@ def build_prompt(root: Path, receipt: dict[str, Any],
         "schema": SCHEMA, "source_sha": receipt["runner_provenance"]["github_sha"],
         "source_run_id": receipt["runner_provenance"]["github_run_id"],
         "task_ids": [c["task_id"] for c in cases],
-        "visible_choice_ids": {
-            t["id"]: [v["id"] for v in t["candidate_options"]] for t in tasks
-        },
+        "visible_choice_ids": {key: list(aliases.values()) for key, aliases in choice_aliases.items()},
+        "choice_aliases": choice_aliases,
         "prompt_sha256": sha256(message.encode()).hexdigest(),
         "sample_scope": "PUBLIC_DEVELOPMENT_NOT_HOLDOUT",
         "per_task_max_tests": 3,
@@ -188,11 +191,14 @@ def parse_choices(raw: bytes, spec: dict[str, Any]) -> dict[str, list[str]]:
         if (not isinstance(key, str) or key not in spec["task_ids"] or key in chosen
                 or not isinstance(choices, list) or len(choices) > 3
                 or not all(isinstance(v, str) for v in choices)
-                or len(choices) != len(set(choices))
-                or not all(v in spec["visible_choice_ids"][key]
-                           for v in choices)):
+                or len(choices) != len(set(choices))):
             raise ProbeBlocked("model attempted unauthorized candidate or fourth choice")
-        chosen[key] = choices
+        visible = spec["visible_choice_ids"][key]
+        aliases = spec.get("choice_aliases")
+        mapping = aliases[key] if aliases is not None else {v: v for v in visible}
+        if any(v not in mapping or mapping[v] not in visible for v in choices):
+            raise ProbeBlocked("model attempted unauthorized candidate or fourth choice")
+        chosen[key] = [mapping[v] for v in choices]
     if set(chosen) != set(spec["task_ids"]):
         raise ProbeBlocked("model omitted task")
     return chosen
@@ -307,7 +313,7 @@ def main() -> int:
         receipt, cases = selected_cases(args.repo.resolve(), args.receipt, args.replay, args.baseline)
         prompt, spec = build_prompt(args.repo.resolve(), receipt, cases)
         if args.mode == "prepare":
-            args.prompt.write_text(prompt, encoding="utf-8")
+            args.prompt.write_bytes(prompt.encode("utf-8"))
             args.spec.write_bytes(canonical(spec))
             print(json.dumps({"status": "MODEL_PROMPT_READY", "tasks": len(cases),
                               "prompt_sha256": spec["prompt_sha256"]}))
