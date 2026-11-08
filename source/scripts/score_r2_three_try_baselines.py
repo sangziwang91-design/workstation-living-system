@@ -22,6 +22,8 @@ import verify_r1_mutation_replay as replay
 SCHEMA = "wls.r2.public_three_try_baselines.v1"
 MAX_TESTS_PER_CASE = 3
 MAX_PUBLIC_SAMPLE = 20
+# Match the R2 model prompt's public options before ranking either control.
+MAX_PUBLIC_CHOICES = 16
 SEED = 20261019
 
 
@@ -96,7 +98,7 @@ def read_replay(raw: bytes, receipt: dict[str, Any]) -> list[str]:
 
 
 def candidate_pool(module: str, broken: bytes) -> list[dict[str, Any]]:
-    """Build alternatives from BROKEN source only, never read answer for ordering."""
+    """Build the same bounded, answer-blind alternatives for all R2 arms."""
     generated = engine.candidates(module, broken)
     unique: dict[str, dict[str, Any]] = {}
     for item in generated:
@@ -105,7 +107,7 @@ def candidate_pool(module: str, broken: bytes) -> list[dict[str, Any]]:
         unique[item["mutant_sha256"]] = item
     return sorted(unique.values(), key=lambda item: (
         item["mutation_line"], item["mutant_sha256"],
-    ))
+    ))[:MAX_PUBLIC_CHOICES]
 
 
 def rank(options: list[dict[str, Any]], strategy: str,
@@ -233,6 +235,10 @@ def score(
             cases.append({
                 "task_id": task_id, "mutant_sha256": row["mutant_sha256"],
                 "strategies": strategies,
+                "original_in_shared_pool": any(
+                    option["mutant_sha256"] == row["source_sha256"]
+                    for option in candidate_pool(module, broken)
+                ),
                 "public_task_not_private_holdout": True,
             })
     results = {}
@@ -257,6 +263,10 @@ def score(
         "observed_task_count": len(receipt["tasks"]),
         "stable_task_count": len(stable),
         "sample_size": len(cases), "fixed_seed": SEED,
+        "shared_candidate_pool_limit": MAX_PUBLIC_CHOICES,
+        "tasks_with_original_in_shared_pool": sum(
+            int(case["original_in_shared_pool"]) for case in cases
+        ),
         "per_strategy_per_task_max_pytest_calls": MAX_TESTS_PER_CASE,
         "results": results, "cases": cases,
         "model_calls": 0, "learned_worker_calls": 0,
