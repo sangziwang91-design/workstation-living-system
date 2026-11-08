@@ -333,6 +333,9 @@ class WorkerRegistry:
                 eligible.append(candidate)
         eligible.sort(
             key=lambda item: (
+                # An explicitly matching role beats a wildcard if both are safe.
+                # Role specialization never bypasses domain/risk authorization.
+                0 if item["card"]["allowed_roles"] else 1,
                 int(item["risk_headroom"]),
                 bool(item["writes_enabled"]),
                 bool(item["external_tools_enabled"]),
