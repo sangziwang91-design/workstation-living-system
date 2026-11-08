@@ -21,6 +21,7 @@ import verify_r1_mutation_replay as replay
 
 SCHEMA = "wls.r2.copilot_public_probe.v1"
 MAX_TASKS = 3
+MAX_BATCHES = 4
 MAX_CHOICES = 16
 MAX_RESPONSE = 16_384
 
@@ -38,7 +39,7 @@ def canonical(value: Any) -> bytes:
 
 
 def selected_cases(root: Path, receipt_file: Path, replay_file: Path,
-                   baseline_file: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+                   baseline_file: Path, offset: int = 0) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     receipt = replay.read_receipt(receipt_file.read_bytes())
     stable = set(baseline.read_replay(replay_file.read_bytes(), receipt))
     replay.checked_source(root, receipt)
@@ -61,6 +62,10 @@ def selected_cases(root: Path, receipt_file: Path, replay_file: Path,
             or scored.get("per_strategy_per_task_max_pytest_calls") != 3):
         raise ProbeBlocked("not the same run frozen public baseline")
     cases = scored.get("cases")
+    if (type(offset) is not int or offset < 0 or offset % MAX_TASKS != 0
+            or offset + MAX_TASKS > len(cases)
+            or offset >= MAX_TASKS * MAX_BATCHES):
+        raise ProbeBlocked("public cohort offset outside four fixed three-task batches")
     if not isinstance(cases, list) or len(cases) < MAX_TASKS:
         raise ProbeBlocked("insufficient scored public cases")
     seen: set[str] = set()
@@ -78,7 +83,7 @@ def selected_cases(root: Path, receipt_file: Path, replay_file: Path,
                        or type(v.get("exact_original_restored")) is not bool
                        for v in strategies.values())):
             raise ProbeBlocked("changed benchmark attempts")
-    return receipt, cases[:MAX_TASKS]
+    return receipt, cases[offset:offset + MAX_TASKS]
 
 
 def rebuild(root: Path, receipt: dict[str, Any], case: dict[str, Any]
@@ -294,10 +299,109 @@ def score(root: Path, receipt: dict[str, Any], cases: list[dict[str, Any]],
     }
 
 
+
+def aggregate_public_reports(
+    reports: list[dict[str, Any]], source_sha: str, source_run_id: str
+) -> dict[str, Any]:
+    """Aggregate four disjoint, independently scored 3-task public batches.
+
+    Trusted individual reports already bind their prompts, inference proof and
+    real pytest calls. Never drop invalid model replies or duplicate cases.
+    """
+    if not isinstance(reports, list) or len(reports) != MAX_BATCHES:
+        raise ProbeBlocked("public aggregate requires exactly four scored batches")
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    invalid = 0
+    model_sha: str | None = None
+    for report in reports:
+        if not isinstance(report, dict):
+            raise ProbeBlocked("malformed scored batch")
+        if (report.get("schema") != SCHEMA
+                or report.get("status") not in {
+                    "PUBLIC_MODEL_RANKING_SCORED", "PUBLIC_MODEL_INVALID_OUTPUT_SCORED"
+                }
+                or report.get("source_sha") != source_sha
+                or report.get("source_run_id") != source_run_id
+                or report.get("model_provider") != "offline_qwen_1.5b"
+                or report.get("model_inference_proof") != "SAME_RUN_TRUSTED_PROCESS_DIGEST"
+                or type(report.get("model_inference_count")) is not int
+                or report["model_inference_count"] != 1
+                or report.get("model_output_valid") not in (True, False)
+                or type(report.get("public_tasks_scored")) is not int
+                or report["public_tasks_scored"] != MAX_TASKS
+                or not isinstance(report.get("model_sha256"), str)
+                or len(report["model_sha256"]) != 64):
+            raise ProbeBlocked("batch source, model or budget not verified")
+        if model_sha is None:
+            model_sha = report["model_sha256"]
+        elif model_sha != report["model_sha256"]:
+            raise ProbeBlocked("model identity changed across public batches")
+        cases = report.get("cases")
+        if not isinstance(cases, list) or len(cases) != MAX_TASKS:
+            raise ProbeBlocked("scored batch does not contain three cases")
+        if report["model_output_valid"] is False:
+            invalid += 1
+        expected = {
+            "model_exact_restorations": 0,
+            "line_order_exact_restorations": 0,
+            "seeded_random_exact_restorations": 0,
+            "total_model_pytest_calls": 0,
+        }
+        for case in cases:
+            if not isinstance(case, dict):
+                raise ProbeBlocked("malformed batch case")
+            task_id = case.get("task_id")
+            n = case.get("model_tests_used")
+            if (not isinstance(task_id, str) or not task_id or task_id in seen
+                    or type(n) is not int or not 0 <= n <= 3
+                    or not isinstance(case.get("trials"), list)
+                    or len(case["trials"]) != n
+                    or any(type(case.get(k)) is not bool for k in (
+                        "model_exact_restoration", "line_order_exact_restoration",
+                        "seeded_random_exact_restoration"))):
+                raise ProbeBlocked("duplicate task or malformed independent attempts")
+            if report["model_output_valid"] is False and (
+                n != 0 or case["model_exact_restoration"]
+            ):
+                raise ProbeBlocked("invalid model reply was not scored as failure")
+            seen.add(task_id)
+            expected["model_exact_restorations"] += int(case["model_exact_restoration"])
+            expected["line_order_exact_restorations"] += int(case["line_order_exact_restoration"])
+            expected["seeded_random_exact_restorations"] += int(case["seeded_random_exact_restoration"])
+            expected["total_model_pytest_calls"] += n
+            rows.append(case)
+        if any(type(report.get(k)) is not int or report[k] != v
+               for k, v in expected.items()):
+            raise ProbeBlocked("batch summaries disagree with scored cases")
+    if len(rows) != MAX_TASKS * MAX_BATCHES:
+        raise ProbeBlocked("public trial has fewer than twelve unique cases")
+    model = sum(int(r["model_exact_restoration"]) for r in rows)
+    line = sum(int(r["line_order_exact_restoration"]) for r in rows)
+    random = sum(int(r["seeded_random_exact_restoration"]) for r in rows)
+    return {
+        "schema": "wls.r2.public_twelve_case_aggregate.v1",
+        "status": "PUBLIC_TWELVE_CASES_SCORED",
+        "source_sha": source_sha, "source_run_id": source_run_id,
+        "model_provider": "offline_qwen_1.5b", "model_sha256": model_sha,
+        "model_inference_count": MAX_BATCHES, "scored_batch_count": MAX_BATCHES,
+        "public_tasks_scored": len(rows), "invalid_model_batches": invalid,
+        "model_exact_restorations": model,
+        "line_order_exact_restorations": line,
+        "seeded_random_exact_restorations": random,
+        "total_model_pytest_calls": sum(r["model_tests_used"] for r in rows),
+        "model_beats_both_public_baselines": model > line and model > random,
+        "heldout_gain": "UNMEASURED", "rsi": "UNPROVEN",
+        "cases": rows,
+    }
+
+
 def main() -> int:
     p = argparse.ArgumentParser()
-    p.add_argument("--mode", choices=("prepare", "generate-local", "score"), required=True)
+    p.add_argument("--mode", choices=("prepare", "generate-local", "score", "aggregate"), required=True)
     p.add_argument("--provider", choices=("copilot", "local"), default="copilot")
+    p.add_argument("--offset", type=int, default=0, help="three-task cohort index: 0, 3, 6 or 9")
+    p.add_argument("--batch-reports", nargs="*", type=Path, default=[])
     p.add_argument("--model-file", type=Path, default=Path("wls-qwen-1.5b.gguf"))
     p.add_argument("--model-proof", type=Path, default=Path("r2-local-model-proof.json"))
     p.add_argument("--repo", type=Path, default=Path("."))
@@ -310,7 +414,32 @@ def main() -> int:
     p.add_argument("--output", type=Path, default=Path("r2-copilot-report.json"))
     args = p.parse_args()
     try:
-        receipt, cases = selected_cases(args.repo.resolve(), args.receipt, args.replay, args.baseline)
+        if args.mode == "aggregate":
+            if args.offset != 0 or len(args.batch_reports) != MAX_BATCHES:
+                raise ProbeBlocked("aggregate requires four reports and no cohort offset")
+            source = replay.read_receipt(args.receipt.read_bytes())
+            replay.checked_source(args.repo.resolve(), source)
+            def unique_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+                out: dict[str, Any] = {}
+                for key, value in pairs:
+                    if key in out:
+                        raise ProbeBlocked("duplicate JSON key in scored batch")
+                    out[key] = value
+                return out
+            reports = [json.loads(path.read_bytes(), object_pairs_hook=unique_keys)
+                       for path in args.batch_reports]
+            result = aggregate_public_reports(
+                reports, source["runner_provenance"]["github_sha"],
+                source["runner_provenance"]["github_run_id"],
+            )
+            args.output.write_bytes(canonical(result))
+            print(json.dumps({k: v for k, v in result.items() if k != "cases"}))
+            return 0
+        if args.batch_reports:
+            raise ProbeBlocked("batch reports are accepted only in aggregate mode")
+        receipt, cases = selected_cases(
+            args.repo.resolve(), args.receipt, args.replay, args.baseline, offset=args.offset,
+        )
         prompt, spec = build_prompt(args.repo.resolve(), receipt, cases)
         if args.mode == "prepare":
             args.prompt.write_bytes(prompt.encode("utf-8"))
