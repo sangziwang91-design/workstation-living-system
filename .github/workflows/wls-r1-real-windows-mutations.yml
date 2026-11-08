@@ -37,7 +37,7 @@ permissions:
 
 concurrency:
   group: wls-r1-observed-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   real-mutants:
@@ -84,7 +84,7 @@ jobs:
         run: |
           python -m pytest -q source/tests/test_r2_three_try_baselines.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python source/scripts/score_r2_three_try_baselines.py --repo . --receipt "r1-real-mutation-receipt.json" --replay "r1-real-mutation-replay.json" --sample 8 --timeout 35 --output "r2-public-three-try-baselines.json"
+          python source/scripts/score_r2_three_try_baselines.py --repo . --receipt "r1-real-mutation-receipt.json" --replay "r1-real-mutation-replay.json" --sample 12 --timeout 35 --output "r2-public-three-try-baselines.json"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Retain bounded public task-level evidence even when blocked
         if: always()
@@ -183,7 +183,7 @@ jobs:
           if-no-files-found: warn
 
   local-model-public-probe:
-    name: Qwen 1.5B real model candidate rankings versus frozen 3-pytest controls
+    name: Qwen 1.5B four disjoint public batches against same 3-pytest controls
     needs: real-mutants
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: windows-latest
@@ -222,22 +222,30 @@ jobs:
         with:
           name: wls-r1-real-windows-mutations
           path: .
-      - name: Prepare sealed-in-process public rank choices, no golden answers
+      - name: Run four disjoint three-task batches with real Qwen inference and pytest
         shell: pwsh
+        timeout-minutes: 47
         run: |
-          python source/scripts/run_r2_copilot_probe.py --mode prepare --repo .
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Run actual SHA-verified local 1.5B inference without GitHub token
-        shell: pwsh
-        timeout-minutes: 29
-        run: |
-          python source/scripts/run_r2_copilot_probe.py --mode generate-local --provider local --repo . --model-file "$env:RUNNER_TEMP/wls-r2-qwen-1.5b.gguf"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Independently score selected candidates against Windows real pytest
-        shell: pwsh
-        timeout-minutes: 16
-        run: |
-          python source/scripts/run_r2_copilot_probe.py --mode score --provider local --repo .
+          $reports = @()
+          foreach ($offset in @(0, 3, 6, 9)) {
+            $tag = "b$offset"
+            $common = @(
+              "--repo", ".", "--offset", "$offset",
+              "--prompt", "r2-copilot-prompt-$tag.txt",
+              "--spec", "r2-copilot-taskpack-$tag.json",
+              "--response", "r2-copilot-response-$tag.txt",
+              "--model-proof", "r2-local-model-proof-$tag.json",
+              "--output", "r2-copilot-report-$tag.json"
+            )
+            & python source/scripts/run_r2_copilot_probe.py --mode prepare --provider local @common
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            & python source/scripts/run_r2_copilot_probe.py --mode generate-local --provider local --model-file "$env:RUNNER_TEMP/wls-r2-qwen-1.5b.gguf" @common
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            & python source/scripts/run_r2_copilot_probe.py --mode score --provider local @common
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $reports += "r2-copilot-report-$tag.json"
+          }
+          & python source/scripts/run_r2_copilot_probe.py --mode aggregate --repo . --batch-reports @reports --output "r2-public-twelve-case-aggregate.json"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Retain exact public task/score evidence even on blocked model
         if: always()
@@ -245,10 +253,11 @@ jobs:
         with:
           name: wls-r2-local-real-model-${{ github.run_id }}
           path: |
-            r2-copilot-taskpack.json
-            r2-copilot-prompt.txt
-            r2-copilot-response.txt
-            r2-copilot-report.json
-            r2-local-model-proof.json
+            r2-copilot-taskpack-b*.json
+            r2-copilot-prompt-b*.txt
+            r2-copilot-response-b*.txt
+            r2-copilot-report-b*.json
+            r2-local-model-proof-b*.json
+            r2-public-twelve-case-aggregate.json
           retention-days: 30
           if-no-files-found: warn
