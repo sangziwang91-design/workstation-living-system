@@ -28,20 +28,33 @@ class WorkerProfile:
     external_tools_enabled: bool = False
     writes_enabled: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
+    allowed_roles: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        # Empty is the historical unrestricted-role behavior. Explicit roles
+        # are authorization constraints, not a description or prompt.
+        roles = self.allowed_roles
+        if (not isinstance(roles, list) or len(roles) > 32
+                or any(not isinstance(role, str) or not role.isidentifier()
+                       or len(role) > 64 for role in roles)
+                or len(roles) != len(set(roles))):
+            raise ValueError("worker allowed_roles must be distinct role identifiers")
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["max_risk"] = self.max_risk.value
-        data["profile_digest"] = digest_json(
-            {
-                "worker_id": self.worker_id,
-                "worker_type": self.worker_type,
-                "allowed_domains": self.allowed_domains,
-                "max_risk": self.max_risk.value,
-                "external_tools_enabled": self.external_tools_enabled,
-                "writes_enabled": self.writes_enabled,
-            }
-        )
+        identity = {
+            "worker_id": self.worker_id,
+            "worker_type": self.worker_type,
+            "allowed_domains": self.allowed_domains,
+            "max_risk": self.max_risk.value,
+            "external_tools_enabled": self.external_tools_enabled,
+            "writes_enabled": self.writes_enabled,
+        }
+        # Preserve the original profile digest for existing wildcard workers.
+        if self.allowed_roles:
+            identity["allowed_roles"] = list(self.allowed_roles)
+        data["profile_digest"] = digest_json(identity)
         return data
 
     def capability_card(self) -> dict[str, Any]:
@@ -52,6 +65,7 @@ class WorkerProfile:
             "worker_type": self.worker_type,
             "label": self.label,
             "allowed_domains": list(self.allowed_domains),
+            "allowed_roles": list(self.allowed_roles),
             "max_risk": self.max_risk.value,
             "external_tools_enabled": self.external_tools_enabled,
             "writes_enabled": self.writes_enabled,
@@ -222,6 +236,10 @@ class WorkerRegistry:
         domain = str(node.metadata.get("domain", "MIXED")).upper()
         if domain not in profile.allowed_domains:
             raise PermissionError(f"worker {worker_id} is not allowed for domain {domain}")
+        if profile.allowed_roles and node.role not in profile.allowed_roles:
+            raise PermissionError(
+                f"worker {worker_id} is not allowed for role {node.role}"
+            )
         if _RISK_ORDER[node.risk] > _RISK_ORDER[profile.max_risk]:
             raise PermissionError(
                 f"worker {worker_id} max risk {profile.max_risk.value} below node risk {node.risk.value}"
@@ -286,6 +304,8 @@ class WorkerRegistry:
                 reasons.append(f"status={status}")
             if domain not in profile.allowed_domains:
                 reasons.append(f"domain_not_allowed={domain}")
+            if profile.allowed_roles and node.role not in profile.allowed_roles:
+                reasons.append(f"role_not_allowed={node.role}")
             risk_headroom = _RISK_ORDER[profile.max_risk] - _RISK_ORDER[node.risk]
             if risk_headroom < 0:
                 reasons.append(
@@ -299,6 +319,7 @@ class WorkerRegistry:
                 "card": card,
                 "card_digest": digest_json(card),
                 "domain": domain,
+                "node_role": node.role,
                 "node_risk": node.risk.value,
                 "max_risk": profile.max_risk.value,
                 "risk_headroom": risk_headroom,
