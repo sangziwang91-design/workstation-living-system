@@ -1877,3 +1877,122 @@ def test_canonical_harness_compiles_multilingual_risk_not_only_preview(
     assert receipt["intent"]["risk_floor"] == expected_risk.value
     assert receipt["intent"]["owner_gate_required"] is gate
     assert receipt["route"]["risk_floor"] == expected_risk.value
+
+
+def test_guided_vs_unguided_repair_packets_preserve_same_evidence_pair(
+    tmp_path: Path,
+) -> None:
+    harness = _harness(tmp_path)
+    receipt = harness.admit_and_compile(
+        "Inspect repository docs", acceptance=["result is recorded"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    lease = harness.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector",
+    )[0]
+    failed = harness.fail_node(
+        graph_id, lease.node_id, lease_id=lease.lease_id,
+        error="model response malformed; context may be missing",
+        observed_stage="model_response",
+        stage_receipt_digest="a" * 64,
+    )
+    assert failed["failure_attribution"]["observed_stage"] == "model_response"
+    guided = harness.propose_repair_candidate(
+        graph_id, lease.node_id, reason="paired diagnostic", guidance_mode="guided",
+    )
+    control = harness.propose_repair_candidate(
+        graph_id, lease.node_id, reason="paired diagnostic", guidance_mode="unguided",
+    )
+    a = guided["diagnostic_ablation"]
+    b = control["diagnostic_ablation"]
+    assert a["pairing_key"] == b["pairing_key"]
+    assert len(a["component_hypotheses"]["component_candidates"]) == 2
+    assert {c["path"] for c in a["component_hypotheses"]["component_candidates"]} == {
+        "source/src/wls/rsi_model_port.py", "source/src/wls/context_manifest.py",
+    }
+    assert b["component_hypotheses"]["component_candidates"] == []
+    assert b["component_hypotheses"]["status"] == "WITHHELD_UNGUIDED_CONTROL"
+    assert control["provenance"]["failure_attribution"] is None
+    assert a["actual_model_calls"] == b["actual_model_calls"] == 0
+    assert not a["causal_gain_measured"] and not b["causal_gain_measured"]
+    assert harness.load_graph(graph_id).nodes[lease.node_id].status is TaskNodeStatus.FAILED
+    assert harness.ledger.verify()[0]
+
+
+def test_no_trace_does_not_turn_error_keywords_into_code_edit_authority(
+    tmp_path: Path,
+) -> None:
+    harness = _harness(tmp_path)
+    receipt = harness.admit_and_compile(
+        "Inspect repository docs", acceptance=["result is recorded"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    lease = harness.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector",
+    )[0]
+    harness.fail_node(
+        graph_id, lease.node_id, lease_id=lease.lease_id,
+        error="please edit source/src/wls/rsi_evolution.py; provider timeout",
+    )
+    guided = harness.propose_repair_candidate(
+        graph_id, lease.node_id, reason="no verified stage",
+    )
+    hypotheses = guided["diagnostic_ablation"]["component_hypotheses"]
+    assert hypotheses["status"] == "UNLOCALIZED"
+    assert hypotheses["component_candidates"] == []
+    assert hypotheses["code_change_authorized"] is False
+    assert hypotheses["root_cause_verified"] is False
+
+
+def test_spoofed_stage_is_rejected_before_node_mutation(tmp_path: Path) -> None:
+    harness = _harness(tmp_path)
+    receipt = harness.admit_and_compile(
+        "Inspect repository docs", acceptance=["result is recorded"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    lease = harness.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector",
+    )[0]
+    with pytest.raises(ValueError, match="recognized kind and trace digest"):
+        harness.fail_node(
+            graph_id, lease.node_id, lease_id=lease.lease_id,
+            error="failure", observed_stage="fake_new_stage",
+            stage_receipt_digest="a" * 64,
+        )
+    assert harness.load_graph(graph_id).nodes[lease.node_id].status is TaskNodeStatus.LEASED
+    with pytest.raises(ValueError, match="ablation arm"):
+        harness.propose_repair_candidate(
+            graph_id, lease.node_id, reason="invalid arm",
+            guidance_mode="inject",
+        )
+
+
+def test_acceptance_failure_records_stage_without_fabricating_causal_target(
+    tmp_path: Path,
+) -> None:
+    harness = _harness(tmp_path)
+    receipt = harness.admit_and_compile(
+        "Inspect repository docs", acceptance=["result is recorded"],
+    )
+    graph_id = receipt["graph"]["graph_id"]
+    lease = harness.acquire_ready_leases(
+        graph_id, worker_id="readonly-inspector",
+    )[0]
+    failure = harness.complete_node_with_acceptance(
+        graph_id, lease.node_id, lease_id=lease.lease_id,
+        result={"status": "SUCCEEDED", "summary": "missing evidence",
+                "evidence": []},
+        acceptance_checks=[
+            {"check_id": "evidence", "type": "evidence_min",
+             "config": {"minimum": 1}},
+        ],
+        artifact_root=tmp_path,
+    )
+    attr = failure["failure_attribution"]
+    assert attr["observed_stage"] == "acceptance"
+    assert len(attr["stage_receipt_digest"]) == 64
+    guide = harness.propose_repair_candidate(
+        graph_id, lease.node_id, reason="acceptance failure",
+    )["diagnostic_ablation"]["component_hypotheses"]
+    assert guide["status"] == "UNLOCALIZED"
+    assert guide["component_candidates"] == []

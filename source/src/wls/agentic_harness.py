@@ -273,6 +273,8 @@ class AgenticHarness:
                 node_id,
                 lease_id=lease_id,
                 error="acceptance checks failed",
+                observed_stage="acceptance",
+                stage_receipt_digest=trace["payload_digest"],
             )
             payload = {
                 **failure,
@@ -311,6 +313,8 @@ class AgenticHarness:
         *,
         lease_id: str,
         error: str,
+        observed_stage: str | None = None,
+        stage_receipt_digest: str | None = None,
     ) -> dict[str, Any]:
         with self.db.transaction() as connection:
             self.worker_registry.ensure_defaults(connection=connection)
@@ -318,7 +322,9 @@ class AgenticHarness:
             lease = self._active_lease(graph_id, node_id, lease_id, connection)
             node = graph.fail(node_id, error)
             attribution = self.failure_attributor.classify(
-                graph_id=graph_id, node=node, lease_id=lease_id, error=error
+                graph_id=graph_id, node=node, lease_id=lease_id, error=error,
+                observed_stage=observed_stage,
+                stage_receipt_digest=stage_receipt_digest,
             )
             connection.execute(
                 """
@@ -1238,9 +1244,12 @@ class AgenticHarness:
         *,
         reason: str,
         max_steps: int = 3,
+        guidance_mode: str = "guided",
     ) -> dict[str, Any]:
         if not reason.strip():
             raise ValueError("repair candidate reason is required")
+        if guidance_mode not in {"guided", "unguided"}:
+            raise ValueError("unknown repair attribution ablation arm")
         graph = self.load_graph(graph_id)
         if node_id not in graph.nodes:
             raise KeyError(f"unknown task node: {node_id}")
@@ -1255,10 +1264,21 @@ class AgenticHarness:
             or "UNKNOWN"
         )
         candidate_steps = self._repair_candidate_steps(
-            failure_class=failure_class,
+            failure_class=failure_class if guidance_mode == "guided" else "UNKNOWN",
             node_status=node.status.value,
             max_steps=max_steps,
         )
+        hypotheses = self.failure_attributor.code_hypotheses(
+            attribution if guidance_mode == "guided" else None
+        )
+        hypotheses["status"] = (
+            hypotheses["status"] if guidance_mode == "guided"
+            else "WITHHELD_UNGUIDED_CONTROL"
+        )
+        pairing_key = digest_json({
+            "graph_id": graph_id, "node_id": node_id,
+            "error_signature": (attribution or {}).get("error_signature"),
+        })
         payload = {
             "repair_id": new_id("repair"),
             "graph_id": graph_id,
@@ -1267,11 +1287,24 @@ class AgenticHarness:
                 "reason": reason,
                 "node_status": node.status.value,
                 "node_error": node.error,
-                "failure_class": failure_class,
+                "failure_class": (
+                    failure_class if guidance_mode == "guided" else "WITHHELD"
+                ),
+            },
+            "diagnostic_ablation": {
+                "arm": guidance_mode,
+                "pairing_key": pairing_key,
+                "component_hypotheses": hypotheses,
+                "actual_model_calls": 0,
+                "causal_gain_measured": False,
             },
             "provenance": {
-                "failure_attribution": attribution,
-                "acceptance_trace": acceptance_trace,
+                "failure_attribution": (
+                    attribution if guidance_mode == "guided" else None
+                ),
+                "acceptance_trace": (
+                    acceptance_trace if guidance_mode == "guided" else None
+                ),
                 "source": "LivingSystem.AgenticHarness",
                 "created_from_real_node_state": True,
             },
