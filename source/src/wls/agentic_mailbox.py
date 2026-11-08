@@ -196,13 +196,13 @@ class AgenticFileMailbox:
 
     def _write(self, box: str, message_id: str, payload: dict[str, Any]) -> Path:
         target = self._path(box, message_id)
-        serialized = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+        serialized = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
         if target.exists():
             if target.read_text(encoding="utf-8") == serialized:
                 return target
             raise FileExistsError(f"message_id collision: {message_id}")
         temporary = target.with_suffix(".json.tmp")
-        temporary.write_text(serialized + "\n", encoding="utf-8")
+        temporary.write_text(serialized, encoding="utf-8")
         os.replace(temporary, target)
         return target
 
