@@ -154,7 +154,35 @@ Promote old iteration material only when it satisfies all five checks:
 
 Otherwise keep it as history/backlog, not mainline.
 
-## Current Single Next Action
+## Mainline Completion Plan · 2026-11-08
+
+Baseline `650db41`. The counts below describe acceptance items, not a percentage
+of WLS or an ETA. Each round closes three items. Failed trials and unresolved
+results stay open. Use the existing `LivingSystem`, state, policy, and workflow
+surfaces. Run engineering qualification on GitHub first.
+
+| Round | Deliverable and three acceptance items | Verified at baseline | Cumulative target |
+|---|---|---:|---:|
+| 1. Bounded unattended operation | **1.1** Inherit earlier completed tasks in a genuine scheduled run, select a new repository task, and independently verify its candidate. **1.2** A broken baseline cannot permanently suppress a valid retry. **1.3** Observe at least seven days with pause, interrupted-run recovery, no duplicate side effects, and per-run resource ceilings. | **2/3** | **3/18** |
+| 2. Measurable model decisions | **2.1** Archive actual public prompt and reply, and verify both against the inference proof. **2.2** Execute the short-ID model protocol in hosted CI with strict allowlists, real pytest, and at most three attempts per task. **2.3** Compare the same model and fixed controls on at least 12 public development cases, with exact restoration, invalid replies, cost, and failures counted. Admit the model for the tested scope only if it beats both controls under the same budget. | **1/3** | **6/18** |
+| 3. Governed action and reversible delivery | **3.1** Run candidate-authored code in the existing C1 isolation boundary, with hostile tests proving no evaluator writes, credential reads or network access. **3.2** Carry one real task through canonical Patch Mission selection, isolated execution and independent acceptance, recording its exact inputs and outcome. **3.3** Prove digest-bound approval, promotion and rollback on that same task, including replay or stale-approval rejection. | **0/3** | **9/18** |
+| 4. One durable, multifunctional runtime | **4.1** Complete a code task and a non-code information or document task with shared identity, goals and memory, plus a verified external result for each. **4.2** Swap between two approved live backends on the same task and resume without changing task identity, and test unavailability and budget stop. **4.3** Install or upgrade on owner Windows and verify restart, offline recovery and rollback across 72 hours of real usage. | **0/3** | **12/18** |
+| 5. Cumulative improvement | **5.1** Freeze separate public development, selection and private final sets, with at least 40 sealed final cases and a scorer inaccessible to candidate execution. **5.2** Admit one skill or strategy with a receipt, then use it on an unseen task after restart and verify old-task regression coverage. **5.3** Compare learning enabled vs frozen state over at least three spaced checkpoints on matched tasks and budgets, reporting paired differences, costs and failures. | **0/3** | **15/18** |
+| 6. Recursive improver evidence | **6.1** Register the frozen and evolving improver arms, common budgets, seeds, stopping rules and evaluation hashes before observing results. **6.2** Run at least three paired seeds on unseen tasks and publish success, cost, regression and uncertainty, including negative runs. **6.3** Replicate a positive result on a separate sealed split with another predeclared seed set. Admit the RSI claim only if the advantage survives both studies without hard regressions. | **0/3** | **18/18** |
+
+Baseline evidence: [scheduled repair with inherited history](https://github.com/sangziwang91-design/workstation-living-system/actions/runs/42403251393),
+[baseline-failure and retry checks](https://github.com/sangziwang91-design/workstation-living-system/pull/124),
+and [offline R2 output and score](https://github.com/sangziwang91-design/workstation-living-system/actions/runs/42395547786).
+The archived Qwen response is structurally valid JSON and copies `sha256` from
+the example as its candidate IDs. It was scored at 0/3, versus 1/3 for fixed
+line order and 0/3 for seeded random. The short-ID trial is the immediate
+next experiment. Rounds 1 and 2 can advance independently. Round 3 isolation
+must precede execution of candidate-authored code in Rounds 3–6. Round 4 may
+proceed with previously approved backends while model admission is measured.
+An inconclusive result or a baseline win is an experimental result, and leaves
+the corresponding capability gate open.
+
+## Historical Patch Mission Handoff
 
 Finish the source-level Patch Mission mainline proof with an executable handoff,
 not another placeholder note:
