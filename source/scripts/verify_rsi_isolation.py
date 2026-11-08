@@ -42,6 +42,7 @@ finally:
     sock.close()
 """, "EXIT_0", "NETWORK_BLOCKED"),
     ("timeout", "while True: pass", "TIMEOUT", ""),
+    ("output_limit", "print('X' * 70000, flush=True)", "OUTPUT_LIMIT", ""),
     ("fork_limit", """import os, time
 for i in range(30):
     try:

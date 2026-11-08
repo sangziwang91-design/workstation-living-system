@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import dataclasses
+import os
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
+from wls import isolation_runner
 from wls.isolation_runner import (
     IsolationReceipt,
     MAX_SOURCE_BYTES,
@@ -65,13 +68,32 @@ def test_runner_requires_real_linux_docker_socket(monkeypatch):
         run_isolated_python("print(1)", image=IMAGE, timeout=1)
 
 
-def test_probe_definitions_contain_five_hostile_boundary_checks():
+@pytest.mark.skipif(os.name != "posix", reason="C1 requires a Linux Docker socket")
+def test_completed_candidate_cannot_bypass_output_budget(monkeypatch):
+    def completed_process(command, *, stdin, stdout, stderr, env):
+        stdout.write(b"x" * (isolation_runner.MAX_CAPTURE_BYTES + 1))
+        stdout.flush()
+        process = Mock()
+        process.poll.return_value = 0
+        return process
+
+    monkeypatch.setattr(Path, "is_socket", lambda self: True)
+    monkeypatch.setattr(isolation_runner.subprocess, "Popen", completed_process)
+    monkeypatch.setattr(isolation_runner.subprocess, "run", Mock())
+
+    receipt = run_isolated_python("print(1)", image=IMAGE, timeout=1)
+
+    assert receipt.exit_code == 0
+    assert receipt.status == "OUTPUT_LIMIT"
+
+
+def test_probe_definitions_cover_hostile_boundary_checks():
     import runpy
 
     probes = runpy.run_path("source/scripts/verify_rsi_isolation.py")["PROBES"]
     names = {item[0] for item in probes}
     assert {
         "smoke", "host_grader", "host_secret", "host_root_write",
-        "network", "timeout", "fork_limit",
+        "network", "timeout", "output_limit", "fork_limit",
     } <= names
     assert len(names) == len(probes)
