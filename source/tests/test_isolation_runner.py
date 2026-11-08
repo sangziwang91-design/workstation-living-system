@@ -87,6 +87,24 @@ def test_completed_candidate_cannot_bypass_output_budget(monkeypatch):
     assert receipt.status == "OUTPUT_LIMIT"
 
 
+
+@pytest.mark.skipif(os.name != "posix", reason="C1 requires a Linux Docker socket")
+def test_completed_candidate_cannot_bypass_wall_clock_deadline(monkeypatch):
+    process = Mock()
+    process.poll.return_value = 0
+    monkeypatch.setattr(Path, "is_socket", lambda self: True)
+    monkeypatch.setattr(isolation_runner.subprocess, "Popen", Mock(return_value=process))
+    monkeypatch.setattr(isolation_runner.subprocess, "run", Mock())
+    clock = iter((0.0, 2.0, 2.0))
+    monkeypatch.setattr(isolation_runner.time, "monotonic", lambda: next(clock))
+
+    receipt = run_isolated_python("print(1)", image=IMAGE, timeout=1)
+
+    assert receipt.exit_code == 0
+    assert receipt.status == "TIMEOUT"
+    assert receipt.elapsed_seconds == 2.0
+
+
 def test_probe_definitions_cover_hostile_boundary_checks():
     import runpy
 
