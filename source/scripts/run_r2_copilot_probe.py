@@ -62,12 +62,12 @@ def selected_cases(root: Path, receipt_file: Path, replay_file: Path,
             or scored.get("per_strategy_per_task_max_pytest_calls") != 3):
         raise ProbeBlocked("not the same run frozen public baseline")
     cases = scored.get("cases")
+    if not isinstance(cases, list) or len(cases) < MAX_TASKS:
+        raise ProbeBlocked("insufficient scored public cases")
     if (type(offset) is not int or offset < 0 or offset % MAX_TASKS != 0
             or offset + MAX_TASKS > len(cases)
             or offset >= MAX_TASKS * MAX_BATCHES):
         raise ProbeBlocked("public cohort offset outside four fixed three-task batches")
-    if not isinstance(cases, list) or len(cases) < MAX_TASKS:
-        raise ProbeBlocked("insufficient scored public cases")
     seen: set[str] = set()
     for case in cases:
         task_id = case.get("task_id") if isinstance(case, dict) else None
@@ -327,7 +327,7 @@ def aggregate_public_reports(
                 or report.get("model_inference_proof") != "SAME_RUN_TRUSTED_PROCESS_DIGEST"
                 or type(report.get("model_inference_count")) is not int
                 or report["model_inference_count"] != 1
-                or report.get("model_output_valid") not in (True, False)
+                or type(report.get("model_output_valid")) is not bool
                 or type(report.get("public_tasks_scored")) is not int
                 or report["public_tasks_scored"] != MAX_TASKS
                 or not isinstance(report.get("model_sha256"), str)
