@@ -59,9 +59,11 @@ s.new_id = lambda prefix: prefix + "-probe"
 s.utc_now = lambda: "2026-11-08T00:00:00Z"
 sys.modules["wls"] = p
 sys.modules["wls.schemas"] = s
-ns = {"__package__": "wls", "__name__": "wls.skill_compiler"}
-exec(compile(SOURCE, "<candidate>", "exec"), ns)
-compiler = ns["SkillCompiler"]()
+module = types.ModuleType("wls.skill_compiler")
+module.__package__ = "wls"
+sys.modules["wls.skill_compiler"] = module
+exec(compile(SOURCE, "<candidate>", "exec"), module.__dict__)
+compiler = module.SkillCompiler()
 package = compiler.propose("bounded", "probe", permissions=["read"])
 compiled = compiler.compile(package, {"steps": ["read"]}, tests=["good", "bad"])
 assert not compiled.is_validated(), "unvalidated source must remain unvalidated"
@@ -270,6 +272,7 @@ def run(model_file: Path, image: str, artifact_root: Path) -> dict[str, Any]:
             independent_evaluator=independent_evaluator,
         )
         calls_before = len(model.receipts)
+        blocker: str | None = None
         try:
             experiment.start("single-self-code", "seed", branches=1)
             outcome = experiment.advance("single-self-code")
@@ -277,8 +280,6 @@ def run(model_file: Path, image: str, artifact_root: Path) -> dict[str, Any]:
         except Exception as exc:
             status = "BLOCKED"
             blocker = type(exc).__name__
-        else:
-            blocker = None
         state = experiment.pilot.read("single-self-code")
         created = [
             item for item in (state or {}).get("candidate_ids", []) if item != "seed"
@@ -334,6 +335,7 @@ def main() -> int:
         report = {
             "schema": SCHEMA, "status": "BLOCKED",
             "blocker_type": type(exc).__name__,
+            "blocker_detail": str(exc)[:240],
             "model_calls_observed": 0,
             "heldout_gain": "UNMEASURED", "rsi": "UNPROVEN",
         }
