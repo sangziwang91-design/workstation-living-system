@@ -442,7 +442,11 @@ class RsiModelExperiment:
         self.allowed_files = allowed_files
         self.independent_evaluator = independent_evaluator
 
-    def start(self, run_id: str, baseline_id: str, *, branches: int = 2) -> dict:
+    def start(
+        self, run_id: str, baseline_id: str, *, branches: int = 2,
+        exploration_branches: int = 0,
+        exploration_strategy: str = "least_sampled",
+    ) -> dict:
         manifest = self.builder.artifact_gate.verify(baseline_id)
         if manifest["evaluator_digest"] != self.policy.evaluator_digest:
             raise ModelProtocolError("baseline evaluator does not match policy")
@@ -453,6 +457,8 @@ class RsiModelExperiment:
             run_id=run_id, policy=self.policy, baseline_id=baseline_id,
             baseline=baseline, branches=branches,
             max_no_gain_rounds=self.policy.max_rounds,
+            exploration_branches=exploration_branches,
+            exploration_strategy=exploration_strategy,
         )
 
     def _measure_verified(self, artifact_id: str) -> MetricResult:
