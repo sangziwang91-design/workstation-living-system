@@ -6,6 +6,7 @@ No runner-token, hosted inference API, live code promotion or user PC.
 from __future__ import annotations
 
 import argparse
+import ast
 from hashlib import sha256
 import json
 import os
@@ -138,6 +139,32 @@ def _grade_source(source: str, image: str) -> dict[str, Any]:
     return results
 
 
+
+def _normalize_full_source(raw: str) -> str | None:
+    """Re-envelope only complete, AST-valid model source; never fix its code.
+
+    Raw response hashes and bytes remain in the signed experiment receipt.
+    Formatting recovery is not a model capability gain or an oracle verdict.
+    """
+    source = raw.strip()
+    fence = chr(96) * 3
+    if source.startswith(fence + "python\n") and source.endswith("\n" + fence):
+        source = source[len(fence + "python\n"):-len("\n" + fence)].strip()
+    if not source.startswith(("from __future__ import annotations",
+                              "from dataclasses import", "class SkillPackage")):
+        return None
+    if len(source.encode("utf-8")) > 8192:
+        return None
+    try:
+        module = ast.parse(source, filename=TARGET)
+    except SyntaxError:
+        return None
+    classes = {node.name for node in module.body if isinstance(node, ast.ClassDef)}
+    if not {"SkillPackage", "CompiledSkill", "SkillCompiler"} <= classes:
+        return None
+    return json.dumps({"files": {TARGET: source + "\n"}}, ensure_ascii=False)
+
+
 class MeteredPort:
     """Real pinned Llama port; records observables, never fabricates success."""
 
@@ -163,12 +190,29 @@ class MeteredPort:
             response = self.underlying.propose(
                 instruction, max_output_bytes=max_output_bytes,
             )
+            raw = response.text
+            wrapped: str | None = None
+            try:
+                json.loads(raw)
+            except (ValueError, TypeError):
+                wrapped = _normalize_full_source(raw)
             receipt.update({
-                "response_sha256": sha256(response.text.encode()).hexdigest(),
-                "response_bytes": len(response.text.encode()),
+                "response_sha256": sha256(raw.encode()).hexdigest(),
+                "response_bytes": len(raw.encode()),
+                "raw_model_reply": raw[:12000],
+                "envelope_recovery": (
+                    "AST_VALID_COMPLETE_SOURCE_ONLY" if wrapped is not None
+                    else "NONE"
+                ),
                 "input_tokens": response.input_tokens,
                 "output_tokens": response.output_tokens,
             })
+            if wrapped is not None:
+                return RsiProposalResponse(
+                    model_id=response.model_id, text=wrapped,
+                    input_tokens=response.input_tokens,
+                    output_tokens=response.output_tokens,
+                )
             return response
         except Exception as exc:
             receipt["error_type"] = type(exc).__name__
