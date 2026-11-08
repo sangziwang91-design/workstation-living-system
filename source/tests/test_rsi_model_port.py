@@ -692,3 +692,17 @@ def test_model_experiment_reaches_pareto_archive_parent_without_new_runtime(tmp_
     assert proposals[6][2] != result["champion_id"]
     assert ledger.verify()[0]
     db.close_all()
+
+
+def test_existing_qwen_model_boundary_receives_constitution(gateway):
+    gate, _ = gateway
+
+    class ObserveConstitution(FakeModel):
+        def propose(self, instruction: str, *, max_output_bytes: int):
+            assert "WLS local coding constitution" in instruction
+            assert "Only independent tests and the owner gate" in instruction
+            return super().propose(instruction, max_output_bytes=max_output_bytes)
+
+    payload = json.dumps({"files": {"agent/strategy.json": '{"quality": 1}'}})
+    candidate = builder(ObserveConstitution(payload), gate).propose(request())
+    assert gate.verify(candidate)["parent_id"] == "seed"

@@ -246,3 +246,82 @@ def test_worker_does_not_hash_symlink_target_outside_worktree(tmp_path, monkeypa
     monkeypatch.setattr(worker, "_build_command", lambda _: pytest.fail("unsafe CLI"))
     result = worker.execute(contract)
     assert "escapes worktree" in result.error
+
+
+def test_local_constitution_rejects_actual_out_of_scope_edit(worktree, monkeypatch):
+    import subprocess
+
+    worker = CodexWorker()
+    monkeypatch.setattr(worker, "is_available", lambda: True)
+
+    def run(argv, **_):
+        assert "WLS local coding constitution" in argv[-1]
+        (worktree / "main.py").write_text("print('valid')\n")
+        (worktree / "not-authorized.py").write_text("hidden edit\n")
+        return subprocess.CompletedProcess(argv, 0, "1 passed", "")
+
+    monkeypatch.setattr("wls.coding_workers.subprocess.run", run)
+    task = CodingTaskContract(
+        task_id="scope-check", base_sha="head", worktree=worktree,
+        changed_files=["main.py"], tests=["pytest"], rollback=["discard"],
+    )
+    result = worker.execute(task)
+    assert result.tests_passed and result.exit_code == 0
+    assert result.scope_violations == ["not-authorized.py"]
+    assert [row["path"] for row in result.changed_files] == ["main.py"]
+    result.independent_tests_passed = True
+    assert not result.succeeded
+    assert result.receipt(str(worktree), "head", ["discard"]).tests == []
+
+
+def test_local_constitution_filters_noop_and_accepts_verified_delta(worktree, monkeypatch):
+    import subprocess
+
+    worker = CodexWorker()
+    monkeypatch.setattr(worker, "is_available", lambda: True)
+
+    def noop(argv, **_):
+        return subprocess.CompletedProcess(argv, 0, "1 passed", "")
+
+    monkeypatch.setattr("wls.coding_workers.subprocess.run", noop)
+    task = CodingTaskContract(
+        task_id="no-op", base_sha="head", worktree=worktree,
+        changed_files=["main.py", "test_main.py"],
+        tests=["pytest"], rollback=["discard"],
+    )
+    first = worker.execute(task)
+    assert first.scope_violations == ["no_confirmed_code_change"]
+    assert not first.succeeded
+
+    def legitimate(argv, **_):
+        (worktree / "main.py").write_text("print('changed')\n")
+        return subprocess.CompletedProcess(argv, 0, "1 passed", "")
+
+    monkeypatch.setattr("wls.coding_workers.subprocess.run", legitimate)
+    second = worker.execute(task)
+    assert second.scope_violations == []
+    assert [row["path"] for row in second.changed_files] == ["main.py"]
+    second.independent_tests_passed = True
+    assert second.succeeded
+
+
+def test_local_constitution_blocks_uninspectable_symlinks_before_cli(worktree, tmp_path, monkeypatch):
+    outside = tmp_path / "outside.txt"
+    outside.write_text("private\n")
+    try:
+        (worktree / "link.txt").symlink_to(outside)
+    except (NotImplementedError, OSError):
+        pytest.skip("symlinks unavailable")
+    worker = CodexWorker()
+    monkeypatch.setattr(worker, "is_available", lambda: True)
+    monkeypatch.setattr(
+        "wls.coding_workers.subprocess.run",
+        lambda *args, **kwargs: pytest.fail("uninspectable tree reached CLI"),
+    )
+    task = CodingTaskContract(
+        task_id="symlink", base_sha="head", worktree=worktree,
+        changed_files=["main.py"], tests=["pytest"], rollback=["discard"],
+    )
+    result = worker.execute(task)
+    assert "constitution preflight failed" in result.error
+    assert result.exit_code == -1
