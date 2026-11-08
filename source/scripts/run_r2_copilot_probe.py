@@ -471,17 +471,19 @@ def main() -> int:
                 ))
             except PinnedModelDownloadError as exc:
                 raise ModelUnavailable("pinned offline model transport failed") from exc
-            from llama_cpp import Llama
-            model = Llama(model_path=str(args.model_file),
-                          n_ctx=12288, n_threads=2, verbose=False)
-            response = model.create_chat_completion(
-                messages=[
-                    {"role": "system", "content": "Return only the requested task JSON, no tools."},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0, max_tokens=1024,
+            from wls.rsi_model_port import PinnedLocalLlamaProposalPort
+            local_port = PinnedLocalLlamaProposalPort(
+                model_id=LARGER_MODEL_ID,
+                model_file=args.model_file,
+                expected_sha256=LARGER_MODEL_SHA256,
+                min_model_bytes=LARGER_MODEL_MIN_BYTES,
+                max_model_bytes=LARGER_MODEL_MAX_BYTES,
+                context_tokens=12288, max_output_tokens=1024,
+                n_threads=2,
             )
-            raw = str(response["choices"][0]["message"]["content"] or "").encode("utf-8")
+            raw = local_port.propose(
+                prompt, max_output_bytes=MAX_RESPONSE,
+            ).text.encode("utf-8")
             if not raw or len(raw) > MAX_RESPONSE:
                 raise ModelUnavailable("actual local model returned no usable bounded bytes")
             args.response.write_bytes(raw)
