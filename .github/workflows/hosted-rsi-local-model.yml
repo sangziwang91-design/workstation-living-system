@@ -215,14 +215,15 @@ jobs:
             --model-file "$RUNNER_TEMP/wls-real-self-code-qwen-1.5b.gguf" \
             --artifact-root "$RUNNER_TEMP/wls-real-self-code-candidates" \
             --report rsi-self-code-model-observed.json
-      - name: Preserve model calls, actual code candidate bytes, ancestry and negative results
+      - name: Preserve public model receipts, scoped source and manifests only
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: wls-real-qwen-self-code-${{ github.run_id }}
           path: |
             rsi-self-code-model-observed.json
-            ${{ runner.temp }}/wls-real-self-code-candidates/
+            ${{ runner.temp }}/wls-real-self-code-candidates/*/candidates/*/manifest.json
+            ${{ runner.temp }}/wls-real-self-code-candidates/*/candidates/*/source/src/wls/skill_compiler.py
           retention-days: 30
           if-no-files-found: warn
 
@@ -277,13 +278,14 @@ jobs:
             --prior "$file" \
             --archive-root "$RUNNER_TEMP/wls-qwen-replayed-candidates" \
             --report rsi-self-code-replay-observed.json
-      - name: Publish trusted replay measurements and candidate source
+      - name: Publish public replay measurements and scoped candidate source
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: wls-qwen-real-source-replay-${{ github.run_id }}
           path: |
             rsi-self-code-replay-observed.json
-            ${{ runner.temp }}/wls-qwen-replayed-candidates/
+            ${{ runner.temp }}/wls-qwen-replayed-candidates/*/candidates/*/manifest.json
+            ${{ runner.temp }}/wls-qwen-replayed-candidates/*/candidates/*/source/src/wls/skill_compiler.py
           retention-days: 30
           if-no-files-found: warn
