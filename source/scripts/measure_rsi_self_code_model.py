@@ -34,6 +34,7 @@ from wls.rsi_model_port import (
 
 TARGET = "source/src/wls/skill_compiler.py"
 FROZEN_BLOB_SHA = "d86bb4f7cab2202dbaabdb50e016856db51b7828"
+FROZEN_FIXTURE = "source/tests/fixtures/rsi_skill_compiler_20261108.py.txt"
 SCHEMA = "wls.rsi.real_qwen_self_code_paired.v1"
 ARMS = ("unguided", "guided")
 
@@ -223,15 +224,17 @@ class MeteredPort:
 
 
 def _pin_source() -> bytes:
-    source = Path(TARGET)
+    # An immutable historic WLS self-code baseline. The live component may be
+    # repaired independently without silently erasing the research control.
+    source = Path(FROZEN_FIXTURE)
     if source.is_symlink() or not source.is_file():
-        raise ValueError("canonical self-code source missing or symlinked")
+        raise ValueError("frozen WLS self-code fixture missing or symlinked")
     blob = subprocess.run(
-        ["git", "hash-object", "--", TARGET],
+        ["git", "hash-object", "--", FROZEN_FIXTURE],
         check=True, capture_output=True, text=True, timeout=20,
     ).stdout.strip()
     if blob != FROZEN_BLOB_SHA:
-        raise ValueError("frozen WLS self-code baseline changed; no experiment")
+        raise ValueError("frozen historical WLS self-code bytes changed; no experiment")
     return source.read_bytes()
 
 
@@ -270,6 +273,7 @@ def run(model_file: Path, image: str, artifact_root: Path) -> dict[str, Any]:
     report: dict[str, Any] = {
         "schema": SCHEMA, "status": "IN_PROGRESS",
         "base_git_blob": FROZEN_BLOB_SHA,
+        "historical_source_fixture": FROZEN_FIXTURE,
         "baseline": baseline, "model_id": LARGER_MODEL_ID,
         "model_sha256": model_digest,
         "image": image, "evaluator_digest": evaluator_sha,
