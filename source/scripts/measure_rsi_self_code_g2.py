@@ -301,10 +301,21 @@ def run(
         }
         db.close_all()
     report["model_calls_observed"] = len(metered.receipts)
-    report["new_distinct_sources"] = len({
+    # Different archived parents are not new model-generated improvements.
+    # Count actual byte changes relative to each arm's frozen parent.
+    report["distinct_candidate_snapshots"] = len({
         a["candidate_source_sha256"] for a in report["arms"].values()
         if a["candidate_source_sha256"] is not None
     })
+    report["new_distinct_sources"] = len({
+        a["candidate_source_sha256"] for a in report["arms"].values()
+        if a["candidate_source_sha256"] is not None
+        and a["source_changed_from_parent"]
+    })
+    report["changed_arms"] = sum(
+        int(a["source_changed_from_parent"])
+        for a in report["arms"].values()
+    )
     report["passing_arms"] = sum(int(a["passes_both"]) for a in report["arms"].values())
     report["status"] = (
         "PAIRED_G2_MEASURED" if all(

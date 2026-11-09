@@ -100,3 +100,17 @@ def test_historical_symlink_is_not_admitted(tmp_path):
         pytest.skip("symlink creation unavailable")
     with pytest.raises(ValueError, match="symlinks"):
         verify_parent(link, target, b"baseline")
+
+
+def test_distinct_snapshots_never_imply_changed_source():
+    """Observed G2 no-ops are negative even across different parent hashes."""
+    fresh = {"candidate_source_sha256": "a" * 64,
+             "parent_source_sha256": "a" * 64,
+             "source_changed_from_parent": False}
+    inherited = {"candidate_source_sha256": "b" * 64,
+                 "parent_source_sha256": "b" * 64,
+                 "source_changed_from_parent": False}
+    samples = [fresh, inherited]
+    assert len({a["candidate_source_sha256"] for a in samples}) == 2
+    assert len({a["candidate_source_sha256"] for a in samples
+                if a["source_changed_from_parent"]}) == 0
