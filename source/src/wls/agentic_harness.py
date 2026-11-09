@@ -208,6 +208,113 @@ class AgenticHarness:
             self._persist_graph(graph, connection)
         return leases
 
+    def acquire_ready_leases_auto(
+        self,
+        graph_id: str,
+        *,
+        limit: int = 1,
+        ttl_seconds: int = 300,
+        owner_authorized_node_ids: set[str] | None = None,
+    ) -> list[NodeLease]:
+        """Route READY graph nodes to existing role-qualified worker profiles.
+
+        Arbitration and lease creation share one database transaction. This
+        selects a registered worker; it does not spawn a process, call a model,
+        execute a tool, grant permissions, or certify task completion.
+        """
+        if limit < 1:
+            raise ValueError("limit must be >= 1")
+        if ttl_seconds < 1:
+            raise ValueError("ttl_seconds must be >= 1")
+        authorized = owner_authorized_node_ids or set()
+        now = utc_now()
+        expires_at = (
+            datetime.now(UTC) + timedelta(seconds=ttl_seconds)
+        ).isoformat()
+        leases: list[NodeLease] = []
+        with self.db.transaction() as connection:
+            self._expire_leases(connection, now)
+            graph = self._load_graph_for_update(graph_id, connection)
+            active_domains = {
+                str(row["conflict_domain"])
+                for row in connection.execute(
+                    """
+                    SELECT conflict_domain FROM agentic_node_leases
+                    WHERE graph_id=? AND status='ACTIVE'
+                    """,
+                    (graph_id,),
+                ).fetchall()
+            }
+            for node in graph.ready_frontier():
+                if len(leases) >= limit:
+                    break
+                if node.conflict_domain in active_domains:
+                    continue
+                if node.risk in {RiskLevel.HIGH, RiskLevel.IRREVERSIBLE} and (
+                    node.node_id not in authorized
+                ):
+                    graph.transition(node.node_id, TaskNodeStatus.WAITING_APPROVAL)
+                    self.ledger.append(
+                        "agentic_task_node_waiting_approval",
+                        {
+                            "graph_id": graph_id,
+                            "node_id": node.node_id,
+                            "risk": node.risk.value,
+                            "conflict_domain": node.conflict_domain,
+                        },
+                        connection,
+                    )
+                    continue
+                arbitration = self.worker_registry.propose_candidates_for_node(
+                    graph=graph,
+                    node=node,
+                    reason="automatic role-aware eligible worker selection",
+                    connection=connection,
+                    limit=5,
+                )
+                worker_id = arbitration["recommended_worker_id"]
+                if worker_id is None:
+                    self.ledger.append(
+                        "agentic_auto_worker_unavailable",
+                        {
+                            "graph_id": graph_id,
+                            "node_id": node.node_id,
+                            "node_role": node.role,
+                            "arbitration_id": arbitration["arbitration_id"],
+                            "claim_ceiling": "no eligible worker; node remains ready",
+                        },
+                        connection,
+                    )
+                    continue
+                lease = self._lease_node(
+                    graph,
+                    node,
+                    worker_id=str(worker_id),
+                    acquired_at=now,
+                    expires_at=expires_at,
+                    connection=connection,
+                )
+                self.ledger.append(
+                    "agentic_worker_auto_routed",
+                    {
+                        "graph_id": graph_id,
+                        "node_id": node.node_id,
+                        "node_role": node.role,
+                        "worker_id": worker_id,
+                        "lease_id": lease.lease_id,
+                        "arbitration_id": arbitration["arbitration_id"],
+                        "claim_ceiling": (
+                            "role-qualified worker lease only; no external model "
+                            "call, subprocess execution, task completion or RSI gain"
+                        ),
+                    },
+                    connection,
+                )
+                active_domains.add(node.conflict_domain)
+                leases.append(lease)
+            self._persist_graph(graph, connection)
+        return leases
+
     def complete_node(
         self,
         graph_id: str,
