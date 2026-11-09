@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from wls.skill_compiler import SkillCompiler, SkillPackage
 
 
@@ -27,10 +29,12 @@ class TestSkillCompiler:
     def test_validate_adds_evidence(self):
         compiler = SkillCompiler()
         pkg = compiler.propose("test-skill", "desc")
-        compiled = compiler.compile(pkg, {"steps": ["a"]})
+        compiled = compiler.compile(pkg, {"steps": ["a"]}, tests=["t1", "t2"])
         validated = compiler.validate(compiled, {"t1": True, "t2": True})
         assert validated.is_validated()
         assert len(validated.acceptance_evidence) == 2
+        assert validated.to_dict()["validated"] is True
+        assert validated.validation_results == {"t1": True, "t2": True}
 
     def test_reject_clears_permissions(self):
         compiler = SkillCompiler()
@@ -56,3 +60,32 @@ class TestSkillCompiler:
         d = compiled.to_dict()
         assert "body_checksum" in d
         assert "acceptance_evidence" in d
+
+
+    def test_failed_validation_evidence_never_claims_success(self):
+        compiler = SkillCompiler()
+        pkg = compiler.propose("debug", "retain failed checks")
+        original = compiler.compile(pkg, {"steps": ["inspect"]}, tests=["unit", "regression"])
+        measured = compiler.validate(original, {"unit": True, "regression": False})
+        assert measured.validation_results == {"unit": True, "regression": False}
+        assert len(measured.acceptance_evidence) == 2
+        assert not measured.is_validated()
+        assert measured.to_dict()["validated"] is False
+        assert not original.is_validated()
+
+    @pytest.mark.parametrize("manifest,results", [
+        ([], {"unit": True}),
+        (["unit"], {}),
+        (["unit"], {"unit": True, "unknown": True}),
+        (["unit", "unit"], {"unit": True}),
+        (["unit"], {"unit": 1}),
+        (["unit"], {"unit": "PASS"}),
+        (["unit"], {"unit": None}),
+    ])
+    def test_skill_validation_rejects_missing_or_unfrozen_results(self, manifest, results):
+        compiler = SkillCompiler()
+        pkg = compiler.propose("defensive", "bounded validation")
+        compiled = compiler.compile(pkg, {"steps": ["x"]}, tests=manifest)
+        with pytest.raises(ValueError, match="exact frozen boolean"):
+            compiler.validate(compiled, results)
+        assert not compiled.is_validated()

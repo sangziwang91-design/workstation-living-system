@@ -40,9 +40,19 @@ class CompiledSkill:
     body_checksum: str
     test_manifest: list[str]
     acceptance_evidence: list[str]
+    # Failure receipts remain available; they must never count as validation.
+    validation_results: dict[str, bool] = field(default_factory=dict)
 
     def is_validated(self) -> bool:
-        return len(self.acceptance_evidence) > 0
+        required = self.test_manifest
+        observed = self.validation_results
+        return (
+            bool(required)
+            and len(set(required)) == len(required)
+            and set(observed) == set(required)
+            and all(type(observed[name]) is bool and observed[name] for name in required)
+            and len(self.acceptance_evidence) == len(required)
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -50,6 +60,8 @@ class CompiledSkill:
             "body_checksum": self.body_checksum,
             "test_manifest": self.test_manifest,
             "acceptance_evidence": self.acceptance_evidence,
+            "validation_results": dict(self.validation_results),
+            "validated": self.is_validated(),
         }
 
 
@@ -100,14 +112,25 @@ class SkillCompiler:
         compiled: CompiledSkill,
         test_results: dict[str, bool],
     ) -> CompiledSkill:
-        evidence: list[str] = []
-        for test_name, passed in test_results.items():
-            evidence.append(digest_json({"test": test_name, "passed": passed}))
+        required = compiled.test_manifest
+        if (not isinstance(test_results, dict)
+                or not required
+                or len(set(required)) != len(required)
+                or any(not isinstance(name, str) or not name for name in required)
+                or set(test_results) != set(required)
+                or any(type(passed) is not bool for passed in test_results.values())):
+            raise ValueError("skill validation requires exact frozen boolean test results")
+        # Both PASS and FAIL are recorded. Only complete all-PASS is validated.
+        observed = {name: test_results[name] for name in required}
+        evidence = [
+            digest_json({"test": name, "passed": observed[name]}) for name in required
+        ]
         return CompiledSkill(
             package=compiled.package,
             body_checksum=compiled.body_checksum,
-            test_manifest=compiled.test_manifest,
+            test_manifest=list(required),
             acceptance_evidence=evidence,
+            validation_results=observed,
         )
 
     def reject(
