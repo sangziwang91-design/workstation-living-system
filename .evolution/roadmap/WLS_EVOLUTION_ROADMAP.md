@@ -2,6 +2,87 @@
 
 This roadmap is an ordered candidate route, not authorization to implement every stage. Each stage becomes active only after the previous stage has evidence, an explicit task packet and owner approval.
 
+## 2026-11-09 current execution track: REAL MODEL SELF-CODE (R5)
+
+This section overrides any stale *status* prose below; the original genome,
+release gates and approval boundaries remain authoritative. Do not count
+new modules, role lists, prompts, CI greens or generation counters as measured
+cognitive improvement. **One primary objective:** demonstrate a fixed,
+locally inferred Qwen improving the *existing WLS agent's code/behavior*
+through independent evaluation, feedback inheritance and a repeatable control.
+
+### Exact inspected baseline (2026-11-09)
+
+- Main `375b45b7afcca5535bc9b4c3dd2e0993f44a4460`; no active or queued
+  Actions at inspection. Open draft PRs: #137, #138, #139, #141, #142.
+  They are NOT merged or validated as intelligence gains merely because
+  exact-head type/full-suite CI is green.
+- Genuine pinned Qwen2.5-Coder 1.5B experiment:
+  [run 42486361106](https://github.com/sangziwang91-design/workstation-living-system/actions/runs/42486361106)
+  made 2 actual model calls on the same frozen WLS `SkillCompiler` defect.
+  [Independent C1 replay 42487306662](https://github.com/sangziwang91-design/workstation-living-system/actions/runs/42487306662)
+  admitted **1 model-authored distinct complete source**, yielded **0
+  independently passing changed sources**. Unguided JSON was malformed;
+  guided candidate changed validation evidence but failed mixed-pass/fail
+  behavior. No code self-improvement verified, no held-out transfer.
+- [Windows cross-run 42512132492](https://github.com/sangziwang91-design/workstation-living-system/actions/runs/42512132492)
+  reports generation 60 across 61 distinct runs and ~706.6 cumulative
+  generation hours, but `autonomous_skill_gain_proven=false`.
+  Its Ruff lint repair is mechanical, NOT Qwen intelligence.
+- Artifact privacy/provenance incident: historical public experimental
+  artifacts include ephemeral HMAC `evidence.key` and `state.sqlite`.
+  Possession of that key defeats independent authenticity claims about the
+  corresponding bundled HMAC receipts. Do not reuse those signed bundles
+  as independent proof of trust. PR #142 now restricts future uploads to
+  reports, exact candidate source and manifests; **historical artifacts
+  remain exposed until separately reviewed**. No implicit deletion.
+- PR #142 now freezes the historic failing WLS source in
+  `source/tests/fixtures/rsi_skill_compiler_20261108.py.txt`, checked
+  against git blob `d86bb4f7cab2202dbaabdb50e016856db51b7828`.
+  This prevents subsequent fixes to the real `skill_compiler.py` (PR #139)
+  from silently changing/invalidating the controlled research baseline.
+
+### Ordered work packages, no parallel runtime
+
+| Order | Existing owner/target | Verifiable exit criterion | Status |
+| --- | --- | --- | --- |
+| 0 | #142: C1 report/Artifact export | No HMAC keys, SQLite state, paid tokens or credentials in any new downloadable experimental Artifact. Original failed model examples remain inspectable; exact-head CI passes. | CODED; latest CI/Artifact check pending |
+| 1 | #142: original Qwen and replay | Exact model/model SHA, old source blob, full model output or digest, per-case C1 behavior and baseline, true model call count and no gain explicitly preserved. | MEASURED NEGATIVE (2 calls; 1 code candidate; 0 passes) |
+| 2 | #139: live `SkillCompiler` | Merge the verified false-positive skill-validation fix into canonical runtime **after** frozen fixture is independent; test missing/extra/mixed failures and no regression. Re-read current main and PR SHA first. | PR GREEN; LIVE FIX NOT MERGED |
+| 3 | Existing `RsiModelCandidateBuilder`, `RsiEvolutionPilot`, C1 | From the archived model-authored partial repair, run a *new genuine Qwen inference* G2 with public failure **summary only**; compare against equal-budget fresh-baseline restart. Preserve source bytes, tests, tokens, wall time, model SHA and parent lineage. No evaluator content in either prompt. | UNVERIFIED; NEXT KEY EXPERIMENT |
+| 4 | Same fixed model and evaluator | At least one genuinely changed G2 source passes the frozen behavior plus regression tests; equally measured control, no invented performance gain. Then repeat from fresh runner; **positive result cannot yet be called transfer**. | UNVERIFIED |
+| 5 | Existing WLS planning/context/learning/tool code | Independently pre-register disjoint held-out WLS self-code tasks; compare full-source vs minimal-diff proposal, guided vs no feedback, memory on/off and fixed controls using matched tokens/test budgets. Report per-task success, regression, time, cost and confidence, including losses. | UNVERIFIED |
+| 6 | Existing `AgenticHarness`, `WorkerRegistry`, reviewer | Only activate model-powered planner/executor/independent verifier separation if matched-budget comparison beats a single Qwen and simple deterministic baseline. Leases/roles alone do NOT count. | ROUTING CODED in #138/#141; INTELLIGENCE UNVERIFIED |
+| 7 | Existing cross-run WLS state/ledger | G1 improvement is inherited from independent GitHub run G2 and reused on a later different task; verify exact source, model and test manifests, rollback and no serious regression after restart. | CONTINUITY VERIFIED; LEARNING INHERITANCE UNVERIFIED |
+| 8 | Existing G1 release gate R5 | Multiple independent held-out tasks show repeated positive net gains over frozen baselines with no irreversible policy change or evaluator leakage; release authority stays with owner. | BLOCKED ON 3–7 |
+
+**Decision rule:** no additional coordinator, new model store, score service,
+memory database, extra role or local-owner-computer dependency without a
+measured failure that cannot be repaired in the existing code path. A G2
+failure is a valid negative scientific result; do not inflate version or
+claimed intelligence. Investigate transport/JSON rejection, context-length
+truncation, limited model reasoning, and anchoring from its own failed patch
+as competing explanations before changing the architecture.
+
+### External methods checked (not copied, not WLS proof)
+
+- [OpenEvolve](https://github.com/algorithmicsuperintelligence/openevolve):
+  diversity/parent archives, evaluator feedback, and mixing complete rewrites
+  with diffs; WLS already has Pareto archive, so first test proposal format,
+  not a second archive.
+- [RSIAgent](https://github.com/AetherLabsAI/RSIAgent): actor/verifier/curriculum,
+  controlled memory reuse and explicit matched-budget caveats; adopt only
+  verified memory-on/off experiments.
+- [RSIBench](https://harness-rsibench.com/): self-code editable surfaces,
+  trace-driven changes, frozen independent task evaluation and ablations.
+- [SIA experiment protocol](https://github.com/vermayuvraj/self-improving-agent):
+  negative controls matter; model self-repair can underperform blind resampling.
+  Directly test that alternate explanation before claiming cumulative learning.
+- [Darwin Gödel Machine research implementation](https://github.com/lemoz/darwin-godel-machine):
+  selected mutations transferred in a bounded held-out setting, while Qwen
+  candidates in its reported experiment did not qualify. Model choice and
+  task-specific difficulty remain hypotheses, not borrowed proof of WLS.
+
 ## First-generation milestone: G1-GITHUB on Windows Actions (owner deployment deferred)
 
 **Binding owner decision, 2026-10-10:** do **not** deploy/install on the
