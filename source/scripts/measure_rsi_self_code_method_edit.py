@@ -42,6 +42,28 @@ IMAGE = "python@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d350d98134cf1070bc106
 GRADE_SHA = "d1451b7cfa80904d08296f0d4247b79a17848462d84f154ff1c779e141f780a9"
 METHODS = ("is_validated", "validate")
 
+# Official Qwen Apache-2.0 7B GGUF file metadata; source:
+# https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF/blob/main/qwen2.5-coder-7b-instruct-q4_k_m.gguf
+QWEN_7B_SHA256 = "509287f78cb4d4cf6b3843734733b914b2c158e43e22a7f4bf5e963800894d3c"
+QWEN_7B_URL = (
+    "https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF/"
+    "resolve/main/qwen2.5-coder-7b-instruct-q4_k_m.gguf"
+)
+
+
+def _model_spec(variant: str) -> tuple[str, str, str, int, int]:
+    if variant == "qwen1.5b":
+        return (
+            LARGER_MODEL_ID, LARGER_MODEL_URL, LARGER_MODEL_SHA256,
+            LARGER_MODEL_MIN_BYTES, LARGER_MODEL_MAX_BYTES,
+        )
+    if variant == "qwen7b":
+        return (
+            "Qwen2.5-Coder-7B-Instruct-Q4_K_M", QWEN_7B_URL,
+            QWEN_7B_SHA256, 4_500_000_000, 5_000_000_000,
+        )
+    raise ValueError("model variant must use a verified pinned local GGUF")
+
 
 def _method_span(source: str, name: str) -> tuple[int, int]:
     match = list(re.finditer(r"(?m)^    def " + re.escape(name) + r"\(", source))
@@ -174,6 +196,7 @@ def run(
     model_file: Path, image: str, root: Path, *,
     parent_source: bytes | None = None,
     prior_failure_summary: str = "",
+    model_variant: str = "qwen1.5b",
 ) -> dict[str, Any]:
     if image != IMAGE:
         raise ValueError("independent C1 image changed")
@@ -191,22 +214,23 @@ def run(
     baseline = _grade_source(original, image)
     if baseline["behavior"] == "EXIT_0" or baseline["regression"] != "EXIT_0":
         raise ValueError("frozen WLS defect no longer reproduces")
+    model_id, model_url, expected_sha, min_bytes, max_bytes = _model_spec(model_variant)
     if not model_file.is_file():
         if os.environ.get("GITHUB_ACTIONS") != "true":
             raise ValueError("model auto-download only on GitHub Actions")
         download_pinned_model(
-            model_file, url=LARGER_MODEL_URL, expected_sha=LARGER_MODEL_SHA256,
-            min_bytes=LARGER_MODEL_MIN_BYTES, max_bytes=LARGER_MODEL_MAX_BYTES,
+            model_file, url=model_url, expected_sha=expected_sha,
+            min_bytes=min_bytes, max_bytes=max_bytes,
         )
     sha = verify_model(
-        model_file, expected_sha=LARGER_MODEL_SHA256,
-        min_bytes=LARGER_MODEL_MIN_BYTES, max_bytes=LARGER_MODEL_MAX_BYTES,
+        model_file, expected_sha=expected_sha,
+        min_bytes=min_bytes, max_bytes=max_bytes,
     )
     underlying = PinnedLocalLlamaProposalPort(
-        model_id=LARGER_MODEL_ID, model_file=model_file,
-        expected_sha256=LARGER_MODEL_SHA256,
-        min_model_bytes=LARGER_MODEL_MIN_BYTES,
-        max_model_bytes=LARGER_MODEL_MAX_BYTES,
+        model_id=model_id, model_file=model_file,
+        expected_sha256=expected_sha,
+        min_model_bytes=min_bytes,
+        max_model_bytes=max_bytes,
         context_tokens=8192, max_output_tokens=2048, n_threads=2,
     )
     metered = MeteredPort(underlying)
@@ -269,7 +293,8 @@ def run(
             "schema": SCHEMA,
             "status": "REAL_MODEL_MEASURED" if len(metered.receipts) == 1 else "BLOCKED",
             "blocker_type": blocked,
-            "model_id": LARGER_MODEL_ID, "model_sha256": sha,
+            "model_id": model_id, "model_sha256": sha,
+            "model_variant": model_variant,
             "model_calls_observed": len(metered.receipts),
             "model_receipts": metered.receipts,
             "translation": port.translation,
@@ -306,6 +331,8 @@ def run(
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--model-file", type=Path, required=True)
+    p.add_argument("--model-variant", choices=("qwen1.5b", "qwen7b"),
+                   default="qwen1.5b")
     p.add_argument("--archive-root", type=Path, required=True)
     p.add_argument("--report", type=Path, required=True)
     args = p.parse_args()
@@ -314,6 +341,7 @@ def main() -> int:
             args.model_file,
             os.environ.get("WLS_C1_PINNED_IMAGE", ""),
             args.archive_root,
+            model_variant=args.model_variant,
         )
     except Exception as exc:
         out = {"schema": SCHEMA, "status": "BLOCKED",
