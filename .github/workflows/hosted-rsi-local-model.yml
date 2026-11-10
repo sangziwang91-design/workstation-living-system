@@ -9,6 +9,10 @@ on:
       - "source/scripts/replay_rsi_self_code_model.py"
       - "source/scripts/measure_rsi_self_code_g2.py"
       - "source/tests/test_rsi_self_code_g2.py"
+      - "source/scripts/measure_rsi_self_code_method_edit.py"
+      - "source/scripts/measure_rsi_self_code_g3_method_feedback.py"
+      - "source/tests/test_rsi_self_code_method_edit.py"
+      - "source/tests/test_rsi_self_code_g3_method_feedback.py"
       - ".github/workflows/hosted-rsi-local-model.yml"
   workflow_dispatch:
 
@@ -457,5 +461,70 @@ jobs:
         with:
           name: wls-g2-novelty-reconciled-${{ github.run_id }}
           path: rsi-g2-novelty-verified.json
+          retention-days: 30
+          if-no-files-found: warn
+
+  real-qwen-g3-feedback-versus-fresh:
+    name: Two real Qwen G3 local-method arms with frozen C1 grading
+    if: github.event_name == 'pull_request' && github.head_ref == 'experiment/qwen-g3-feedback-versus-fresh-20261110'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      actions: read
+    env:
+      OPENAI_API_KEY: ''
+      ANTHROPIC_API_KEY: ''
+      WLS_RSI_API_KEY: ''
+      GH_TOKEN: ''
+      GITHUB_TOKEN: ''
+      PYTHONNOUSERSITE: '1'
+    steps:
+      - name: Checkout exact G3 head without credential persistence
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Set up Python 3.11
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Install existing WLS and pinned local CPU model support
+        run: |
+          python -m pip install -e ".[dev]"
+          python -m pip install --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu "llama-cpp-python==0.3.16"
+      - name: Verify original method-adapter and G3 provenance controls
+        run: |
+          python -m pytest -q source/tests/test_rsi_self_code_method_edit.py source/tests/test_rsi_self_code_g3_method_feedback.py
+      - name: Download exact historical Qwen method-edit source from another Actions run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: wls-qwen-method-edit-42552809929
+          run-id: 42552809929
+          github-token: ${{ github.token }}
+          path: prior-real-qwen-method
+      - name: Pull unchanged immutable C1 independent grader image
+        shell: bash
+        run: |
+          digest="python@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d350d98134cf1070bc106ee9ed90"
+          docker pull "$digest"
+          echo "WLS_C1_PINNED_IMAGE=$digest" >> "$GITHUB_ENV"
+      - name: Run two genuine equal-call Qwen 1.5B method-edit attempts
+        timeout-minutes: 23
+        run: |
+          python source/scripts/measure_rsi_self_code_g3_method_feedback.py \
+            --previous-root prior-real-qwen-method \
+            --model-file "$RUNNER_TEMP/wls-qwen-g3-fixed-1.5b.gguf" \
+            --archive-root "$RUNNER_TEMP/wls-qwen-g3-paired" \
+            --report rsi-g3-paired-observed.json
+      - name: Preserve actual model outputs and C1 receipts, never HMAC key or SQLite
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wls-qwen-g3-paired-${{ github.run_id }}
+          path: |
+            rsi-g3-paired-observed.json
+            ${{ runner.temp }}/wls-qwen-g3-paired/*/candidates/*/manifest.json
+            ${{ runner.temp }}/wls-qwen-g3-paired/*/candidates/*/source/src/wls/skill_compiler.py
           retention-days: 30
           if-no-files-found: warn
