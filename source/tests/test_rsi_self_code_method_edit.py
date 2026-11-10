@@ -13,7 +13,8 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from measure_rsi_self_code_method_edit import (
-    _method_span, _apply_method_edit, _prompt, MethodEditPort,
+    _method_span, _apply_method_edit, _prompt, _model_spec, MethodEditPort,
+    QWEN_7B_SHA256,
 )
 from measure_rsi_self_code_model import MeteredPort, TARGET
 from wls.rsi_model_port import ModelProtocolError, RsiModelCapabilities, RsiProposalResponse
@@ -133,3 +134,17 @@ def test_non_json_answer_keeps_raw_receipt_but_never_becomes_candidate():
         )
     assert port.translation["status"] == "REJECTED_LOCAL_EDIT"
     assert meter.receipts[0]["raw_model_reply"] == stub.answer
+
+
+def test_larger_offline_model_is_exactly_sha_pinned_and_default_preserved():
+    small = _model_spec("qwen1.5b")
+    large = _model_spec("qwen7b")
+    assert small[0] == "Qwen2.5-Coder-1.5B-Instruct-Q4_K_M"
+    assert large[0] == "Qwen2.5-Coder-7B-Instruct-Q4_K_M"
+    assert large[2] == QWEN_7B_SHA256
+    assert len(QWEN_7B_SHA256) == 64
+    assert "huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF" in large[1]
+    assert large[3] >= 4_000_000_000 and large[4] <= 5_000_000_000
+    assert large[0] != small[0] and large[2] != small[2]
+    with pytest.raises(ValueError, match="verified pinned"):
+        _model_spec("unverified")
