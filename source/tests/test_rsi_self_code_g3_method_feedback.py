@@ -3,8 +3,13 @@ from __future__ import annotations
 
 from hashlib import sha256
 from pathlib import Path
+import sys
 
 import pytest
+
+SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
 
 from wls.rsi_model_port import RsiModelCapabilities, RsiProposalResponse
 
