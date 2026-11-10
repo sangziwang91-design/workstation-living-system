@@ -203,7 +203,12 @@ class RsiModelCandidateBuilder:
         self.artifact_gate.register(
             artifact_id=candidate_id,
             parent_id=spec.parent_id,
-            generation=spec.generation,
+            # The experiment generation names this trial, but the signed
+            # artifact generation is its *lineage depth*. After a REVERT the
+            # champion may be from an older round; the next sibling must be
+            # parent_depth + 1, not global_round + 1. This also enables
+            # DGM-style exploration from older archived stepping stones.
+            generation=parent["generation"] + 1,
             branch=spec.branch,
             files=inherited_files,
             policy_digest=self.policy_digest,
@@ -482,16 +487,52 @@ class RsiModelExperiment:
         state = self.pilot.read(run_id)
         if state is None:
             raise ValueError("unknown run")
-        parent_summary = json.dumps(
-            {
-                "generation": state["generation"],
-                "champion_id": state["champion_id"],
-                "champion_metric": state["champion_metric"],
-                "no_gain_rounds": state["no_gain_rounds"],
-            },
-            sort_keys=True,
-            allow_nan=False,
-        )
+        # DGM-style outcome feedback: the frozen pilot already retains a
+        # bounded archive and completed-generation candidate IDs.  Previously
+        # only the champion metric reached the next model call, so a reverted
+        # candidate's independently measured failure could never guide it.
+        # Send score/verdict only, never hidden test cases or evaluator text.
+        archive = {
+            row["candidate_id"]: row
+            for row in state.get("archive", [])
+            if isinstance(row, dict) and isinstance(row.get("candidate_id"), str)
+        }
+        history = state.get("history", [])
+        completed = history[-1] if history else {}
+        recent: list[dict[str, Any]] = []
+        for candidate_id in completed.get("candidates", [])[:8]:
+            row = archive.get(candidate_id)
+            if row is None:
+                recent.append({
+                    "candidate_id": candidate_id, "decision": "NOT_ARCHIVED",
+                })
+                continue
+            # Deliberately whitelist only independently computed numeric
+            # metrics and the pilot's fixed verdict. Never forward arbitrary
+            # provenance or grader fields from an archive row.
+            recent.append({
+                "candidate_id": candidate_id,
+                "decision": row["decision"],
+                "primary": row["primary"],
+                "gates": {
+                    key: row["gates"][key]
+                    for key in sorted(self.policy.hard_gates)
+                    if key in row["gates"]
+                },
+            })
+        summary = {
+            "generation": state["generation"],
+            "champion_id": state["champion_id"],
+            "champion_metric": state["champion_metric"],
+            "no_gain_rounds": state["no_gain_rounds"],
+            "recent_candidates": recent,
+        }
+        parent_summary = json.dumps(summary, sort_keys=True, allow_nan=False)
+        # Keep the existing 2,000-character evidence budget, even with
+        # many branches or long candidate IDs. Drop oldest summaries first.
+        while len(parent_summary) > 1_900 and recent:
+            recent.pop(0)
+            parent_summary = json.dumps(summary, sort_keys=True, allow_nan=False)
         namespace = hashlib.sha256(run_id.encode("utf-8")).hexdigest()[:12]
 
         def propose(parent_id: str, generation: int, branch: int) -> str:
