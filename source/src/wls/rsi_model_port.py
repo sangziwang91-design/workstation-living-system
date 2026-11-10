@@ -203,7 +203,12 @@ class RsiModelCandidateBuilder:
         self.artifact_gate.register(
             artifact_id=candidate_id,
             parent_id=spec.parent_id,
-            generation=spec.generation,
+            # The experiment generation names this trial, but the signed
+            # artifact generation is its *lineage depth*. After a REVERT the
+            # champion may be from an older round; the next sibling must be
+            # parent_depth + 1, not global_round + 1. This also enables
+            # DGM-style exploration from older archived stepping stones.
+            generation=parent["generation"] + 1,
             branch=spec.branch,
             files=inherited_files,
             policy_digest=self.policy_digest,
