@@ -789,7 +789,12 @@ def test_reverted_candidate_feedback_changes_second_generation_after_restart(tmp
     assert model.seen[1]["recent_candidates"][0]["primary"] == -1
     assert model.seen[1]["recent_candidates"][0]["gates"] == {"regressions": 0.0}
     assert ledger2.verify()[0]
-    assert gate2.verify(second["champion_id"])["authority"] == "candidate_only"
+    winner = gate2.verify(second["champion_id"])
+    assert winner["authority"] == "candidate_only"
+    # Global round 2 can legitimately descend from round-0 champion: its
+    # signed depth is one, while its unique trial ID is still global round 2.
+    assert winner["parent_id"] == "seed"
+    assert winner["generation"] == 1
     assert second["live_promotion"] is False
     db2.close_all()
 
