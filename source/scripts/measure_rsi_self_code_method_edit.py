@@ -170,7 +170,11 @@ class MethodEditPort:
         )
 
 
-def run(model_file: Path, image: str, root: Path) -> dict[str, Any]:
+def run(
+    model_file: Path, image: str, root: Path, *,
+    parent_source: bytes | None = None,
+    prior_failure_summary: str = "",
+) -> dict[str, Any]:
     if image != IMAGE:
         raise ValueError("independent C1 image changed")
     checksum = sha256(
@@ -179,7 +183,10 @@ def run(model_file: Path, image: str, root: Path) -> dict[str, Any]:
     ).hexdigest()
     if checksum != GRADE_SHA:
         raise ValueError("frozen C1 grader drift")
-    base = _pin_source()
+    frozen = _pin_source()
+    base = frozen if parent_source is None else parent_source
+    if not isinstance(base, bytes) or not 1 <= len(base) <= 8192:
+        raise ValueError("frozen or restored model parent outside C1 byte budget")
     original = base.decode("utf-8")
     baseline = _grade_source(original, image)
     if baseline["behavior"] == "EXIT_0" or baseline["regression"] != "EXIT_0":
@@ -203,7 +210,9 @@ def run(model_file: Path, image: str, root: Path) -> dict[str, Any]:
         context_tokens=8192, max_output_tokens=2048, n_threads=2,
     )
     metered = MeteredPort(underlying)
-    port = MethodEditPort(metered, original)
+    port = MethodEditPort(
+        metered, original, prior_failure_summary=prior_failure_summary,
+    )
     if root.exists() and any(root.iterdir()):
         raise ValueError("artifact root must be empty for reproducible one-call experiment")
     root.mkdir(parents=True, exist_ok=True)
@@ -268,6 +277,12 @@ def run(model_file: Path, image: str, root: Path) -> dict[str, Any]:
             "model_edit_prompt_chars": len(port.prompt),
             "image": image, "evaluator_digest": checksum,
             "frozen_baseline_blob": FROZEN_BLOB_SHA,
+            "parent_source_sha256": sha256(base).hexdigest(),
+            "parent_is_frozen_original": base == frozen,
+            "prior_failure_summary_sha256": (
+                sha256(prior_failure_summary.encode()).hexdigest()
+                if prior_failure_summary else None
+            ),
             "baseline": baseline,
             "candidate_id": child, "candidate_sha256": output_sha,
             "source_changed": changed,
