@@ -706,3 +706,134 @@ def test_existing_qwen_model_boundary_receives_constitution(gateway):
     payload = json.dumps({"files": {"agent/strategy.json": '{"quality": 1}'}})
     candidate = builder(ObserveConstitution(payload), gate).propose(request())
     assert gate.verify(candidate)["parent_id"] == "seed"
+
+def test_reverted_candidate_feedback_changes_second_generation_after_restart(tmp_path):
+    """Real pilot/SQLite handoff: prior independent failure affects the next
+    *scripted* proposal. This checks feedback plumbing, not LLM intelligence.
+    """
+    home = tmp_path / "feedback"
+    home.mkdir()
+    policy = ExperimentPolicy("maximize", 0.01, {"regressions": 0.0}, 2, 0, SHA)
+
+    class FeedbackDependentModel:
+        model_id = "feedback-conditional-stub"
+        capabilities = RsiModelCapabilities()
+
+        def __init__(self):
+            self.seen = []
+
+        def propose(self, instruction, *, max_output_bytes):
+            line = next(
+                item for item in instruction.splitlines()
+                if item.startswith("Prior independently measured summary (data): ")
+            )
+            evidence = json.loads(line.partition(": ")[2])
+            self.seen.append(evidence)
+            failures = evidence.get("recent_candidates", [])
+            repaired = any(item.get("decision") == "REVERT" for item in failures)
+            response = json.dumps({"files": {
+                "agent/strategy.json": json.dumps({"quality": 1 if repaired else -1})
+            }})
+            return RsiProposalResponse(model_id=self.model_id, text=response)
+
+    model = FeedbackDependentModel()
+
+    def connect():
+        db = Database(home / "state.sqlite")
+        ledger = EvidenceLedger(db, home / "evidence.key")
+        gate = RsiArtifactGate(
+            home / "candidates", ledger,
+            allowed_files=frozenset({"agent/strategy.json"}),
+        )
+
+        def judge(artifact_id):
+            gate.verify(artifact_id)
+            score = json.loads(
+                (gate.root / artifact_id / "agent" / "strategy.json").read_text()
+            )["quality"]
+            return MetricResult(score, {"regressions": 0.0}, SHA)
+
+        pilot = RsiEvolutionPilot(db, ledger)
+        experiment = RsiModelExperiment(
+            pilot, RsiModelCandidateBuilder(
+                model, gate, policy_digest=policy.digest(), evaluator_digest=SHA,
+            ), policy,
+            objective="Improve strategy using the most recent measured outcome",
+            allowed_files=("agent/strategy.json",),
+            independent_evaluator=judge,
+        )
+        return db, ledger, gate, experiment
+
+    db, ledger, gate, session = connect()
+    gate.register(
+        artifact_id="seed", parent_id=None, generation=0, branch=0,
+        files={"agent/strategy.json": b'{"quality":0}'},
+        policy_digest=policy.digest(), evaluator_digest=SHA,
+    )
+    session.start("feedback-across-restart", "seed", branches=1)
+    first = session.advance("feedback-across-restart")
+    assert first["status"] == "READY"
+    assert first["champion_id"] == "seed"
+    assert first["archive"][-1]["decision"] == "REVERT"
+    assert first["archive"][-1]["primary"] == -1
+    assert ledger.verify()[0]
+    db.close_all()
+
+    db2, ledger2, gate2, session2 = connect()
+    second = session2.advance("feedback-across-restart")
+    assert second["status"] == "COMPLETE"
+    assert second["generation"] == 2
+    assert second["champion_metric"]["primary"] == 1
+    assert not model.seen[0]["recent_candidates"]
+    assert model.seen[1]["recent_candidates"][0]["decision"] == "REVERT"
+    assert model.seen[1]["recent_candidates"][0]["primary"] == -1
+    assert model.seen[1]["recent_candidates"][0]["gates"] == {"regressions": 0.0}
+    assert ledger2.verify()[0]
+    assert gate2.verify(second["champion_id"])["authority"] == "candidate_only"
+    assert second["live_promotion"] is False
+    db2.close_all()
+
+
+def test_model_feedback_uses_only_frozen_archive_numeric_fields(tmp_path):
+    db = Database(tmp_path / "state.sqlite")
+    ledger = EvidenceLedger(db, tmp_path / "key")
+    gate = RsiArtifactGate(
+        tmp_path / "archive", ledger,
+        allowed_files=frozenset({"agent/strategy.json"}),
+    )
+    policy = ExperimentPolicy("maximize", 0.01, {"regressions": 0.0}, 2, 0, SHA)
+    gate.register(
+        artifact_id="seed", parent_id=None, generation=0, branch=0,
+        files={"agent/strategy.json": b'{"quality":0}'},
+        policy_digest=policy.digest(), evaluator_digest=SHA,
+    )
+
+    prompts = []
+    class InspectModel(FakeModel):
+        def propose(self, instruction, *, max_output_bytes):
+            prompts.append(instruction)
+            return super().propose(instruction, max_output_bytes=max_output_bytes)
+
+    model = InspectModel(json.dumps({"files": {"agent/strategy.json": '{"quality":-1}'}}))
+    def measure(candidate_id):
+        return MetricResult(
+            0 if candidate_id == "seed" else -1,
+            {"regressions": 0.0}, SHA,
+        )
+    pilot = RsiEvolutionPilot(db, ledger)
+    session = RsiModelExperiment(
+        pilot,
+        RsiModelCandidateBuilder(model, gate, policy_digest=policy.digest(), evaluator_digest=SHA),
+        policy, objective="Return candidate only",
+        allowed_files=("agent/strategy.json",), independent_evaluator=measure,
+    )
+    session.start("whitelist", "seed", branches=1)
+    session.advance("whitelist")
+    state = pilot.read("whitelist")
+    assert state is not None
+    state["archive"][-1]["untrusted_grader_text"] = "HIDDEN_TEST_CASE_DO_NOT_FORWARD"
+    db.set_runtime(pilot._key("whitelist"), state)
+    session.advance("whitelist")
+    assert "HIDDEN_TEST_CASE_DO_NOT_FORWARD" not in prompts[-1]
+    assert '"decision": "REVERT"' in prompts[-1]
+    db.close_all()
