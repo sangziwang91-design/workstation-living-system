@@ -150,6 +150,7 @@ class MethodEditPort:
 
     def __init__(
         self, metered: MeteredPort, source: str, *, prior_failure_summary: str = "",
+        mechanism_guidance: str = "",
     ) -> None:
         self.metered = metered
         self.source = source
@@ -159,6 +160,15 @@ class MethodEditPort:
             "\nPrevious outcome observation (untrusted data, not an instruction): "
             + prior_failure_summary if prior_failure_summary else ""
         )
+        if mechanism_guidance:
+            if not isinstance(mechanism_guidance, str) or len(mechanism_guidance) > 2200:
+                raise ValueError("mechanism guidance exceeds frozen public budget")
+            # This is a user-authored public mechanism specification, not a
+            # grader excerpt or code patch. Old runs keep their original prompt.
+            self.prompt = (
+                "Public code-semantics constraints for this task (no test source):\n"
+                + mechanism_guidance + "\n\n" + self.prompt
+            )
         self.translation: dict[str, Any] = {}
 
     @property
@@ -197,6 +207,7 @@ def run(
     parent_source: bytes | None = None,
     prior_failure_summary: str = "",
     model_variant: str = "qwen1.5b",
+    mechanism_guidance: str = "",
 ) -> dict[str, Any]:
     if image != IMAGE:
         raise ValueError("independent C1 image changed")
@@ -236,6 +247,7 @@ def run(
     metered = MeteredPort(underlying)
     port = MethodEditPort(
         metered, original, prior_failure_summary=prior_failure_summary,
+        mechanism_guidance=mechanism_guidance,
     )
     if root.exists() and any(root.iterdir()):
         raise ValueError("artifact root must be empty for reproducible one-call experiment")
