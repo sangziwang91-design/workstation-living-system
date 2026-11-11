@@ -157,6 +157,9 @@ def run(*, prior_root: Path, model_file: Path, root: Path, image: str,
         "retry": result,
         "actual_model_calls_this_run": 1,
         "retry_source_changed": result["source_changed"],
+        "retry_novel_against_real_previous_7b": (
+            result["source_changed"] and result.get("candidate_sha256") != PRIOR_SOURCE_SHA
+        ),
         "retry_behavior_and_regression_passed": result[
             "independently_passing_changed_source"
         ],
