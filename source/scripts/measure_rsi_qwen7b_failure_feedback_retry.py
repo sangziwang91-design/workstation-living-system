@@ -40,6 +40,25 @@ PUBLIC_FAILURE_SUMMARY = (
     "explanation, not evaluator source."
 )
 
+# Independent source-level causal diagnosis from the existing actual WLS code,
+# not the C1 grader source or a correct model patch. These facts are available
+# to any code reader; they are not hidden test data.
+PUBLIC_DIGEST_MECHANISM = (
+    "The evidence objects in the existing CompiledSkill are SHA-256 digest "
+    "STRINGS made by digest_json({'test': name, 'passed': passed}). "
+    "Hash strings cannot be interpreted as booleans: all(hashes) is true "
+    "even when some underlying passed values are false. "
+    "Do not add class fields or change method signatures. "
+    "The same deterministic digest_json function is available to both "
+    "validate() and is_validated(). A correct is_validated() can compare "
+    "the recorded evidence against the expected successful digest for "
+    "EACH exact manifest test name, but it must not accept an empty "
+    "manifest, duplicate test names, missing results, or extra results. "
+    "Preserve the original acceptance_evidence digests for both passing "
+    "and failing checks as receipts; do not simply omit failed tests. "
+    "You must implement these semantics in the two Python methods."
+)
+
 
 def read_genuine_failed_7b(root: Path) -> dict[str, Any]:
     reports = list(root.rglob("rsi-qwen7b-method-observed.json"))
@@ -106,13 +125,15 @@ def read_genuine_failed_7b(root: Path) -> dict[str, Any]:
     }
 
 
-def run(*, prior_root: Path, model_file: Path, root: Path, image: str) -> dict[str, Any]:
+def run(*, prior_root: Path, model_file: Path, root: Path, image: str,
+        digest_mechanism: bool = False) -> dict[str, Any]:
     prior = read_genuine_failed_7b(prior_root)
     result = canonical_method_run(
         model_file, image, root, model_variant="qwen7b",
         # Keep the trusted original as baseline because the previously
         # model-authored parent regressed; include failure as context only.
         prior_failure_summary=PUBLIC_FAILURE_SUMMARY,
+        mechanism_guidance=PUBLIC_DIGEST_MECHANISM if digest_mechanism else "",
     )
     if (result.get("status") != "REAL_MODEL_MEASURED"
             or result.get("model_id") != MODEL_ID
@@ -125,6 +146,11 @@ def run(*, prior_root: Path, model_file: Path, root: Path, image: str) -> dict[s
         "schema": SCHEMA,
         "status": "AUTHENTIC_7B_FEEDBACK_RETRY_MEASURED",
         "source": "canonical WLS RsiModelExperiment + independent C1",
+        "prompt_variant": "public_digest_mechanism" if digest_mechanism else "observed_failure_summary",
+        "mechanism_sha256": (
+            sha256(PUBLIC_DIGEST_MECHANISM.encode("utf-8")).hexdigest()
+            if digest_mechanism else None
+        ),
         "prior_failed_model": prior,
         "prior_parent_used_for_code": False,
         "prior_failure_model_visible_as_summary": True,
@@ -154,6 +180,7 @@ def main() -> int:
     parser.add_argument("--model-file", type=Path, required=True)
     parser.add_argument("--archive-root", type=Path, required=True)
     parser.add_argument("--report", type=Path, required=True)
+    parser.add_argument("--digest-mechanism", action="store_true")
     args = parser.parse_args()
     try:
         result = run(
@@ -161,6 +188,7 @@ def main() -> int:
             model_file=args.model_file,
             root=args.archive_root,
             image=os.environ.get("WLS_C1_PINNED_IMAGE", ""),
+            digest_mechanism=args.digest_mechanism,
         )
     except Exception as exc:
         result = {
