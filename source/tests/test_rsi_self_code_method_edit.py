@@ -148,3 +148,31 @@ def test_larger_offline_model_is_exactly_sha_pinned_and_default_preserved():
     assert large[0] != small[0] and large[2] != small[2]
     with pytest.raises(ValueError, match="verified pinned"):
         _model_spec("unverified")
+
+
+def test_mechanism_guidance_changes_model_prompt_not_source_or_scorer():
+    original = _fixture()
+    stub = FakeRawMethodModel(json.dumps(_valid_edit()))
+    baseline = MethodEditPort(MeteredPort(stub), original)
+    guided = MethodEditPort(
+        MeteredPort(stub), original,
+        prior_failure_summary="Original failure is reproducible.",
+        mechanism_guidance=(
+            "A digest string is not a boolean; inspect the frozen manifest "
+            "and check every required successful digest."
+        ),
+    )
+    assert baseline.source == guided.source == original
+    assert baseline.prompt != guided.prompt
+    assert guided.prompt.startswith("Public code-semantics constraints")
+    assert "every required successful digest" in guided.prompt
+    assert "Original failure is reproducible." in guided.prompt
+    assert "_PROBE_BEHAVIOR" not in guided.prompt
+
+
+def test_mechanism_guidance_fails_on_excessive_length():
+    stub = FakeRawMethodModel(json.dumps(_valid_edit()))
+    with pytest.raises(ValueError, match="mechanism guidance"):
+        MethodEditPort(
+            MeteredPort(stub), _fixture(), mechanism_guidance="x" * 2201,
+        )
