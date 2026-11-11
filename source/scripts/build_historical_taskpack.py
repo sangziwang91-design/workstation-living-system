@@ -16,6 +16,7 @@ import re
 import subprocess  # nosec B404 -- fixed Git argv, no shell
 import sys
 from tempfile import TemporaryDirectory
+import xml.etree.ElementTree as ET
 
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 PR = re.compile(r"Merge pull request #(\d+)\b")
@@ -329,8 +330,9 @@ def replay_two_sided(repo: Path, taskpack: dict, *, limit: int = 3,
                 row["original_test_sha256"] = sha256(original_test).hexdigest()
                 row["reference_test_sha256"] = sha256(oracle_bytes).hexdigest()
                 row["oracle_changed"] = original_test != oracle_bytes
+                row["oracle_unchanged_from_pre_fix"] = original_test == oracle_bytes
                 row["test_process_invocations"] = 0
-                def execute(target: Path) -> int:
+                def execute(target: Path, label: str) -> tuple[int, set[str], set[str], bool]:
                     row["test_process_invocations"] += 1
                     env = {key: value for key, value in os.environ.items()
                            if key in {"PATH", "HOME", "USERPROFILE", "SYSTEMROOT",
@@ -341,34 +343,73 @@ def replay_two_sided(repo: Path, taskpack: dict, *, limit: int = 3,
                     for key in list(env):
                         if key.endswith("_TOKEN") or key.endswith("_API_KEY"):
                             env.pop(key, None)
+                    xml = root / (label + ".xml")
                     try:
                         run = subprocess.run(  # nosec B603 -- trusted test argv
                             [sys.executable, "-m", "pytest", "-q", "--maxfail=1",
-                             oracle], cwd=target, env=env, check=False,
+                             "--junitxml=" + str(xml), oracle],
+                            cwd=target, env=env, check=False,
                             capture_output=True, text=True, timeout=test_timeout,
                         )
-                        return run.returncode
+                        try:
+                            cases = ET.parse(xml).getroot().findall(".//testcase")
+                        except (OSError, ET.ParseError):
+                            cases = []
+                        assertions = {
+                            case.get("name", "") for case in cases
+                            if case.find("failure") is not None
+                        }
+                        passing = {
+                            case.get("name", "") for case in cases
+                            if all(case.find(tag) is None
+                                   for tag in ("failure", "error", "skipped"))
+                        }
+                        errors = not cases or any(
+                            case.find("error") is not None for case in cases
+                        )
+                        return run.returncode, assertions, passing, errors
                     except subprocess.TimeoutExpired:
-                        return 124
+                        return 124, set(), set(), True
 
-                # Test the ORIGINAL historical oracle against the ORIGINAL
-                # code first; new post-fix expectations alone do not establish
-                # that a pre-existing regression was repaired.
-                original_exit = execute(pre)
+                # An existing test must itself FAIL on the original source,
+                # and the very same test name must PASS after the repair.
+                # Import/collection errors and changed test expectations are
+                # not evidence of an independently detected code regression.
+                original_exit, original_failed, _, original_errors = execute(
+                    pre, "original"
+                )
                 (pre / oracle).write_bytes(oracle_bytes)
                 row["same_oracle_bytes"] = (pre / oracle).read_bytes() == oracle_bytes
-                baseline_exit = execute(pre)
-                reference_exit = execute(reference)
+                baseline_exit, baseline_failed, _, baseline_errors = execute(
+                    pre, "baseline"
+                )
+                reference_exit, _, reference_pass, reference_errors = execute(
+                    reference, "reference"
+                )
                 row["original_baseline_exit"] = original_exit
                 row["baseline_exit"] = baseline_exit
                 row["reference_exit"] = reference_exit
-                if (row["same_oracle_bytes"] and original_exit == 1
-                        and baseline_exit == 1 and reference_exit == 0):
+                row["original_assertion_failures"] = sorted(original_failed)
+                row["matched_corrected_tests"] = sorted(
+                    original_failed & reference_pass
+                )
+                row["junit_error_or_missing"] = (
+                    original_errors or baseline_errors or reference_errors
+                )
+                if (row["oracle_unchanged_from_pre_fix"]
+                        and row["same_oracle_bytes"]
+                        and not row["junit_error_or_missing"]
+                        and original_exit == 1 and baseline_exit == 1
+                        and reference_exit == 0 and original_failed
+                        and original_failed <= baseline_failed
+                        and original_failed <= reference_pass):
                     row["qualification"] = "PREEXISTING_REGRESSION"
                 elif original_exit == 0 and baseline_exit == 1 and reference_exit == 0:
                     row["qualification"] = "NEW_TEST_EXPECTATION_ONLY"
                 elif baseline_exit == 0:
                     row["qualification"] = "BASELINE_ALREADY_PASSES"
+                elif row["junit_error_or_missing"]:
+                    row["qualification"] = "TEST_EXECUTION_OR_COLLECTION_UNQUALIFIED"
                 else:
                     row["qualification"] = "REFERENCE_UNQUALIFIED"
             except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
