@@ -16,6 +16,7 @@ import re
 import subprocess  # nosec B404 -- fixed Git argv, no shell
 import sys
 from tempfile import TemporaryDirectory
+import xml.etree.ElementTree as ET
 
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 PR = re.compile(r"Merge pull request #(\d+)\b")
@@ -110,6 +111,60 @@ def classify(paths: list[str]) -> tuple[list[str], list[str]]:
     return sources, tests
 
 
+def unchanged_preexisting_oracles(
+    repo: Path, *, parent: str, fix: str, sources: list[str],
+    limit: int = 3,
+) -> list[str]:
+    """Discover tests which reference a changed module but were NOT edited.
+
+    Git grep reads immutable fixed-revision test text only; no untrusted test
+    execution, oracle disclosure to workers, or heuristic success claims.
+    The three-way replay remains the sole qualification authority.
+    """
+    if (not SHA.fullmatch(parent) or not SHA.fullmatch(fix)
+            or not 1 <= limit <= 5 or not 1 <= len(sources) <= 2):
+        raise ValueError("invalid source-only discovery budget or provenance")
+    candidates: set[str] = set()
+    for source in sources:
+        if not _real_path(source) or not source.endswith(".py"):
+            raise ValueError("invalid candidate source path")
+        module = Path(source).stem
+        if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", module):
+            continue
+        needle = ("wls." + module if source.startswith("source/src/wls/")
+                  else module)
+        query = subprocess.run(  # nosec B603 -- fixed read-only git argv
+            ["git", "-C", str(repo), "grep", "-l", "-F", "-e", needle,
+             fix, "--", "source/tests"],
+            check=False, capture_output=True, text=True, timeout=20,
+        )
+        if query.returncode == 1:  # a legitimate absence of matches
+            continue
+        if query.returncode != 0:
+            raise RuntimeError("read-only historical test grep failed")
+        for item in query.stdout.splitlines():
+            prefix = fix + ":"
+            if not item.startswith(prefix):
+                raise ValueError("historical git grep revision drift")
+            test = item[len(prefix):]
+            if not (test.startswith("source/tests/test_")
+                    and test.endswith(".py") and _real_path(test)):
+                continue
+            if git(repo, "ls-tree", "--name-only", parent, "--", test) != test:
+                continue
+            # The test is present before the change and its exact Git blob
+            # remains unchanged. Avoid classifying a newly invented test as
+            # a pre-existing independent regression.
+            if git(repo, "rev-parse", parent + ":" + test) != git(
+                repo, "rev-parse", fix + ":" + test
+            ):
+                continue
+            candidates.add(test)
+            if len(candidates) >= limit:
+                return sorted(candidates)[:limit]
+    return sorted(candidates)[:limit]
+
+
 def mine(repo: Path, *, head: str, max_commits: int = 120,
          max_tasks: int = 20) -> dict:
     if not SHA.fullmatch(head):
@@ -126,6 +181,7 @@ def mine(repo: Path, *, head: str, max_commits: int = 120,
     )
     tasks: list[dict] = []
     skips: dict[str, int] = {}
+    source_only_count = 0
     for commit in commits.splitlines():
         ancestry = git(repo, "rev-list", "--parents", "-n", "1", commit).split()
         if len(ancestry) != 3:
@@ -151,11 +207,27 @@ def mine(repo: Path, *, head: str, max_commits: int = 120,
             repo, "diff", "--name-only", "--diff-filter=AM", parent, commit
         ).splitlines()
         sources, tests = classify(paths)
-        if not sources or not tests:
-            skips["no_source_and_test_pair"] = (
-                skips.get("no_source_and_test_pair", 0) + 1
-            )
+        if not sources:
+            skips["no_source_changes"] = skips.get("no_source_changes", 0) + 1
             continue
+        # Do not require a changed test in a true source-only repair:
+        # an unmodified pre-existing test can be *stronger* qualification
+        # evidence than a new test authored in the same PR as its fix.
+        source_only = not tests
+        if source_only:
+            if source_only_count >= 4 or len(sources) > 2:
+                skips["source_only_budget_or_scope"] = (
+                    skips.get("source_only_budget_or_scope", 0) + 1
+                )
+                continue
+            tests = unchanged_preexisting_oracles(
+                repo, parent=parent, fix=commit, sources=sources, limit=3,
+            )
+            if not tests:
+                skips["source_only_no_existing_test"] = (
+                    skips.get("source_only_no_existing_test", 0) + 1
+                )
+                continue
         if len(sources) > 12 or len(tests) > 15:
             skips["oversized_change"] = skips.get("oversized_change", 0) + 1
             continue
@@ -169,10 +241,16 @@ def mine(repo: Path, *, head: str, max_commits: int = 120,
             skips["test_added_after_fix"] = skips.get("test_added_after_fix", 0) + 1
             continue
         task_id = sha256((parent + ":" + commit).encode()).hexdigest()[:16]
+        if source_only:
+            source_only_count += 1
         tasks.append({
             "task_id": task_id, "pr_number": int(match.group(1)),
             "base_sha": parent, "fix_sha": commit,
             "source_paths": sources, "oracle_test_paths": existing_tests,
+            "oracle_origin": (
+                "unchanged_preexisting_test" if source_only
+                else "preexisting_but_modified_in_fix"
+            ),
             "issue_hint": public_issue_hint(message),
             "status": "REPLAY_NOT_YET_VERIFIED",
             "oracle_access": "trusted_replay_only",
@@ -196,6 +274,7 @@ def mine(repo: Path, *, head: str, max_commits: int = 120,
         "source_type": "real_first_parent_github_history",
         "public_development_only": True,
         "independent_successes": 0,
+        "source_only_candidates": source_only_count,
         "tasks": public_tasks,
         "trusted_oracles": tasks,
         "skips": dict(sorted(skips.items())),
@@ -251,8 +330,9 @@ def replay_two_sided(repo: Path, taskpack: dict, *, limit: int = 3,
                 row["original_test_sha256"] = sha256(original_test).hexdigest()
                 row["reference_test_sha256"] = sha256(oracle_bytes).hexdigest()
                 row["oracle_changed"] = original_test != oracle_bytes
+                row["oracle_unchanged_from_pre_fix"] = original_test == oracle_bytes
                 row["test_process_invocations"] = 0
-                def execute(target: Path) -> int:
+                def execute(target: Path, label: str) -> tuple[int, set[str], set[str], bool]:
                     row["test_process_invocations"] += 1
                     env = {key: value for key, value in os.environ.items()
                            if key in {"PATH", "HOME", "USERPROFILE", "SYSTEMROOT",
@@ -263,34 +343,73 @@ def replay_two_sided(repo: Path, taskpack: dict, *, limit: int = 3,
                     for key in list(env):
                         if key.endswith("_TOKEN") or key.endswith("_API_KEY"):
                             env.pop(key, None)
+                    xml = root / (label + ".xml")
                     try:
                         run = subprocess.run(  # nosec B603 -- trusted test argv
                             [sys.executable, "-m", "pytest", "-q", "--maxfail=1",
-                             oracle], cwd=target, env=env, check=False,
+                             "--junitxml=" + str(xml), oracle],
+                            cwd=target, env=env, check=False,
                             capture_output=True, text=True, timeout=test_timeout,
                         )
-                        return run.returncode
+                        try:
+                            cases = ET.parse(xml).getroot().findall(".//testcase")
+                        except (OSError, ET.ParseError):
+                            cases = []
+                        assertions = {
+                            case.get("name", "") for case in cases
+                            if case.find("failure") is not None
+                        }
+                        passing = {
+                            case.get("name", "") for case in cases
+                            if all(case.find(tag) is None
+                                   for tag in ("failure", "error", "skipped"))
+                        }
+                        errors = not cases or any(
+                            case.find("error") is not None for case in cases
+                        )
+                        return run.returncode, assertions, passing, errors
                     except subprocess.TimeoutExpired:
-                        return 124
+                        return 124, set(), set(), True
 
-                # Test the ORIGINAL historical oracle against the ORIGINAL
-                # code first; new post-fix expectations alone do not establish
-                # that a pre-existing regression was repaired.
-                original_exit = execute(pre)
+                # An existing test must itself FAIL on the original source,
+                # and the very same test name must PASS after the repair.
+                # Import/collection errors and changed test expectations are
+                # not evidence of an independently detected code regression.
+                original_exit, original_failed, _, original_errors = execute(
+                    pre, "original"
+                )
                 (pre / oracle).write_bytes(oracle_bytes)
                 row["same_oracle_bytes"] = (pre / oracle).read_bytes() == oracle_bytes
-                baseline_exit = execute(pre)
-                reference_exit = execute(reference)
+                baseline_exit, baseline_failed, _, baseline_errors = execute(
+                    pre, "baseline"
+                )
+                reference_exit, _, reference_pass, reference_errors = execute(
+                    reference, "reference"
+                )
                 row["original_baseline_exit"] = original_exit
                 row["baseline_exit"] = baseline_exit
                 row["reference_exit"] = reference_exit
-                if (row["same_oracle_bytes"] and original_exit == 1
-                        and baseline_exit == 1 and reference_exit == 0):
+                row["original_assertion_failures"] = sorted(original_failed)
+                row["matched_corrected_tests"] = sorted(
+                    original_failed & reference_pass
+                )
+                row["junit_error_or_missing"] = (
+                    original_errors or baseline_errors or reference_errors
+                )
+                if (row["oracle_unchanged_from_pre_fix"]
+                        and row["same_oracle_bytes"]
+                        and not row["junit_error_or_missing"]
+                        and original_exit == 1 and baseline_exit == 1
+                        and reference_exit == 0 and original_failed
+                        and original_failed <= baseline_failed
+                        and original_failed <= reference_pass):
                     row["qualification"] = "PREEXISTING_REGRESSION"
                 elif original_exit == 0 and baseline_exit == 1 and reference_exit == 0:
                     row["qualification"] = "NEW_TEST_EXPECTATION_ONLY"
                 elif baseline_exit == 0:
                     row["qualification"] = "BASELINE_ALREADY_PASSES"
+                elif row["junit_error_or_missing"]:
+                    row["qualification"] = "TEST_EXECUTION_OR_COLLECTION_UNQUALIFIED"
                 else:
                     row["qualification"] = "REFERENCE_UNQUALIFIED"
             except (OSError, ValueError, subprocess.TimeoutExpired) as exc:

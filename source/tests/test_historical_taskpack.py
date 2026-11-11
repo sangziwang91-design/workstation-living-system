@@ -31,7 +31,8 @@ def _git(root: Path, *args: str) -> str:
 
 
 def _sample(tmp_path: Path, *, new_test: bool = False,
-            functional_oracle: bool = False) -> tuple[Path, str]:
+            functional_oracle: bool = False,
+            import_error: bool = False) -> tuple[Path, str]:
     root = tmp_path / "repo"
     root.mkdir()
     _git(root, "init", "-q", "-b", "main")
@@ -46,7 +47,10 @@ def _sample(tmp_path: Path, *, new_test: bool = False,
     )
     (root / "source/src/wls/db.py").write_text("SCORER = 1\n", encoding="utf-8")
     (root / "source/src/wls/__init__.py").write_text("", encoding="utf-8")
-    (root / "source/src/wls/legacy.py").write_text("def value(): return 0\n")
+    (root / "source/src/wls/legacy.py").write_text(
+        'raise RuntimeError("broken legacy import")\n'
+        if import_error else "def value(): return 0\n"
+    )
     if not new_test:
         (root / "source/tests/test_legacy.py").write_text(
             ("from wls.legacy import value\ndef test_value(): assert value() == 1\n"
@@ -57,11 +61,10 @@ def _sample(tmp_path: Path, *, new_test: bool = False,
     base = _git(root, "rev-parse", "HEAD")
     _git(root, "checkout", "-qb", "fix")
     (root / "source/src/wls/legacy.py").write_text("def value(): return 1\n")
-    (root / "source/tests/test_legacy.py").write_text(
-        ("from wls.legacy import value\ndef test_value(): assert value() == 1\n"
-         "# reference test metadata update\n"
-         if functional_oracle else "def test_value(): assert 1 == 1\n")
-    )
+    if not functional_oracle:
+        (root / "source/tests/test_legacy.py").write_text(
+            "def test_value(): assert 1 == 1\n"
+        )
     _git(root, "add", ".")
     _git(root, "commit", "-qm", "fix behavior")
     _git(root, "checkout", "-q", "main")
@@ -252,6 +255,10 @@ def test_same_test_two_sided_detects_real_fail_to_pass(engine, tmp_path):
     assert result["tasks"][0]["qualification"] == "PREEXISTING_REGRESSION"
     assert result["tasks"][0]["original_baseline_exit"] == 1
     assert result["tasks"][0]["same_oracle_bytes"] is True
+    assert result["tasks"][0]["oracle_unchanged_from_pre_fix"] is True
+    assert result["tasks"][0]["original_assertion_failures"] == ["test_value"]
+    assert result["tasks"][0]["matched_corrected_tests"] == ["test_value"]
+    assert result["tasks"][0]["junit_error_or_missing"] is False
     assert result["tasks"][0]["baseline_exit"] != 0
     assert result["tasks"][0]["reference_exit"] == 0
 
@@ -295,3 +302,50 @@ def test_c2_blocked_replay_does_not_invent_three_pytest_calls(engine, tmp_path):
     receipt = engine.replay_two_sided(repo, pack, limit=1, test_timeout=20)
     assert receipt["tasks"][0]["qualification"] == "REPLAY_BLOCKED"
     assert receipt["test_process_invocations"] == 0
+
+
+def test_source_only_fix_discovers_truly_unchanged_existing_oracle(engine, tmp_path):
+    repo, head = _sample(tmp_path, functional_oracle=True)
+    pack = engine.mine(repo, head=head)
+    assert pack["source_only_candidates"] == 1
+    assert len(pack["tasks"]) == 1
+    trusted = pack["trusted_oracles"][0]
+    assert trusted["oracle_origin"] == "unchanged_preexisting_test"
+    assert trusted["oracle_test_paths"] == ["source/tests/test_legacy.py"]
+    assert "oracle_test_paths" not in pack["tasks"][0]
+    assert "fix_sha" not in pack["tasks"][0]
+    replay = engine.replay_two_sided(repo, pack, limit=1, test_timeout=20)
+    assert replay["qualified"] == 1
+    assert replay["tasks"][0]["original_assertion_failures"] == ["test_value"]
+
+
+def test_collection_error_is_not_an_assertion_regression(engine, tmp_path):
+    repo, head = _sample(tmp_path, functional_oracle=True, import_error=True)
+    pack = engine.mine(repo, head=head)
+    assert len(pack["tasks"]) == 1
+    assert pack["source_only_candidates"] == 1
+    replay = engine.replay_two_sided(repo, pack, limit=1, test_timeout=20)
+    assert replay["qualified"] == 0
+    row = replay["tasks"][0]
+    assert row["qualification"] == "TEST_EXECUTION_OR_COLLECTION_UNQUALIFIED"
+    assert row["junit_error_or_missing"] is True
+    assert row["original_assertion_failures"] == []
+
+
+def test_read_only_source_oracle_discovery_rejects_bogus_git_ids(engine, tmp_path):
+    repo, head = _sample(tmp_path, functional_oracle=True)
+    with pytest.raises(ValueError, match="discovery budget or provenance"):
+        engine.unchanged_preexisting_oracles(
+            repo, parent="x" * 40, fix=head,
+            sources=["source/src/wls/legacy.py"],
+        )
+    with pytest.raises(ValueError, match="discovery budget or provenance"):
+        engine.unchanged_preexisting_oracles(
+            repo, parent=head, fix=head,
+            sources=["source/src/wls/legacy.py"], limit=99,
+        )
+    with pytest.raises(ValueError, match="invalid candidate source"):
+        engine.unchanged_preexisting_oracles(
+            repo, parent=head, fix=head,
+            sources=["../../secret.py"],
+        )
