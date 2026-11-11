@@ -12,7 +12,8 @@ if str(SCRIPTS) not in sys.path:
 
 from measure_rsi_qwen7b_failure_feedback_retry import (
     IMAGE, GRADE_SHA, MODEL_ID, QWEN_7B_SHA256,
-    PUBLIC_FAILURE_SUMMARY, read_genuine_failed_7b, run,
+    PUBLIC_FAILURE_SUMMARY, PUBLIC_DIGEST_MECHANISM,
+    read_genuine_failed_7b, run,
 )
 
 
@@ -43,8 +44,9 @@ def test_retry_path_uses_one_real_port_only_and_keeps_unproven_claim(monkeypatch
                         lambda _: {"source_action": 42809565828})
     issued = []
 
-    def measured(model_file, image, root, *, model_variant, prior_failure_summary):
-        issued.append((image, model_variant, prior_failure_summary))
+    def measured(model_file, image, root, *, model_variant,
+                 prior_failure_summary, mechanism_guidance):
+        issued.append((image, model_variant, prior_failure_summary, mechanism_guidance))
         return {
             "status": "REAL_MODEL_MEASURED",
             "model_id": MODEL_ID,
@@ -64,9 +66,43 @@ def test_retry_path_uses_one_real_port_only_and_keeps_unproven_claim(monkeypatch
         image=IMAGE,
     )
     assert len(issued) == 1
-    assert issued[0] == (IMAGE, "qwen7b", PUBLIC_FAILURE_SUMMARY)
+    assert issued[0] == (IMAGE, "qwen7b", PUBLIC_FAILURE_SUMMARY, "")
     assert out["actual_model_calls_this_run"] == 1
     assert out["retry_source_changed"] is True
     assert out["retry_behavior_and_regression_passed"] is False
     assert out["prior_parent_used_for_code"] is False
     assert out["rsi"] == "UNPROVEN"
+
+
+def test_new_mechanism_variant_is_explicit_and_has_no_oracle_source(monkeypatch, tmp_path):
+    import measure_rsi_qwen7b_failure_feedback_retry as study
+
+    assert "digest_json" in PUBLIC_DIGEST_MECHANISM
+    assert "acceptance_evidence" in PUBLIC_DIGEST_MECHANISM
+    assert "grader" not in PUBLIC_DIGEST_MECHANISM.lower()
+    assert "assert " not in PUBLIC_DIGEST_MECHANISM
+    monkeypatch.setattr(study, "read_genuine_failed_7b",
+                        lambda _: {"source_action": 42809565828})
+    seen = []
+
+    def measured(model_file, image, root, *, model_variant,
+                 prior_failure_summary, mechanism_guidance):
+        seen.append(mechanism_guidance)
+        return {
+            "status": "REAL_MODEL_MEASURED",
+            "model_id": MODEL_ID,
+            "model_sha256": QWEN_7B_SHA256,
+            "model_calls_observed": 1,
+            "evaluator_digest": GRADE_SHA,
+            "image": IMAGE,
+            "source_changed": False,
+            "independently_passing_changed_source": False,
+        }
+
+    monkeypatch.setattr(study, "canonical_method_run", measured)
+    result = run(prior_root=tmp_path, model_file=tmp_path / "model",
+                 root=tmp_path / "out", image=IMAGE, digest_mechanism=True)
+    assert seen == [PUBLIC_DIGEST_MECHANISM]
+    assert result["prompt_variant"] == "public_digest_mechanism"
+    assert result["retry_behavior_and_regression_passed"] is False
+    assert result["rsi"] == "UNPROVEN"
