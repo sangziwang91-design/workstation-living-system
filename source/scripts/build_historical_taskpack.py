@@ -110,6 +110,60 @@ def classify(paths: list[str]) -> tuple[list[str], list[str]]:
     return sources, tests
 
 
+def unchanged_preexisting_oracles(
+    repo: Path, *, parent: str, fix: str, sources: list[str],
+    limit: int = 3,
+) -> list[str]:
+    """Discover tests which reference a changed module but were NOT edited.
+
+    Git grep reads immutable fixed-revision test text only; no untrusted test
+    execution, oracle disclosure to workers, or heuristic success claims.
+    The three-way replay remains the sole qualification authority.
+    """
+    if (not SHA.fullmatch(parent) or not SHA.fullmatch(fix)
+            or not 1 <= limit <= 5 or not 1 <= len(sources) <= 2):
+        raise ValueError("invalid source-only discovery budget or provenance")
+    candidates: set[str] = set()
+    for source in sources:
+        if not _real_path(source) or not source.endswith(".py"):
+            raise ValueError("invalid candidate source path")
+        module = Path(source).stem
+        if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", module):
+            continue
+        needle = ("wls." + module if source.startswith("source/src/wls/")
+                  else module)
+        query = subprocess.run(  # nosec B603 -- fixed read-only git argv
+            ["git", "-C", str(repo), "grep", "-l", "-F", "-e", needle,
+             fix, "--", "source/tests"],
+            check=False, capture_output=True, text=True, timeout=20,
+        )
+        if query.returncode == 1:  # a legitimate absence of matches
+            continue
+        if query.returncode != 0:
+            raise RuntimeError("read-only historical test grep failed")
+        for item in query.stdout.splitlines():
+            prefix = fix + ":"
+            if not item.startswith(prefix):
+                raise ValueError("historical git grep revision drift")
+            test = item[len(prefix):]
+            if not (test.startswith("source/tests/test_")
+                    and test.endswith(".py") and _real_path(test)):
+                continue
+            if git(repo, "ls-tree", "--name-only", parent, "--", test) != test:
+                continue
+            # The test is present before the change and its exact Git blob
+            # remains unchanged. Avoid classifying a newly invented test as
+            # a pre-existing independent regression.
+            if git(repo, "rev-parse", parent + ":" + test) != git(
+                repo, "rev-parse", fix + ":" + test
+            ):
+                continue
+            candidates.add(test)
+            if len(candidates) >= limit:
+                return sorted(candidates)[:limit]
+    return sorted(candidates)[:limit]
+
+
 def mine(repo: Path, *, head: str, max_commits: int = 120,
          max_tasks: int = 20) -> dict:
     if not SHA.fullmatch(head):
@@ -126,6 +180,7 @@ def mine(repo: Path, *, head: str, max_commits: int = 120,
     )
     tasks: list[dict] = []
     skips: dict[str, int] = {}
+    source_only_count = 0
     for commit in commits.splitlines():
         ancestry = git(repo, "rev-list", "--parents", "-n", "1", commit).split()
         if len(ancestry) != 3:
@@ -151,11 +206,27 @@ def mine(repo: Path, *, head: str, max_commits: int = 120,
             repo, "diff", "--name-only", "--diff-filter=AM", parent, commit
         ).splitlines()
         sources, tests = classify(paths)
-        if not sources or not tests:
-            skips["no_source_and_test_pair"] = (
-                skips.get("no_source_and_test_pair", 0) + 1
-            )
+        if not sources:
+            skips["no_source_changes"] = skips.get("no_source_changes", 0) + 1
             continue
+        # Do not require a changed test in a true source-only repair:
+        # an unmodified pre-existing test can be *stronger* qualification
+        # evidence than a new test authored in the same PR as its fix.
+        source_only = not tests
+        if source_only:
+            if source_only_count >= 4 or len(sources) > 2:
+                skips["source_only_budget_or_scope"] = (
+                    skips.get("source_only_budget_or_scope", 0) + 1
+                )
+                continue
+            tests = unchanged_preexisting_oracles(
+                repo, parent=parent, fix=commit, sources=sources, limit=3,
+            )
+            if not tests:
+                skips["source_only_no_existing_test"] = (
+                    skips.get("source_only_no_existing_test", 0) + 1
+                )
+                continue
         if len(sources) > 12 or len(tests) > 15:
             skips["oversized_change"] = skips.get("oversized_change", 0) + 1
             continue
@@ -169,10 +240,16 @@ def mine(repo: Path, *, head: str, max_commits: int = 120,
             skips["test_added_after_fix"] = skips.get("test_added_after_fix", 0) + 1
             continue
         task_id = sha256((parent + ":" + commit).encode()).hexdigest()[:16]
+        if source_only:
+            source_only_count += 1
         tasks.append({
             "task_id": task_id, "pr_number": int(match.group(1)),
             "base_sha": parent, "fix_sha": commit,
             "source_paths": sources, "oracle_test_paths": existing_tests,
+            "oracle_origin": (
+                "unchanged_preexisting_test" if source_only
+                else "preexisting_but_modified_in_fix"
+            ),
             "issue_hint": public_issue_hint(message),
             "status": "REPLAY_NOT_YET_VERIFIED",
             "oracle_access": "trusted_replay_only",
@@ -196,6 +273,7 @@ def mine(repo: Path, *, head: str, max_commits: int = 120,
         "source_type": "real_first_parent_github_history",
         "public_development_only": True,
         "independent_successes": 0,
+        "source_only_candidates": source_only_count,
         "tasks": public_tasks,
         "trusted_oracles": tasks,
         "skips": dict(sorted(skips.items())),
